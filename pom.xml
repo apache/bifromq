@@ -15,6 +15,13 @@
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
     <modelVersion>4.0.0</modelVersion>
 
+    <parent>
+        <groupId>org.apache</groupId>
+        <artifactId>apache</artifactId>
+        <version>29</version>
+        <relativePath />
+    </parent>
+
     <groupId>com.baidu.bifromq</groupId>
     <artifactId>bifromq-parent</artifactId>
     <version>4.0.0-SNAPSHOT</version>
@@ -51,38 +58,42 @@
     <packaging>pom</packaging>
 
     <name>BifroMQ</name>
-    <url>https://github.com/baidu/bifromq</url>
-    <description>BifroMQ is a distributed MQTT broker implementation with native multi-tenancy support</description>
+    <url>https://github.com/apache/bifromq</url>
+    <description>BifroMQ(Incubation) is a distributed MQTT broker implementation with native multi-tenancy support</description>
 
-    <developers>
-        <developer>
-            <id>bifromq.io</id>
-            <name>The BifroMQ Project Team</name>
-            <email>bifromq@baidu.com</email>
-            <url>https://bifromq.io/</url>
-            <organization>The BifroMQ Project</organization>
-            <organizationUrl>https://bifromq.io/</organizationUrl>
-        </developer>
-    </developers>
+    <scm>
+        <url>https://github.com/apache/bifromq</url>
+        <connection>scm:git:https://github.com/apache/bifromq.git</connection>
+        <developerConnection>scm:git:https://github.com/apache/bifromq.git</developerConnection>
+        <tag>HEAD</tag>
+    </scm>
 
-    <organization>
-        <name>The BifroMQ Project</name>
-        <url>https://bifromq.io/</url>
-    </organization>
+    <issueManagement>
+        <system>GitHub</system>
+        <url>https://github.com/apache/bifromq/issues</url>
+    </issueManagement>
 
     <licenses>
         <license>
-            <name>Apache License, Version 2.0</name>
-            <url>https://www.apache.org/licenses/LICENSE-2.0</url>
+            <name>The Apache Software License, Version 2.0</name>
+            <url>https://www.apache.org/licenses/LICENSE-2.0.txt</url>
         </license>
     </licenses>
 
-    <scm>
-        <url>https://github.com/bifromqio/bifromq</url>
-        <connection>scm:git:git://github.com/bifromqio/bifromq.git</connection>
-        <developerConnection>scm:git:ssh://git@github.com/bifromqio/bifromq.git</developerConnection>
-        <tag>HEAD</tag>
-    </scm>
+    <mailingLists>
+        <mailingList>
+            <name>bifromq Developer List</name>
+            <post>dev@bifromq.apache.org</post>
+            <subscribe>dev-subscribe@bifromq.apache.org</subscribe>
+            <unsubscribe>dev-unsubscribe@bifromq.apache.org</unsubscribe>
+        </mailingList>
+        <mailingList>
+            <name>bifromq Commits</name>
+            <post>commits@bifromq.apache.org</post>
+            <subscribe>commits-subscribe@bifromq.apache.org</subscribe>
+            <unsubscribe>commits-unsubscribe@bifromq.apache.org</unsubscribe>
+        </mailingList>
+    </mailingLists>
 
     <properties>
         <apache.commons.cli.version>1.5.0</apache.commons.cli.version>
@@ -1086,89 +1097,6 @@
                     </plugin>
                 </plugins>
             </build>
-        </profile>
-        <!-- mvn clean install -Prelease -->
-        <profile>
-            <id>maven-central-deploy</id>
-            <build>
-                <plugins>
-                    <plugin>
-                        <artifactId>maven-javadoc-plugin</artifactId>
-                        <configuration>
-                            <failOnError>true</failOnError>
-                        </configuration>
-                    </plugin>
-                    <plugin>
-                        <groupId>org.apache.maven.plugins</groupId>
-                        <artifactId>maven-gpg-plugin</artifactId>
-                        <version>${maven.gpg.plugin.version}</version>
-                        <executions>
-                            <execution>
-                                <id>sign-artifacts</id>
-                                <phase>verify</phase>
-                                <goals>
-                                    <goal>sign</goal>
-                                </goals>
-                                <configuration>
-                                    <gpgArguments>
-                                        <arg>--pinentry-mode</arg>
-                                        <arg>loopback</arg>
-                                    </gpgArguments>
-                                </configuration>
-                            </execution>
-                        </executions>
-                    </plugin>
-                    <plugin>
-                        <groupId>org.sonatype.plugins</groupId>
-                        <artifactId>nexus-staging-maven-plugin</artifactId>
-                        <version>${nexus.staging.maven.plugin.version}</version>
-                        <extensions>true</extensions>
-                        <configuration>
-                            <serverId>sonatype-nexus-repository</serverId>
-                            <nexusUrl>https://oss.sonatype.org</nexusUrl>
-                            <autoReleaseAfterClose>true</autoReleaseAfterClose>
-                        </configuration>
-                    </plugin>
-                </plugins>
-            </build>
-            <distributionManagement>
-                <repository>
-                    <id>sonatype-nexus-repository</id>
-                    <url>https://oss.sonatype.org/service/local/staging/deploy/maven2/</url>
-                </repository>
-                <snapshotRepository>
-                    <id>sonatype-nexus-repository</id>
-                    <url>https://oss.sonatype.org/content/repositories/snapshots</url>
-                </snapshotRepository>
-            </distributionManagement>
-        </profile>
-        <profile>
-            <id>bos-repo-deploy</id>
-            <distributionManagement>
-                <repository>
-                    <id>bos-repo</id>
-                    <url>${bos.repo.release}</url>
-                </repository>
-                <snapshotRepository>
-                    <id>bos-repo</id>
-                    <url>${bos.repo.snapshot}</url>
-                </snapshotRepository>
-            </distributionManagement>
-        </profile>
-        <profile>
-            <id>github-packages-deploy</id>
-            <distributionManagement>
-                <repository>
-                    <id>github</id>
-                    <name>GitHub Packages</name>
-                    <url>https://maven.pkg.github.com/bifromqio/bifromq</url>
-                </repository>
-                <snapshotRepository>
-                    <id>github</id>
-                    <name>GitHub Packages Snapshots</name>
-                    <url>https://maven.pkg.github.com/bifromqio/bifromq</url>
-                </snapshotRepository>
-            </distributionManagement>
         </profile>
     </profiles>
 </project>

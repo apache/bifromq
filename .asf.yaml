@@ -24,7 +24,7 @@ github:
     merge: false
     rebase: false
   protected_branches:
-    dev:
+    asf-package-renaming:
       required_status_checks:
         strict: false
       required_pull_request_reviews:

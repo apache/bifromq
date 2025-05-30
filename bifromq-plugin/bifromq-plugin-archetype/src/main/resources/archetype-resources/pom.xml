@@ -66,37 +66,37 @@
             </dependency>
             <!-- bifromq provided dependencies -->
             <dependency>
-                <groupId>com.baidu.bifromq</groupId>
+                <groupId>org.apache.bifromq</groupId>
                 <artifactId>bifromq-plugin-context</artifactId>
                 <version>${bifromq.version}</version>
                 <scope>provided</scope>
             </dependency>
             <dependency>
-                <groupId>com.baidu.bifromq</groupId>
+                <groupId>org.apache.bifromq</groupId>
                 <artifactId>bifromq-plugin-main</artifactId>
                 <version>${bifromq.version}</version>
                 <scope>provided</scope>
             </dependency>
             <dependency>
-                <groupId>com.baidu.bifromq</groupId>
+                <groupId>org.apache.bifromq</groupId>
                 <artifactId>bifromq-plugin-auth-provider</artifactId>
                 <version>${bifromq.version}</version>
                 <scope>provided</scope>
             </dependency>
             <dependency>
-                <groupId>com.baidu.bifromq</groupId>
+                <groupId>org.apache.bifromq</groupId>
                 <artifactId>bifromq-plugin-event-collector</artifactId>
                 <version>${bifromq.version}</version>
                 <scope>provided</scope>
             </dependency>
             <dependency>
-                <groupId>com.baidu.bifromq</groupId>
+                <groupId>org.apache.bifromq</groupId>
                 <artifactId>bifromq-plugin-setting-provider</artifactId>
                 <version>${bifromq.version}</version>
                 <scope>provided</scope>
             </dependency>
             <dependency>
-                <groupId>com.baidu.bifromq</groupId>
+                <groupId>org.apache.bifromq</groupId>
                 <artifactId>bifromq-plugin-resource-throttler</artifactId>
                 <version>${bifromq.version}</version>
                 <scope>provided</scope>

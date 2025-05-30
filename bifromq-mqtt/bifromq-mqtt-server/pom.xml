@@ -17,7 +17,7 @@
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
     <modelVersion>4.0.0</modelVersion>
     <parent>
-        <groupId>com.baidu.bifromq</groupId>
+        <groupId>org.apache.bifromq</groupId>
         <artifactId>bifromq-mqtt</artifactId>
         <version>4.0.0-SNAPSHOT</version>
     </parent>
@@ -26,67 +26,67 @@
 
     <dependencies>
         <dependency>
-            <groupId>com.baidu.bifromq</groupId>
+            <groupId>org.apache.bifromq</groupId>
             <artifactId>base-hlc</artifactId>
         </dependency>
         <dependency>
-            <groupId>com.baidu.bifromq</groupId>
+            <groupId>org.apache.bifromq</groupId>
             <artifactId>base-util</artifactId>
         </dependency>
         <dependency>
-            <groupId>com.baidu.bifromq</groupId>
+            <groupId>org.apache.bifromq</groupId>
             <artifactId>base-rpc-server</artifactId>
         </dependency>
         <dependency>
-            <groupId>com.baidu.bifromq</groupId>
+            <groupId>org.apache.bifromq</groupId>
             <artifactId>bifromq-util</artifactId>
         </dependency>
         <dependency>
-            <groupId>com.baidu.bifromq</groupId>
+            <groupId>org.apache.bifromq</groupId>
             <artifactId>bifromq-common-type</artifactId>
         </dependency>
         <dependency>
-            <groupId>com.baidu.bifromq</groupId>
+            <groupId>org.apache.bifromq</groupId>
             <artifactId>bifromq-metrics</artifactId>
         </dependency>
         <dependency>
-            <groupId>com.baidu.bifromq</groupId>
+            <groupId>org.apache.bifromq</groupId>
             <artifactId>bifromq-mqtt-broker-rpc-definition</artifactId>
         </dependency>
         <dependency>
-            <groupId>com.baidu.bifromq</groupId>
+            <groupId>org.apache.bifromq</groupId>
             <artifactId>bifromq-plugin-auth-provider</artifactId>
         </dependency>
         <dependency>
-            <groupId>com.baidu.bifromq</groupId>
+            <groupId>org.apache.bifromq</groupId>
             <artifactId>bifromq-plugin-client-balancer</artifactId>
         </dependency>
         <dependency>
-            <groupId>com.baidu.bifromq</groupId>
+            <groupId>org.apache.bifromq</groupId>
             <artifactId>bifromq-plugin-event-collector-helper</artifactId>
         </dependency>
         <dependency>
-            <groupId>com.baidu.bifromq</groupId>
+            <groupId>org.apache.bifromq</groupId>
             <artifactId>bifromq-plugin-resource-throttler</artifactId>
         </dependency>
         <dependency>
-            <groupId>com.baidu.bifromq</groupId>
+            <groupId>org.apache.bifromq</groupId>
             <artifactId>bifromq-plugin-setting-provider</artifactId>
         </dependency>
         <dependency>
-            <groupId>com.baidu.bifromq</groupId>
+            <groupId>org.apache.bifromq</groupId>
             <artifactId>bifromq-session-dict-client</artifactId>
         </dependency>
         <dependency>
-            <groupId>com.baidu.bifromq</groupId>
+            <groupId>org.apache.bifromq</groupId>
             <artifactId>bifromq-inbox-client</artifactId>
         </dependency>
         <dependency>
-            <groupId>com.baidu.bifromq</groupId>
+            <groupId>org.apache.bifromq</groupId>
             <artifactId>bifromq-dist-client</artifactId>
         </dependency>
         <dependency>
-            <groupId>com.baidu.bifromq</groupId>
+            <groupId>org.apache.bifromq</groupId>
             <artifactId>bifromq-retain-client</artifactId>
         </dependency>
         <dependency>
@@ -115,52 +115,52 @@
         </dependency>
         <!--for testing-->
         <dependency>
-            <groupId>com.baidu.bifromq</groupId>
+            <groupId>org.apache.bifromq</groupId>
             <artifactId>base-kv-meta-service</artifactId>
             <scope>test</scope>
         </dependency>
         <dependency>
-            <groupId>com.baidu.bifromq</groupId>
+            <groupId>org.apache.bifromq</groupId>
             <artifactId>bifromq-plugin-sub-broker-helper</artifactId>
             <scope>test</scope>
         </dependency>
         <dependency>
-            <groupId>com.baidu.bifromq</groupId>
+            <groupId>org.apache.bifromq</groupId>
             <artifactId>bifromq-inbox-store</artifactId>
             <scope>test</scope>
         </dependency>
         <dependency>
-            <groupId>com.baidu.bifromq</groupId>
+            <groupId>org.apache.bifromq</groupId>
             <artifactId>bifromq-inbox-server</artifactId>
             <scope>test</scope>
         </dependency>
         <dependency>
-            <groupId>com.baidu.bifromq</groupId>
+            <groupId>org.apache.bifromq</groupId>
             <artifactId>bifromq-retain-store</artifactId>
             <scope>test</scope>
         </dependency>
         <dependency>
-            <groupId>com.baidu.bifromq</groupId>
+            <groupId>org.apache.bifromq</groupId>
             <artifactId>bifromq-retain-server</artifactId>
             <scope>test</scope>
         </dependency>
         <dependency>
-            <groupId>com.baidu.bifromq</groupId>
+            <groupId>org.apache.bifromq</groupId>
             <artifactId>bifromq-mqtt-broker-client</artifactId>
             <scope>test</scope>
         </dependency>
         <dependency>
-            <groupId>com.baidu.bifromq</groupId>
+            <groupId>org.apache.bifromq</groupId>
             <artifactId>bifromq-dist-server</artifactId>
             <scope>test</scope>
         </dependency>
         <dependency>
-            <groupId>com.baidu.bifromq</groupId>
+            <groupId>org.apache.bifromq</groupId>
             <artifactId>bifromq-dist-worker</artifactId>
             <scope>test</scope>
         </dependency>
         <dependency>
-            <groupId>com.baidu.bifromq</groupId>
+            <groupId>org.apache.bifromq</groupId>
             <artifactId>bifromq-session-dict-server</artifactId>
             <scope>test</scope>
         </dependency>

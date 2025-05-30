@@ -17,7 +17,7 @@
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
     <modelVersion>4.0.0</modelVersion>
     <parent>
-        <groupId>com.baidu.bifromq</groupId>
+        <groupId>org.apache.bifromq</groupId>
         <artifactId>base-kv</artifactId>
         <version>4.0.0-SNAPSHOT</version>
     </parent>
@@ -26,47 +26,47 @@
 
     <dependencies>
         <dependency>
-            <groupId>com.baidu.bifromq</groupId>
+            <groupId>org.apache.bifromq</groupId>
             <artifactId>base-logger</artifactId>
         </dependency>
         <dependency>
-            <groupId>com.baidu.bifromq</groupId>
+            <groupId>org.apache.bifromq</groupId>
             <artifactId>base-env-provider</artifactId>
         </dependency>
         <dependency>
-            <groupId>com.baidu.bifromq</groupId>
+            <groupId>org.apache.bifromq</groupId>
             <artifactId>base-hlc</artifactId>
         </dependency>
         <dependency>
-            <groupId>com.baidu.bifromq</groupId>
+            <groupId>org.apache.bifromq</groupId>
             <artifactId>base-cluster</artifactId>
         </dependency>
         <dependency>
-            <groupId>com.baidu.bifromq</groupId>
+            <groupId>org.apache.bifromq</groupId>
             <artifactId>base-rpc-server</artifactId>
         </dependency>
         <dependency>
-            <groupId>com.baidu.bifromq</groupId>
+            <groupId>org.apache.bifromq</groupId>
             <artifactId>base-crdt-service</artifactId>
         </dependency>
         <dependency>
-            <groupId>com.baidu.bifromq</groupId>
+            <groupId>org.apache.bifromq</groupId>
             <artifactId>base-kv-meta-service</artifactId>
         </dependency>
         <dependency>
-            <groupId>com.baidu.bifromq</groupId>
+            <groupId>org.apache.bifromq</groupId>
             <artifactId>base-kv-store-rpc-definition</artifactId>
         </dependency>
         <dependency>
-            <groupId>com.baidu.bifromq</groupId>
+            <groupId>org.apache.bifromq</groupId>
             <artifactId>base-kv-local-engine</artifactId>
         </dependency>
         <dependency>
-            <groupId>com.baidu.bifromq</groupId>
+            <groupId>org.apache.bifromq</groupId>
             <artifactId>base-kv-raft</artifactId>
         </dependency>
         <dependency>
-            <groupId>com.baidu.bifromq</groupId>
+            <groupId>org.apache.bifromq</groupId>
             <artifactId>base-util</artifactId>
         </dependency>
         <dependency>

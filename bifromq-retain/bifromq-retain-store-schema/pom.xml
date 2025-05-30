@@ -4,7 +4,7 @@
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
     <modelVersion>4.0.0</modelVersion>
     <parent>
-        <groupId>com.baidu.bifromq</groupId>
+        <groupId>org.apache.bifromq</groupId>
         <artifactId>bifromq-retain</artifactId>
         <version>4.0.0-SNAPSHOT</version>
     </parent>
@@ -12,11 +12,11 @@
     <artifactId>bifromq-retain-store-schema</artifactId>
     <dependencies>
         <dependency>
-            <groupId>com.baidu.bifromq</groupId>
+            <groupId>org.apache.bifromq</groupId>
             <artifactId>bifromq-common-type</artifactId>
         </dependency>
         <dependency>
-            <groupId>com.baidu.bifromq</groupId>
+            <groupId>org.apache.bifromq</groupId>
             <artifactId>bifromq-util</artifactId>
         </dependency>
     </dependencies>

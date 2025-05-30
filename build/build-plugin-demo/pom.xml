@@ -16,7 +16,7 @@
          xmlns="http://maven.apache.org/POM/4.0.0"
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
     <parent>
-        <groupId>com.baidu.bifromq</groupId>
+        <groupId>org.apache.bifromq</groupId>
         <artifactId>build</artifactId>
         <version>4.0.0-SNAPSHOT</version>
     </parent>
@@ -26,36 +26,36 @@
 
     <properties>
         <plugin.id>bifromq-demo-plugin</plugin.id>
-        <plugin.class>com.baidu.demo.plugin.DemoPlugin</plugin.class>
+        <plugin.class>org.apache.demo.plugin.DemoPlugin</plugin.class>
     </properties>
     <dependencies>
         <dependency>
-            <groupId>com.baidu.bifromq</groupId>
+            <groupId>org.apache.bifromq</groupId>
             <artifactId>bifromq-plugin-context</artifactId>
             <scope>provided</scope>
         </dependency>
         <dependency>
-            <groupId>com.baidu.bifromq</groupId>
+            <groupId>org.apache.bifromq</groupId>
             <artifactId>bifromq-plugin-main</artifactId>
             <scope>provided</scope>
         </dependency>
         <dependency>
-            <groupId>com.baidu.bifromq</groupId>
+            <groupId>org.apache.bifromq</groupId>
             <artifactId>bifromq-plugin-auth-provider</artifactId>
             <scope>provided</scope>
         </dependency>
         <dependency>
-            <groupId>com.baidu.bifromq</groupId>
+            <groupId>org.apache.bifromq</groupId>
             <artifactId>bifromq-plugin-setting-provider</artifactId>
             <scope>provided</scope>
         </dependency>
         <dependency>
-            <groupId>com.baidu.bifromq</groupId>
+            <groupId>org.apache.bifromq</groupId>
             <artifactId>bifromq-plugin-event-collector</artifactId>
             <scope>provided</scope>
         </dependency>
         <dependency>
-            <groupId>com.baidu.bifromq</groupId>
+            <groupId>org.apache.bifromq</groupId>
             <artifactId>bifromq-plugin-resource-throttler</artifactId>
             <scope>provided</scope>
         </dependency>

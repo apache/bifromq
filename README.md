@@ -230,3 +230,8 @@ Join our Discord or WeChat group if you are interested in our work.
 
 [Email](mailto:hello@bifromq.io) us your WeChat ID, along with more information on why BifroMQ has caught your
 attention (we'd love to hear about it), and we will invite you to join our group as soon as possible.
+
+## ASF Incubator disclaimer
+
+Apache BifroMQ&trade; is an effort undergoing incubation at The Apache Software Foundation (ASF), sponsored by the Apache Incubator. Incubation is required of all newly accepted projects until a further review indicates that the infrastructure, communications, and decision making process have stabilized in a manner consistent with other successful ASF projects. While incubation status is not necessarily a reflection of the completeness or stability of the code, it does indicate that the project has yet to be fully endorsed by the ASF.
+ 

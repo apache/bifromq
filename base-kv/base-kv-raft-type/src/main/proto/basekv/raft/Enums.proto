@@ -3,7 +3,7 @@ syntax = "proto3";
 package basekv.raft;
 
 option java_multiple_files = true;
-option java_package = "com.baidu.bifromq.basekv.raft.proto";
+option java_package = "org.apache.bifromq.basekv.raft.proto";
 option optimize_for = SPEED;
 
 enum RaftNodeStatus {

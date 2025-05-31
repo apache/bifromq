@@ -243,7 +243,7 @@
         <appender-ref ref="pluginLogFile"/>
     </logger>
 
-    <logger name="com.baidu" level="INFO" additivity="false">
+    <logger name="org.apache" level="INFO" additivity="false">
         <appender-ref ref="traceLogFile"/>
         <appender-ref ref="debugLogFile"/>
         <appender-ref ref="infoLogFile"/>
@@ -251,19 +251,19 @@
         <appender-ref ref="errorLogFile"/>
     </logger>
 
-    <logger name="com.baidu.bifromq.basecrdt" level="INFO" additivity="false">
+    <logger name="org.apache.bifromq.basecrdt" level="INFO" additivity="false">
         <appender-ref ref="crdtLogFile"/>
     </logger>
 
-    <logger name="com.baidu.bifromq.basekv.raft" level="INFO" additivity="false">
+    <logger name="org.apache.bifromq.basekv.raft" level="INFO" additivity="false">
         <appender-ref ref="raftLogFile"/>
     </logger>
 
-    <logger name="com.baidu.bifromq.basekv.client" level="INFO" additivity="false">
+    <logger name="org.apache.bifromq.basekv.client" level="INFO" additivity="false">
         <appender-ref ref="basekvClientLogFile"/>
     </logger>
 
-    <logger name="com.baidu.bifromq.basekv" level="INFO" additivity="false">
+    <logger name="org.apache.bifromq.basekv" level="INFO" additivity="false">
         <appender-ref ref="basekvLogFile"/>
     </logger>
 

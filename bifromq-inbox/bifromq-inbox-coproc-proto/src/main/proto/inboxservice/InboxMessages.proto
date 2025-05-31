@@ -3,7 +3,7 @@ import "commontype/TopicMessage.proto";
 import "inboxservice/TopicFilterOption.proto";
 
 option java_multiple_files = true;
-option java_package = "com.baidu.bifromq.inbox.storage.proto";
+option java_package = "org.apache.bifromq.inbox.storage.proto";
 option java_outer_classname = "InboxMessageProtos";
 
 package inboxservice;

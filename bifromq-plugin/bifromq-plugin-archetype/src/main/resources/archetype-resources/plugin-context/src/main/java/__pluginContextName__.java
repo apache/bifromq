@@ -13,7 +13,7 @@
 
 package $
 
-import com.baidu.bifromq.plugin.BifroMQPluginDescriptor;
+import org.apache.bifromq.plugin.BifroMQPluginDescriptor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 

@@ -3,7 +3,7 @@ import "commontype/UserProperties.proto";
 package mqtt5authtypes;
 
 option java_multiple_files = true;
-option java_package = "com.baidu.bifromq.plugin.authprovider.type";
+option java_package = "org.apache.bifromq.plugin.authprovider.type";
 option java_outer_classname = "MQTT5AuthTypesProto";
 option optimize_for = SPEED;
 

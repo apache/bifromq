@@ -1,0 +1,64 @@
+/*
+ * Copyright (c) 2024. The BifroMQ Authors. All Rights Reserved.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *    http://www.apache.org/licenses/LICENSE-2.0
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and limitations under the License.
+ */
+
+package org.apache.bifromq.demo.plugin;/*
+ * Copyright (c) 2024. The BifroMQ Authors. All Rights Reserved.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *    http://www.apache.org/licenses/LICENSE-2.0
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and limitations under the License.
+ */
+
+import static org.testng.Assert.assertEquals;
+import static org.testng.Assert.assertNull;
+
+import org.apache.bifromq.plugin.settingprovider.Setting;
+import org.testng.annotations.AfterMethod;
+import org.testng.annotations.BeforeMethod;
+import org.testng.annotations.Test;
+
+public class WebHookBasedSettingProviderTest {
+    private TestSettingServer testServer;
+
+    @BeforeMethod
+    private void setup() {
+        testServer = new TestSettingServer();
+        testServer.start();
+    }
+
+    @AfterMethod
+    private void tearDown() {
+        testServer.stop();
+    }
+
+    @Test
+    public void testQuery() {
+        WebHookBasedSettingProvider provider = new WebHookBasedSettingProvider(testServer.getURI());
+        assertNull(provider.provide(Setting.MaxTopicLevels, "tenantA"));
+        testServer.provide("tenantA", Setting.MaxTopicLevels, 32);
+        assertEquals((int) provider.provide(Setting.MaxTopicLevels, "tenantA"), 32);
+
+        // provide wrong type value
+        testServer.provide("tenantA", Setting.MaxTopicLevels, "InvalidValue");
+        assertNull(provider.provide(Setting.MaxTopicLevels, "tenantA"));
+
+        // provide invalid value
+        testServer.provide("tenantA", Setting.MaxTopicLevels, -1);
+        assertNull(provider.provide(Setting.MaxTopicLevels, "tenantA"));
+    }
+}

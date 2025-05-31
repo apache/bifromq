@@ -15,7 +15,7 @@ To generate a new project using the BifroMQ Plugin Archetype, run the following 
 
 ```bash
 mvn archetype:generate \
-    -DarchetypeGroupId=com.baidu.bifromq \
+    -DarchetypeGroupId=org.apache.bifromq \
     -DarchetypeArtifactId=bifromq-plugin-archetype \
     -DarchetypeVersion=${bifromqVersion} \
     -DgroupId=com.yourcompany.newproject \

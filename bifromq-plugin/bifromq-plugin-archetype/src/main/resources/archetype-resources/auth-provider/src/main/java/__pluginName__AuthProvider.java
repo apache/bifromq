@@ -13,18 +13,18 @@
 
 package $
 
-import com.baidu.bifromq.plugin.authprovider.type.CheckResult;
-import com.baidu.bifromq.plugin.authprovider.type.Error;
-import com.baidu.bifromq.plugin.authprovider.type.Failed;
-import com.baidu.bifromq.plugin.authprovider.type.MQTT3AuthData;
-import com.baidu.bifromq.plugin.authprovider.type.MQTT3AuthResult;
-import com.baidu.bifromq.plugin.authprovider.type.MQTT5AuthData;
-import com.baidu.bifromq.plugin.authprovider.type.MQTT5AuthResult;
-import com.baidu.bifromq.plugin.authprovider.type.MQTT5ExtendedAuthData;
-import com.baidu.bifromq.plugin.authprovider.type.MQTT5ExtendedAuthResult;
-import com.baidu.bifromq.plugin.authprovider.type.MQTTAction;
-import com.baidu.bifromq.plugin.authprovider.type.Reject;
-import com.baidu.bifromq.type.ClientInfo;
+import org.apache.bifromq.plugin.authprovider.type.CheckResult;
+import org.apache.bifromq.plugin.authprovider.type.Error;
+import org.apache.bifromq.plugin.authprovider.type.Failed;
+import org.apache.bifromq.plugin.authprovider.type.MQTT3AuthData;
+import org.apache.bifromq.plugin.authprovider.type.MQTT3AuthResult;
+import org.apache.bifromq.plugin.authprovider.type.MQTT5AuthData;
+import org.apache.bifromq.plugin.authprovider.type.MQTT5AuthResult;
+import org.apache.bifromq.plugin.authprovider.type.MQTT5ExtendedAuthData;
+import org.apache.bifromq.plugin.authprovider.type.MQTT5ExtendedAuthResult;
+import org.apache.bifromq.plugin.authprovider.type.MQTTAction;
+import org.apache.bifromq.plugin.authprovider.type.Reject;
+import org.apache.bifromq.type.ClientInfo;
 import java.util.concurrent.CompletableFuture;
 import org.pf4j.Extension;
 import org.slf4j.Logger;

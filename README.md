@@ -120,7 +120,7 @@ Clone the repository to your local workspace:
 
 ```
 cd <YOUR_WORKSPACE>
-git clone https://github.com/baidu/bifromq bifromq
+git clone https://github.com/apache/bifromq bifromq
 ```
 
 Navigate to the project root folder and execute the following commands to build the entire project:
@@ -179,7 +179,7 @@ To jump start your BifroMQ plugin development, execute the following Maven comma
 
 ```
 mvn archetype:generate \
-    -DarchetypeGroupId=com.baidu.bifromq \
+    -DarchetypeGroupId=org.apache.bifromq \
     -DarchetypeArtifactId=bifromq-plugin-archetype \
     -DarchetypeVersion=<BIFROMQ_VERSION> \
     -DgroupId=<YOUR_GROUP_ID> \
@@ -220,16 +220,11 @@ support.
 
 ## Discussion
 
-Join our Discord or WeChat group if you are interested in our work.
+Join our Discord if you are interested in our work.
 
 ### Discord
 
 <a href="https://discord.gg/Pfs3QRadRB"><img src="https://img.shields.io/discord/1115542029531885599?logo=discord&logoColor=white" alt="BifroMQ Discord server" /></a>
-
-### WeChat group
-
-[Email](mailto:hello@bifromq.io) us your WeChat ID, along with more information on why BifroMQ has caught your
-attention (we'd love to hear about it), and we will invite you to join our group as soon as possible.
 
 ## ASF Incubator disclaimer
 

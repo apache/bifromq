@@ -20,7 +20,7 @@
         </encoder>
     </appender>
 
-    <logger name="com.baidu.bifromq.dist" level="debug"/>
+    <logger name="org.apache.bifromq.dist" level="debug"/>
 
     <root level="WARN">
         <appender-ref ref="STDOUT"/>

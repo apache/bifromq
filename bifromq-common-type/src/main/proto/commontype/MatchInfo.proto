@@ -4,7 +4,7 @@ import "commontype/RouteMatcher.proto";
 package commontype;
 
 option java_multiple_files = true;
-option java_package = "com.baidu.bifromq.type";
+option java_package = "org.apache.bifromq.type";
 option java_outer_classname = "MatchInfoProtos";
 
 message MatchInfo {

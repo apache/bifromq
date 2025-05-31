@@ -19,7 +19,7 @@
         </encoder>
     </appender>
 
-    <logger name="com.baidu.bifromq.inbox" level="debug"/>
+    <logger name="org.apache.bifromq.inbox" level="debug"/>
 
     <root level="info">
         <appender-ref ref="STDOUT"/>

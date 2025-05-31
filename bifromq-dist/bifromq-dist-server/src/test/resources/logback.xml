@@ -19,7 +19,6 @@
             <Pattern>%d{HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n</Pattern>
         </encoder>
     </appender>
-    <logger name="com.baidu.bifromq.basecluster" level="debug"/>
 
     <root level="INFO">
         <appender-ref ref="stdout"/>

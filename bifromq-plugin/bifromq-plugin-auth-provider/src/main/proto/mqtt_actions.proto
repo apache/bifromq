@@ -5,7 +5,7 @@ import "commontype/QoS.proto";
 package checktypes;
 
 option java_multiple_files = true;
-option java_package = "com.baidu.bifromq.plugin.authprovider.type";
+option java_package = "org.apache.bifromq.plugin.authprovider.type";
 option java_outer_classname = "CheckTypesProto";
 option optimize_for = SPEED;
 

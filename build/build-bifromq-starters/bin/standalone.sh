@@ -28,10 +28,10 @@ COMMAND=$1
 shift
 
 if [ $COMMAND = "start" ]; then
-  exec "$BASE_DIR/bin/bifromq-start.sh" -c com.baidu.bifromq.starter.StandaloneStarter -f standalone.yml "$@"
+  exec "$BASE_DIR/bin/bifromq-start.sh" -c org.apache.bifromq.starter.StandaloneStarter -f standalone.yml "$@"
 elif [ $COMMAND = "stop" ]; then
   exec "$BASE_DIR/bin/bifromq-stop.sh" StandaloneStarter
 elif [ $COMMAND = "restart" ]; then
   sh "$BASE_DIR/bin/bifromq-stop.sh" StandaloneStarter
-  "$BASE_DIR/bin/bifromq-start.sh" -c com.baidu.bifromq.starter.StandaloneStarter -f standalone.yml "$@"
+  "$BASE_DIR/bin/bifromq-start.sh" -c org.apache.bifromq.starter.StandaloneStarter -f standalone.yml "$@"
 fi

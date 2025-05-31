@@ -16,7 +16,7 @@
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
     <modelVersion>4.0.0</modelVersion>
     <parent>
-        <groupId>com.baidu.bifromq</groupId>
+        <groupId>org.apache.bifromq</groupId>
         <artifactId>bifromq-dist</artifactId>
         <version>4.0.0-SNAPSHOT</version>
     </parent>
@@ -24,61 +24,61 @@
     <artifactId>bifromq-dist-server</artifactId>
     <dependencies>
         <dependency>
-            <groupId>com.baidu.bifromq</groupId>
+            <groupId>org.apache.bifromq</groupId>
             <artifactId>base-util</artifactId>
         </dependency>
         <dependency>
-            <groupId>com.baidu.bifromq</groupId>
+            <groupId>org.apache.bifromq</groupId>
             <artifactId>base-rpc-server</artifactId>
         </dependency>
         <dependency>
-            <groupId>com.baidu.bifromq</groupId>
+            <groupId>org.apache.bifromq</groupId>
             <artifactId>bifromq-sysprops</artifactId>
         </dependency>
         <dependency>
-            <groupId>com.baidu.bifromq</groupId>
+            <groupId>org.apache.bifromq</groupId>
             <artifactId>base-hookloader</artifactId>
         </dependency>
         <dependency>
-            <groupId>com.baidu.bifromq</groupId>
+            <groupId>org.apache.bifromq</groupId>
             <artifactId>base-scheduler</artifactId>
         </dependency>
         <dependency>
-            <groupId>com.baidu.bifromq</groupId>
+            <groupId>org.apache.bifromq</groupId>
             <artifactId>base-kv-meta-service</artifactId>
         </dependency>
         <dependency>
-            <groupId>com.baidu.bifromq</groupId>
+            <groupId>org.apache.bifromq</groupId>
             <artifactId>base-kv-store-client</artifactId>
         </dependency>
         <dependency>
-            <groupId>com.baidu.bifromq</groupId>
+            <groupId>org.apache.bifromq</groupId>
             <artifactId>bifromq-metrics</artifactId>
         </dependency>
         <dependency>
-            <groupId>com.baidu.bifromq</groupId>
+            <groupId>org.apache.bifromq</groupId>
             <artifactId>bifromq-common-type</artifactId>
         </dependency>
         <dependency>
-            <groupId>com.baidu.bifromq</groupId>
+            <groupId>org.apache.bifromq</groupId>
             <artifactId>bifromq-plugin-event-collector-helper</artifactId>
         </dependency>
         <dependency>
-            <groupId>com.baidu.bifromq</groupId>
+            <groupId>org.apache.bifromq</groupId>
             <artifactId>bifromq-plugin-setting-provider</artifactId>
         </dependency>
         <dependency>
-            <groupId>com.baidu.bifromq</groupId>
+            <groupId>org.apache.bifromq</groupId>
             <artifactId>bifromq-dist-rpc-definition</artifactId>
         </dependency>
         <!-- for testing -->
         <dependency>
-            <groupId>com.baidu.bifromq</groupId>
+            <groupId>org.apache.bifromq</groupId>
             <artifactId>bifromq-dist-client</artifactId>
             <scope>test</scope>
         </dependency>
         <dependency>
-            <groupId>com.baidu.bifromq</groupId>
+            <groupId>org.apache.bifromq</groupId>
             <artifactId>bifromq-dist-worker</artifactId>
             <scope>test</scope>
         </dependency>

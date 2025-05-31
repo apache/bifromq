@@ -4,7 +4,7 @@ import "basecrdt/Dot.proto";
 package basecrdt;
 
 option java_multiple_files = true;
-option java_package = "com.baidu.bifromq.basecrdt.store.proto";
+option java_package = "org.apache.bifromq.basecrdt.store.proto";
 option optimize_for = SPEED;
 
 message EventIndex{

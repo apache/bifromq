@@ -3,7 +3,7 @@ syntax = "proto3";
 package baserpc;
 
 option java_multiple_files = true;
-option java_package = "com.baidu.bifromq.baserpc.proto";
+option java_package = "org.apache.bifromq.baserpc.proto";
 option java_outer_classname = "RPCServerProtos";
 option optimize_for = SPEED;
 

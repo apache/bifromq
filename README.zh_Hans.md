@@ -112,7 +112,7 @@ docker compose up -d
 
 ```
 cd <YOUR_WORKSPACE>
-git clone https://github.com/baidu/bifromq bifromq
+git clone https://github.com/apache/bifromq bifromq
 ```
 
 进入项目文件夹，执行以下命令来构建整个项目：
@@ -171,7 +171,7 @@ mvn test
 
 ```bash
 mvn archetype:generate \
-    -DarchetypeGroupId=com.baidu.bifromq \
+    -DarchetypeGroupId=org.apache.bifromq \
     -DarchetypeArtifactId=bifromq-plugin-archetype \
     -DarchetypeVersion=<BIFROMQ_VERSION> \
     -DgroupId=<YOUR_GROUP_ID> \

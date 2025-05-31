@@ -15,7 +15,7 @@ package $
 
 import ch.qos.logback.classic.LoggerContext;
 import ch.qos.logback.classic.joran.JoranConfigurator;
-import com.baidu.bifromq.plugin.BifroMQPluginDescriptor;
+import org.apache.bifromq.plugin.BifroMQPluginDescriptor;
 import java.io.File;
 import java.nio.file.Path;
 import org.slf4j.Logger;

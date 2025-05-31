@@ -3,7 +3,7 @@ import "commontype/ClientInfo.proto";
 import "commontype/TopicMessage.proto";
 
 option java_multiple_files = true;
-option java_package = "com.baidu.bifromq.retain.rpc.proto";
+option java_package = "org.apache.bifromq.retain.rpc.proto";
 option java_outer_classname = "RetainCoProcProtos";
 
 package retainservice;

@@ -6,7 +6,7 @@ import "commontype/ClientInfo.proto";
 package sessiondict;
 
 option java_multiple_files = true;
-option java_package = "com.baidu.bifromq.sessiondict.rpc.proto";
+option java_package = "org.apache.bifromq.sessiondict.rpc.proto";
 option java_outer_classname = "SessionDictServiceProtos";
 option optimize_for = SPEED;
 

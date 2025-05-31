@@ -1,8 +1,8 @@
 <!DOCTYPE suite SYSTEM "https://testng.org/testng-1.0.dtd" >
 <suite name="BifroMQ Integration Test Suite">
     <listeners>
-        <listener class-name="com.baidu.bifromq.test.RetryTransformer"/>
-        <listener class-name="com.baidu.bifromq.test.RetryListener"/>
+        <listener class-name="org.apache.bifromq.test.RetryTransformer"/>
+        <listener class-name="org.apache.bifromq.test.RetryListener"/>
     </listeners>
     <test name="IntegrationTests">
         <groups>
@@ -11,7 +11,7 @@
             </run>
         </groups>
         <packages>
-            <package name="com.baidu.bifromq.*"/>
+            <package name="org.apache.bifromq.*"/>
         </packages>
     </test>
 </suite>

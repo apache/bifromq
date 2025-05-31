@@ -4,7 +4,7 @@ import "basecluster/membership/HostMember.proto";
 package basecluster.membership;
 
 option java_multiple_files = true;
-option java_package = "com.baidu.bifromq.basecluster.membership.proto";
+option java_package = "org.apache.bifromq.basecluster.membership.proto";
 option optimize_for = SPEED;
 
 message Join {

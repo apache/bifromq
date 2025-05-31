@@ -26,7 +26,7 @@ set LOG_DIR=%BASE_DIR%\logs
 set SCRIPT=%0
 set COMMAND=%1
 set FOREGROUND=%2
-set NAME=com.baidu.bifromq.starter.StandaloneStarter
+set NAME=org.apache.bifromq.starter.StandaloneStarter
 if "start" == "%COMMAND%" (
     call "%~dp0bifromq-start.bat" -c %NAME% -f standalone.yml %FOREGROUND%
 ) else if "stop" == "%COMMAND%" (

@@ -13,7 +13,7 @@
 
 package io.grpc.protobuf.lite;
 
-import com.baidu.bifromq.basehlc.HLC;
+import org.apache.bifromq.basehlc.HLC;
 import com.google.protobuf.CodedInputStream;
 import com.google.protobuf.ExtensionRegistryLite;
 import com.google.protobuf.Message;

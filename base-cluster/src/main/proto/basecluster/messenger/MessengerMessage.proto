@@ -3,7 +3,7 @@ syntax = "proto3";
 package basecluster.messenger;
 
 option java_multiple_files = true;
-option java_package = "com.baidu.bifromq.basecluster.messenger.proto";
+option java_package = "org.apache.bifromq.basecluster.messenger.proto";
 option java_outer_classname = "MessengerMessageProtos";
 option optimize_for = SPEED;
 

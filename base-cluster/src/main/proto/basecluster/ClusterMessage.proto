@@ -14,7 +14,7 @@ import "basecrdt/CRDTStoreMessage.proto";
 package basecluster;
 
 option java_multiple_files = true;
-option java_package = "com.baidu.bifromq.basecluster.proto";
+option java_package = "org.apache.bifromq.basecluster.proto";
 option java_outer_classname = "ClusterMessageProtos";
 option optimize_for = SPEED;
 

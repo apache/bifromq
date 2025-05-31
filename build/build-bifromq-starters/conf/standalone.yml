@@ -5,15 +5,15 @@
 
 # Enabling custom auth provider, specify the Fully Qualified Name of the auth provider class from your plugin.
 # or experiment with the built-in auth provider which is a simple webhook based implementation.
-# authProviderFQN: "com.baidu.demo.plugin.DemoAuthProvider"
+# authProviderFQN: "org.apache.bifromq.demo.plugin.DemoAuthProvider"
 
 # Enabling runtime throttling at tenant-level, specify the Fully Qualified Name of the resource throttler class from your plugin.
 # or experiment with the built-in resource throttler which is a simple webhook based implementation.
-# resourceThrottlerFQN: "com.baidu.demo.plugin.DemoResourceThrottler"
+# resourceThrottlerFQN: "org.apache.bifromq.demo.plugin.DemoResourceThrottler"
 
 # Enabling runtime setting at tenant-level, specify the Fully Qualified Name of the setting provider class from your plugin.
 # or experiment with the built-in setting provider which is a simple webhook based implementation.
-# settingProviderFQN: "com.baidu.demo.plugin.DemoSettingProvider"
+# settingProviderFQN: "org.apache.bifromq.demo.plugin.DemoSettingProvider"
 
 mqttServiceConfig:
   server:

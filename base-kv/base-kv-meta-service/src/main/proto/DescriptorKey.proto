@@ -2,7 +2,7 @@ syntax = "proto3";
 package basekv;
 
 option java_multiple_files = true;
-option java_package = "com.baidu.bifromq.basekv.proto";
+option java_package = "org.apache.bifromq.basekv.proto";
 option optimize_for = SPEED;
 
 message DescriptorKey{

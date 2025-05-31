@@ -980,11 +980,11 @@
                         <destFile>${project.basedir}/target/jacoco.exec</destFile>
                         <append>true</append>
                         <excludes>
-                            <exclude>com/baidu/bifromq/type/*.class</exclude>
+                            <exclude>org/apache/bifromq/type/*.class</exclude>
                             <exclude>**/proto/*.class</exclude>
                             <exclude>io/grpc/**/*.class</exclude>
-                            <exclude>com/baidu/bifromq/baserpc/**/*.class</exclude>
-                            <exclude>com/baidu/bifromq/plugin/authprovider/type/*.class</exclude>
+                            <exclude>org/apache/bifromq/baserpc/**/*.class</exclude>
+                            <exclude>org/apache/bifromq/plugin/authprovider/type/*.class</exclude>
                         </excludes>
                     </configuration>
                     <executions>

@@ -768,11 +768,6 @@
                 <version>${os.plugin.version}</version>
             </extension>
             <extension>
-                <groupId>io.github.mafei6827</groupId>
-                <artifactId>maven-repository-bos</artifactId>
-                <version>${maven.bos.plugin.version}</version>
-            </extension>
-            <extension>
                 <groupId>org.apache.maven.archetype</groupId>
                 <artifactId>archetype-packaging</artifactId>
                 <version>${maven.archetype.plugin.version}</version>

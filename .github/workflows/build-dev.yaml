@@ -24,3 +24,7 @@ jobs:
         run: mvn install -pl testsuites -am
       - name: Build with Maven
         run: mvn clean verify -P build
+      - name: Check License Header
+        uses: apache/skywalking-eyes/header@main
+      - name: Check Dependencies' License
+        uses: apache/skywalking-eyes/dependency@main

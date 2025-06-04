@@ -4,9 +4,6 @@ on:
   push:
     branches:
       - 'main'
-  pull_request:
-    branches:
-      - 'main'
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -26,15 +23,7 @@ jobs:
         uses: coverallsapp/github-action@v2
         with:
           format: jacoco
-      - name: Fix License Header
+      - name: Check License Header
         uses: apache/skywalking-eyes/header@main
-        with:
-          mode: fix
-      - name: Apply Changes
-        uses: EndBug/add-and-commit@v4
-        env:
-           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          author_name: License Bot
-          author_email: license_bot@github.com
-          message: 'Automatic application of license header'
+      - name: Check Dependencies' License
+        uses: apache/skywalking-eyes/dependency@main

@@ -25,4 +25,8 @@ jobs:
         uses: coverallsapp/github-action@v2
         with:
           format: jacoco
+      - name: Check License Header
+        uses: apache/skywalking-eyes/header@main
+      - name: Check Dependencies' License
+        uses: apache/skywalking-eyes/dependency@main
 

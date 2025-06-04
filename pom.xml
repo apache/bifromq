@@ -145,7 +145,6 @@
         <protobuf.plugin.version>0.6.1</protobuf.plugin.version>
         <os.plugin.version>1.6.2</os.plugin.version>
         <checkstyle.version>10.11.0</checkstyle.version>
-        <maven.bos.plugin.version>0.0.2</maven.bos.plugin.version>
 
         <!-- build properties -->
         <maven.compiler.release>17</maven.compiler.release>

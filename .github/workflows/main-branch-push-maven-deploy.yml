@@ -25,25 +25,6 @@ jobs:
       - name: Build with Maven
         run: mvn -B package -DskipTests --file pom.xml
 
-      - name: Set up BoS Repo
-        uses: actions/setup-java@v4
-        with: # running setup-java again overwrites the settings.xml
-          java-version: '17'
-          distribution: 'temurin'
-          server-id: bos-repo # Value of the distributionManagement/repository/id field of the pom.xml
-          server-username: BOS_REPO_AK # env variable for username in deploy
-          server-password: BOS_REPO_SK # env variable for token in deploy
-
-      - name: Publish to BoS Repo
-        run: mvn clean deploy -P bos-repo-deploy -pl :bifromq-plugin-context,:bifromq-plugin-main,:bifromq-plugin-auth-provider,:bifromq-plugin-event-collector,:bifromq-plugin-resource-throttler,:bifromq-plugin-sub-broker,:bifromq-plugin-setting-provider,:base-env-provider-spi,:base-kv-store-balance-spi -am -DskipTests -Dbos.repo.release=$BOS_REPO_RELEASE -Dbos.repo.snapshot=$BOS_REPO_SNAPSHOT
-        env:
-          MAVEN_USERNAME: ${{ secrets.MAVEN_USERNAME }}
-          MAVEN_CENTRAL_TOKEN: ${{ secrets.MAVEN_CENTRAL_TOKEN }}
-          BOS_REPO_AK: ${{ secrets.BOS_REPO_AK }}
-          BOS_REPO_SK: ${{ secrets.BOS_REPO_SK }}
-          BOS_REPO_RELEASE: ${{ secrets.BOS_REPO_RELEASE }}
-          BOS_REPO_SNAPSHOT: ${{ secrets.BOS_REPO_SNAPSHOT }}
-
       - name: Set up GitHub Packages
         uses: actions/setup-java@v4
         with: # running setup-java again overwrites the settings.xml

@@ -19,14 +19,10 @@
 
 package org.apache.bifromq.retain.store.gc;
 
-import jakarta.annotation.Nullable;
 import java.util.concurrent.CompletableFuture;
 
 public interface IRetainStoreGCProcessor {
-    CompletableFuture<Result> gc(long reqId,
-                                 @Nullable String tenantId,
-                                 @Nullable Integer expirySeconds,
-                                 long now);
+    CompletableFuture<Result> gc(long reqId, String tenantId, Integer expirySeconds, long now);
 
     enum Result {
         OK, TRY_LATER, ERROR

@@ -19,20 +19,19 @@
 
 package org.apache.bifromq.baserpc.client;
 
-import org.apache.bifromq.baserpc.BluePrint;
-import org.apache.bifromq.baserpc.client.exception.RequestRejectedException;
-import org.apache.bifromq.baserpc.metrics.IRPCMeter;
-import org.apache.bifromq.baserpc.metrics.RPCMetric;
 import io.grpc.CallOptions;
 import io.grpc.MethodDescriptor;
 import io.reactivex.rxjava3.subjects.PublishSubject;
-import jakarta.annotation.Nullable;
 import java.util.Map;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.bifromq.baserpc.BluePrint;
+import org.apache.bifromq.baserpc.client.exception.RequestRejectedException;
+import org.apache.bifromq.baserpc.metrics.IRPCMeter;
+import org.apache.bifromq.baserpc.metrics.RPCMetric;
 
 @Slf4j
 class ManagedMessageStream<MsgT, AckT> extends ManagedBiDiStream<AckT, MsgT>
@@ -45,8 +44,8 @@ class ManagedMessageStream<MsgT, AckT> extends ManagedBiDiStream<AckT, MsgT>
     private final AtomicBoolean isClosed = new AtomicBoolean(false);
 
     ManagedMessageStream(String tenantId,
-                         @Nullable String wchKey,
-                         @Nullable String targetServerId,
+                         String wchKey,
+                         String targetServerId,
                          Supplier<Map<String, String>> metadataSupplier,
                          IClientChannel channelHolder,
                          CallOptions callOptions,

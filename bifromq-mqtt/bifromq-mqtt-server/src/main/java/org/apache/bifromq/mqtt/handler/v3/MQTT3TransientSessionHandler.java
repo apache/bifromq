@@ -19,6 +19,8 @@
 
 package org.apache.bifromq.mqtt.handler.v3;
 
+import io.netty.channel.ChannelHandlerContext;
+import lombok.Builder;
 import org.apache.bifromq.inbox.storage.proto.LWT;
 import org.apache.bifromq.metrics.ITenantMeter;
 import org.apache.bifromq.mqtt.handler.IMQTTProtocolHelper;
@@ -26,9 +28,6 @@ import org.apache.bifromq.mqtt.handler.MQTTTransientSessionHandler;
 import org.apache.bifromq.mqtt.handler.TenantSettings;
 import org.apache.bifromq.mqtt.handler.condition.Condition;
 import org.apache.bifromq.type.ClientInfo;
-import io.netty.channel.ChannelHandlerContext;
-import jakarta.annotation.Nullable;
-import lombok.Builder;
 
 public final class MQTT3TransientSessionHandler extends MQTTTransientSessionHandler {
     private final IMQTTProtocolHelper helper;
@@ -40,7 +39,7 @@ public final class MQTT3TransientSessionHandler extends MQTTTransientSessionHand
                                         String userSessionId,
                                         int keepAliveTimeSeconds,
                                         ClientInfo clientInfo,
-                                        @Nullable LWT willMessage,
+                                        LWT willMessage, // nullable
                                         ChannelHandlerContext ctx) {
         super(settings, tenantMeter, oomCondition, userSessionId, keepAliveTimeSeconds, clientInfo, willMessage, ctx);
         helper = new MQTT3ProtocolHelper(settings, clientInfo);

@@ -14,11 +14,12 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.
+ * under the License.    
  */
 
 package org.apache.bifromq.mqtt.handler.v3;
 
+import static io.netty.handler.codec.mqtt.MqttConnectReturnCode.CONNECTION_REFUSED_SERVER_UNAVAILABLE;
 import static org.apache.bifromq.mqtt.handler.record.ProtocolResponse.farewell;
 import static org.apache.bifromq.mqtt.handler.record.ProtocolResponse.goAway;
 import static org.apache.bifromq.mqtt.handler.record.ProtocolResponse.goAwayNow;
@@ -27,8 +28,22 @@ import static org.apache.bifromq.mqtt.handler.record.ProtocolResponse.responseNo
 import static org.apache.bifromq.mqtt.handler.v3.MQTT3MessageUtils.toMessage;
 import static org.apache.bifromq.plugin.eventcollector.ThreadLocalEventPool.getLocal;
 import static org.apache.bifromq.type.QoS.AT_LEAST_ONCE;
-import static io.netty.handler.codec.mqtt.MqttConnectReturnCode.CONNECTION_REFUSED_SERVER_UNAVAILABLE;
 
+import io.netty.handler.codec.mqtt.MqttConnectMessage;
+import io.netty.handler.codec.mqtt.MqttMessage;
+import io.netty.handler.codec.mqtt.MqttMessageBuilders;
+import io.netty.handler.codec.mqtt.MqttMessageIdVariableHeader;
+import io.netty.handler.codec.mqtt.MqttPublishMessage;
+import io.netty.handler.codec.mqtt.MqttQoS;
+import io.netty.handler.codec.mqtt.MqttSubAckMessage;
+import io.netty.handler.codec.mqtt.MqttSubscribeMessage;
+import io.netty.handler.codec.mqtt.MqttTopicSubscription;
+import io.netty.handler.codec.mqtt.MqttUnsubAckMessage;
+import io.netty.handler.codec.mqtt.MqttUnsubscribeMessage;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Optional;
+import lombok.AllArgsConstructor;
 import org.apache.bifromq.basehlc.HLC;
 import org.apache.bifromq.inbox.storage.proto.TopicFilterOption;
 import org.apache.bifromq.mqtt.handler.IMQTTProtocolHelper;
@@ -56,6 +71,7 @@ import org.apache.bifromq.plugin.eventcollector.mqttbroker.clientdisconnect.TooL
 import org.apache.bifromq.plugin.eventcollector.mqttbroker.disthandling.Discard;
 import org.apache.bifromq.plugin.eventcollector.mqttbroker.disthandling.QoS1PubAcked;
 import org.apache.bifromq.plugin.eventcollector.mqttbroker.disthandling.QoS2PubReced;
+import org.apache.bifromq.plugin.resourcethrottler.TenantResourceType;
 import org.apache.bifromq.retain.rpc.proto.RetainReply;
 import org.apache.bifromq.sysprops.props.SanityCheckMqttUtf8String;
 import org.apache.bifromq.type.ClientInfo;
@@ -64,23 +80,6 @@ import org.apache.bifromq.type.QoS;
 import org.apache.bifromq.type.UserProperties;
 import org.apache.bifromq.util.TopicUtil;
 import org.apache.bifromq.util.UTF8Util;
-import org.apache.bifromq.plugin.resourcethrottler.TenantResourceType;
-import io.netty.handler.codec.mqtt.MqttConnectMessage;
-import io.netty.handler.codec.mqtt.MqttMessage;
-import io.netty.handler.codec.mqtt.MqttMessageBuilders;
-import io.netty.handler.codec.mqtt.MqttMessageIdVariableHeader;
-import io.netty.handler.codec.mqtt.MqttPublishMessage;
-import io.netty.handler.codec.mqtt.MqttQoS;
-import io.netty.handler.codec.mqtt.MqttSubAckMessage;
-import io.netty.handler.codec.mqtt.MqttSubscribeMessage;
-import io.netty.handler.codec.mqtt.MqttTopicSubscription;
-import io.netty.handler.codec.mqtt.MqttUnsubAckMessage;
-import io.netty.handler.codec.mqtt.MqttUnsubscribeMessage;
-import jakarta.annotation.Nullable;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Optional;
-import lombok.AllArgsConstructor;
 
 @AllArgsConstructor
 public class MQTT3ProtocolHelper implements IMQTTProtocolHelper {
@@ -302,7 +301,7 @@ public class MQTT3ProtocolHelper implements IMQTTProtocolHelper {
     }
 
     @Override
-    public ProtocolResponse onRedirect(boolean isPermanent, @Nullable String serverReference) {
+    public ProtocolResponse onRedirect(boolean isPermanent, String serverReference) {
         return goAwayNow(getLocal(Redirect.class)
             .isPermanent(isPermanent)
             .serverReference(serverReference)

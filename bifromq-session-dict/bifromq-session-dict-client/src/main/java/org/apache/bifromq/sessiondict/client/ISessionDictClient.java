@@ -19,9 +19,8 @@
 
 package org.apache.bifromq.sessiondict.client;
 
-import org.apache.bifromq.baserpc.client.IConnectable;
-import jakarta.annotation.Nullable;
 import java.util.concurrent.CompletableFuture;
+import org.apache.bifromq.baserpc.client.IConnectable;
 import org.apache.bifromq.sessiondict.client.type.OnlineCheckRequest;
 import org.apache.bifromq.sessiondict.client.type.OnlineCheckResult;
 import org.apache.bifromq.sessiondict.rpc.proto.GetReply;
@@ -46,9 +45,19 @@ public interface ISessionDictClient extends IConnectable, AutoCloseable {
     CompletableFuture<KillReply> kill(long reqId, String tenantId, String userId, String clientId, ClientInfo killer,
                                       ServerRedirection redirection);
 
+    /**
+     * Kill all sessions for a tenant.
+     *
+     * @param reqId the request id
+     * @param tenantId the tenant id
+     * @param userId the user id, can be null
+     * @param killer the client info of the killer
+     * @param redirection the server redirection to send the kill request to
+     * @return a CompletableFuture of KillAllReply
+     */
     CompletableFuture<KillAllReply> killAll(long reqId,
                                             String tenantId,
-                                            @Nullable String userId,
+                                            String userId,
                                             ClientInfo killer,
                                             ServerRedirection redirection);
 

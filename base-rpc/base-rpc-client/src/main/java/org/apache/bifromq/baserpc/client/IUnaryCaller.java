@@ -21,7 +21,6 @@ package org.apache.bifromq.baserpc.client;
 
 import static java.util.Collections.emptyMap;
 
-import jakarta.annotation.Nullable;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 
@@ -32,12 +31,29 @@ import java.util.concurrent.CompletableFuture;
  * @param <RespT> the response type
  */
 interface IUnaryCaller<ReqT, RespT> {
-    default CompletableFuture<RespT> invoke(String tenantId, @Nullable String targetServerId, ReqT req) {
+    /**
+     * Invoke a request to the desired server.
+     *
+     * @param tenantId         the tenant id
+     * @param targetServerId   the target server id, can be null
+     * @param req              the request to send
+     * @return a CompletableFuture of the response
+     */
+    default CompletableFuture<RespT> invoke(String tenantId, String targetServerId, ReqT req) {
         return invoke(tenantId, targetServerId, req, emptyMap());
     }
 
+    /**
+     * Invoke a request to the desired server with metadata.
+     *
+     * @param tenantId the tenant id
+     * @param targetServerId the target server id, can be null
+     * @param req the request to send
+     * @param metadata additional metadata to attach to the request
+     * @return a CompletableFuture of the response
+     */
     CompletableFuture<RespT> invoke(String tenantId,
-                                    @Nullable String targetServerId,
+                                    String targetServerId,
                                     ReqT req,
                                     Map<String, String> metadata);
 }

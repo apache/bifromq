@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.
+ * under the License.    
  */
 
 package org.apache.bifromq.mqtt.handler;
@@ -24,15 +24,29 @@ import static org.apache.bifromq.metrics.TenantMetric.MqttIngressBytes;
 import static org.apache.bifromq.mqtt.handler.MQTTSessionIdUtil.userSessionId;
 import static org.apache.bifromq.mqtt.handler.condition.ORCondition.or;
 import static org.apache.bifromq.plugin.eventcollector.ThreadLocalEventPool.getLocal;
+import static org.apache.bifromq.plugin.resourcethrottler.TenantResourceType.TotalConnectPerSecond;
+import static org.apache.bifromq.plugin.resourcethrottler.TenantResourceType.TotalConnections;
+import static org.apache.bifromq.plugin.resourcethrottler.TenantResourceType.TotalSessionMemoryBytes;
 import static org.apache.bifromq.type.MQTTClientInfoConstants.MQTT_CLIENT_SESSION_TYPE;
 import static org.apache.bifromq.type.MQTTClientInfoConstants.MQTT_CLIENT_SESSION_TYPE_P_VALUE;
 import static org.apache.bifromq.type.MQTTClientInfoConstants.MQTT_CLIENT_SESSION_TYPE_T_VALUE;
 import static org.apache.bifromq.type.MQTTClientInfoConstants.MQTT_PROTOCOL_VER_5_VALUE;
 import static org.apache.bifromq.type.MQTTClientInfoConstants.MQTT_PROTOCOL_VER_KEY;
-import static org.apache.bifromq.plugin.resourcethrottler.TenantResourceType.TotalConnectPerSecond;
-import static org.apache.bifromq.plugin.resourcethrottler.TenantResourceType.TotalConnections;
-import static org.apache.bifromq.plugin.resourcethrottler.TenantResourceType.TotalSessionMemoryBytes;
 
+import com.google.protobuf.ByteString;
+import io.netty.channel.ChannelDuplexHandler;
+import io.netty.channel.ChannelFutureListener;
+import io.netty.channel.ChannelHandlerContext;
+import io.netty.handler.codec.mqtt.MqttConnAckMessage;
+import io.netty.handler.codec.mqtt.MqttConnectMessage;
+import io.netty.handler.codec.mqtt.MqttDecoder;
+import io.netty.handler.codec.mqtt.MqttMessage;
+import io.netty.handler.codec.mqtt.MqttMessageType;
+import java.util.Optional;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ThreadLocalRandom;
+import java.util.concurrent.TimeUnit;
+import lombok.extern.slf4j.Slf4j;
 import org.apache.bifromq.base.util.AsyncRetry;
 import org.apache.bifromq.base.util.FutureTracker;
 import org.apache.bifromq.base.util.exception.RetryTimeoutException;
@@ -59,27 +73,12 @@ import org.apache.bifromq.plugin.eventcollector.Event;
 import org.apache.bifromq.plugin.eventcollector.IEventCollector;
 import org.apache.bifromq.plugin.eventcollector.mqttbroker.channelclosed.ProtocolError;
 import org.apache.bifromq.plugin.eventcollector.mqttbroker.clientconnected.ClientConnected;
+import org.apache.bifromq.plugin.resourcethrottler.IResourceThrottler;
+import org.apache.bifromq.plugin.resourcethrottler.TenantResourceType;
 import org.apache.bifromq.plugin.settingprovider.ISettingProvider;
 import org.apache.bifromq.sysprops.props.SanityCheckMqttUtf8String;
 import org.apache.bifromq.type.ClientInfo;
 import org.apache.bifromq.type.UserProperties;
-import org.apache.bifromq.plugin.resourcethrottler.IResourceThrottler;
-import org.apache.bifromq.plugin.resourcethrottler.TenantResourceType;
-import com.google.protobuf.ByteString;
-import io.netty.channel.ChannelDuplexHandler;
-import io.netty.channel.ChannelFutureListener;
-import io.netty.channel.ChannelHandlerContext;
-import io.netty.handler.codec.mqtt.MqttConnAckMessage;
-import io.netty.handler.codec.mqtt.MqttConnectMessage;
-import io.netty.handler.codec.mqtt.MqttDecoder;
-import io.netty.handler.codec.mqtt.MqttMessage;
-import io.netty.handler.codec.mqtt.MqttMessageType;
-import jakarta.annotation.Nullable;
-import java.util.Optional;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ThreadLocalRandom;
-import java.util.concurrent.TimeUnit;
-import lombok.extern.slf4j.Slf4j;
 
 @Slf4j
 public abstract class MQTTConnectHandler extends ChannelDuplexHandler {
@@ -461,7 +460,7 @@ public abstract class MQTTConnectHandler extends ChannelDuplexHandler {
                                                                        ITenantMeter tenantMeter,
                                                                        String userSessionId,
                                                                        int keepAliveSeconds,
-                                                                       @Nullable LWT willMessage,
+                                                                       LWT willMessage,
                                                                        ClientInfo clientInfo,
                                                                        ChannelHandlerContext ctx);
 
@@ -472,7 +471,7 @@ public abstract class MQTTConnectHandler extends ChannelDuplexHandler {
                                                                         int keepAliveSeconds,
                                                                         int sessionExpiryInterval,
                                                                         InboxVersion inboxInstance,
-                                                                        @Nullable LWT noDelayWillMessage,
+                                                                        LWT noDelayWillMessage,
                                                                         ClientInfo clientInfo,
                                                                         ChannelHandlerContext ctx);
 
@@ -539,7 +538,7 @@ public abstract class MQTTConnectHandler extends ChannelDuplexHandler {
                                                int keepAliveSeconds,
                                                int sessionExpiryInterval,
                                                InboxVersion inboxVersion,
-                                               @Nullable LWT willMessage,
+                                               LWT willMessage, // nullable
                                                SuccessInfo successInfo,
                                                ChannelHandlerContext ctx) {
         int maxPacketSize = maxPacketSize(connMsg, settings);

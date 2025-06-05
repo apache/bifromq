@@ -19,6 +19,11 @@
 
 package org.apache.bifromq.mqtt.handler.v5;
 
+import io.netty.channel.ChannelHandlerContext;
+import io.netty.handler.codec.mqtt.MqttConnectMessage;
+import io.netty.handler.codec.mqtt.MqttMessage;
+import io.netty.handler.codec.mqtt.MqttMessageType;
+import lombok.Builder;
 import org.apache.bifromq.inbox.storage.proto.InboxVersion;
 import org.apache.bifromq.inbox.storage.proto.LWT;
 import org.apache.bifromq.metrics.ITenantMeter;
@@ -27,12 +32,6 @@ import org.apache.bifromq.mqtt.handler.MQTTPersistentSessionHandler;
 import org.apache.bifromq.mqtt.handler.TenantSettings;
 import org.apache.bifromq.mqtt.handler.condition.Condition;
 import org.apache.bifromq.type.ClientInfo;
-import io.netty.channel.ChannelHandlerContext;
-import io.netty.handler.codec.mqtt.MqttConnectMessage;
-import io.netty.handler.codec.mqtt.MqttMessage;
-import io.netty.handler.codec.mqtt.MqttMessageType;
-import jakarta.annotation.Nullable;
-import lombok.Builder;
 
 public final class MQTT5PersistentSessionHandler extends MQTTPersistentSessionHandler {
     private final IMQTTProtocolHelper helper;
@@ -48,7 +47,7 @@ public final class MQTT5PersistentSessionHandler extends MQTTPersistentSessionHa
                                          int sessionExpirySeconds,
                                          ClientInfo clientInfo,
                                          InboxVersion inboxVersion,
-                                         @Nullable LWT noDelayLWT,
+                                         LWT noDelayLWT, // nullable
                                          ChannelHandlerContext ctx) {
         super(settings,
             tenantMeter,

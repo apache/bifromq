@@ -19,24 +19,16 @@
 
 package org.apache.bifromq.baserpc.client;
 
+import static io.grpc.stub.ClientCalls.asyncUnaryCall;
 import static org.apache.bifromq.baserpc.RPCContext.DESIRED_SERVER_ID_CTX_KEY;
 import static org.apache.bifromq.baserpc.RPCContext.TENANT_ID_CTX_KEY;
 import static org.apache.bifromq.baserpc.client.exception.ExceptionUtil.toConcreteException;
-import static io.grpc.stub.ClientCalls.asyncUnaryCall;
 
-import org.apache.bifromq.baserpc.BluePrint;
-import org.apache.bifromq.baserpc.client.exception.ServerNotFoundException;
-import org.apache.bifromq.baserpc.client.exception.ServiceUnavailableException;
-import org.apache.bifromq.baserpc.client.loadbalancer.IServerGroupRouter;
-import org.apache.bifromq.baserpc.client.loadbalancer.IServerSelector;
-import org.apache.bifromq.baserpc.metrics.IRPCMeter;
-import org.apache.bifromq.baserpc.metrics.RPCMetric;
 import io.grpc.CallOptions;
 import io.grpc.Channel;
 import io.grpc.Context;
 import io.grpc.MethodDescriptor;
 import io.grpc.stub.StreamObserver;
-import jakarta.annotation.Nullable;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
@@ -45,6 +37,13 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Supplier;
 import lombok.SneakyThrows;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.bifromq.baserpc.BluePrint;
+import org.apache.bifromq.baserpc.client.exception.ServerNotFoundException;
+import org.apache.bifromq.baserpc.client.exception.ServiceUnavailableException;
+import org.apache.bifromq.baserpc.client.loadbalancer.IServerGroupRouter;
+import org.apache.bifromq.baserpc.client.loadbalancer.IServerSelector;
+import org.apache.bifromq.baserpc.metrics.IRPCMeter;
+import org.apache.bifromq.baserpc.metrics.RPCMetric;
 
 @Slf4j
 class UnaryCaller<ReqT, RespT> implements IUnaryCaller<ReqT, RespT> {
@@ -77,7 +76,7 @@ class UnaryCaller<ReqT, RespT> implements IUnaryCaller<ReqT, RespT> {
     @SneakyThrows
     @Override
     public CompletableFuture<RespT> invoke(String tenantId,
-                                           @Nullable String targetServerId,
+                                           String targetServerId,
                                            ReqT req,
                                            Map<String, String> metadata) {
         IServerSelector serverSelector = serverSelectorSupplier.get();

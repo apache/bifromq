@@ -14,22 +14,13 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.
+ * under the License.    
  */
 
 package org.apache.bifromq.baserpc.client;
 
-import org.apache.bifromq.baserpc.BluePrint;
-import org.apache.bifromq.baserpc.client.exception.RequestAbortException;
-import org.apache.bifromq.baserpc.client.exception.RequestRejectedException;
-import org.apache.bifromq.baserpc.client.exception.RequestThrottledException;
-import org.apache.bifromq.baserpc.client.exception.ServerNotFoundException;
-import org.apache.bifromq.baserpc.client.exception.ServiceUnavailableException;
-import org.apache.bifromq.baserpc.metrics.IRPCMeter;
-import org.apache.bifromq.baserpc.metrics.RPCMetric;
 import io.grpc.CallOptions;
 import io.grpc.MethodDescriptor;
-import jakarta.annotation.Nullable;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
@@ -39,6 +30,14 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Supplier;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.bifromq.baserpc.BluePrint;
+import org.apache.bifromq.baserpc.client.exception.RequestAbortException;
+import org.apache.bifromq.baserpc.client.exception.RequestRejectedException;
+import org.apache.bifromq.baserpc.client.exception.RequestThrottledException;
+import org.apache.bifromq.baserpc.client.exception.ServerNotFoundException;
+import org.apache.bifromq.baserpc.client.exception.ServiceUnavailableException;
+import org.apache.bifromq.baserpc.metrics.IRPCMeter;
+import org.apache.bifromq.baserpc.metrics.RPCMetric;
 
 @Slf4j
 public class ManagedRequestPipeline<ReqT, RespT> extends ManagedBiDiStream<ReqT, RespT>
@@ -53,8 +52,8 @@ public class ManagedRequestPipeline<ReqT, RespT> extends ManagedBiDiStream<ReqT,
     private boolean isRetargeting = false;
 
     ManagedRequestPipeline(String tenantId,
-                           @Nullable String wchKey,
-                           @Nullable String targetServerId,
+                           String wchKey,
+                           String targetServerId,
                            Supplier<Map<String, String>> metadataSupplier,
                            IClientChannel channelHolder,
                            CallOptions callOptions,

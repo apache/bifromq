@@ -26,6 +26,9 @@ import static org.apache.bifromq.basekv.utils.BoundaryUtil.toBoundary;
 import static org.apache.bifromq.basekv.utils.BoundaryUtil.upperBound;
 import static org.apache.bifromq.dist.worker.schema.KVSchemaUtil.tenantBeginKey;
 
+import java.util.Arrays;
+import java.util.concurrent.CompletableFuture;
+import lombok.extern.slf4j.Slf4j;
 import org.apache.bifromq.basekv.client.IBaseKVStoreClient;
 import org.apache.bifromq.basekv.client.KVRangeSetting;
 import org.apache.bifromq.basekv.client.exception.BadRequestException;
@@ -39,10 +42,6 @@ import org.apache.bifromq.baserpc.client.exception.ServerNotFoundException;
 import org.apache.bifromq.retain.rpc.proto.GCReply;
 import org.apache.bifromq.retain.rpc.proto.GCRequest;
 import org.apache.bifromq.retain.rpc.proto.RetainServiceRWCoProcInput;
-import jakarta.annotation.Nullable;
-import java.util.Arrays;
-import java.util.concurrent.CompletableFuture;
-import lombok.extern.slf4j.Slf4j;
 
 @Slf4j
 public class RetainStoreGCProcessor implements IRetainStoreGCProcessor {
@@ -55,10 +54,7 @@ public class RetainStoreGCProcessor implements IRetainStoreGCProcessor {
     }
 
     @Override
-    public CompletableFuture<Result> gc(long reqId,
-                                        @Nullable String tenantId,
-                                        @Nullable Integer expirySeconds,
-                                        long now) {
+    public CompletableFuture<Result> gc(long reqId, String tenantId, Integer expirySeconds, long now) {
         Boundary boundary;
         if (tenantId == null) {
             boundary = FULL_BOUNDARY;
@@ -93,8 +89,8 @@ public class RetainStoreGCProcessor implements IRetainStoreGCProcessor {
 
     private CompletableFuture<GCReply> gcRange(long reqId,
                                                KVRangeSetting rangeSetting,
-                                               @Nullable String tenantId,
-                                               @Nullable Integer expirySeconds,
+                                               String tenantId,
+                                               Integer expirySeconds,
                                                long now) {
         GCRequest.Builder reqBuilder = GCRequest.newBuilder().setReqId(reqId).setNow(now);
         if (tenantId != null) {

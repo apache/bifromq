@@ -14,46 +14,35 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.
+ * under the License.    
  */
 
 package org.apache.bifromq.mqtt.handler;
 
-import static org.apache.bifromq.mqtt.handler.IMQTTProtocolHelper.SubResult.EXCEED_LIMIT;
-import static org.apache.bifromq.mqtt.handler.IMQTTProtocolHelper.SubResult.EXISTS;
-import static org.apache.bifromq.mqtt.handler.IMQTTProtocolHelper.SubResult.OK;
-import static org.apache.bifromq.mqtt.handler.IMQTTProtocolHelper.UnsubResult.ERROR;
-import static org.apache.bifromq.mqtt.service.ILocalDistService.globalize;
-import static org.apache.bifromq.mqtt.utils.AuthUtil.buildSubAction;
-import static org.apache.bifromq.plugin.eventcollector.ThreadLocalEventPool.getLocal;
-import static org.apache.bifromq.plugin.resourcethrottler.TenantResourceType.TotalTransientSubscribePerSecond;
-import static org.apache.bifromq.plugin.resourcethrottler.TenantResourceType.TotalTransientSubscriptions;
-import static org.apache.bifromq.plugin.resourcethrottler.TenantResourceType.TotalTransientUnsubscribePerSecond;
 import static org.apache.bifromq.metrics.TenantMetric.MqttQoS0InternalLatency;
 import static org.apache.bifromq.metrics.TenantMetric.MqttQoS1InternalLatency;
 import static org.apache.bifromq.metrics.TenantMetric.MqttQoS2InternalLatency;
 import static org.apache.bifromq.metrics.TenantMetric.MqttTransientSubCount;
 import static org.apache.bifromq.metrics.TenantMetric.MqttTransientUnsubCount;
 import static org.apache.bifromq.metrics.TenantMetric.MqttTransientUnsubLatency;
+import static org.apache.bifromq.mqtt.handler.IMQTTProtocolHelper.SubResult.EXCEED_LIMIT;
+import static org.apache.bifromq.mqtt.handler.IMQTTProtocolHelper.SubResult.EXISTS;
+import static org.apache.bifromq.mqtt.handler.IMQTTProtocolHelper.SubResult.OK;
+import static org.apache.bifromq.mqtt.handler.IMQTTProtocolHelper.UnsubResult.ERROR;
 import static org.apache.bifromq.mqtt.inbox.util.DelivererKeyUtil.toDelivererKey;
+import static org.apache.bifromq.mqtt.service.ILocalDistService.globalize;
+import static org.apache.bifromq.mqtt.utils.AuthUtil.buildSubAction;
+import static org.apache.bifromq.plugin.eventcollector.ThreadLocalEventPool.getLocal;
+import static org.apache.bifromq.plugin.resourcethrottler.TenantResourceType.TotalTransientSubscribePerSecond;
+import static org.apache.bifromq.plugin.resourcethrottler.TenantResourceType.TotalTransientSubscriptions;
+import static org.apache.bifromq.plugin.resourcethrottler.TenantResourceType.TotalTransientUnsubscribePerSecond;
 
-import org.apache.bifromq.mqtt.handler.condition.Condition;
-import org.apache.bifromq.mqtt.handler.record.ProtocolResponse;
-import org.apache.bifromq.mqtt.session.IMQTTTransientSession;
-import org.apache.bifromq.plugin.authprovider.type.CheckResult;
-import org.apache.bifromq.plugin.eventcollector.OutOfTenantResource;
-import org.apache.bifromq.plugin.eventcollector.mqttbroker.clientdisconnect.ByClient;
-import org.apache.bifromq.plugin.eventcollector.session.MQTTSessionStart;
-import org.apache.bifromq.plugin.eventcollector.session.MQTTSessionStop;
-import org.apache.bifromq.retain.rpc.proto.MatchReply;
-import org.apache.bifromq.retain.rpc.proto.MatchRequest;
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
 import com.google.common.collect.Sets;
 import io.micrometer.core.instrument.Timer;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.handler.codec.mqtt.MqttMessage;
-import jakarta.annotation.Nullable;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.Iterator;
@@ -77,6 +66,16 @@ import org.apache.bifromq.dist.client.UnmatchResult;
 import org.apache.bifromq.inbox.storage.proto.LWT;
 import org.apache.bifromq.inbox.storage.proto.TopicFilterOption;
 import org.apache.bifromq.metrics.ITenantMeter;
+import org.apache.bifromq.mqtt.handler.condition.Condition;
+import org.apache.bifromq.mqtt.handler.record.ProtocolResponse;
+import org.apache.bifromq.mqtt.session.IMQTTTransientSession;
+import org.apache.bifromq.plugin.authprovider.type.CheckResult;
+import org.apache.bifromq.plugin.eventcollector.OutOfTenantResource;
+import org.apache.bifromq.plugin.eventcollector.mqttbroker.clientdisconnect.ByClient;
+import org.apache.bifromq.plugin.eventcollector.session.MQTTSessionStart;
+import org.apache.bifromq.plugin.eventcollector.session.MQTTSessionStop;
+import org.apache.bifromq.retain.rpc.proto.MatchReply;
+import org.apache.bifromq.retain.rpc.proto.MatchRequest;
 import org.apache.bifromq.sysprops.props.DataPlaneMaxBurstLatencyMillis;
 import org.apache.bifromq.type.ClientInfo;
 import org.apache.bifromq.type.MatchInfo;
@@ -106,7 +105,7 @@ public abstract class MQTTTransientSessionHandler extends MQTTSessionHandler imp
                                           String userSessionId,
                                           int keepAliveTimeSeconds,
                                           ClientInfo clientInfo,
-                                          @Nullable LWT willMessage,
+                                          LWT willMessage, // nullable
                                           ChannelHandlerContext ctx) {
         super(settings, tenantMeter, oomCondition, userSessionId, keepAliveTimeSeconds, clientInfo, willMessage, ctx);
     }

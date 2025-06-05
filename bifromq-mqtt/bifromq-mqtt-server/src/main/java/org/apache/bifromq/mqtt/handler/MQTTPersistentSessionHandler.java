@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.
+ * under the License.    
  */
 
 package org.apache.bifromq.mqtt.handler;
@@ -32,13 +32,27 @@ import static org.apache.bifromq.mqtt.handler.IMQTTProtocolHelper.SubResult.EXCE
 import static org.apache.bifromq.mqtt.handler.IMQTTProtocolHelper.UnsubResult.ERROR;
 import static org.apache.bifromq.mqtt.utils.AuthUtil.buildSubAction;
 import static org.apache.bifromq.plugin.eventcollector.ThreadLocalEventPool.getLocal;
-import static org.apache.bifromq.type.QoS.AT_LEAST_ONCE;
 import static org.apache.bifromq.plugin.resourcethrottler.TenantResourceType.TotalPersistentSessionSpaceBytes;
 import static org.apache.bifromq.plugin.resourcethrottler.TenantResourceType.TotalPersistentSessions;
 import static org.apache.bifromq.plugin.resourcethrottler.TenantResourceType.TotalPersistentSubscribePerSecond;
 import static org.apache.bifromq.plugin.resourcethrottler.TenantResourceType.TotalPersistentSubscriptions;
 import static org.apache.bifromq.plugin.resourcethrottler.TenantResourceType.TotalPersistentUnsubscribePerSecond;
+import static org.apache.bifromq.type.QoS.AT_LEAST_ONCE;
 
+import com.github.benmanes.caffeine.cache.Cache;
+import com.github.benmanes.caffeine.cache.Caffeine;
+import io.micrometer.core.instrument.Timer;
+import io.netty.channel.ChannelHandlerContext;
+import io.netty.handler.codec.mqtt.MqttMessage;
+import java.util.Iterator;
+import java.util.Map;
+import java.util.NavigableMap;
+import java.util.SortedMap;
+import java.util.TreeMap;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
+import lombok.extern.slf4j.Slf4j;
 import org.apache.bifromq.base.util.AsyncRetry;
 import org.apache.bifromq.basehlc.HLC;
 import org.apache.bifromq.inbox.client.IInboxClient;
@@ -66,21 +80,6 @@ import org.apache.bifromq.type.MatchInfo;
 import org.apache.bifromq.type.Message;
 import org.apache.bifromq.type.TopicMessage;
 import org.apache.bifromq.util.TopicUtil;
-import com.github.benmanes.caffeine.cache.Cache;
-import com.github.benmanes.caffeine.cache.Caffeine;
-import io.micrometer.core.instrument.Timer;
-import io.netty.channel.ChannelHandlerContext;
-import io.netty.handler.codec.mqtt.MqttMessage;
-import jakarta.annotation.Nullable;
-import java.util.Iterator;
-import java.util.Map;
-import java.util.NavigableMap;
-import java.util.SortedMap;
-import java.util.TreeMap;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicReference;
-import lombok.extern.slf4j.Slf4j;
 
 /**
  * Abstract handler for MQTT persistent session.
@@ -113,7 +112,7 @@ public abstract class MQTTPersistentSessionHandler extends MQTTSessionHandler im
                                            int sessionExpirySeconds,
                                            ClientInfo clientInfo,
                                            InboxVersion inboxVersion,
-                                           @Nullable LWT noDelayLWT,
+                                           LWT noDelayLWT, // nullable
                                            ChannelHandlerContext ctx) {
         super(settings, tenantMeter, oomCondition, userSessionId, keepAliveTimeSeconds, clientInfo, noDelayLWT, ctx);
         this.inboxVersion = inboxVersion;

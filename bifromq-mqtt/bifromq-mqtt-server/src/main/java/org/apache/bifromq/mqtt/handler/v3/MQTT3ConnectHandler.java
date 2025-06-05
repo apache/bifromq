@@ -19,6 +19,11 @@
 
 package org.apache.bifromq.mqtt.handler.v3;
 
+import static io.netty.handler.codec.mqtt.MqttConnectReturnCode.CONNECTION_REFUSED_BAD_USER_NAME_OR_PASSWORD;
+import static io.netty.handler.codec.mqtt.MqttConnectReturnCode.CONNECTION_REFUSED_IDENTIFIER_REJECTED;
+import static io.netty.handler.codec.mqtt.MqttConnectReturnCode.CONNECTION_REFUSED_NOT_AUTHORIZED;
+import static io.netty.handler.codec.mqtt.MqttConnectReturnCode.CONNECTION_REFUSED_SERVER_UNAVAILABLE;
+import static io.netty.handler.codec.mqtt.MqttConnectReturnCode.CONNECTION_REFUSED_UNACCEPTABLE_PROTOCOL_VERSION;
 import static org.apache.bifromq.metrics.TenantMetric.MqttAuthFailureCount;
 import static org.apache.bifromq.mqtt.handler.MQTTConnectHandler.AuthResult.goAway;
 import static org.apache.bifromq.mqtt.handler.MQTTConnectHandler.AuthResult.ok;
@@ -34,12 +39,20 @@ import static org.apache.bifromq.type.MQTTClientInfoConstants.MQTT_PROTOCOL_VER_
 import static org.apache.bifromq.type.MQTTClientInfoConstants.MQTT_PROTOCOL_VER_KEY;
 import static org.apache.bifromq.type.MQTTClientInfoConstants.MQTT_TYPE_VALUE;
 import static org.apache.bifromq.type.MQTTClientInfoConstants.MQTT_USER_ID_KEY;
-import static io.netty.handler.codec.mqtt.MqttConnectReturnCode.CONNECTION_REFUSED_BAD_USER_NAME_OR_PASSWORD;
-import static io.netty.handler.codec.mqtt.MqttConnectReturnCode.CONNECTION_REFUSED_IDENTIFIER_REJECTED;
-import static io.netty.handler.codec.mqtt.MqttConnectReturnCode.CONNECTION_REFUSED_NOT_AUTHORIZED;
-import static io.netty.handler.codec.mqtt.MqttConnectReturnCode.CONNECTION_REFUSED_SERVER_UNAVAILABLE;
-import static io.netty.handler.codec.mqtt.MqttConnectReturnCode.CONNECTION_REFUSED_UNACCEPTABLE_PROTOCOL_VERSION;
 
+import com.google.common.base.Strings;
+import com.google.protobuf.ByteString;
+import com.google.protobuf.UnsafeByteOperations;
+import io.netty.channel.ChannelHandlerContext;
+import io.netty.handler.codec.mqtt.MqttConnAckMessage;
+import io.netty.handler.codec.mqtt.MqttConnectMessage;
+import io.netty.handler.codec.mqtt.MqttConnectReturnCode;
+import io.netty.handler.codec.mqtt.MqttMessage;
+import io.netty.handler.codec.mqtt.MqttMessageBuilders;
+import java.net.InetSocketAddress;
+import java.util.Optional;
+import java.util.concurrent.CompletableFuture;
+import lombok.extern.slf4j.Slf4j;
 import org.apache.bifromq.basehlc.HLC;
 import org.apache.bifromq.inbox.storage.proto.InboxVersion;
 import org.apache.bifromq.inbox.storage.proto.LWT;
@@ -73,6 +86,7 @@ import org.apache.bifromq.plugin.eventcollector.mqttbroker.clientdisconnect.Prot
 import org.apache.bifromq.plugin.eventcollector.mqttbroker.clientdisconnect.Redirect;
 import org.apache.bifromq.plugin.eventcollector.mqttbroker.clientdisconnect.ResourceThrottled;
 import org.apache.bifromq.plugin.eventcollector.mqttbroker.clientdisconnect.ServerBusy;
+import org.apache.bifromq.plugin.resourcethrottler.TenantResourceType;
 import org.apache.bifromq.sysprops.props.MaxMqtt3ClientIdLength;
 import org.apache.bifromq.type.ClientInfo;
 import org.apache.bifromq.type.Message;
@@ -80,21 +94,6 @@ import org.apache.bifromq.type.QoS;
 import org.apache.bifromq.type.UserProperties;
 import org.apache.bifromq.util.TopicUtil;
 import org.apache.bifromq.util.UTF8Util;
-import org.apache.bifromq.plugin.resourcethrottler.TenantResourceType;
-import com.google.common.base.Strings;
-import com.google.protobuf.ByteString;
-import com.google.protobuf.UnsafeByteOperations;
-import io.netty.channel.ChannelHandlerContext;
-import io.netty.handler.codec.mqtt.MqttConnAckMessage;
-import io.netty.handler.codec.mqtt.MqttConnectMessage;
-import io.netty.handler.codec.mqtt.MqttConnectReturnCode;
-import io.netty.handler.codec.mqtt.MqttMessage;
-import io.netty.handler.codec.mqtt.MqttMessageBuilders;
-import jakarta.annotation.Nullable;
-import java.net.InetSocketAddress;
-import java.util.Optional;
-import java.util.concurrent.CompletableFuture;
-import lombok.extern.slf4j.Slf4j;
 
 @Slf4j
 public class MQTT3ConnectHandler extends MQTTConnectHandler {
@@ -406,7 +405,7 @@ public class MQTT3ConnectHandler extends MQTTConnectHandler {
                                                                     ITenantMeter tenantMeter,
                                                                     String userSessionId,
                                                                     int keepAliveSeconds,
-                                                                    @Nullable LWT willMessage,
+                                                                    LWT willMessage, // nullable
                                                                     ClientInfo clientInfo,
                                                                     ChannelHandlerContext ctx) {
         return MQTT3TransientSessionHandler.builder()
@@ -429,7 +428,7 @@ public class MQTT3ConnectHandler extends MQTTConnectHandler {
                                                                      int keepAliveSeconds,
                                                                      int sessionExpiryInterval,
                                                                      InboxVersion inboxVersion,
-                                                                     @Nullable LWT noDelayLWT,
+                                                                     LWT noDelayLWT, // nullable
                                                                      ClientInfo clientInfo,
                                                                      ChannelHandlerContext ctx) {
         return MQTT3PersistentSessionHandler.builder()

@@ -19,17 +19,16 @@
 
 package org.apache.bifromq.sessiondict.client;
 
-import org.apache.bifromq.baserpc.client.IRPCClient;
 import com.github.benmanes.caffeine.cache.Caffeine;
 import com.github.benmanes.caffeine.cache.LoadingCache;
 import com.google.common.base.Strings;
 import com.google.common.util.concurrent.MoreExecutors;
 import io.reactivex.rxjava3.core.Observable;
-import jakarta.annotation.Nullable;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicBoolean;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.bifromq.baserpc.client.IRPCClient;
 import org.apache.bifromq.sessiondict.SessionRegisterKeyUtil;
 import org.apache.bifromq.sessiondict.client.scheduler.IOnlineCheckScheduler;
 import org.apache.bifromq.sessiondict.client.scheduler.OnlineCheckScheduler;
@@ -101,7 +100,7 @@ final class SessionDictClient implements ISessionDictClient {
     @Override
     public CompletableFuture<KillAllReply> killAll(long reqId,
                                                    String tenantId,
-                                                   @Nullable String userId,
+                                                   String userId, // nullable
                                                    ClientInfo killer,
                                                    ServerRedirection redirection) {
         KillAllRequest.Builder reqBuilder = KillAllRequest.newBuilder()

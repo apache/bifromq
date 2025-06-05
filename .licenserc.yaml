@@ -43,7 +43,5 @@ dependency:
       license: EPL-1.0
     - name: ch.qos.logback:logback-core
       license: EPL-1.0
-    - name: jakarta.annotation:jakarta.annotation-api
-      license: EPL-2.0
     - name: org.webjars:jquery
       license: MIT

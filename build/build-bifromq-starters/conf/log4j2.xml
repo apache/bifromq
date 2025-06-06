@@ -24,7 +24,7 @@
                xsi:schemaLocation="http://logging.apache.org/log4j/2.0/config
                                    http://logging.apache.org/log4j/2.0/log4j-config-2.14.1.xsd">
     <Properties>
-        <Property name="logDir">${sys:LOG_DIR:-${sys:user.dir}}></Property>
+        <Property name="logDir">${sys:LOG_DIR:-${sys:user.dir}}</Property>
         <Property name="logPattern"><![CDATA[
             %d{yyyy-MM-dd HH:mm:ss.SSS} %5p %pid [%t] --- %-40.40c [%F:%L] %m%n
         ]]></Property>

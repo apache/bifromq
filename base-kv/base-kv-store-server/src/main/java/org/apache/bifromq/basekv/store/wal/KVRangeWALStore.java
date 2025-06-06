@@ -19,6 +19,8 @@
 
 package org.apache.bifromq.basekv.store.wal;
 
+import static com.google.protobuf.UnsafeByteOperations.unsafeWrap;
+import static java.lang.String.format;
 import static org.apache.bifromq.basekv.store.util.KVUtil.toByteString;
 import static org.apache.bifromq.basekv.store.wal.KVRangeWALKeys.KEY_CONFIG_ENTRY_INDEXES_BYTES;
 import static org.apache.bifromq.basekv.store.wal.KVRangeWALKeys.KEY_CURRENT_TERM_BYTES;
@@ -32,23 +34,7 @@ import static org.apache.bifromq.basekv.store.wal.KVRangeWALKeys.logEntriesKeyPr
 import static org.apache.bifromq.basekv.store.wal.KVRangeWALKeys.logEntryKey;
 import static org.apache.bifromq.basekv.utils.BoundaryUtil.toBoundary;
 import static org.apache.bifromq.basekv.utils.BoundaryUtil.upperBound;
-import static com.google.protobuf.UnsafeByteOperations.unsafeWrap;
-import static java.lang.String.format;
 
-import org.apache.bifromq.baseenv.ZeroCopyParser;
-import org.apache.bifromq.basekv.localengine.IKVSpaceIterator;
-import org.apache.bifromq.basekv.localengine.IKVSpaceWriter;
-import org.apache.bifromq.basekv.localengine.IWALableKVSpace;
-import org.apache.bifromq.basekv.proto.Boundary;
-import org.apache.bifromq.basekv.proto.KVRangeId;
-import org.apache.bifromq.basekv.raft.proto.ClusterConfig;
-import org.apache.bifromq.basekv.raft.proto.LogEntry;
-import org.apache.bifromq.basekv.raft.proto.Snapshot;
-import org.apache.bifromq.basekv.raft.proto.Voting;
-import org.apache.bifromq.basekv.store.exception.KVRangeStoreException;
-import org.apache.bifromq.basekv.store.util.KVUtil;
-import org.apache.bifromq.basekv.utils.KVRangeIdUtil;
-import org.apache.bifromq.logger.SiftLogger;
 import com.google.common.collect.Maps;
 import com.google.protobuf.ByteString;
 import com.google.protobuf.InvalidProtocolBufferException;
@@ -62,6 +48,20 @@ import java.util.Optional;
 import java.util.TreeMap;
 import java.util.concurrent.ConcurrentLinkedDeque;
 import java.util.function.Consumer;
+import org.apache.bifromq.baseenv.ZeroCopyParser;
+import org.apache.bifromq.basekv.localengine.IKVSpaceIterator;
+import org.apache.bifromq.basekv.localengine.IKVSpaceWriter;
+import org.apache.bifromq.basekv.localengine.IWALableKVSpace;
+import org.apache.bifromq.basekv.proto.Boundary;
+import org.apache.bifromq.basekv.proto.KVRangeId;
+import org.apache.bifromq.basekv.raft.proto.ClusterConfig;
+import org.apache.bifromq.basekv.raft.proto.LogEntry;
+import org.apache.bifromq.basekv.raft.proto.Snapshot;
+import org.apache.bifromq.basekv.raft.proto.Voting;
+import org.apache.bifromq.basekv.store.exception.KVRangeStoreException;
+import org.apache.bifromq.basekv.store.util.KVUtil;
+import org.apache.bifromq.basekv.utils.KVRangeIdUtil;
+import org.apache.bifromq.logger.MDCLogger;
 import org.slf4j.Logger;
 
 class KVRangeWALStore implements IKVRangeWALStore {
@@ -88,7 +88,7 @@ class KVRangeWALStore implements IKVRangeWALStore {
         this.kvSpace = kvSpace;
         this.storeId = storeId;
         this.onDestroy = onDestroy;
-        log = SiftLogger.getLogger(KVRangeWALStore.class, "clusterId", clusterId, "storeId", storeId, "rangeId",
+        log = MDCLogger.getLogger(KVRangeWALStore.class, "clusterId", clusterId, "storeId", storeId, "rangeId",
             KVRangeIdUtil.toString(rangeId));
         logEntryIteratorPool = new LogEntryIteratorPool(kvSpace);
         load();

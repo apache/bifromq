@@ -40,7 +40,7 @@
         <fileSet>
             <lineEnding>unix</lineEnding>
             <includes>
-                <include>conf/logback.xml</include>
+                <include>conf/log4j2.xml</include>
                 <include>conf/standalone.yml</include>
                 <include>plugins/**</include>
             </includes>

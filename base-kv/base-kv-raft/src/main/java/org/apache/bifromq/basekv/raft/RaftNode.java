@@ -19,14 +19,6 @@
 
 package org.apache.bifromq.basekv.raft;
 
-import org.apache.bifromq.basekv.raft.event.RaftEvent;
-import org.apache.bifromq.basekv.raft.event.RaftEventType;
-import org.apache.bifromq.basekv.raft.exception.InternalError;
-import org.apache.bifromq.basekv.raft.proto.ClusterConfig;
-import org.apache.bifromq.basekv.raft.proto.LogEntry;
-import org.apache.bifromq.basekv.raft.proto.RaftMessage;
-import org.apache.bifromq.basekv.raft.proto.RaftNodeStatus;
-import org.apache.bifromq.logger.SiftLogger;
 import com.google.protobuf.ByteString;
 import io.micrometer.core.instrument.Gauge;
 import io.micrometer.core.instrument.Metrics;
@@ -49,6 +41,14 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 import lombok.NonNull;
+import org.apache.bifromq.basekv.raft.event.RaftEvent;
+import org.apache.bifromq.basekv.raft.event.RaftEventType;
+import org.apache.bifromq.basekv.raft.exception.InternalError;
+import org.apache.bifromq.basekv.raft.proto.ClusterConfig;
+import org.apache.bifromq.basekv.raft.proto.LogEntry;
+import org.apache.bifromq.basekv.raft.proto.RaftMessage;
+import org.apache.bifromq.basekv.raft.proto.RaftNodeStatus;
+import org.apache.bifromq.logger.MDCLogger;
 import org.slf4j.Logger;
 
 public final class RaftNode implements IRaftNode {
@@ -70,7 +70,7 @@ public final class RaftNode implements IRaftNode {
         verifyTags(tags);
         verifyConfig(config);
         verifyStateStore(stateStore);
-        log = SiftLogger.getLogger(RaftNode.class, tags);
+        log = MDCLogger.getLogger(RaftNode.class, tags);
         this.tags = tags;
         this.stateStorage = new MetricMonitoredStateStore(stateStore, Tags.of(tags));
         this.id = stateStorage.local();

@@ -21,7 +21,6 @@ import "commontype/ClientInfo.proto";
 import "subbroker/type.proto";
 import "inboxservice/InboxFetched.proto";
 import "inboxservice/LWT.proto";
-import "inboxservice/Replica.proto";
 import "inboxservice/TopicFilterOption.proto";
 import "inboxservice/InboxStoreCoProc.proto";
 

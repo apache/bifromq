@@ -54,7 +54,7 @@ BIN_DIR="$BASE_DIR/bin"
 CONF_DIR="$BASE_DIR/conf"
 CONF_FILE="$CONF_DIR/$FILE_NAME"
 PLUGIN_DIR="$BASE_DIR/plugins"
-LOG_CONF_FILE="$CONF_DIR/logback.xml"
+LOG_CONF_FILE="$CONF_DIR/log4j2.xml"
 LIB_DIR="$BASE_DIR/lib"
 CLASSPATH=$(echo "$LIB_DIR/*")
 
@@ -204,7 +204,7 @@ if [ "x$FOREGROUND_MODE" = "xtrue" ]; then
     -DLOG_DIR="$LOG_DIR" \
     -DCONF_DIR="$CONF_DIR" \
     -DDATA_DIR="$DATA_DIR" \
-    -Dlogback.configurationFile="$LOG_CONF_FILE" \
+    -Dlog4j.configurationFile="$LOG_CONF_FILE" \
     -Dpf4j.pluginsDir="$PLUGIN_DIR" \
     $NAME -c "$CONF_FILE"
 else
@@ -213,7 +213,7 @@ else
     -DLOG_DIR="$LOG_DIR" \
     -DCONF_DIR="$CONF_DIR" \
     -DDATA_DIR="$DATA_DIR" \
-    -Dlogback.configurationFile="$LOG_CONF_FILE" \
+    -Dlog4j.configurationFile="$LOG_CONF_FILE" \
     -Dpf4j.pluginsDir="$PLUGIN_DIR" \
     $NAME -c "$CONF_FILE" >"${LOG_DIR}/stdout.log" 2>&1 </dev/null &
   PIDS=$!

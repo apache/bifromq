@@ -49,7 +49,7 @@ for %%i in ("%BIN_DIR%\..") do @(
 set CONF_DIR=%BASE_DIR%\conf
 set CONF_FILE=%CONF_DIR%\%FILE_NAME%
 set PLUGIN_DIR=%BASE_DIR%\plugins
-set LOG_CONFIG_FILE=%CONF_DIR%\logback.xml
+set LOG_CONFIG_FILE=%CONF_DIR%\log4j2.xml
 set LIB_DIR=%BASE_DIR%\lib
 set CLASSPATH=%LIB_DIR%\*
 
@@ -188,7 +188,7 @@ if "" == "%JVM_DEBUG%" (
       -DCONF_DIR="%CONF_DIR%" ^
       -DDATA_DIR="%DATA_DIR%" ^
       -DBIND_ADDR=%BIND_ADDR% ^
-      -Dlogback.configurationFile="%LOG_CONFIG_FILE%" ^
+      -Dlog4j.configurationFile="%LOG_CONFIG_FILE%" ^
       -Dpf4j.pluginsDir="%PLUGIN_DIR%" ^
        %NAME% ^
       -c "%CONF_FILE%"

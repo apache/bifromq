@@ -1,0 +1,120 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  ~ Licensed to the Apache Software Foundation (ASF) under one
+  ~ or more contributor license agreements.  See the NOTICE file
+  ~ distributed with this work for additional information
+  ~ regarding copyright ownership.  The ASF licenses this file
+  ~ to you under the Apache License, Version 2.0 (the
+  ~ "License"); you may not use this file except in compliance
+  ~ with the License.  You may obtain a copy of the License at
+  ~
+  ~   http://www.apache.org/licenses/LICENSE-2.0
+  ~
+  ~ Unless required by applicable law or agreed to in writing,
+  ~ software distributed under the License is distributed on an
+  ~ "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+  ~ KIND, either express or implied.  See the License for the
+  ~ specific language governing permissions and limitations
+  ~ under the License.
+  -->
+<Configuration monitorInterval="5">
+    #[[
+    <Properties>
+        <Property name="logDir">${sys:LOG_DIR:-${sys:user.dir}}</Property>
+        <Property name="logPattern">%d{yyyy-MM-dd HH:mm:ss.SSS} %5p %pid [%t] --- %-40.40c{39}[%F:%L] %m%n</Property>
+    </Properties>
+    ]]#
+    <Appenders>
+        <RollingFile name="stdoutFile"
+                     fileName="#[[${logDir}]]#/plugin/${pluginName}/stdout.log"
+                     filePattern="#[[${logDir}]]#/plugin/${pluginName}/stdout.%d{yyyy-MM-dd_HH}.log">
+            <PatternLayout pattern="#[[${logPattern}]]#"/>
+            <Policies>
+                <TimeBasedTriggeringPolicy interval="1" modulate="true"/>
+            </Policies>
+            <DefaultRolloverStrategy max="7"/>
+            <Filters>
+                <LevelMatchFilter level="INFO" onMatch="ACCEPT" onMismatch="DENY"/>
+            </Filters>
+        </RollingFile>
+
+        <RollingFile name="traceLogFile"
+                     fileName="#[[${logDir}]]#/plugin/${pluginName}/trace.log"
+                     filePattern="#[[${logDir}]]#/plugin/${pluginName}/trace.%d{yyyy-MM-dd_HH}.log">
+            <PatternLayout pattern="#[[${logPattern}]]#"/>
+            <Policies>
+                <TimeBasedTriggeringPolicy interval="1" modulate="true"/>
+            </Policies>
+            <DefaultRolloverStrategy max="7"/>
+            <Filters>
+                <LevelMatchFilter level="TRACE" onMatch="ACCEPT" onMismatch="DENY"/>
+            </Filters>
+        </RollingFile>
+
+        <RollingFile name="debugLogFile"
+                     fileName="#[[${logDir}]]#/plugin/${pluginName}/debug.log"
+                     filePattern="#[[${logDir}]]#/plugin/${pluginName}/debug.%d{yyyy-MM-dd_HH}.log">
+            <PatternLayout pattern="#[[${logPattern}]]#"/>
+            <Policies>
+                <TimeBasedTriggeringPolicy interval="1" modulate="true"/>
+            </Policies>
+            <DefaultRolloverStrategy max="7"/>
+            <Filters>
+                <LevelMatchFilter level="DEBUG" onMatch="ACCEPT" onMismatch="DENY"/>
+            </Filters>
+        </RollingFile>
+
+        <RollingFile name="infoLogFile"
+                     fileName="#[[${logDir}]]#/plugin/${pluginName}/info.log"
+                     filePattern="#[[${logDir}]]#/plugin/${pluginName}/info.%d{yyyy-MM-dd_HH}.log">
+            <PatternLayout pattern="#[[${logPattern}]]#"/>
+            <Policies>
+                <TimeBasedTriggeringPolicy interval="1" modulate="true"/>
+            </Policies>
+            <DefaultRolloverStrategy max="7"/>
+            <Filters>
+                <LevelMatchFilter level="INFO" onMatch="ACCEPT" onMismatch="DENY"/>
+            </Filters>
+        </RollingFile>
+
+        <RollingFile name="warnLogFile"
+                     fileName="#[[${logDir}]]#/plugin/${pluginName}/warn.log"
+                     filePattern="#[[${logDir}]]#/plugin/${pluginName}/trace.%d{yyyy-MM-dd_HH}.log">
+            <PatternLayout pattern="#[[${logPattern}]]#"/>
+            <Policies>
+                <TimeBasedTriggeringPolicy interval="1" modulate="true"/>
+            </Policies>
+            <DefaultRolloverStrategy max="7"/>
+            <Filters>
+                <LevelMatchFilter level="WARN" onMatch="ACCEPT" onMismatch="DENY"/>
+            </Filters>
+        </RollingFile>
+
+        <RollingFile name="errorLogFile"
+                     fileName="#[[${logDir}]]#/plugin/${pluginName}/error.log"
+                     filePattern="#[[${logDir}]]#/plugin/${pluginName}/error.%d{yyyy-MM-dd_HH}.log">
+            <PatternLayout pattern="#[[${logPattern}]]#"/>
+            <Policies>
+                <TimeBasedTriggeringPolicy interval="1" modulate="true"/>
+            </Policies>
+            <DefaultRolloverStrategy max="7"/>
+            <Filters>
+                <LevelMatchFilter level="ERROR" onMatch="ACCEPT" onMismatch="DENY"/>
+            </Filters>
+        </RollingFile>
+    </Appenders>
+
+    <Loggers>
+        <Logger name="${groupId}" level="info" additivity="false">
+            <AppenderRef ref="traceLogFile"/>
+            <AppenderRef ref="debugLogFile"/>
+            <AppenderRef ref="infoLogFile"/>
+            <AppenderRef ref="warnLogFile"/>
+            <AppenderRef ref="errorLogFile"/>
+        </Logger>
+
+        <Root level="info">
+            <AppenderRef ref="stdoutFile"/>
+        </Root>
+    </Loggers>
+</Configuration>

@@ -19,14 +19,10 @@
 
 package org.apache.bifromq.basecrdt.store;
 
-import static org.apache.bifromq.basecrdt.util.Formatter.toStringifiable;
+import static org.apache.bifromq.basecrdt.util.Formatter.print;
+import static org.apache.bifromq.basecrdt.util.Formatter.toPrintable;
 import static org.apache.bifromq.basecrdt.util.ProtoUtil.to;
 
-import org.apache.bifromq.basecrdt.ReplicaLogger;
-import org.apache.bifromq.basecrdt.core.api.ICausalCRDTInflater;
-import org.apache.bifromq.basecrdt.store.proto.AckMessage;
-import org.apache.bifromq.basecrdt.store.proto.DeltaMessage;
-import org.apache.bifromq.basehlc.HLC;
 import com.google.protobuf.ByteString;
 import io.micrometer.core.instrument.Counter;
 import io.reactivex.rxjava3.disposables.CompositeDisposable;
@@ -38,6 +34,11 @@ import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import org.apache.bifromq.basecrdt.core.api.ICausalCRDTInflater;
+import org.apache.bifromq.basecrdt.store.proto.AckMessage;
+import org.apache.bifromq.basecrdt.store.proto.DeltaMessage;
+import org.apache.bifromq.basehlc.HLC;
+import org.apache.bifromq.logger.MDCLogger;
 import org.slf4j.Logger;
 
 final class AntiEntropy {
@@ -65,7 +66,8 @@ final class AntiEntropy {
     private long currentInflationTs;
     private DeltaMessage currentDelta = null;
 
-    AntiEntropy(ByteString localAddr,
+    AntiEntropy(String storeId,
+                ByteString localAddr,
                 ByteString neighborAddr,
                 ICausalCRDTInflater<?, ?> crdtInflater,
                 Subject<NeighborMessage> neighborMessageSubject,
@@ -73,7 +75,7 @@ final class AntiEntropy {
                 int maxEventsInDelta,
                 Counter deltaMsgCounter,
                 Counter deltaMsgBytesCounter) {
-        this.log = new ReplicaLogger(crdtInflater.id(), AntiEntropy.class);
+        this.log = MDCLogger.getLogger(AntiEntropy.class, "store", storeId, "replica", print(crdtInflater.id()));
         this.crdtInflater = crdtInflater;
         this.localAddr = localAddr;
         this.neighborAddr = neighborAddr;
@@ -140,7 +142,7 @@ final class AntiEntropy {
     void cancel() {
         if (canceled.compareAndSet(false, true)) {
             log.debug("Local[{}] cancel anti-entropy to neighbor[{}] ",
-                toStringifiable(localAddr), toStringifiable(neighborAddr));
+                toPrintable(localAddr), toPrintable(neighborAddr));
             disposable.dispose();
             canceled.set(true);
             synchronized (this) {
@@ -158,7 +160,7 @@ final class AntiEntropy {
         }
         if (running.compareAndSet(false, true)) {
             log.debug("Local[{}] start anti-entropy to neighbor[{}]",
-                toStringifiable(localAddr), toStringifiable(neighborAddr));
+                toPrintable(localAddr), toPrintable(neighborAddr));
             executor.execute(this::run);
         }
     }
@@ -186,7 +188,7 @@ final class AntiEntropy {
                         synchronized (this) {
                             if (e != null) {
                                 log.error("Local[{}] failed to calculate delta for neighbor[{}]",
-                                    toStringifiable(localAddr), toStringifiable(neighborAddr), e);
+                                    toPrintable(localAddr), toPrintable(neighborAddr), e);
                                 running.set(false);
                                 return;
                             }
@@ -216,7 +218,7 @@ final class AntiEntropy {
 
     private void send(DeltaMessage deltaMessage) {
         log.trace("Local[{}] send delta to neighbor[{}]:\n{}",
-            toStringifiable(localAddr), toStringifiable(neighborAddr), deltaMessage);
+            toPrintable(localAddr), toPrintable(neighborAddr), toPrintable(deltaMessage));
         neighborMessageSubject.onNext(new NeighborMessage(deltaMessage, neighborAddr));
         // Schedule timer task for resend
         scheduleResend(deltaMessage);
@@ -236,7 +238,7 @@ final class AntiEntropy {
         synchronized (this) {
             if (currentDelta == toResend) {
                 log.trace("Local[{}] resend delta to neighbor[{}]:\n{}",
-                    toStringifiable(localAddr), toStringifiable(neighborAddr), toResend);
+                    toPrintable(localAddr), toPrintable(neighborAddr), toPrintable(toResend));
                 deltaMsgCounter.increment(1D);
                 deltaMsgBytesCounter.increment(currentDelta.getSerializedSize());
                 neighborMessageSubject.onNext(new NeighborMessage(currentDelta, neighborAddr));
@@ -244,7 +246,7 @@ final class AntiEntropy {
                     scheduleResend(toResend);
                 } else {
                     log.debug("Local[{}] resend delta to neighbor[{}] exceed max resend count, try probing",
-                        toStringifiable(localAddr), toStringifiable(neighborAddr));
+                        toPrintable(localAddr), toPrintable(neighborAddr));
                     // reset neighbor ver so that we can probe the neighbor's history
                     neighborVer = 0;
                     currentDelta = null;

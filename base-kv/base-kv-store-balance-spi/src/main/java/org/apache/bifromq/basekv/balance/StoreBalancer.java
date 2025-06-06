@@ -19,10 +19,10 @@
 
 package org.apache.bifromq.basekv.balance;
 
-import org.apache.bifromq.basekv.proto.KVRangeStoreDescriptor;
-import org.apache.bifromq.logger.SiftLogger;
 import com.google.protobuf.Struct;
 import java.util.Set;
+import org.apache.bifromq.basekv.proto.KVRangeStoreDescriptor;
+import org.apache.bifromq.logger.MDCLogger;
 import org.slf4j.Logger;
 
 /**
@@ -40,7 +40,7 @@ public abstract class StoreBalancer {
      * @param localStoreId the id of the store which the balancer is responsible for
      */
     public StoreBalancer(String clusterId, String localStoreId) {
-        this.log = SiftLogger.getLogger("balancer.logger", "clusterId", clusterId, "storeId", localStoreId);
+        this.log = MDCLogger.getLogger("balancer.logger", "clusterId", clusterId, "storeId", localStoreId);
         this.clusterId = clusterId;
         this.localStoreId = localStoreId;
     }

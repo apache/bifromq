@@ -21,6 +21,21 @@ package org.apache.bifromq.basekv.store.wal;
 
 import static java.util.Collections.emptyMap;
 
+import com.google.common.annotations.VisibleForTesting;
+import com.google.protobuf.ByteString;
+import io.reactivex.rxjava3.core.Observable;
+import io.reactivex.rxjava3.subjects.BehaviorSubject;
+import io.reactivex.rxjava3.subjects.PublishSubject;
+import java.util.Iterator;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import java.util.Set;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.Executor;
+import java.util.concurrent.atomic.AtomicLong;
+import java.util.function.Predicate;
+import lombok.SneakyThrows;
 import org.apache.bifromq.baseenv.EnvProvider;
 import org.apache.bifromq.baseenv.ZeroCopyParser;
 import org.apache.bifromq.basekv.proto.KVRangeCommand;
@@ -42,22 +57,7 @@ import org.apache.bifromq.basekv.raft.proto.RaftNodeStatus;
 import org.apache.bifromq.basekv.raft.proto.RaftNodeSyncState;
 import org.apache.bifromq.basekv.store.exception.KVRangeException;
 import org.apache.bifromq.basekv.utils.KVRangeIdUtil;
-import org.apache.bifromq.logger.SiftLogger;
-import com.google.common.annotations.VisibleForTesting;
-import com.google.protobuf.ByteString;
-import io.reactivex.rxjava3.core.Observable;
-import io.reactivex.rxjava3.subjects.BehaviorSubject;
-import io.reactivex.rxjava3.subjects.PublishSubject;
-import java.util.Iterator;
-import java.util.List;
-import java.util.Map;
-import java.util.Optional;
-import java.util.Set;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.Executor;
-import java.util.concurrent.atomic.AtomicLong;
-import java.util.function.Predicate;
-import lombok.SneakyThrows;
+import org.apache.bifromq.logger.MDCLogger;
 import org.slf4j.Logger;
 
 public class KVRangeWAL implements IKVRangeWAL, IRaftNode.ISnapshotInstaller {
@@ -90,7 +90,7 @@ public class KVRangeWAL implements IKVRangeWAL, IRaftNode.ISnapshotInstaller {
         this.walStore = walStore;
         tags =
             new String[] {"clusterId", clusterId, "storeId", localId, "rangeId", KVRangeIdUtil.toString(rangeId)};
-        log = SiftLogger.getLogger(KVRangeWAL.class, tags);
+        log = MDCLogger.getLogger(KVRangeWAL.class, tags);
         raftNode = new RaftNode(raftConfig, walStore,
             EnvProvider.INSTANCE.newThreadFactory("wal-raft-executor-" + KVRangeIdUtil.toString(rangeId)), tags);
     }

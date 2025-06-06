@@ -21,6 +21,12 @@ package org.apache.bifromq.basekv.server;
 
 import static org.apache.bifromq.base.util.CompletableFutureUtil.unwrap;
 
+import io.grpc.stub.StreamObserver;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionStage;
+import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.function.Function;
 import org.apache.bifromq.basekv.raft.exception.ReadIndexException;
 import org.apache.bifromq.basekv.store.IKVRangeStore;
 import org.apache.bifromq.basekv.store.exception.KVRangeException;
@@ -30,13 +36,7 @@ import org.apache.bifromq.basekv.store.proto.KVRangeRORequest;
 import org.apache.bifromq.basekv.store.proto.NullableValue;
 import org.apache.bifromq.basekv.store.proto.ReplyCode;
 import org.apache.bifromq.baserpc.server.ResponsePipeline;
-import org.apache.bifromq.logger.SiftLogger;
-import io.grpc.stub.StreamObserver;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.CompletionStage;
-import java.util.concurrent.ConcurrentLinkedQueue;
-import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.function.Function;
+import org.apache.bifromq.logger.MDCLogger;
 import org.slf4j.Logger;
 
 class QueryPipeline extends ResponsePipeline<KVRangeRORequest, KVRangeROReply> {
@@ -52,7 +52,7 @@ class QueryPipeline extends ResponsePipeline<KVRangeRORequest, KVRangeROReply> {
         super(responseObserver);
         this.linearized = linearized;
         this.kvRangeStore = kvRangeStore;
-        this.log = SiftLogger.getLogger(QueryPipeline.class, "clusterId", kvRangeStore.clusterId(), "storeId",
+        this.log = MDCLogger.getLogger(QueryPipeline.class, "clusterId", kvRangeStore.clusterId(), "storeId",
             kvRangeStore.id());
     }
 

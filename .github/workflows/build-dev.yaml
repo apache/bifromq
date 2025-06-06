@@ -1,6 +1,10 @@
-name: Dev-Build
+name: Build and Test BifroMQ
 
 on:
+  workflow_dispatch:
+  pull_request:
+    branches:
+      - 'main'
   push:
     branches:
       - 'main'
@@ -10,7 +14,18 @@ on:
       - 'bugfix-**'
       - 'fix-**'
 jobs:
+  check-license:
+    name: "Check License"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check License Header
+        uses: apache/skywalking-eyes/header@main
+      - name: Check Dependencies' License
+        uses: apache/skywalking-eyes/dependency@main
   build:
+    name: "Build BifroMQ"
+    needs: check-license
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -24,7 +39,3 @@ jobs:
         run: mvn install -pl testsuites -am
       - name: Build with Maven
         run: mvn clean verify -P build
-      - name: Check License Header
-        uses: apache/skywalking-eyes/header@main
-      - name: Check Dependencies' License
-        uses: apache/skywalking-eyes/dependency@main

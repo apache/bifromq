@@ -112,7 +112,7 @@
         <jackson.dataformat.version>2.18.1</jackson.dataformat.version>
         <jakarta.ws.rs-api.version>4.0.0</jakarta.ws.rs-api.version>
         <lombok.version>1.18.34</lombok.version>
-        <logback.version>1.5.18</logback.version>
+        <log4j.version>2.24.3</log4j.version>
         <micrometer.version>1.11.12</micrometer.version>
         <netty.version>4.1.121.Final</netty.version>
         <pcollections.version>4.0.2</pcollections.version>
@@ -573,6 +573,24 @@
                 <version>${apache.commons.collections.version}</version>
             </dependency>
             <dependency>
+                <groupId>org.apache.logging.log4j</groupId>
+                <artifactId>log4j-api</artifactId>
+                <version>${log4j.version}</version>
+                <scope>runtime</scope>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.logging.log4j</groupId>
+                <artifactId>log4j-core</artifactId>
+                <version>${log4j.version}</version>
+                <scope>runtime</scope>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.logging.log4j</groupId>
+                <artifactId>log4j-slf4j2-impl</artifactId>
+                <version>${log4j.version}</version>
+                <scope>runtime</scope>
+            </dependency>
+            <dependency>
                 <groupId>com.fasterxml.jackson.core</groupId>
                 <artifactId>jackson-databind</artifactId>
                 <version>${jackson.dataformat.version}</version>
@@ -669,11 +687,6 @@
                 <groupId>io.micrometer</groupId>
                 <artifactId>micrometer-registry-prometheus</artifactId>
                 <version>${micrometer.version}</version>
-            </dependency>
-            <dependency>
-                <groupId>ch.qos.logback</groupId>
-                <artifactId>logback-classic</artifactId>
-                <version>${logback.version}</version>
             </dependency>
             <!-- doc gen-->
             <dependency>

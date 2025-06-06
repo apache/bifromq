@@ -19,14 +19,6 @@
 
 package org.apache.bifromq.basekv.store.range;
 
-import org.apache.bifromq.base.util.AsyncRunner;
-import org.apache.bifromq.baseenv.EnvProvider;
-import org.apache.bifromq.basekv.proto.KVPair;
-import org.apache.bifromq.basekv.proto.KVRangeMessage;
-import org.apache.bifromq.basekv.proto.SaveSnapshotDataReply;
-import org.apache.bifromq.basekv.proto.SaveSnapshotDataRequest;
-import org.apache.bifromq.basekv.proto.SnapshotSyncRequest;
-import org.apache.bifromq.logger.SiftLogger;
 import com.google.common.util.concurrent.RateLimiter;
 import io.micrometer.core.instrument.Metrics;
 import io.micrometer.core.instrument.Tags;
@@ -41,6 +33,14 @@ import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import org.apache.bifromq.base.util.AsyncRunner;
+import org.apache.bifromq.baseenv.EnvProvider;
+import org.apache.bifromq.basekv.proto.KVPair;
+import org.apache.bifromq.basekv.proto.KVRangeMessage;
+import org.apache.bifromq.basekv.proto.SaveSnapshotDataReply;
+import org.apache.bifromq.basekv.proto.SaveSnapshotDataRequest;
+import org.apache.bifromq.basekv.proto.SnapshotSyncRequest;
+import org.apache.bifromq.logger.MDCLogger;
 import org.slf4j.Logger;
 
 class KVRangeDumpSession {
@@ -80,7 +80,7 @@ class KVRangeDumpSession {
         this.maxIdleDuration = maxIdleDuration;
         this.recorder = recorder;
         rateLimiter = RateLimiter.create(bandwidth);
-        this.log = SiftLogger.getLogger(KVRangeDumpSession.class, tags);
+        this.log = MDCLogger.getLogger(KVRangeDumpSession.class, tags);
         if (!request.getSnapshot().hasCheckpointId()) {
             messenger.send(KVRangeMessage.newBuilder()
                 .setRangeId(request.getSnapshot().getId())

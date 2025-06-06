@@ -17,8 +17,9 @@
  * under the License.
  */
 
-package $
+package ${package};
 
+import org.apache.bifromq.plugin.BifroMQPluginContext;
 import org.apache.bifromq.plugin.BifroMQPluginDescriptor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;

@@ -21,16 +21,6 @@ package org.apache.bifromq.basecrdt.service;
 
 import static java.util.concurrent.Executors.newSingleThreadExecutor;
 
-import org.apache.bifromq.basecluster.IAgentHost;
-import org.apache.bifromq.basecluster.membership.proto.HostEndpoint;
-import org.apache.bifromq.basecrdt.core.api.CRDTURI;
-import org.apache.bifromq.basecrdt.core.api.ICRDTOperation;
-import org.apache.bifromq.basecrdt.core.api.ICausalCRDT;
-import org.apache.bifromq.basecrdt.proto.Replica;
-import org.apache.bifromq.basecrdt.store.ICRDTStore;
-import org.apache.bifromq.basecrdt.store.proto.CRDTStoreMessage;
-import org.apache.bifromq.baseenv.EnvProvider;
-import org.apache.bifromq.logger.FormatableLogger;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Maps;
 import com.google.protobuf.ByteString;
@@ -45,15 +35,20 @@ import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.atomic.AtomicReference;
+import org.apache.bifromq.basecluster.IAgentHost;
+import org.apache.bifromq.basecluster.membership.proto.HostEndpoint;
+import org.apache.bifromq.basecrdt.core.api.CRDTURI;
+import org.apache.bifromq.basecrdt.core.api.ICRDTOperation;
+import org.apache.bifromq.basecrdt.core.api.ICausalCRDT;
+import org.apache.bifromq.basecrdt.proto.Replica;
+import org.apache.bifromq.basecrdt.store.ICRDTStore;
+import org.apache.bifromq.basecrdt.store.proto.CRDTStoreMessage;
+import org.apache.bifromq.baseenv.EnvProvider;
+import org.apache.bifromq.logger.MDCLogger;
 import org.slf4j.Logger;
 
 public class CRDTService implements ICRDTService {
-    private static final Logger log = FormatableLogger.getLogger(CRDTService.class);
-
-    private enum State {
-        INIT, STARTING, STARTED, STOPPING, SHUTDOWN
-    }
-
+    private final Logger log;
     private final ICRDTStore store;
     private final IAgentHost agentHost;
     private final AtomicReference<State> state = new AtomicReference<>(State.INIT);
@@ -63,8 +58,8 @@ public class CRDTService implements ICRDTService {
         newSingleThreadExecutor(EnvProvider.INSTANCE.newThreadFactory("crdt-service-scheduler"));
     private final Scheduler scheduler = Schedulers.from(executor);
 
-
     public CRDTService(IAgentHost agentHost, CRDTServiceOptions options) {
+        this.log = MDCLogger.getLogger(CRDTService.class, "store", options.storeOptions.id());
         this.agentHost = agentHost;
         store = ICRDTStore.newInstance(options.storeOptions);
         incomingStoreMessages = PublishSubject.<CRDTStoreMessage>create().toSerialized();
@@ -152,5 +147,9 @@ public class CRDTService implements ICRDTService {
 
     private void checkState() {
         Preconditions.checkState(state.get() == State.STARTED, "Not started");
+    }
+
+    private enum State {
+        INIT, STARTING, STARTED, STOPPING, SHUTDOWN
     }
 }

@@ -17,8 +17,9 @@
  * under the License.
  */
 
-package $
+package ${package};
 
+import org.apache.bifromq.plugin.authprovider.IAuthProvider;
 import org.apache.bifromq.plugin.authprovider.type.CheckResult;
 import org.apache.bifromq.plugin.authprovider.type.Error;
 import org.apache.bifromq.plugin.authprovider.type.Failed;

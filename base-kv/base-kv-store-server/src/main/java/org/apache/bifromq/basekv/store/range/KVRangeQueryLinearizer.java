@@ -19,7 +19,6 @@
 
 package org.apache.bifromq.basekv.store.range;
 
-import org.apache.bifromq.logger.SiftLogger;
 import com.google.common.collect.Maps;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
@@ -29,6 +28,7 @@ import java.util.concurrent.Executor;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Supplier;
 import lombok.AllArgsConstructor;
+import org.apache.bifromq.logger.MDCLogger;
 import org.slf4j.Logger;
 
 class KVRangeQueryLinearizer implements IKVRangeQueryLinearizer {
@@ -45,7 +45,7 @@ class KVRangeQueryLinearizer implements IKVRangeQueryLinearizer {
         this.readIndexProvider = readIndexProvider;
         this.executor = executor;
         this.lastAppliedIndex = lastAppliedIndex;
-        this.log = SiftLogger.getLogger(KVRangeQueryLinearizer.class, tags);
+        this.log = MDCLogger.getLogger(KVRangeQueryLinearizer.class, tags);
     }
 
     @Override

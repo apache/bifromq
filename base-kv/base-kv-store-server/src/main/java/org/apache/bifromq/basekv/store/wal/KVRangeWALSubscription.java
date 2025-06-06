@@ -19,11 +19,6 @@
 
 package org.apache.bifromq.basekv.store.wal;
 
-import org.apache.bifromq.base.util.AsyncRunner;
-import org.apache.bifromq.basekv.proto.KVRangeSnapshot;
-import org.apache.bifromq.basekv.raft.proto.LogEntry;
-import org.apache.bifromq.basekv.utils.KVRangeIdUtil;
-import org.apache.bifromq.logger.SiftLogger;
 import io.reactivex.rxjava3.core.Observable;
 import io.reactivex.rxjava3.disposables.CompositeDisposable;
 import java.util.concurrent.CompletableFuture;
@@ -31,6 +26,11 @@ import java.util.concurrent.Executor;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Supplier;
+import org.apache.bifromq.base.util.AsyncRunner;
+import org.apache.bifromq.basekv.proto.KVRangeSnapshot;
+import org.apache.bifromq.basekv.raft.proto.LogEntry;
+import org.apache.bifromq.basekv.utils.KVRangeIdUtil;
+import org.apache.bifromq.logger.MDCLogger;
 import org.slf4j.Logger;
 
 class KVRangeWALSubscription implements IKVRangeWALSubscription {
@@ -54,7 +54,7 @@ class KVRangeWALSubscription implements IKVRangeWALSubscription {
                            IKVRangeWALSubscriber subscriber,
                            Executor executor,
                            String... tags) {
-        this.log = SiftLogger.getLogger(KVRangeWALSubscription.class, tags);
+        this.log = MDCLogger.getLogger(KVRangeWALSubscription.class, tags);
         this.maxFetchBytes = maxFetchBytes;
         this.wal = wal;
         this.executor = executor;

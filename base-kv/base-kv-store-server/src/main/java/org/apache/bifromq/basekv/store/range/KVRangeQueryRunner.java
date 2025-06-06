@@ -19,22 +19,12 @@
 
 package org.apache.bifromq.basekv.store.range;
 
+import static java.util.concurrent.CompletableFuture.completedFuture;
 import static org.apache.bifromq.basekv.proto.State.StateType.Merged;
 import static org.apache.bifromq.basekv.proto.State.StateType.Removed;
 import static org.apache.bifromq.basekv.proto.State.StateType.ToBePurged;
 import static org.apache.bifromq.basekv.store.util.VerUtil.boundaryCompatible;
-import static java.util.concurrent.CompletableFuture.completedFuture;
 
-import org.apache.bifromq.basekv.proto.KVRangeDescriptor;
-import org.apache.bifromq.basekv.proto.State;
-import org.apache.bifromq.basekv.store.api.IKVLoadRecord;
-import org.apache.bifromq.basekv.store.api.IKVRangeCoProc;
-import org.apache.bifromq.basekv.store.api.IKVRangeSplitHinter;
-import org.apache.bifromq.basekv.store.api.IKVReader;
-import org.apache.bifromq.basekv.store.exception.KVRangeException;
-import org.apache.bifromq.basekv.store.proto.ROCoProcInput;
-import org.apache.bifromq.basekv.store.proto.ROCoProcOutput;
-import org.apache.bifromq.logger.SiftLogger;
 import com.google.common.collect.Sets;
 import com.google.protobuf.ByteString;
 import java.util.List;
@@ -45,6 +35,16 @@ import java.util.concurrent.Executor;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.locks.StampedLock;
 import java.util.function.Supplier;
+import org.apache.bifromq.basekv.proto.KVRangeDescriptor;
+import org.apache.bifromq.basekv.proto.State;
+import org.apache.bifromq.basekv.store.api.IKVLoadRecord;
+import org.apache.bifromq.basekv.store.api.IKVRangeCoProc;
+import org.apache.bifromq.basekv.store.api.IKVRangeSplitHinter;
+import org.apache.bifromq.basekv.store.api.IKVReader;
+import org.apache.bifromq.basekv.store.exception.KVRangeException;
+import org.apache.bifromq.basekv.store.proto.ROCoProcInput;
+import org.apache.bifromq.basekv.store.proto.ROCoProcOutput;
+import org.apache.bifromq.logger.MDCLogger;
 import org.slf4j.Logger;
 
 class KVRangeQueryRunner implements IKVRangeQueryRunner {
@@ -74,7 +74,7 @@ class KVRangeQueryRunner implements IKVRangeQueryRunner {
         this.queryLock = queryLock;
         this.splitHinters = splitHinters;
         this.latestStatusSupplier = latestStatusSupplier;
-        this.log = SiftLogger.getLogger(KVRangeQueryRunner.class, tags);
+        this.log = MDCLogger.getLogger(KVRangeQueryRunner.class, tags);
     }
 
     // Execute a ROCommand

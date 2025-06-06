@@ -19,14 +19,6 @@
 
 package org.apache.bifromq.basekv.store.range;
 
-import org.apache.bifromq.basekv.proto.KVPair;
-import org.apache.bifromq.basekv.proto.KVRangeMessage;
-import org.apache.bifromq.basekv.proto.KVRangeSnapshot;
-import org.apache.bifromq.basekv.proto.SaveSnapshotDataReply;
-import org.apache.bifromq.basekv.proto.SaveSnapshotDataRequest;
-import org.apache.bifromq.basekv.proto.SnapshotSyncRequest;
-import org.apache.bifromq.basekv.store.exception.KVRangeStoreException;
-import org.apache.bifromq.logger.SiftLogger;
 import io.reactivex.rxjava3.annotations.NonNull;
 import io.reactivex.rxjava3.observers.DisposableObserver;
 import io.reactivex.rxjava3.schedulers.Schedulers;
@@ -35,6 +27,14 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
+import org.apache.bifromq.basekv.proto.KVPair;
+import org.apache.bifromq.basekv.proto.KVRangeMessage;
+import org.apache.bifromq.basekv.proto.KVRangeSnapshot;
+import org.apache.bifromq.basekv.proto.SaveSnapshotDataReply;
+import org.apache.bifromq.basekv.proto.SaveSnapshotDataRequest;
+import org.apache.bifromq.basekv.proto.SnapshotSyncRequest;
+import org.apache.bifromq.basekv.store.exception.KVRangeStoreException;
+import org.apache.bifromq.logger.MDCLogger;
 import org.slf4j.Logger;
 
 class KVRangeRestorer {
@@ -58,7 +58,7 @@ class KVRangeRestorer {
         this.metricManager = metricManager;
         this.executor = executor;
         this.idleTimeSec = idleTimeSec;
-        this.log = SiftLogger.getLogger(KVRangeRestorer.class, tags);
+        this.log = MDCLogger.getLogger(KVRangeRestorer.class, tags);
         RestoreSession initialSession = new RestoreSession(startSnapshot);
         initialSession.doneFuture.complete(null);
         currentSession.set(initialSession);

@@ -14,28 +14,15 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 
 package org.apache.bifromq.basecrdt.store;
 
 import static org.apache.bifromq.basecrdt.store.MessagePayloadUtil.compressToPayload;
 import static org.apache.bifromq.basecrdt.store.MessagePayloadUtil.decompress;
-import static org.apache.bifromq.basecrdt.util.Formatter.toStringifiable;
+import static org.apache.bifromq.basecrdt.util.Formatter.toPrintable;
 
-import org.apache.bifromq.basecrdt.core.api.ICRDTOperation;
-import org.apache.bifromq.basecrdt.core.api.ICausalCRDT;
-import org.apache.bifromq.basecrdt.core.exception.CRDTNotFoundException;
-import org.apache.bifromq.basecrdt.core.internal.CausalCRDTInflaterFactory;
-import org.apache.bifromq.basecrdt.proto.Replica;
-import org.apache.bifromq.basecrdt.store.compressor.Compressor;
-import org.apache.bifromq.basecrdt.store.proto.AckMessage;
-import org.apache.bifromq.basecrdt.store.proto.CRDTStoreMessage;
-import org.apache.bifromq.basecrdt.store.proto.DeltaMessage;
-import org.apache.bifromq.basecrdt.store.proto.MessagePayload;
-import org.apache.bifromq.basecrdt.util.Formatter;
-import org.apache.bifromq.logger.FormatableLogger;
-import org.apache.bifromq.logger.LogFormatter;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Maps;
 import com.google.protobuf.ByteString;
@@ -53,38 +40,19 @@ import java.util.TreeSet;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.atomic.AtomicReference;
+import org.apache.bifromq.basecrdt.core.api.ICRDTOperation;
+import org.apache.bifromq.basecrdt.core.api.ICausalCRDT;
+import org.apache.bifromq.basecrdt.core.exception.CRDTNotFoundException;
+import org.apache.bifromq.basecrdt.core.internal.CausalCRDTInflaterFactory;
+import org.apache.bifromq.basecrdt.proto.Replica;
+import org.apache.bifromq.basecrdt.store.compressor.Compressor;
+import org.apache.bifromq.basecrdt.store.proto.CRDTStoreMessage;
+import org.apache.bifromq.basecrdt.store.proto.MessagePayload;
+import org.apache.bifromq.logger.MDCLogger;
 import org.slf4j.Logger;
 
 class CRDTStore implements ICRDTStore {
-    static {
-        LogFormatter.setStringifier(Replica.class, Formatter::toString);
-        LogFormatter.setStringifier(DeltaMessage.class, Formatter::toString);
-        LogFormatter.setStringifier(AckMessage.class, Formatter::toString);
-        LogFormatter.setStringifier(CRDTStoreMessage.class, Formatter::toString);
-    }
-
-    private class MetricManager {
-        final Gauge objectNumGauge;
-
-
-        MetricManager(Tags tags) {
-            objectNumGauge = Gauge.builder("basecrdt.objectnum", CRDTStore.this,
-                    r -> r.antiEntroyMgrs.values().size())
-                .tags(tags)
-                .register(Metrics.globalRegistry);
-
-        }
-
-        void close() {
-            Metrics.globalRegistry.removeByPreFilterId(objectNumGauge.getId());
-        }
-    }
-
-    private enum State {
-        INIT, STARTING, STARTED, STOPPING, STOPPED
-    }
-
-    private static final Logger log = FormatableLogger.getLogger(CRDTStore.class);
+    private final Logger log;
     private final String storeId;
     private final AtomicReference<State> state = new AtomicReference<>(State.INIT);
     private final CRDTStoreOptions options;
@@ -100,6 +68,7 @@ class CRDTStore implements ICRDTStore {
     public CRDTStore(CRDTStoreOptions options) {
         this.options = options;
         this.storeId = options.id();
+        this.log = MDCLogger.getLogger(CRDTStore.class, "store", storeId);
         storeExecutor = options.storeExecutor();
         String[] tags = new String[] {"store.id", storeId};
         inflaterFactory = new CausalCRDTInflaterFactory(
@@ -121,7 +90,8 @@ class CRDTStore implements ICRDTStore {
     public <O extends ICRDTOperation, T extends ICausalCRDT<O>> T host(Replica replicaId, ByteString localAddr) {
         checkState();
         AntiEntropyManager antiEntropyMgr = antiEntroyMgrs.computeIfAbsent(replicaId.getUri(),
-            k -> new AntiEntropyManager(localAddr,
+            k -> new AntiEntropyManager(storeId,
+                localAddr,
                 inflaterFactory.create(replicaId),
                 storeExecutor,
                 options.maxEventsInDelta()));
@@ -213,7 +183,7 @@ class CRDTStore implements ICRDTStore {
             }
         } else {
             log.debug("No anti-entropy manager of crdt[{}] bind to addr[{}], ignore the message from addr[{}]",
-                msg.getUri(), toStringifiable(msg.getReceiver()), toStringifiable(msg.getSender()));
+                msg.getUri(), toPrintable(msg.getReceiver()), toPrintable(msg.getSender()));
         }
     }
 
@@ -223,5 +193,26 @@ class CRDTStore implements ICRDTStore {
 
     private void checkState() {
         Preconditions.checkState(started(), "Not started");
+    }
+
+    private enum State {
+        INIT, STARTING, STARTED, STOPPING, STOPPED
+    }
+
+    private class MetricManager {
+        final Gauge objectNumGauge;
+
+
+        MetricManager(Tags tags) {
+            objectNumGauge = Gauge.builder("basecrdt.objectnum", CRDTStore.this,
+                    r -> r.antiEntroyMgrs.size())
+                .tags(tags)
+                .register(Metrics.globalRegistry);
+
+        }
+
+        void close() {
+            Metrics.globalRegistry.removeByPreFilterId(objectNumGauge.getId());
+        }
     }
 }

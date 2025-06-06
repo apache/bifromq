@@ -23,6 +23,11 @@ import static org.apache.bifromq.base.util.CompletableFutureUtil.unwrap;
 import static org.apache.bifromq.basekv.utils.BoundaryUtil.FULL_BOUNDARY;
 import static org.apache.bifromq.baserpc.server.UnaryResponse.response;
 
+import com.google.common.collect.Sets;
+import io.grpc.stub.StreamObserver;
+import io.reactivex.rxjava3.disposables.CompositeDisposable;
+import lombok.Setter;
+import lombok.experimental.Accessors;
 import org.apache.bifromq.basecluster.IAgentHost;
 import org.apache.bifromq.basekv.metaservice.IBaseKVClusterMetadataManager;
 import org.apache.bifromq.basekv.store.IKVRangeStore;
@@ -48,12 +53,7 @@ import org.apache.bifromq.basekv.store.proto.ReplyCode;
 import org.apache.bifromq.basekv.store.proto.TransferLeadershipReply;
 import org.apache.bifromq.basekv.store.proto.TransferLeadershipRequest;
 import org.apache.bifromq.basekv.utils.KVRangeIdUtil;
-import org.apache.bifromq.logger.SiftLogger;
-import com.google.common.collect.Sets;
-import io.grpc.stub.StreamObserver;
-import io.reactivex.rxjava3.disposables.CompositeDisposable;
-import lombok.Setter;
-import lombok.experimental.Accessors;
+import org.apache.bifromq.logger.MDCLogger;
 import org.slf4j.Logger;
 
 @Accessors(fluent = true)
@@ -77,7 +77,7 @@ class BaseKVStoreService extends BaseKVStoreServiceGrpc.BaseKVStoreServiceImplBa
             builder.attributes);
         this.clusterId = builder.clusterId;
         this.agentHost = builder.agentHost;
-        log = SiftLogger.getLogger(BaseKVStoreService.class, "clusterId", clusterId, "storeId", kvRangeStore.id());
+        log = MDCLogger.getLogger(BaseKVStoreService.class, "clusterId", clusterId, "storeId", kvRangeStore.id());
         metadataManager = builder.serverBuilder.metaService.metadataManager(clusterId);
     }
 

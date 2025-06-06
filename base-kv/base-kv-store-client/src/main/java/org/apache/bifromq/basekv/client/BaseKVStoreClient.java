@@ -19,6 +19,7 @@
 
 package org.apache.bifromq.basekv.client;
 
+import static java.util.Collections.emptyMap;
 import static org.apache.bifromq.basekv.RPCBluePrint.toScopedFullMethodName;
 import static org.apache.bifromq.basekv.RPCServerMetadataUtil.RPC_METADATA_STORE_ID;
 import static org.apache.bifromq.basekv.client.KVRangeRouterUtil.findByBoundary;
@@ -33,8 +34,35 @@ import static org.apache.bifromq.basekv.store.proto.BaseKVStoreServiceGrpc.getSp
 import static org.apache.bifromq.basekv.store.proto.BaseKVStoreServiceGrpc.getTransferLeadershipMethod;
 import static org.apache.bifromq.basekv.utils.DescriptorUtil.getEffectiveEpoch;
 import static org.apache.bifromq.basekv.utils.DescriptorUtil.getEffectiveRoute;
-import static java.util.Collections.emptyMap;
 
+import com.google.common.collect.Maps;
+import com.google.common.collect.Sets;
+import io.grpc.MethodDescriptor;
+import io.micrometer.core.instrument.Metrics;
+import io.micrometer.core.instrument.binder.jvm.ExecutorServiceMetrics;
+import io.reactivex.rxjava3.core.Observable;
+import io.reactivex.rxjava3.core.Scheduler;
+import io.reactivex.rxjava3.disposables.CompositeDisposable;
+import io.reactivex.rxjava3.schedulers.Schedulers;
+import io.reactivex.rxjava3.subjects.BehaviorSubject;
+import io.reactivex.rxjava3.subjects.Subject;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.NavigableMap;
+import java.util.Optional;
+import java.util.Set;
+import java.util.TreeMap;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
+import java.util.stream.IntStream;
 import org.apache.bifromq.baseenv.EnvProvider;
 import org.apache.bifromq.basekv.RPCBluePrint;
 import org.apache.bifromq.basekv.metaservice.IBaseKVClusterMetadataManager;
@@ -68,35 +96,7 @@ import org.apache.bifromq.basekv.utils.LeaderRange;
 import org.apache.bifromq.baserpc.BluePrint;
 import org.apache.bifromq.baserpc.client.IRPCClient;
 import org.apache.bifromq.baserpc.client.exception.ServerNotFoundException;
-import org.apache.bifromq.logger.SiftLogger;
-import com.google.common.collect.Maps;
-import com.google.common.collect.Sets;
-import io.grpc.MethodDescriptor;
-import io.micrometer.core.instrument.Metrics;
-import io.micrometer.core.instrument.binder.jvm.ExecutorServiceMetrics;
-import io.reactivex.rxjava3.core.Observable;
-import io.reactivex.rxjava3.core.Scheduler;
-import io.reactivex.rxjava3.disposables.CompositeDisposable;
-import io.reactivex.rxjava3.schedulers.Schedulers;
-import io.reactivex.rxjava3.subjects.BehaviorSubject;
-import io.reactivex.rxjava3.subjects.Subject;
-import java.util.ArrayList;
-import java.util.Collection;
-import java.util.Collections;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.NavigableMap;
-import java.util.Optional;
-import java.util.Set;
-import java.util.TreeMap;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.LinkedBlockingQueue;
-import java.util.concurrent.ThreadPoolExecutor;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.atomic.AtomicReference;
-import java.util.stream.IntStream;
+import org.apache.bifromq.logger.MDCLogger;
 import org.slf4j.Logger;
 
 final class BaseKVStoreClient implements IBaseKVStoreClient {
@@ -139,7 +139,7 @@ final class BaseKVStoreClient implements IBaseKVStoreClient {
 
     BaseKVStoreClient(BaseKVStoreClientBuilder builder) {
         this.clusterId = builder.clusterId;
-        log = SiftLogger.getLogger(BaseKVStoreClient.class, "clusterId", clusterId);
+        log = MDCLogger.getLogger(BaseKVStoreClient.class, "clusterId", clusterId);
         BluePrint bluePrint = RPCBluePrint.build(clusterId);
         this.bootstrapMethod = bluePrint.methodDesc(
             toScopedFullMethodName(clusterId, getBootstrapMethod().getFullMethodName()));

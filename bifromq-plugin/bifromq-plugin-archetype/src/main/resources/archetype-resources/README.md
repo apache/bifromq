@@ -23,7 +23,7 @@ mvn archetype:generate \
     -Dversion=1.0.0-SNAPSHOT \
     -DpluginName=YourPluginClassName \
     -DpluginContextName=YourPluginContextClassName \
-    -DbifromqVersion=BifroMQVersion
+    -DbifromqVersion=BifroMQVersion \
     -DinteractiveMode=false
 ```
 
@@ -45,7 +45,7 @@ your-plugin-name/
 │   │   └── assembly-zip.xml
 │   ├── conf/      <-- folder to contain plugin configuration files
 │   │   ├── config.yaml <-- plugin configuration file
-│   │   └── logback.xml <-- logback configuration file for the plugin
+│   │   └── log4j2.xml  <-- log4j configuration file for the plugin
 │   ├── src/
 │   │   └── main/
 │   │       └── java/
@@ -68,5 +68,5 @@ your-plugin-name/
 mvn clean package
 ```
 
-The output plugin zip file will be generated in the target directory. Install the plugin by copying the zip file into the BifroMQ plugin folder. Ensure you verify the plugin is loaded correctly by checking the BifroMQ management console or
+The output plugin zip file will be generated in the `target` directory. Install the plugin by copying the zip file into the BifroMQ plugin folder. Ensure you verify the plugin is loaded correctly by checking the BifroMQ management console or
 logs.

@@ -17,25 +17,29 @@
  * under the License.
  */
 
-package $
+package ${package};
 
-import ch.qos.logback.classic.LoggerContext;
-import ch.qos.logback.classic.joran.JoranConfigurator;
+import org.apache.bifromq.plugin.BifroMQPlugin;
 import org.apache.bifromq.plugin.BifroMQPluginDescriptor;
-import java.io.File;
-import java.nio.file.Path;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.core.LoggerContext;
+import org.apache.logging.log4j.core.config.Configurator;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.io.File;
+import java.nio.file.Files;
+import java.nio.file.Path;
+
 public class ${pluginName} extends BifroMQPlugin<${pluginContextName}> {
     private static final Logger log = LoggerFactory.getLogger(${pluginName}.class);
-    private static final String LOGBACK_CONFIG_FILE = "conf/logback.xml";
+    private static final String LOG4J2_CONFIG_FILE = "conf/log4j2.xml";
     private static final String PLUGIN_CONFIG_FILE = "conf/config.yaml";
 
 
     public ${pluginName} (BifroMQPluginDescriptor descriptor){
         super(descriptor);
-        // setup logger context using plugin's logback.xml
+        // setup logger context using plugin's log4j2.xml
         configureLoggerContext(descriptor.getPluginRoot());
         try {
             log.info("TODO: Initialize your plugin using config: {}", findConfigFile(descriptor.getPluginRoot()));
@@ -59,17 +63,21 @@ public class ${pluginName} extends BifroMQPlugin<${pluginContextName}> {
 
     private void configureLoggerContext(Path rootPath) {
         try {
-            LoggerContext context = (LoggerContext) LoggerFactory.getILoggerFactory();
-            File logbackConfig = new File(rootPath.resolve(LOGBACK_CONFIG_FILE).toAbsolutePath().toString());
-            if (logbackConfig.exists()) {
-                JoranConfigurator configurator = new JoranConfigurator();
-                configurator.setContext(context);
-                configurator.doConfigure(logbackConfig);
+            Path configPath = rootPath.resolve(LOG4J2_CONFIG_FILE).toAbsolutePath();
+            File log4jConfig = configPath.toFile();
+            if (log4jConfig.exists()) {
+                // Shutdown any existing context to avoid resource leaks
+                LoggerContext ctx = (LoggerContext) LogManager.getContext(false);
+                ctx.stop();
+
+                // Initialize a new LoggerContext with the plugin-specific configuration
+                Configurator.initialize(null, configPath.toString());
+                log.info("Loaded Log4j2 configuration from {}", configPath);
             } else {
-                log.warn("logback.xml not found for {}", getClass().getName());
+                log.warn("log4j2.xml not found for {}", getClass().getName());
             }
         } catch (Exception e) {
-            log.error("Failed to configure logging for {}", getClass().getName(), e);
+            log.error("Failed to configure Log4j2 for {}", getClass().getName(), e);
         }
     }
 

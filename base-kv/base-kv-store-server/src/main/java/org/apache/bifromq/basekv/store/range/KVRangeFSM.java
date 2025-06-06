@@ -19,6 +19,12 @@
 
 package org.apache.bifromq.basekv.store.range;
 
+import static com.google.common.collect.Sets.difference;
+import static com.google.common.collect.Sets.newHashSet;
+import static com.google.common.collect.Sets.union;
+import static java.util.Collections.emptySet;
+import static java.util.Collections.singleton;
+import static java.util.Collections.singletonList;
 import static org.apache.bifromq.base.util.CompletableFutureUtil.unwrap;
 import static org.apache.bifromq.basekv.proto.State.StateType.ConfigChanging;
 import static org.apache.bifromq.basekv.proto.State.StateType.Merged;
@@ -41,13 +47,39 @@ import static org.apache.bifromq.basekv.utils.BoundaryUtil.NULL_BOUNDARY;
 import static org.apache.bifromq.basekv.utils.BoundaryUtil.canCombine;
 import static org.apache.bifromq.basekv.utils.BoundaryUtil.combine;
 import static org.apache.bifromq.basekv.utils.BoundaryUtil.isSplittable;
-import static com.google.common.collect.Sets.difference;
-import static com.google.common.collect.Sets.newHashSet;
-import static com.google.common.collect.Sets.union;
-import static java.util.Collections.emptySet;
-import static java.util.Collections.singleton;
-import static java.util.Collections.singletonList;
 
+import com.google.common.collect.Maps;
+import com.google.protobuf.Any;
+import com.google.protobuf.ByteString;
+import com.google.protobuf.InvalidProtocolBufferException;
+import io.micrometer.core.instrument.Metrics;
+import io.micrometer.core.instrument.Tags;
+import io.micrometer.core.instrument.binder.jvm.ExecutorServiceMetrics;
+import io.reactivex.rxjava3.core.Observable;
+import io.reactivex.rxjava3.disposables.CompositeDisposable;
+import io.reactivex.rxjava3.schedulers.Schedulers;
+import io.reactivex.rxjava3.subjects.BehaviorSubject;
+import io.reactivex.rxjava3.subjects.Subject;
+import java.time.Duration;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import java.util.Set;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Executor;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.LinkedTransferQueue;
+import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicReference;
+import java.util.concurrent.locks.StampedLock;
+import java.util.function.Supplier;
+import java.util.stream.Collectors;
 import org.apache.bifromq.base.util.AsyncRunner;
 import org.apache.bifromq.baseenv.EnvProvider;
 import org.apache.bifromq.baseenv.ZeroCopyParser;
@@ -108,39 +140,7 @@ import org.apache.bifromq.basekv.store.wal.IKVRangeWALSubscription;
 import org.apache.bifromq.basekv.store.wal.KVRangeWAL;
 import org.apache.bifromq.basekv.utils.BoundaryUtil;
 import org.apache.bifromq.basekv.utils.KVRangeIdUtil;
-import org.apache.bifromq.logger.SiftLogger;
-import com.google.common.collect.Maps;
-import com.google.protobuf.Any;
-import com.google.protobuf.ByteString;
-import com.google.protobuf.InvalidProtocolBufferException;
-import io.micrometer.core.instrument.Metrics;
-import io.micrometer.core.instrument.Tags;
-import io.micrometer.core.instrument.binder.jvm.ExecutorServiceMetrics;
-import io.reactivex.rxjava3.core.Observable;
-import io.reactivex.rxjava3.disposables.CompositeDisposable;
-import io.reactivex.rxjava3.schedulers.Schedulers;
-import io.reactivex.rxjava3.subjects.BehaviorSubject;
-import io.reactivex.rxjava3.subjects.Subject;
-import java.time.Duration;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Map;
-import java.util.Optional;
-import java.util.Set;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.Executor;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.LinkedTransferQueue;
-import java.util.concurrent.ThreadPoolExecutor;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.atomic.AtomicInteger;
-import java.util.concurrent.atomic.AtomicLong;
-import java.util.concurrent.atomic.AtomicReference;
-import java.util.concurrent.locks.StampedLock;
-import java.util.function.Supplier;
-import java.util.stream.Collectors;
+import org.apache.bifromq.logger.MDCLogger;
 import org.slf4j.Logger;
 
 /**
@@ -200,7 +200,7 @@ public class KVRangeFSM implements IKVRangeFSM {
         this.hostStoreId = hostStoreId; // keep a local copy to decouple it from store's state
         this.kvRange = kvRange;
         tags = new String[] {"clusterId", clusterId, "storeId", hostStoreId, "rangeId", KVRangeIdUtil.toString(id)};
-        this.log = SiftLogger.getLogger(KVRangeFSM.class, tags);
+        this.log = MDCLogger.getLogger(KVRangeFSM.class, tags);
         this.wal = new KVRangeWAL(clusterId, hostStoreId, id,
             walStore, opts.getWalRaftConfig(), opts.getMaxWALFatchBatchSize());
         this.fsmExecutor = ExecutorServiceMetrics.monitor(Metrics.globalRegistry,

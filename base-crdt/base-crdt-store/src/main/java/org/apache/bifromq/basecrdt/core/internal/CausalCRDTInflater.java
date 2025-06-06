@@ -19,15 +19,9 @@
 
 package org.apache.bifromq.basecrdt.core.internal;
 
-import org.apache.bifromq.basecrdt.ReplicaLogger;
-import org.apache.bifromq.basecrdt.core.api.CausalCRDTType;
-import org.apache.bifromq.basecrdt.core.api.ICRDTOperation;
-import org.apache.bifromq.basecrdt.core.api.ICausalCRDT;
-import org.apache.bifromq.basecrdt.core.api.ICausalCRDTInflater;
-import org.apache.bifromq.basecrdt.core.exception.CRDTCloseException;
-import org.apache.bifromq.basecrdt.proto.Replacement;
-import org.apache.bifromq.basecrdt.proto.Replica;
-import org.apache.bifromq.basecrdt.proto.StateLattice;
+import static org.apache.bifromq.basecrdt.util.Formatter.print;
+import static org.apache.bifromq.basecrdt.util.Formatter.toPrintable;
+
 import com.google.common.collect.Lists;
 import com.google.protobuf.ByteString;
 import io.micrometer.core.instrument.Gauge;
@@ -48,6 +42,15 @@ import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
+import org.apache.bifromq.basecrdt.core.api.CausalCRDTType;
+import org.apache.bifromq.basecrdt.core.api.ICRDTOperation;
+import org.apache.bifromq.basecrdt.core.api.ICausalCRDT;
+import org.apache.bifromq.basecrdt.core.api.ICausalCRDTInflater;
+import org.apache.bifromq.basecrdt.core.exception.CRDTCloseException;
+import org.apache.bifromq.basecrdt.proto.Replacement;
+import org.apache.bifromq.basecrdt.proto.Replica;
+import org.apache.bifromq.basecrdt.proto.StateLattice;
+import org.apache.bifromq.logger.MDCLogger;
 import org.slf4j.Logger;
 
 abstract class CausalCRDTInflater<D extends IDotStore, O extends ICRDTOperation, C extends ICausalCRDT<O>>
@@ -74,7 +77,7 @@ abstract class CausalCRDTInflater<D extends IDotStore, O extends ICRDTOperation,
                        ScheduledExecutorService executor,
                        Duration inflationInterval, String... tags) {
         this.replica = replica;
-        this.log = new ReplicaLogger(replica, CausalCRDTInflater.class);
+        this.log = MDCLogger.getLogger(CausalCRDTInflater.class, "replica", print(replica));
         this.replicaStateLattice = stateLattice;
         this.executor = executor;
         this.inflationInterval = inflationInterval;
@@ -203,7 +206,7 @@ abstract class CausalCRDTInflater<D extends IDotStore, O extends ICRDTOperation,
                         Thread.yield();
                     }
                 } catch (Throwable e) {
-                    log.error("Failed to execute inflater[{}] task", replica, e);
+                    log.error("Failed to execute inflater[{}] task", toPrintable(replica), e);
                 }
                 taskExecuting.set(false);
                 if (!taskQueue.isEmpty()) {
@@ -220,7 +223,7 @@ abstract class CausalCRDTInflater<D extends IDotStore, O extends ICRDTOperation,
                     inflate();
                     scheduleCompaction();
                 } catch (Throwable e) {
-                    log.error("Inflation[{}] error", replica, e);
+                    log.error("Inflation[{}] error", toPrintable(replica), e);
                 } finally {
                     inflationScheduled.set(false);
                 }

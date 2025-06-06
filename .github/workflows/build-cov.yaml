@@ -1,11 +1,25 @@
 name: Cov-Build
 
 on:
+  pull_request:
+    branches:
+      - 'main'
   push:
     branches:
       - 'main'
 jobs:
+  check-license:
+    name: "Check License"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check License Header
+        uses: apache/skywalking-eyes/header@main
+      - name: Check Dependencies' License
+        uses: apache/skywalking-eyes/dependency@main
   build:
+    name: "BifroMQ Code Coverage Test"
+    needs: check-license
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -23,7 +37,3 @@ jobs:
         uses: coverallsapp/github-action@v2
         with:
           format: jacoco
-      - name: Check License Header
-        uses: apache/skywalking-eyes/header@main
-      - name: Check Dependencies' License
-        uses: apache/skywalking-eyes/dependency@main

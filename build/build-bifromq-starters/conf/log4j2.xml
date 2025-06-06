@@ -1,0 +1,269 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  ~ Licensed to the Apache Software Foundation (ASF) under one
+  ~ or more contributor license agreements.  See the NOTICE file
+  ~ distributed with this work for additional information
+  ~ regarding copyright ownership.  The ASF licenses this file
+  ~ to you under the Apache License, Version 2.0 (the
+  ~ "License"); you may not use this file except in compliance
+  ~ with the License.  You may obtain a copy of the License at
+  ~
+  ~   http://www.apache.org/licenses/LICENSE-2.0
+  ~
+  ~ Unless required by applicable law or agreed to in writing,
+  ~ software distributed under the License is distributed on an
+  ~ "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+  ~ KIND, either express or implied.  See the License for the
+  ~ specific language governing permissions and limitations
+  ~ under the License.
+  -->
+
+<Configuration xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+               monitorInterval="5"
+               xmlns="http://logging.apache.org/log4j/2.0/config"
+               xsi:schemaLocation="http://logging.apache.org/log4j/2.0/config
+                                   http://logging.apache.org/log4j/2.0/log4j-config-2.14.1.xsd">
+    <Properties>
+        <Property name="logDir">${sys:LOG_DIR:-${sys:user.dir}}></Property>
+        <Property name="logPattern"><![CDATA[
+            %d{yyyy-MM-dd HH:mm:ss.SSS} %5p %pid [%t] --- %-40.40c [%F:%L] %m%n
+        ]]></Property>
+        <Property name="eventPattern"><![CDATA[
+            %d{yyyy-MM-dd HH:mm:ss.SSS} --- %m%n
+        ]]></Property>
+        <Property name="pluginLogPattern"><![CDATA[
+            %d{yyyy-MM-dd HH:mm:ss.SSS} %5p [%c] %m%n
+        ]]></Property>
+        <Property name="crdtLogPattern"><![CDATA[
+            %d{yyyy-MM-dd HH:mm:ss.SSS} %5p [%t] --- [%F:%L] %m%n
+        ]]></Property>
+        <Property name="raftLogPattern"><![CDATA[
+            %d{yyyy-MM-dd HH:mm:ss.SSS} %5p [%t] --- [%F:%L] %m - [id=%X{id},term=%X{term},state=%X{state},leader=%X{leader},f=%X{first},l=%X{last}],c=%X{commit},cfg=%X{config}]%n
+        ]]></Property>
+        <Property name="balancerLogPattern"><![CDATA[
+            %d{yyyy-MM-dd HH:mm:ss.SSS} %5p --- %m%n
+        ]]></Property>
+    </Properties>
+
+    <Appenders>
+        <Console name="stdout" target="SYSTEM_OUT">
+            <PatternLayout pattern="${logPattern}"/>
+            <ThresholdFilter level="INFO" onMatch="ACCEPT" onMismatch="DENY"/>
+        </Console>
+
+        <RollingFile name="pluginLogFile"
+                     fileName="${logDir}/plugin.log"
+                     filePattern="${logDir}/plugin.%d{yyyy-MM-dd_HH}.log">
+            <PatternLayout pattern="${pluginLogPattern}"/>
+            <Policies>
+                <TimeBasedTriggeringPolicy interval="1" modulate="true"/>
+            </Policies>
+            <DefaultRolloverStrategy max="72"/>
+        </RollingFile>
+
+        <RollingFile name="eventLogFile"
+                     fileName="${logDir}/event.log"
+                     filePattern="${logDir}/event.%d{yyyy-MM-dd_HH}.log">
+            <PatternLayout pattern="${eventPattern}"/>
+            <Policies>
+                <TimeBasedTriggeringPolicy interval="1" modulate="true"/>
+            </Policies>
+            <DefaultRolloverStrategy max="72"/>
+        </RollingFile>
+
+        <Routing name="crdtLogFile">
+            <Routes pattern="$${ctx:store}-$${ctx:replica:-store}">
+                <Route>
+                    <RollingFile name="CRDT-${ctx:store}-${ctx:replica:-store}"
+                                 fileName="${logDir}/crdt/${ctx:store}-${ctx:replica:-store}.log"
+                                 filePattern="${logDir}/crdt/${ctx:store}-${ctx:replica:-store}.%d{yyyy-MM-dd_HH}.log">
+                        <PatternLayout pattern="${crdtLogPattern}"/>
+                        <Policies>
+                            <TimeBasedTriggeringPolicy interval="1" modulate="true"/>
+                        </Policies>
+                        <DefaultRolloverStrategy max="7"/>
+                    </RollingFile>
+                </Route>
+            </Routes>
+        </Routing>
+
+        <Routing name="raftLogFile">
+            <Routes pattern="$${ctx:clusterId:-default}-$${ctx:storeId:-default}-$${ctx:rangeId:-default}">
+                <Route>
+                    <RollingFile name="Raft-${ctx:clusterId}-${ctx:storeId}-${ctx:rangeId}"
+                                 fileName="${logDir}/basekv/${ctx:clusterId}-${ctx:storeId}-${ctx:rangeId}-raft.log"
+                                 filePattern="${logDir}/basekv/${ctx:clusterId}-${ctx:storeId}-${ctx:rangeId}-raft.%d{yyyy-MM-dd_HH}.log">
+                        <PatternLayout pattern="${raftLogPattern}"/>
+                        <Policies>
+                            <TimeBasedTriggeringPolicy interval="1" modulate="true"/>
+                        </Policies>
+                        <DefaultRolloverStrategy max="7"/>
+                    </RollingFile>
+                </Route>
+            </Routes>
+        </Routing>
+
+        <Routing name="balancerLogFile">
+            <Routes pattern="$${ctx:clusterId:-default}-$${ctx:storeId:-default}">
+                <Route>
+                    <RollingFile name="Balancer-${ctx:clusterId}-${ctx:storeId}"
+                                 fileName="${logDir}/basekv/${ctx:clusterId}-${ctx:storeId}-balancer.log"
+                                 filePattern="${logDir}/basekv/${ctx:clusterId}-${ctx:storeId}-balancer.%d{yyyy-MM-dd_HH}.log">
+                        <PatternLayout pattern="${balancerLogPattern}"/>
+                        <Policies>
+                            <TimeBasedTriggeringPolicy interval="1" modulate="true"/>
+                        </Policies>
+                        <DefaultRolloverStrategy max="7"/>
+                    </RollingFile>
+                </Route>
+            </Routes>
+        </Routing>
+
+        <Routing name="basekvClientLogFile">
+            <Routes pattern="$${ctx:clusterId:-default}">
+                <Route>
+                    <RollingFile name="BasekvClient-${ctx:clusterId}"
+                                 fileName="${logDir}/basekv/${ctx:clusterId}-client.log"
+                                 filePattern="${logDir}/basekv/${ctx:clusterId}-client.%d{yyyy-MM-dd_HH}.log">
+                        <PatternLayout pattern="${logPattern}"/>
+                        <Policies>
+                            <TimeBasedTriggeringPolicy interval="1" modulate="true"/>
+                        </Policies>
+                        <DefaultRolloverStrategy max="7"/>
+                    </RollingFile>
+                </Route>
+            </Routes>
+        </Routing>
+
+        <Routing name="basekvLogFile">
+            <Routes pattern="$${ctx:clusterId}-$${ctx:storeId}-$${ctx:rangeId}">
+                <Route>
+                    <RollingFile name="Basekv-${ctx:clusterId}-${ctx:storeId}-${ctx:rangeId:-store}"
+                                 fileName="${logDir}/basekv/${ctx:clusterId}-${ctx:storeId}-${ctx:rangeId:-store}.log"
+                                 filePattern="${logDir}/basekv/${ctx:clusterId}-${ctx:storeId}-${ctx:rangeId:-store}.%d{yyyy-MM-dd_HH}.log">
+                        <PatternLayout pattern="${logPattern}"/>
+                        <Policies>
+                            <TimeBasedTriggeringPolicy interval="1" modulate="true"/>
+                        </Policies>
+                        <DefaultRolloverStrategy max="7"/>
+                    </RollingFile>
+                </Route>
+            </Routes>
+        </Routing>
+
+        <RollingFile name="traceLogFile"
+                     fileName="${logDir}/trace.log"
+                     filePattern="${logDir}/trace.%d{yyyy-MM-dd_HH}.log">
+            <PatternLayout pattern="${logPattern}"/>
+            <Policies>
+                <TimeBasedTriggeringPolicy interval="1" modulate="true"/>
+            </Policies>
+            <DefaultRolloverStrategy max="7"/>
+            <Filters>
+                <LevelMatchFilter level="TRACE" onMatch="ACCEPT" onMismatch="DENY"/>
+            </Filters>
+        </RollingFile>
+
+        <RollingFile name="debugLogFile"
+                     fileName="${logDir}/debug.log"
+                     filePattern="${logDir}/debug.%d{yyyy-MM-dd_HH}.log">
+            <PatternLayout pattern="${logPattern}"/>
+            <Policies>
+                <TimeBasedTriggeringPolicy interval="1" modulate="true"/>
+            </Policies>
+            <DefaultRolloverStrategy max="7"/>
+            <Filters>
+                <LevelMatchFilter level="DEBUG" onMatch="ACCEPT" onMismatch="DENY"/>
+            </Filters>
+        </RollingFile>
+
+        <RollingFile name="infoLogFile"
+                     fileName="${logDir}/info.log"
+                     filePattern="${logDir}/info.%d{yyyy-MM-dd_HH}.log">
+            <PatternLayout pattern="${logPattern}"/>
+            <Policies>
+                <TimeBasedTriggeringPolicy interval="1" modulate="true"/>
+            </Policies>
+            <DefaultRolloverStrategy max="7"/>
+            <Filters>
+                <LevelMatchFilter level="INFO" onMatch="ACCEPT" onMismatch="DENY"/>
+            </Filters>
+        </RollingFile>
+
+        <RollingFile name="warnLogFile"
+                     fileName="${logDir}/warn.log"
+                     filePattern="${logDir}/warn.%d{yyyy-MM-dd_HH}.log">
+            <PatternLayout pattern="${logPattern}"/>
+            <Policies>
+                <TimeBasedTriggeringPolicy interval="1" modulate="true"/>
+            </Policies>
+            <DefaultRolloverStrategy max="7"/>
+            <Filters>
+                <LevelMatchFilter level="WARN" onMatch="ACCEPT" onMismatch="DENY"/>
+            </Filters>
+        </RollingFile>
+
+        <RollingFile name="errorLogFile"
+                     fileName="${logDir}/error.log"
+                     filePattern="${logDir}/error.%d{yyyy-MM-dd_HH}.log">
+            <PatternLayout pattern="${logPattern}"/>
+            <Policies>
+                <TimeBasedTriggeringPolicy interval="1" modulate="true"/>
+            </Policies>
+            <DefaultRolloverStrategy max="7"/>
+            <Filters>
+                <LevelMatchFilter level="ERROR" onMatch="ACCEPT" onMismatch="DENY"/>
+            </Filters>
+        </RollingFile>
+    </Appenders>
+
+
+    <Loggers>
+        <Logger name="org.reflections" level="warn" additivity="false"/>
+
+        <Logger name="org.pf4j" level="warn" additivity="false">
+            <AppenderRef ref="pluginLogFile"/>
+        </Logger>
+
+        <Logger name="plugin.manager" level="info" additivity="false">
+            <AppenderRef ref="pluginLogFile"/>
+        </Logger>
+
+        <Logger name="org.apache.bifromq.basecrdt" level="info" additivity="false">
+            <AppenderRef ref="crdtLogFile"/>
+        </Logger>
+
+        <Logger name="org.apache.bifromq.basekv.raft" level="info" additivity="false">
+            <AppenderRef ref="raftLogFile"/>
+        </Logger>
+
+        <Logger name="org.apache.bifromq.basekv.client" level="info" additivity="false">
+            <AppenderRef ref="basekvClientLogFile"/>
+        </Logger>
+
+        <Logger name="org.apache.bifromq.basekv" level="info" additivity="false">
+            <AppenderRef ref="basekvLogFile"/>
+        </Logger>
+
+        <Logger name="balancer.logger" level="info" additivity="false">
+            <AppenderRef ref="balancerLogFile"/>
+        </Logger>
+
+        <Logger name="org.apache.bifromq" level="info" additivity="false">
+            <AppenderRef ref="traceLogFile"/>
+            <AppenderRef ref="debugLogFile"/>
+            <AppenderRef ref="infoLogFile"/>
+            <AppenderRef ref="warnLogFile"/>
+            <AppenderRef ref="errorLogFile"/>
+        </Logger>
+
+        <!--FOLLOWING LOGGER IS ONLY FOR DEMO PURPOSE-->
+        <Logger name="DemoEventLogger" level="info" additivity="false">
+            <AppenderRef ref="eventLogFile"/>
+        </Logger>
+
+        <Root level="info">
+            <AppenderRef ref="stdout"/>
+        </Root>
+    </Loggers>
+</Configuration>

@@ -20,17 +20,9 @@
 package org.apache.bifromq.basecrdt.service;
 
 import static org.apache.bifromq.basecrdt.store.ReplicaIdGenerator.generate;
+import static org.apache.bifromq.basecrdt.util.Formatter.print;
+import static org.apache.bifromq.basecrdt.util.Formatter.toPrintable;
 
-import org.apache.bifromq.basecluster.IAgentHost;
-import org.apache.bifromq.basecluster.agent.proto.AgentMemberAddr;
-import org.apache.bifromq.basecluster.memberlist.agent.IAgent;
-import org.apache.bifromq.basecluster.memberlist.agent.IAgentMember;
-import org.apache.bifromq.basecrdt.ReplicaLogger;
-import org.apache.bifromq.basecrdt.core.api.ICRDTOperation;
-import org.apache.bifromq.basecrdt.core.api.ICausalCRDT;
-import org.apache.bifromq.basecrdt.proto.Replica;
-import org.apache.bifromq.basecrdt.store.ICRDTStore;
-import org.apache.bifromq.basecrdt.store.proto.CRDTStoreMessage;
 import com.google.protobuf.AbstractMessageLite;
 import com.google.protobuf.ByteString;
 import com.google.protobuf.InvalidProtocolBufferException;
@@ -46,6 +38,16 @@ import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReadWriteLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.stream.Collectors;
+import org.apache.bifromq.basecluster.IAgentHost;
+import org.apache.bifromq.basecluster.agent.proto.AgentMemberAddr;
+import org.apache.bifromq.basecluster.memberlist.agent.IAgent;
+import org.apache.bifromq.basecluster.memberlist.agent.IAgentMember;
+import org.apache.bifromq.basecrdt.core.api.ICRDTOperation;
+import org.apache.bifromq.basecrdt.core.api.ICausalCRDT;
+import org.apache.bifromq.basecrdt.proto.Replica;
+import org.apache.bifromq.basecrdt.store.ICRDTStore;
+import org.apache.bifromq.basecrdt.store.proto.CRDTStoreMessage;
+import org.apache.bifromq.logger.MDCLogger;
 import org.slf4j.Logger;
 
 class CRDTCluster<O extends ICRDTOperation, C extends ICausalCRDT<O>> {
@@ -71,7 +73,7 @@ class CRDTCluster<O extends ICRDTOperation, C extends ICausalCRDT<O>> {
         this.store = store;
         this.agentHost = agentHost;
         replicaId = generate(uri);
-        log = new ReplicaLogger(replicaId, CRDTCluster.class);
+        log = MDCLogger.getLogger(CRDTCluster.class, "replica", print(replicaId));
         membershipAgent = agentHost.host(replicaId.getUri());
         endpoint = AgentMemberAddr.newBuilder()
             .setName(AgentUtil.toAgentMemberName(replicaId))
@@ -120,7 +122,7 @@ class CRDTCluster<O extends ICRDTOperation, C extends ICausalCRDT<O>> {
                         } else {
                             if (log.isTraceEnabled()) {
                                 log.trace("Sent store message, uri={}, sender={}, receiver={}, msg={}",
-                                    msg.getUri(), target.getName(), endpoint.getName(), msg);
+                                    msg.getUri(), target.getName(), endpoint.getName(), toPrintable(msg));
                             }
                         }
                     });

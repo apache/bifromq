@@ -21,8 +21,6 @@ package org.apache.bifromq.basekv.localengine;
 
 import static com.google.common.collect.Lists.newArrayList;
 
-import org.apache.bifromq.basekv.localengine.metrics.KVSpaceOpMeters;
-import org.apache.bifromq.logger.SiftLogger;
 import com.google.common.collect.Iterables;
 import io.micrometer.core.instrument.Gauge;
 import io.micrometer.core.instrument.Metrics;
@@ -32,6 +30,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicReference;
+import org.apache.bifromq.basekv.localengine.metrics.KVSpaceOpMeters;
+import org.apache.bifromq.logger.MDCLogger;
 import org.slf4j.Logger;
 
 /**
@@ -58,7 +58,7 @@ public abstract class AbstractKVEngine<T extends IKVSpace, C extends IKVEngineCo
     public final void start(String... tags) {
         if (state.compareAndSet(State.INIT, State.STARTING)) {
             try {
-                log = SiftLogger.getLogger(this.getClass(), tags);
+                log = MDCLogger.getLogger(this.getClass(), tags);
                 metricTags = tags;
                 doStart(tags);
                 state.set(State.STARTED);
@@ -128,7 +128,7 @@ public abstract class AbstractKVEngine<T extends IKVSpace, C extends IKVEngineCo
         String[] tagList =
             newArrayList(Iterables.concat(List.of(tags), List.of("spaceId", spaceId))).toArray(String[]::new);
         KVSpaceOpMeters opMeters = new KVSpaceOpMeters(spaceId, Tags.of(tagList));
-        Logger logger = SiftLogger.getLogger("space.logger", tagList);
+        Logger logger = MDCLogger.getLogger("space.logger", tagList);
         return doBuildKVSpace(spaceId, configurator, onDestroy, opMeters, logger, tagList);
     }
 

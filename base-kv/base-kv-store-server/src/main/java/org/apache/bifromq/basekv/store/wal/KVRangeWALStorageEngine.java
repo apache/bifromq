@@ -21,6 +21,12 @@ package org.apache.bifromq.basekv.store.wal;
 
 import static org.apache.bifromq.basekv.store.wal.KVRangeWALKeys.KEY_LATEST_SNAPSHOT_BYTES;
 
+import com.google.common.base.Preconditions;
+import com.google.common.collect.Maps;
+import com.google.common.collect.Sets;
+import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.atomic.AtomicReference;
 import org.apache.bifromq.basekv.localengine.IKVEngine;
 import org.apache.bifromq.basekv.localengine.IWALableKVEngineConfigurator;
 import org.apache.bifromq.basekv.localengine.IWALableKVSpace;
@@ -29,13 +35,7 @@ import org.apache.bifromq.basekv.proto.KVRangeId;
 import org.apache.bifromq.basekv.raft.proto.Snapshot;
 import org.apache.bifromq.basekv.store.exception.KVRangeStoreException;
 import org.apache.bifromq.basekv.utils.KVRangeIdUtil;
-import org.apache.bifromq.logger.SiftLogger;
-import com.google.common.base.Preconditions;
-import com.google.common.collect.Maps;
-import com.google.common.collect.Sets;
-import java.util.Map;
-import java.util.Set;
-import java.util.concurrent.atomic.AtomicReference;
+import org.apache.bifromq.logger.MDCLogger;
 import org.slf4j.Logger;
 
 /**
@@ -53,7 +53,7 @@ public class KVRangeWALStorageEngine implements IKVRangeWALStoreEngine {
                                    IWALableKVEngineConfigurator configurator) {
         this.clusterId = clusterId;
         kvEngine = KVEngineFactory.createWALable(overrideIdentity, configurator);
-        log = SiftLogger.getLogger(KVRangeWALStorageEngine.class, "clusterId", clusterId, "storeId", kvEngine.id());
+        log = MDCLogger.getLogger(KVRangeWALStorageEngine.class, "clusterId", clusterId, "storeId", kvEngine.id());
     }
 
     @Override

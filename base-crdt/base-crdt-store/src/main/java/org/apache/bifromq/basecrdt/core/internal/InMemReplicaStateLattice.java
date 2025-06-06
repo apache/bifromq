@@ -19,18 +19,14 @@
 
 package org.apache.bifromq.basecrdt.core.internal;
 
+import static java.util.Collections.emptyNavigableMap;
+import static java.util.Collections.singleton;
 import static org.apache.bifromq.basecrdt.core.internal.EventHistoryUtil.diff;
 import static org.apache.bifromq.basecrdt.core.internal.EventHistoryUtil.forget;
 import static org.apache.bifromq.basecrdt.core.internal.EventHistoryUtil.isRemembering;
 import static org.apache.bifromq.basecrdt.core.util.LatticeIndexUtil.remember;
-import static java.util.Collections.emptyNavigableMap;
-import static java.util.Collections.singleton;
+import static org.apache.bifromq.basecrdt.util.Formatter.print;
 
-import org.apache.bifromq.basecrdt.ReplicaLogger;
-import org.apache.bifromq.basecrdt.proto.Dot;
-import org.apache.bifromq.basecrdt.proto.Replacement;
-import org.apache.bifromq.basecrdt.proto.Replica;
-import org.apache.bifromq.basecrdt.proto.StateLattice;
 import com.google.common.collect.AbstractIterator;
 import com.google.common.collect.Iterables;
 import com.google.common.collect.Iterators;
@@ -53,6 +49,11 @@ import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.Collectors;
 import java.util.stream.LongStream;
 import lombok.EqualsAndHashCode;
+import org.apache.bifromq.basecrdt.proto.Dot;
+import org.apache.bifromq.basecrdt.proto.Replacement;
+import org.apache.bifromq.basecrdt.proto.Replica;
+import org.apache.bifromq.basecrdt.proto.StateLattice;
+import org.apache.bifromq.logger.MDCLogger;
 import org.slf4j.Logger;
 
 class InMemReplicaStateLattice implements IReplicaStateLattice {
@@ -70,7 +71,7 @@ class InMemReplicaStateLattice implements IReplicaStateLattice {
 
     InMemReplicaStateLattice(Replica ownerReplica, Duration historyExpire, Duration maxCompactionTime) {
         this.ownerReplica = ownerReplica;
-        this.log = new ReplicaLogger(ownerReplica, InMemReplicaStateLattice.class);
+        this.log = MDCLogger.getLogger(InMemReplicaStateLattice.class, "replica", print(ownerReplica));
         this.historyExpire = historyExpire;
         this.maxCompactionDuration = maxCompactionTime.toNanos();
     }
@@ -427,13 +428,13 @@ class InMemReplicaStateLattice implements IReplicaStateLattice {
             ts = Long.MAX_VALUE;
         }
 
+        static EventInfo from(Dot dot) {
+            return dot.hasLattice() ? new EventInfo(dot.getLattice()) : new EventInfo();
+        }
+
         void eol() {
             lattice = Optional.empty();
             ts = System.nanoTime();
-        }
-
-        static EventInfo from(Dot dot) {
-            return dot.hasLattice() ? new EventInfo(dot.getLattice()) : new EventInfo();
         }
     }
 }

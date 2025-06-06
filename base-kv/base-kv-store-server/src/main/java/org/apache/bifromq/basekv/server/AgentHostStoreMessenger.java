@@ -21,6 +21,10 @@ package org.apache.bifromq.basekv.server;
 
 import static org.apache.bifromq.basekv.Constants.toBaseKVAgentId;
 
+import com.google.protobuf.InvalidProtocolBufferException;
+import io.reactivex.rxjava3.core.Observable;
+import java.util.Optional;
+import java.util.concurrent.atomic.AtomicBoolean;
 import org.apache.bifromq.basecluster.IAgentHost;
 import org.apache.bifromq.basecluster.memberlist.agent.IAgent;
 import org.apache.bifromq.basecluster.memberlist.agent.IAgentMember;
@@ -28,11 +32,7 @@ import org.apache.bifromq.baseenv.ZeroCopyParser;
 import org.apache.bifromq.basekv.proto.KVRangeMessage;
 import org.apache.bifromq.basekv.proto.StoreMessage;
 import org.apache.bifromq.basekv.store.IStoreMessenger;
-import org.apache.bifromq.logger.SiftLogger;
-import com.google.protobuf.InvalidProtocolBufferException;
-import io.reactivex.rxjava3.core.Observable;
-import java.util.Optional;
-import java.util.concurrent.atomic.AtomicBoolean;
+import org.apache.bifromq.logger.MDCLogger;
 import org.slf4j.Logger;
 
 class AgentHostStoreMessenger implements IStoreMessenger {
@@ -50,7 +50,7 @@ class AgentHostStoreMessenger implements IStoreMessenger {
         this.storeId = storeId;
         this.agent = agentHost.host(toBaseKVAgentId(clusterId));
         this.agentMember = agent.register(storeId);
-        log = SiftLogger.getLogger(AgentHostStoreMessenger.class, "clusterId", clusterId, "storeId", storeId);
+        log = MDCLogger.getLogger(AgentHostStoreMessenger.class, "clusterId", clusterId, "storeId", storeId);
     }
 
     static String agentId(String clusterId) {

@@ -39,9 +39,5 @@ dependency:
   files:
     - pom.xml
   licenses:
-    - name: ch.qos.logback:logback-classic
-      license: EPL-1.0
-    - name: ch.qos.logback:logback-core
-      license: EPL-1.0
     - name: org.webjars:jquery
       license: MIT

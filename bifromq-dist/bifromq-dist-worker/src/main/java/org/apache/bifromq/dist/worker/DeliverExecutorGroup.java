@@ -46,7 +46,6 @@ import com.github.benmanes.caffeine.cache.RemovalListener;
 import com.github.benmanes.caffeine.cache.Scheduler;
 import com.google.common.base.Charsets;
 import java.util.HashMap;
-import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ThreadLocalRandom;
@@ -55,7 +54,7 @@ import lombok.extern.slf4j.Slf4j;
 
 @Slf4j
 class DeliverExecutorGroup implements IDeliverExecutorGroup {
-    // OuterCacheKey: OrderedSharedMatchingKey(<tenantId>, <escapedTopicFilter>)
+    // OuterCacheKey: OrderedSharedMatchingKey(<tenantId>, <mqttTopicFilter>)
     // InnerCacheKey: ClientInfo(<tenantId>, <type>, <metadata>)
     private final LoadingCache<OrderedSharedMatchingKey, Cache<ClientInfo, NormalMatching>> orderedSharedMatching;
     private final int inlineFanOutThreshold = DistInlineFanOutThreshold.INSTANCE.get();
@@ -161,7 +160,7 @@ class DeliverExecutorGroup implements IDeliverExecutorGroup {
             log.debug("Refresh ordered shared sub routes: tenantId={}, sharedTopicFilter={}", tenantId, routeMatcher);
         }
         orderedSharedMatching.invalidate(
-            new OrderedSharedMatchingKey(tenantId, routeMatcher.getFilterLevelList()));
+            new OrderedSharedMatchingKey(tenantId, routeMatcher.getMqttTopicFilter()));
     }
 
     private void prepareSend(Matching matching, TopicMessagePackHolder msgPackHolder, boolean inline) {
@@ -180,7 +179,7 @@ class DeliverExecutorGroup implements IDeliverExecutorGroup {
                         ClientInfo sender = publisherPack.getPublisher();
                         NormalMatching matchedInbox = orderedSharedMatching
                             .get(new OrderedSharedMatchingKey(groupMatching.tenantId(),
-                                groupMatching.matcher.getFilterLevelList()))
+                                groupMatching.matcher.getMqttTopicFilter()))
                             .get(sender, senderInfo -> {
                                 RendezvousHash<ClientInfo, NormalMatching> hash =
                                     RendezvousHash.<ClientInfo, NormalMatching>builder()
@@ -217,6 +216,6 @@ class DeliverExecutorGroup implements IDeliverExecutorGroup {
         fanoutExecutors[idx].submit(route, msgPackHolder, inline);
     }
 
-    private record OrderedSharedMatchingKey(String tenantId, List<String> filterLevels) {
+    private record OrderedSharedMatchingKey(String tenantId, String mqttTopicFilter) {
     }
 }

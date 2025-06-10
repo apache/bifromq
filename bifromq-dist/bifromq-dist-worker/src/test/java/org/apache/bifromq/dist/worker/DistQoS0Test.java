@@ -524,4 +524,26 @@ public class DistQoS0Test extends DistWorkerTest {
         assertEquals(reply.getResultMap().get(tenantA).getFanoutMap().getOrDefault("TopicB", 0).intValue(), 0);
         unmatch(tenantA, "TopicA/#", InboxService, "inbox1", "batch1");
     }
+
+    @Test(groups = "integration")
+    public void testOrderedShareWithGroups() {
+        when(mqttBroker.open("batch1")).thenReturn(writer1);
+
+        match(tenantA, "$share/group1/#", MqttBroker, "inbox1", "batch1");
+        match(tenantA, "$oshare/group2/#", MqttBroker, "inbox1", "batch1");
+
+        await().until(() -> {
+            clearInvocations(writer1, writer2, writer3);
+            dist(tenantA, AT_MOST_ONCE, "/a/b/c", copyFromUtf8("Hello"), "orderKey1");
+            try {
+                verify(writer1, timeout(1000).times(2)).deliver(any());
+                return true;
+            } catch (Throwable e) {
+                return false;
+            }
+        });
+
+        unmatch(tenantA, "$oshare/group1/#", MqttBroker, "inbox1", "batch1");
+        unmatch(tenantA, "$oshare/group2/#", MqttBroker, "inbox1", "batch1");
+    }
 }

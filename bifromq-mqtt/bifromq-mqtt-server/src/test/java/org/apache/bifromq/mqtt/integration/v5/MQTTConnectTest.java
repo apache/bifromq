@@ -24,6 +24,8 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.when;
 import static org.testng.Assert.assertEquals;
 import static org.testng.Assert.assertFalse;
+import static org.testng.Assert.assertNull;
+import static org.testng.Assert.assertTrue;
 
 import org.apache.bifromq.mqtt.integration.MQTTTest;
 import org.apache.bifromq.mqtt.integration.v5.client.MqttTestClient;
@@ -134,4 +136,39 @@ public class MQTTConnectTest extends MQTTTest {
         IMqttToken token = client.connect(connOpts);
         assertEquals(token.getResponseProperties().getSessionExpiryInterval(), 0L);
     }
+
+    /**
+     *  Test whether it can reconnect when cleanStart=true but the session expiration interval is not 0, when reconnecting.
+     */
+    @Test(groups = "integration")
+    public void reconnectTest() {
+        when(authProvider.auth(any(MQTT5AuthData.class)))
+            .thenReturn(CompletableFuture.completedFuture(MQTT5AuthResult.newBuilder()
+                .setSuccess(Success.newBuilder()
+                    .setTenantId("tenant")
+                    .setUserId("testUser")
+                    .build()).build()));
+        when(authProvider.checkPermission(any(), any()))
+            .thenReturn(CompletableFuture.completedFuture(
+                CheckResult.newBuilder().setGranted(Granted.newBuilder().build()).build()));
+        when(settingProvider.provide(eq(Setting.ForceTransient), eq("tenant"))).thenReturn(false);
+
+        MqttConnectionOptions connOpts = new MqttConnectionOptions();
+        connOpts.setCleanStart(true);
+        connOpts.setSessionExpiryInterval(1800L);
+        connOpts.setUserName("tenant/testUser");
+
+        MqttTestClient client1 = new MqttTestClient(BROKER_URI, "client_id");
+        IMqttToken token1 = client1.connect(connOpts);
+        assertTrue(token1.isComplete());
+        assertNull(token1.getException());
+        client1.disconnect();
+
+        // reconnect
+        MqttTestClient client2 = new MqttTestClient(BROKER_URI, "client_id");
+        IMqttToken token2 = client2.connect(connOpts);
+        assertTrue(token2.isComplete());
+        assertNull(token2.getException());
+    }
+
 }

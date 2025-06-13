@@ -387,6 +387,7 @@ public abstract class MQTTConnectHandler extends ChannelDuplexHandler {
         if (requestClientId.isEmpty()) {
             return CompletableFuture.completedFuture(ExpireResult.NOT_FOUND);
         }
+        // detach and expire the latest version immediately
         return inboxClient.detach(DetachRequest.newBuilder()
                 .setReqId(reqId)
                 .setInboxId(userSessionId)

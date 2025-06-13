@@ -21,6 +21,12 @@ package org.apache.bifromq.inbox.server.scheduler;
 
 import static java.util.Collections.emptySet;
 
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.Map;
+import java.util.Queue;
+import java.util.Set;
+import lombok.extern.slf4j.Slf4j;
 import org.apache.bifromq.basekv.client.IMutationPipeline;
 import org.apache.bifromq.basekv.client.exception.BadVersionException;
 import org.apache.bifromq.basekv.client.exception.TryLaterException;
@@ -37,12 +43,6 @@ import org.apache.bifromq.inbox.storage.proto.BatchDetachRequest;
 import org.apache.bifromq.inbox.storage.proto.InboxServiceRWCoProcInput;
 import org.apache.bifromq.inbox.storage.proto.InboxVersion;
 import org.apache.bifromq.inbox.storage.proto.Replica;
-import java.util.HashMap;
-import java.util.HashSet;
-import java.util.Map;
-import java.util.Queue;
-import java.util.Set;
-import lombok.extern.slf4j.Slf4j;
 
 @Slf4j
 class BatchDetachCall extends BatchMutationCall<DetachRequest, DetachReply> {
@@ -69,10 +69,12 @@ class BatchDetachCall extends BatchMutationCall<DetachRequest, DetachReply> {
             BatchDetachRequest.Params.Builder paramsBuilder = BatchDetachRequest.Params.newBuilder()
                 .setTenantId(request.getClient().getTenantId())
                 .setInboxId(request.getInboxId())
-                .setVersion(request.getVersion())
                 .setExpirySeconds(request.getExpirySeconds())
                 .setDiscardLWT(request.getDiscardLWT())
                 .setNow(request.getNow());
+            if (request.hasVersion()) {
+                paramsBuilder.setVersion(request.getVersion());
+            }
             reqBuilder.addParams(paramsBuilder.build());
         }
 

@@ -524,4 +524,38 @@ public class DistQoS0Test extends DistWorkerTest {
         assertEquals(reply.getResultMap().get(tenantA).getFanoutMap().getOrDefault("TopicB", 0).intValue(), 0);
         unmatch(tenantA, "TopicA/#", InboxService, "inbox1", "batch1");
     }
+
+    @Test(groups = "integration")
+    public void testOrderedShareWithGroups() {
+        when(mqttBroker.open("batch1")).thenReturn(writer1);
+
+        match(tenantA, "$oshare/group1/#", MqttBroker, "inbox1", "batch1");
+        match(tenantA, "$oshare/group2/#", MqttBroker, "inbox1", "batch1");
+        Set<String> set = Set.of("$oshare/group1/#", "$oshare/group2/#");
+
+        await().until(() -> {
+            clearInvocations(writer1);
+            Set<String> topicFilterSet = new HashSet<>();
+            dist(tenantA, AT_MOST_ONCE, "/a/b/c", copyFromUtf8("Hello"), "orderKey1");
+            try {
+                ArgumentCaptor<DeliveryRequest> captor = ArgumentCaptor.forClass(DeliveryRequest.class);
+                verify(writer1, timeout(1000).times(2)).deliver(captor.capture());
+                captor.getAllValues().forEach(req -> {
+                    DeliveryPackage packs = req.getPackageMap().get(tenantA);
+                    for (DeliveryPack pack : packs.getPackList()) {
+                        for (MatchInfo matchInfo : pack.getMatchInfoList()) {
+                            topicFilterSet.add(matchInfo.getMatcher().getMqttTopicFilter());
+                        }
+                    }
+                });
+                assertEquals(set, topicFilterSet);
+                return true;
+            } catch (Throwable e) {
+                return false;
+            }
+        });
+
+        unmatch(tenantA, "$oshare/group1/#", MqttBroker, "inbox1", "batch1");
+        unmatch(tenantA, "$oshare/group2/#", MqttBroker, "inbox1", "batch1");
+    }
 }

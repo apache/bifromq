@@ -21,8 +21,6 @@ package ${package};
 
 import org.apache.bifromq.plugin.BifroMQPlugin;
 import org.apache.bifromq.plugin.BifroMQPluginDescriptor;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.core.LoggerContext;
 import org.apache.logging.log4j.core.config.Configurator;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -66,18 +64,14 @@ public class ${pluginName} extends BifroMQPlugin<${pluginContextName}> {
             Path configPath = rootPath.resolve(LOG4J2_CONFIG_FILE).toAbsolutePath();
             File log4jConfig = configPath.toFile();
             if (log4jConfig.exists()) {
-                // Shutdown any existing context to avoid resource leaks
-                LoggerContext ctx = (LoggerContext) LogManager.getContext(false);
-                ctx.stop();
-
-                // Initialize a new LoggerContext with the plugin-specific configuration
-                Configurator.initialize(null, configPath.toString());
-                log.info("Loaded Log4j2 configuration from {}", configPath);
+                // reconfigure Log4j2 with the plugin-specific configuration
+                Configurator.reconfigure(log4jConfig.toURI());
+                log.info("Loaded Log4j configuration from {}", configPath);
             } else {
                 log.warn("log4j2.xml not found for {}", getClass().getName());
             }
         } catch (Exception e) {
-            log.error("Failed to configure Log4j2 for {}", getClass().getName(), e);
+            log.error("Failed to configure Log4j for {}", getClass().getName(), e);
         }
     }
 

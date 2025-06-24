@@ -1,0 +1,33 @@
+Apache BifroMQ (Incubating)
+Copyright 2025 The Apache Software Foundation
+
+This product includes software developed at
+The Apache Software Foundation (http://www.apache.org/).
+
+This project's binary output bundles third-party components:
+
+- RocksDB JNI (org.rocksdb:rocksdbjni:9.7.3)
+  Licensed under Apache License 2.0 / GPLv2.
+  See LICENSE file for full license texts.
+
+- Reflections (org.reflections:reflections:0.10.2)
+  Licensed under Apache License 2.0 / WTFPL.
+  See LICENSE file for full license texts.
+
+- Javassist (org.javassist:javassist:3.28.0-GA)
+  Licensed under Apache License 2.0 / LGPL 2.1 / MPL 1.1.
+  See LICENSE file for full license texts.
+
+- Jakarta RESTful WS API (jakarta.ws.rs:jakarta.ws.rs-api:4.0.0)
+  Licensed under EPL-2.0 / GPL-2.0-with-classpath-exception.
+  See LICENSE file for full license texts.
+
+- Jakarta XML Binding API (jakarta.xml.bind:jakarta.xml.bind-api:3.0.1)
+  Licensed under Eclipse Distribution License v1.0.
+  See LICENSE file for full license texts.
+
+- Bouncy Castle Libraries (org.bouncycastle:*)
+  Licensed under Bouncy Castle Licence.
+  See LICENSE file for full license texts.
+
+- Other third-party components are included under licenses detailed in the LICENSE file.

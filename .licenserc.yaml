@@ -29,9 +29,12 @@ header:
     - '**/*.pem'
     - '**/MANIFEST.MF'
     - '**/*.md'
+    - 'licenses/*.txt'
     - 'DISCLAIMER'
     - 'LICENSE'
+    - 'LICENSE-Binary'
     - 'NOTICE'
+    - 'NOTICE-Binary'
 
   comment: on-failure
 

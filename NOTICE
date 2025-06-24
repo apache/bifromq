@@ -3,3 +3,25 @@ Copyright 2025 The Apache Software Foundation
 
 This product includes software developed at
 The Apache Software Foundation (http://www.apache.org/).
+
+Third-party components incorporated in this project:
+
+- RocksDB JNI (org.rocksdb:rocksdbjni)
+  Licensed under Apache License 2.0 / GPLv2.
+  See LICENSE file for full license texts.
+
+- Reflections (org.reflections:reflections)
+  Licensed under Apache License 2.0 / WTFPL.
+  See LICENSE file for full license texts.
+
+- Jakarta RESTful WS API (jakarta.ws.rs:jakarta.ws.rs-api)
+  Licensed under EPL-2.0 / GPL-2.0-with-classpath-exception.
+  See LICENSE file for full license texts.
+
+- Eclipse Paho MQTT Client (org.eclipse.paho.*)
+  Licensed under EPL-2.0 / GPL-2.0-with-classpath-exception.
+  See LICENSE file for full license texts.
+
+- OpenJDK JMH (org.openjdk.jmh.*)
+  Licensed under GPL-2.0-with-classpath-exception.
+  See LICENSE file for full license texts.

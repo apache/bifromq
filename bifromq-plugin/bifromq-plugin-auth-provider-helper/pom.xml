@@ -67,11 +67,6 @@
             <groupId>io.micrometer</groupId>
             <artifactId>micrometer-core</artifactId>
         </dependency>
-        <dependency>
-            <groupId>io.netty</groupId>
-            <artifactId>netty-transport</artifactId>
-            <scope>compile</scope>
-        </dependency>
         <!-- for testing -->
         <dependency>
             <groupId>org.awaitility</groupId>

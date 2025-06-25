@@ -25,12 +25,12 @@
         <groupId>org.apache</groupId>
         <artifactId>apache</artifactId>
         <version>29</version>
-        <relativePath />
+        <relativePath/>
     </parent>
 
     <groupId>org.apache.bifromq</groupId>
     <artifactId>bifromq-parent</artifactId>
-    <version>4.0.0-SNAPSHOT</version>
+    <version>${revision}</version>
     <modules>
         <module>base-env</module>
         <module>base-cluster</module>
@@ -65,7 +65,8 @@
 
     <name>BifroMQ</name>
     <url>https://github.com/apache/bifromq</url>
-    <description>BifroMQ(Incubation) is a distributed MQTT broker implementation with native multi-tenancy support</description>
+    <description>BifroMQ(Incubation) is a distributed MQTT broker implementation with native multi-tenancy support
+    </description>
 
     <scm>
         <url>https://github.com/apache/bifromq</url>
@@ -102,6 +103,7 @@
     </mailingLists>
 
     <properties>
+        <revision>4.0.0-SNAPSHOT</revision>
         <apache.commons.cli.version>1.5.0</apache.commons.cli.version>
         <apache.commons.collections.version>4.4</apache.commons.collections.version>
         <bouncycastle.version>1.78.1</bouncycastle.version>

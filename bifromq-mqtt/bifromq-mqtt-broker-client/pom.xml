@@ -25,7 +25,7 @@
     <parent>
         <groupId>org.apache.bifromq</groupId>
         <artifactId>bifromq-mqtt</artifactId>
-        <version>4.0.0-SNAPSHOT</version>
+        <version>${revision}</version>
     </parent>
 
     <artifactId>bifromq-mqtt-broker-client</artifactId>

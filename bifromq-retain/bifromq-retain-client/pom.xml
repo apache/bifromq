@@ -25,7 +25,7 @@
     <parent>
         <groupId>org.apache.bifromq</groupId>
         <artifactId>bifromq-retain</artifactId>
-        <version>4.0.0-SNAPSHOT</version>
+        <version>${revision}</version>
     </parent>
 
     <artifactId>bifromq-retain-client</artifactId>

@@ -25,7 +25,7 @@
     <parent>
         <groupId>org.apache.bifromq</groupId>
         <artifactId>base-rpc</artifactId>
-        <version>4.0.0-SNAPSHOT</version>
+        <version>${revision}</version>
     </parent>
 
     <artifactId>base-rpc-client</artifactId>

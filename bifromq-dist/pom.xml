@@ -24,7 +24,7 @@
     <parent>
         <artifactId>bifromq-parent</artifactId>
         <groupId>org.apache.bifromq</groupId>
-        <version>4.0.0-SNAPSHOT</version>
+        <version>${revision}</version>
     </parent>
     <modelVersion>4.0.0</modelVersion>
     <packaging>pom</packaging>

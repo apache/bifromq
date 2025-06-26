@@ -1,1 +1,7 @@
 * text=auto !eol
+.asf.yaml           export-ignore
+.github/            export-ignore
+.gitattributes      export-ignore
+.gitignore          export-ignore
+.licenserc.yaml     export-ignore
+lombok.config       export-ignore

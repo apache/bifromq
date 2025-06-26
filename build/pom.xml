@@ -33,7 +33,7 @@
 
     <modules>
         <module>build-plugin-demo</module>
-        <module>build-bifromq-starters</module>
+        <module>build-bifromq-starter</module>
     </modules>
 
 </project>

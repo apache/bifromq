@@ -27,7 +27,6 @@ import static io.netty.handler.codec.mqtt.MqttConnectReturnCode.CONNECTION_ACCEP
 
 import io.netty.handler.codec.mqtt.MqttConnAckMessage;
 import io.netty.handler.codec.mqtt.MqttConnectMessage;
-import org.apache.bifromq.inbox.rpc.proto.DetachReply;
 import org.apache.bifromq.mqtt.utils.MQTTMessageUtils;
 import org.apache.bifromq.sessiondict.rpc.proto.ServerRedirection;
 import org.apache.bifromq.type.ClientInfo;
@@ -40,11 +39,11 @@ public class MQTTKickTest extends BaseMQTTTest {
     public void testKick() {
         mockAuthPass();
         mockSessionReg();
-        mockInboxDetach(DetachReply.Code.NO_INBOX);
+        mockInboxExist(false);
         MqttConnectMessage connectMessage = MQTTMessageUtils.mqttConnectMessage(true);
         channel.writeInbound(connectMessage);
         MqttConnAckMessage ackMessage = channel.readOutbound();
-        Assert.assertEquals(CONNECTION_ACCEPTED, ackMessage.variableHeader().connectReturnCode());
+        Assert.assertEquals(ackMessage.variableHeader().connectReturnCode(), CONNECTION_ACCEPTED);
 
         // kick
 

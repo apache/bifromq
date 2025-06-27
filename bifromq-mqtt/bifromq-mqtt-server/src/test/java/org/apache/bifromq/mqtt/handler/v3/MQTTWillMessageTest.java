@@ -14,12 +14,13 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 
 package org.apache.bifromq.mqtt.handler.v3;
 
 
+import static io.netty.handler.codec.mqtt.MqttConnectReturnCode.CONNECTION_ACCEPTED;
 import static org.apache.bifromq.plugin.eventcollector.EventType.CLIENT_CONNECTED;
 import static org.apache.bifromq.plugin.eventcollector.EventType.IDLE;
 import static org.apache.bifromq.plugin.eventcollector.EventType.KICKED;
@@ -34,7 +35,6 @@ import static org.apache.bifromq.plugin.eventcollector.EventType.WILL_DIST_ERROR
 import static org.apache.bifromq.retain.rpc.proto.RetainReply.Result.CLEARED;
 import static org.apache.bifromq.retain.rpc.proto.RetainReply.Result.ERROR;
 import static org.apache.bifromq.retain.rpc.proto.RetainReply.Result.RETAINED;
-import static io.netty.handler.codec.mqtt.MqttConnectReturnCode.CONNECTION_ACCEPTED;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
@@ -42,13 +42,12 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.testng.Assert.assertEquals;
 
-import org.apache.bifromq.plugin.eventcollector.EventType;
 import io.netty.handler.codec.mqtt.MqttConnAckMessage;
 import io.netty.handler.codec.mqtt.MqttConnectMessage;
 import java.util.concurrent.TimeUnit;
 import lombok.extern.slf4j.Slf4j;
-import org.apache.bifromq.inbox.rpc.proto.DetachReply;
 import org.apache.bifromq.mqtt.utils.MQTTMessageUtils;
+import org.apache.bifromq.plugin.eventcollector.EventType;
 import org.apache.bifromq.sessiondict.rpc.proto.ServerRedirection;
 import org.apache.bifromq.type.ClientInfo;
 import org.testng.Assert;
@@ -189,7 +188,7 @@ public class MQTTWillMessageTest extends BaseMQTTTest {
     protected void setupTransientSessionWithLWT(boolean willRetain) {
         mockAuthPass();
         mockSessionReg();
-        mockInboxDetach(DetachReply.Code.NO_INBOX);
+        mockInboxExist(false);
         MqttConnectMessage connectMessage;
         if (!willRetain) {
             connectMessage = MQTTMessageUtils.qoSWillMqttConnectMessage(1, true);

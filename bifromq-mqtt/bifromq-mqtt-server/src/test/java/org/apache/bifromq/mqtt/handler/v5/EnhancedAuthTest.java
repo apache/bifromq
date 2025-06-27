@@ -29,20 +29,6 @@ import static org.testng.Assert.assertEquals;
 import static org.testng.Assert.assertFalse;
 import static org.testng.Assert.assertTrue;
 
-import org.apache.bifromq.plugin.authprovider.IAuthProvider;
-import org.apache.bifromq.plugin.authprovider.type.CheckResult;
-import org.apache.bifromq.plugin.authprovider.type.Continue;
-import org.apache.bifromq.plugin.authprovider.type.Failed;
-import org.apache.bifromq.plugin.authprovider.type.Granted;
-import org.apache.bifromq.plugin.authprovider.type.MQTT5ExtendedAuthData;
-import org.apache.bifromq.plugin.authprovider.type.MQTT5ExtendedAuthResult;
-import org.apache.bifromq.plugin.authprovider.type.MQTTAction;
-import org.apache.bifromq.plugin.authprovider.type.Success;
-import org.apache.bifromq.plugin.clientbalancer.IClientBalancer;
-import org.apache.bifromq.plugin.eventcollector.IEventCollector;
-import org.apache.bifromq.plugin.settingprovider.ISettingProvider;
-import org.apache.bifromq.plugin.settingprovider.Setting;
-import org.apache.bifromq.plugin.resourcethrottler.IResourceThrottler;
 import com.google.common.util.concurrent.RateLimiter;
 import com.google.protobuf.ByteString;
 import io.netty.channel.Channel;
@@ -66,6 +52,7 @@ import java.util.concurrent.TimeUnit;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.bifromq.inbox.client.IInboxClient;
 import org.apache.bifromq.inbox.rpc.proto.DetachReply;
+import org.apache.bifromq.inbox.rpc.proto.ExistReply;
 import org.apache.bifromq.mqtt.MockableTest;
 import org.apache.bifromq.mqtt.handler.ChannelAttrs;
 import org.apache.bifromq.mqtt.handler.ConditionalRejectHandler;
@@ -77,6 +64,20 @@ import org.apache.bifromq.mqtt.handler.v5.reason.MQTT5AuthReasonCode;
 import org.apache.bifromq.mqtt.service.ILocalSessionRegistry;
 import org.apache.bifromq.mqtt.service.LocalSessionRegistry;
 import org.apache.bifromq.mqtt.session.MQTTSessionContext;
+import org.apache.bifromq.plugin.authprovider.IAuthProvider;
+import org.apache.bifromq.plugin.authprovider.type.CheckResult;
+import org.apache.bifromq.plugin.authprovider.type.Continue;
+import org.apache.bifromq.plugin.authprovider.type.Failed;
+import org.apache.bifromq.plugin.authprovider.type.Granted;
+import org.apache.bifromq.plugin.authprovider.type.MQTT5ExtendedAuthData;
+import org.apache.bifromq.plugin.authprovider.type.MQTT5ExtendedAuthResult;
+import org.apache.bifromq.plugin.authprovider.type.MQTTAction;
+import org.apache.bifromq.plugin.authprovider.type.Success;
+import org.apache.bifromq.plugin.clientbalancer.IClientBalancer;
+import org.apache.bifromq.plugin.eventcollector.IEventCollector;
+import org.apache.bifromq.plugin.resourcethrottler.IResourceThrottler;
+import org.apache.bifromq.plugin.settingprovider.ISettingProvider;
+import org.apache.bifromq.plugin.settingprovider.Setting;
 import org.apache.bifromq.sessiondict.client.ISessionDictClient;
 import org.apache.bifromq.type.ClientInfo;
 import org.apache.bifromq.type.StringPair;
@@ -159,12 +160,21 @@ public class EnhancedAuthTest extends MockableTest {
     @Test
     public void testAuthSuccess() {
         Mockito.reset(authProvider);
+        when(inboxClient.exist(any())).thenReturn(CompletableFuture.completedFuture(ExistReply.newBuilder()
+            .setCode(ExistReply.Code.NO_INBOX)
+            .build()));
         when(authProvider.extendedAuth(any(MQTT5ExtendedAuthData.class))).thenReturn(CompletableFuture.completedFuture(
-            MQTT5ExtendedAuthResult.newBuilder().setSuccess(
-                Success.newBuilder().setAuthData(ByteString.copyFromUtf8("hello")).setUserProps(
-                        UserProperties.newBuilder()
-                            .addUserProperties(StringPair.newBuilder().setKey("key").setValue("val").build()).build())
-                    .build()).build()));
+            MQTT5ExtendedAuthResult.newBuilder()
+                .setSuccess(Success.newBuilder()
+                    .setAuthData(ByteString.copyFromUtf8("hello"))
+                    .setUserProps(UserProperties.newBuilder()
+                        .addUserProperties(StringPair.newBuilder()
+                            .setKey("key")
+                            .setValue("val")
+                            .build())
+                        .build())
+                    .build())
+                .build()));
         when(authProvider.checkPermission(any(ClientInfo.class), argThat(MQTTAction::hasConn))).thenReturn(
             CompletableFuture.completedFuture(
                 CheckResult.newBuilder().setGranted(Granted.getDefaultInstance()).build()));
@@ -193,6 +203,9 @@ public class EnhancedAuthTest extends MockableTest {
 
     @Test
     public void testAuthSuccess2() {
+        when(inboxClient.exist(any())).thenReturn(CompletableFuture.completedFuture(ExistReply.newBuilder()
+            .setCode(ExistReply.Code.NO_INBOX)
+            .build()));
         MqttConnectMessage connect = MqttMessageBuilders.connect().clientId("client")
             .protocolVersion(MqttVersion.MQTT_5).cleanSession(true).properties(
                 MQTT5MessageUtils.mqttProps().addAuthMethod("authMethod")
@@ -207,7 +220,8 @@ public class EnhancedAuthTest extends MockableTest {
                     .build()).build()));
         channel.writeInbound(connect);
         MqttMessage authMessage = channel.readOutbound();
-        MqttProperties properties = ((MqttReasonCodeAndPropertiesVariableHeader) authMessage.variableHeader()).properties();
+        MqttProperties properties =
+            ((MqttReasonCodeAndPropertiesVariableHeader) authMessage.variableHeader()).properties();
         String authMethod = authMethod(properties).orElseThrow();
         ByteString authData = MQTT5MessageUtils.authData(properties).orElseThrow();
         assertEquals(authMethod, "authMethod");
@@ -245,7 +259,8 @@ public class EnhancedAuthTest extends MockableTest {
                 .setContinue(Continue.newBuilder().setAuthData(ByteString.copyFromUtf8(challenge)).build()).build()));
         channel.writeInbound(connect);
         MqttMessage authMessage = channel.readOutbound();
-        MqttProperties properties = ((MqttReasonCodeAndPropertiesVariableHeader) authMessage.variableHeader()).properties();
+        MqttProperties properties =
+            ((MqttReasonCodeAndPropertiesVariableHeader) authMessage.variableHeader()).properties();
         String authMethod = authMethod(properties).orElseThrow();
         ByteString authData = MQTT5MessageUtils.authData(properties).orElseThrow();
         assertEquals(authMethod, "authMethod");
@@ -298,6 +313,9 @@ public class EnhancedAuthTest extends MockableTest {
     @Test
     public void testReAuth() {
         Mockito.reset(authProvider);
+        when(inboxClient.exist(any())).thenReturn(CompletableFuture.completedFuture(ExistReply.newBuilder()
+            .setCode(ExistReply.Code.NO_INBOX)
+            .build()));
         when(authProvider.extendedAuth(any(MQTT5ExtendedAuthData.class))).thenReturn(CompletableFuture.completedFuture(
             MQTT5ExtendedAuthResult.newBuilder().setSuccess(
                 Success.newBuilder().setAuthData(ByteString.copyFromUtf8("hello")).setUserProps(
@@ -319,11 +337,13 @@ public class EnhancedAuthTest extends MockableTest {
             MQTT5MessageUtils.mqttProps().addAuthMethod("authMethod")
                 .addAuthData(ByteString.copyFrom("reAuthData", StandardCharsets.UTF_8)).build()).build());
         MqttMessage reAuthMessage = channel.readOutbound();
-        MqttReasonCodeAndPropertiesVariableHeader variableHeader = ((MqttReasonCodeAndPropertiesVariableHeader) reAuthMessage.variableHeader());
+        MqttReasonCodeAndPropertiesVariableHeader variableHeader =
+            ((MqttReasonCodeAndPropertiesVariableHeader) reAuthMessage.variableHeader());
         MQTT5AuthReasonCode reasonCode = MQTT5AuthReasonCode.valueOf(variableHeader.reasonCode());
         assertEquals(reasonCode, MQTT5AuthReasonCode.Success);
 
-        MqttProperties mqttProperties = ((MqttReasonCodeAndPropertiesVariableHeader) reAuthMessage.variableHeader()).properties();
+        MqttProperties mqttProperties =
+            ((MqttReasonCodeAndPropertiesVariableHeader) reAuthMessage.variableHeader()).properties();
         Optional<String> authMethodOpt = authMethod(mqttProperties);
         Optional<ByteString> authDataOpt = MQTT5MessageUtils.authData(mqttProperties);
         assertTrue(authMethodOpt.isPresent());

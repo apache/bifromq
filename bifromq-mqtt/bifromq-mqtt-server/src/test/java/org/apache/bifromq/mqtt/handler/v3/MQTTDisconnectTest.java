@@ -50,6 +50,7 @@ public class MQTTDisconnectTest extends BaseMQTTTest {
     public void transientSession() {
         mockAuthPass();
         mockSessionReg();
+        mockInboxExist(true);
         mockInboxDetach(DetachReply.Code.OK);
         MqttConnectMessage connectMessage = MQTTMessageUtils.mqttConnectMessage(true);
         channel.writeInbound(connectMessage);
@@ -86,7 +87,7 @@ public class MQTTDisconnectTest extends BaseMQTTTest {
     public void idle() {
         mockAuthPass();
         mockSessionReg();
-        mockInboxDetach(DetachReply.Code.NO_INBOX);
+        mockInboxExist(false);
         MqttConnectMessage connectMessage = MQTTMessageUtils.mqttConnectMessage(true, "testClientId", 60);
         channel.writeInbound(connectMessage);
         channel.runPendingTasks();
@@ -102,7 +103,7 @@ public class MQTTDisconnectTest extends BaseMQTTTest {
     public void noKeepAlive() {
         mockAuthPass();
         mockSessionReg();
-        mockInboxDetach(DetachReply.Code.NO_INBOX);
+        mockInboxExist(false);
 
         // keepalive = 0
         MqttConnectMessage connectMessage = MQTTMessageUtils.mqttConnectMessage(true, "abc", 0);
@@ -121,7 +122,7 @@ public class MQTTDisconnectTest extends BaseMQTTTest {
     public void enforceMinKeepAlive() {
         mockAuthPass();
         mockSessionReg();
-        mockInboxDetach(DetachReply.Code.NO_INBOX);
+        mockInboxExist(false);
 
         // keepalive too short, least is 60s
         MqttConnectMessage connectMessage = MQTTMessageUtils.mqttConnectMessage(true, "abc", 1);
@@ -139,7 +140,7 @@ public class MQTTDisconnectTest extends BaseMQTTTest {
     public void connectTwice() {
         mockAuthPass();
         mockSessionReg();
-        mockInboxDetach(DetachReply.Code.NO_INBOX);
+        mockInboxExist(false);
         MqttConnectMessage connectMessage = MQTTMessageUtils.mqttConnectMessage(true);
         channel.writeInbound(connectMessage);
         channel.runPendingTasks();
@@ -156,6 +157,7 @@ public class MQTTDisconnectTest extends BaseMQTTTest {
     public void disconnectByServer() {
         mockAuthPass();
         mockSessionReg();
+        mockInboxExist(true);
         mockInboxDetach(DetachReply.Code.NO_INBOX);
         MqttConnectMessage connectMessage = MQTTMessageUtils.mqttConnectMessage(true);
         channel.writeInbound(connectMessage);
@@ -171,7 +173,7 @@ public class MQTTDisconnectTest extends BaseMQTTTest {
     public void badPacketAfterConnected() {
         mockAuthPass();
         mockSessionReg();
-        mockInboxDetach(DetachReply.Code.NO_INBOX);
+        mockInboxExist(false);
         MqttConnectMessage connectMessage = MQTTMessageUtils.mqttConnectMessage(true);
         channel.writeInbound(connectMessage);
         channel.runPendingTasks();

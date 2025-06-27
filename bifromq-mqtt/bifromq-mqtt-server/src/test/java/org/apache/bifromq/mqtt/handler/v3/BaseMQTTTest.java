@@ -425,7 +425,7 @@ public abstract class BaseMQTTTest {
     protected void setupTransientSession() {
         mockAuthPass();
         mockSessionReg();
-        mockInboxDetach(DetachReply.Code.NO_INBOX);
+        mockInboxExist(false);
         MqttConnectMessage connectMessage = MQTTMessageUtils.mqttConnectMessage(true);
         channel.writeInbound(connectMessage);
         channel.runPendingTasks();

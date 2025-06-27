@@ -59,7 +59,7 @@ public class MQTTConnectTest extends BaseMQTTTest {
     public void transientSessionWithoutInbox() {
         mockAuthPass();
         mockSessionReg();
-        mockInboxDetach(DetachReply.Code.NO_INBOX);
+        mockInboxExist(false);
         MqttConnectMessage connectMessage = MQTTMessageUtils.mqttConnectMessage(true);
         channel.writeInbound(connectMessage);
         channel.runPendingTasks();
@@ -72,6 +72,7 @@ public class MQTTConnectTest extends BaseMQTTTest {
     public void transientSessionWithInbox() {
         mockAuthPass();
         mockSessionReg();
+        mockInboxExist(true);
         mockInboxDetach(DetachReply.Code.OK);
         MqttConnectMessage connectMessage = MQTTMessageUtils.mqttConnectMessage(true);
         channel.writeInbound(connectMessage);
@@ -86,6 +87,7 @@ public class MQTTConnectTest extends BaseMQTTTest {
         // clear failed
         mockAuthPass();
         mockSessionReg();
+        mockInboxExist(true);
         mockInboxDetach(DetachReply.Code.ERROR);
         MqttConnectMessage connectMessage = MQTTMessageUtils.mqttConnectMessage(true);
         channel.writeInbound(connectMessage);
@@ -161,6 +163,7 @@ public class MQTTConnectTest extends BaseMQTTTest {
         String attrVal = "attrVal";
         mockAuthPass(attrKey, attrVal);
         mockSessionReg();
+        mockInboxExist(true);
         mockInboxDetach(DetachReply.Code.OK);
 
         MqttConnectMessage connectMessage = MQTTMessageUtils.mqttConnectMessage(true);
@@ -183,6 +186,7 @@ public class MQTTConnectTest extends BaseMQTTTest {
         String attrVal = "attrVal";
         mockAuthPass(attrKey, attrVal);
         mockSessionReg();
+        mockInboxExist(true);
         mockInboxDetach(DetachReply.Code.OK);
 
         MqttConnectMessage connectMessage = MQTTMessageUtils.mqttConnectMessage(true);
@@ -191,7 +195,7 @@ public class MQTTConnectTest extends BaseMQTTTest {
         channel.runPendingTasks();
         MqttConnAckMessage ackMessage = channel.readOutbound();
         // verifications
-        Assert.assertEquals(CONNECTION_ACCEPTED, ackMessage.variableHeader().connectReturnCode());
+        Assert.assertEquals(ackMessage.variableHeader().connectReturnCode(), CONNECTION_ACCEPTED);
         ArgumentCaptor<ClientConnected> eventArgumentCaptor = ArgumentCaptor.forClass(ClientConnected.class);
         verify(eventCollector).report(eventArgumentCaptor.capture());
         ClientConnected clientConnected = eventArgumentCaptor.getValue();
@@ -208,7 +212,7 @@ public class MQTTConnectTest extends BaseMQTTTest {
         channel.runPendingTasks();
         MqttConnAckMessage ackMessage = channel.readOutbound();
         // verifications
-        Assert.assertEquals(CONNECTION_REFUSED_NOT_AUTHORIZED, ackMessage.variableHeader().connectReturnCode());
+        Assert.assertEquals(ackMessage.variableHeader().connectReturnCode(), CONNECTION_REFUSED_NOT_AUTHORIZED);
         verifyEvent(EventType.NOT_AUTHORIZED_CLIENT);
     }
 
@@ -221,8 +225,8 @@ public class MQTTConnectTest extends BaseMQTTTest {
         channel.advanceTimeBy(disconnectDelay, TimeUnit.MILLISECONDS);
         channel.runPendingTasks();
         MqttConnAckMessage ackMessage = channel.readOutbound();
-        Assert.assertEquals(CONNECTION_REFUSED_BAD_USER_NAME_OR_PASSWORD,
-            ackMessage.variableHeader().connectReturnCode());
+        Assert.assertEquals(ackMessage.variableHeader().connectReturnCode(),
+                CONNECTION_REFUSED_BAD_USER_NAME_OR_PASSWORD);
         verifyEvent(EventType.UNAUTHENTICATED_CLIENT);
     }
 
@@ -245,6 +249,7 @@ public class MQTTConnectTest extends BaseMQTTTest {
     public void validWillTopic() {
         mockAuthPass();
         mockSessionReg();
+        mockInboxExist(true);
         mockInboxDetach(DetachReply.Code.OK);
         MqttConnectMessage connectMessage = MQTTMessageUtils.qoSWillMqttConnectMessage(1, true);
         channel.writeInbound(connectMessage);
@@ -258,6 +263,7 @@ public class MQTTConnectTest extends BaseMQTTTest {
     public void pingAndPingResp() {
         mockAuthPass();
         mockSessionReg();
+        mockInboxExist(true);
         mockInboxDetach(DetachReply.Code.OK);
         MqttConnectMessage connectMessage = MQTTMessageUtils.qoSWillMqttConnectMessage(1, true);
         channel.writeInbound(connectMessage);

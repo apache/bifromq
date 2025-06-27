@@ -371,6 +371,9 @@ public class MQTT5ConnectHandlerTest extends MockableTest {
         when(authProvider.checkPermission(any(ClientInfo.class), argThat(MQTTAction::hasConn))).thenReturn(
             CompletableFuture.completedFuture(
                 CheckResult.newBuilder().setGranted(Granted.getDefaultInstance()).build()));
+        when(inboxClient.exist(any())).thenReturn(CompletableFuture.completedFuture(ExistReply.newBuilder()
+                .setCode(ExistReply.Code.EXIST)
+                .build()));
         when(inboxClient.detach(any())).thenReturn(CompletableFuture.completedFuture(DetachReply.newBuilder()
             .setCode(DetachReply.Code.BACK_PRESSURE_REJECTED)
             .build()));

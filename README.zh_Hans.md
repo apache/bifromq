@@ -21,8 +21,8 @@ BifroMQ 是一个高性能且支持分布式的 MQTT Broker 实现，它原生�
 
 ## 文档
 
-您可以在官方[网站](https://bifromq.io/zh-Hans/)上查看[文档](https://bifromq.io/zh-Hans/docs/get_started/intro/)。
-此外，欢迎您在GitHub[仓库](https://github.com/bifromqio/bifromq-docs)中贡献文档。
+您可以在官方[网站](https://bifromq.apache.org)上查看[文档](https://bifromq.apache.org/docs/get_started/intro/)。
+此外，欢迎您在GitHub[仓库](https://github.com/apache/bifromq-sites)中贡献文档。
 
 ## 开始使用
 
@@ -34,7 +34,7 @@ docker run -d -m <MEM_LIMIT> -e MEM_LIMIT='<MEM_LIMIT_IN_BYTES>' --name bifromq 
 
 将`<MEM_LIMIT>`和`<MEM_LIMIT_IN_BYTES>`替换为 Docker 进程的实际内存分配，例如，使用`2G`替换`<MEM_LIMIT>`，使用 `2147483648`
 替换`<MEM_LIMIT_IN_BYTES>`。如果未指定这些值，BifroMQ 默认使用宿主服务器的物理内存来确定JVM参数。这可能导致 Docker
-进程被宿主机的OOM Killer终止，更多供信息[参考](https://bifromq.io/zh-Hans/docs/installation/docker/)。
+进程被宿主机的OOM Killer终止，更多供信息[参考](https://bifromq.apache.org/zh-Hans/docs/installation/docker/)。
 
 你可以使用Docker Compose在单个host上搭建BifroMQ集群用于开发和测试。假设你想创建一个包含三个节点的集群：node1、node2 和 node3，目录结构如下：
 ```
@@ -125,8 +125,8 @@ mvn wrapper:wrapper
 
 构建输出位于`/target/output`下：
 
-* `bifromq-<VERSION>-windows-standalone.zip`
-* `bifromq-<VERSION>-standalone.tar.gz`
+* `bifromq-<VERSION>.tar.gz`
+* `bifromq-<VERSION>-windows.zip`
 
 #### 运行测试
 
@@ -139,7 +139,7 @@ mvn test
 
 ### 快速开始
 
-要快速启动一个 BifroMQ 单机服务器，请先将 `bifromq-xxx-standalone.tar.gz` 文件解压到某个目录中。解压后的目录结构如下所示：
+要快速启动一个 BifroMQ 单机服务器，请先将 `bifromq-<VERSION>.tar.gz` 文件解压到某个目录中。解压后的目录结构如下所示：
 
 ```
 |- bin
@@ -202,19 +202,13 @@ MQTT Broker 实例，确保高可用性。 你也可以通过添加更多的节�
 
 独立工作负载集群部署模式旨在构建大规模的，多租户的 Serverless
 集群。在这种模式下，集群由几个专门的子集群组成，每个子集群都专注于一个特定的'独立类型'的工作负载。这些子集群共同协作形成一个逻辑的
-MQTT Broker 实例。这是最复杂的部署模式，需要额外的非开源协作组件。如需商业支持，请随时与我们联系。
+MQTT Broker 实例。这是最复杂的部署模式，需要额外的非开源协作组件。如需商业支持，请与我们[联系](mailto:hello@bifromq.io)。
 
-## 讨论
+## 用户社区
 
-### 微信群
+加入我们的 [Discord](https://discord.gg/Pfs3QRadRB) 用户群组
 
-如果你对我们的项目感兴趣，你可以加入我们的微信群。
 
-[通过电子邮件](mailto:hello@bifromq.io) 向我们联系，告知您的WeChat ID，以及"为什么您对 BifroMQ 感兴趣"
-的更多信息（我们很乐意听到），我们将尽快邀请您加入我们的群组。
+## ASF Incubator disclaimer
 
-### Discord
-
-或加入我们的 Discord 群组（英文）
-
-<a href="https://discord.gg/Pfs3QRadRB"><img src="https://img.shields.io/discord/1115542029531885599?logo=discord&logoColor=white" alt="BifroMQ Discord server" /></a>
+Apache BifroMQ&trade; is an effort undergoing incubation at The Apache Software Foundation (ASF), sponsored by the Apache Incubator. Incubation is required of all newly accepted projects until a further review indicates that the infrastructure, communications, and decision making process have stabilized in a manner consistent with other successful ASF projects. While incubation status is not necessarily a reflection of the completeness or stability of the code, it does indicate that the project has yet to be fully endorsed by the ASF.

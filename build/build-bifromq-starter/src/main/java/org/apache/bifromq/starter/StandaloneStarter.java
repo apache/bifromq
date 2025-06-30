@@ -127,7 +127,7 @@ public class StandaloneStarter {
         log.info("JVM arguments: \n  {}", String.join("\n  ", arguments));
 
         log.info("Settings, which can be modified at runtime, allowing for dynamic adjustment of BifroMQ's "
-            + "service behavior per tenant. See https://bifromq.io/docs/plugin/setting_provider/");
+            + "service behavior per tenant. See https://bifromq.apache.org/docs/plugin/setting_provider/intro/");
         log.info("The initial value of each setting could be overridden by JVM arguments like: '-DMQTT5Enabled=false'");
         for (Setting setting : Setting.values()) {
             log.info("Setting: {}={}", setting.name(), setting.current(""));

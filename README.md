@@ -1,6 +1,7 @@
 # BifroMQ
 
 [![GitHub Release](https://img.shields.io/github/release/bifromqio/bifromq?color=brightgreen&label=Release)](https://github.com/bifromqio/bifromq/releases)
+<a href="https://discord.gg/Pfs3QRadRB"><img src="https://img.shields.io/discord/1115542029531885599?logo=discord&logoColor=white" alt="BifroMQ Discord server" /></a>
 [![Coverage Status](https://img.shields.io/coveralls/github/bifromqio/bifromq/main?label=Coverage)](https://coveralls.io/github/bifromqio/bifromq?branch=main)
 [![Docker Pulls](https://img.shields.io/docker/pulls/bifromq/bifromq?label=Docker%20Pulls)](https://hub.docker.com/r/bifromq/bifromq)
 
@@ -25,10 +26,10 @@ support. It is designed to support building large-scale IoT device connections a
 
 ## Documentation
 
-You can access the [documentation](https://bifromq.io/docs/get_started/intro/) on the
-official [website](https://bifromq.io).
+You can access the [documentation](https://bifromq.apache.org/docs/get_started/intro/) on the
+official [website](https://bifromq.apache.org).
 Additionally, contributions to the documentation are welcome in the
-GitHub [repository](https://github.com/bifromqio/bifromq-docs).
+GitHub [repository](https://github.com/apache/bifromq-sites).
 
 ## Getting Started
 
@@ -133,8 +134,8 @@ mvn wrapper:wrapper
 
 The build output consists of several archive files located under `/target/output`
 
-* `bifromq-<VERSION>-windows-standalone.zip`
-* `bifromq-<VERSION>-standalone.tar.gz`
+* `bifromq-<VERSION>.tar.gz`
+* `bifromq-<VERSION>-windows.zip`
 
 #### Running the tests
 
@@ -148,7 +149,7 @@ mvn test
 
 ### Quick Start
 
-To quickly set up a BifroMQ server, extract the `bifromq-xxx-standalone.tar.gz` file into a directory. You will see the
+To quickly set up a BifroMQ server, extract the `bifromq-<VERSION>.tar.gz` file into a directory. You will see the
 following directory structure:
 
 ```
@@ -218,13 +219,9 @@ of workload. These sub-clusters work together coherently to form a logical MQTT 
 complex deployment mode and requires additional non-open-sourced building blocks. Feel free to contact us for commercial
 support.
 
-## Discussion
+## User Community
 
-Join our Discord if you are interested in our work.
-
-### Discord
-
-<a href="https://discord.gg/Pfs3QRadRB"><img src="https://img.shields.io/discord/1115542029531885599?logo=discord&logoColor=white" alt="BifroMQ Discord server" /></a>
+Join our [Discord](https://discord.gg/Pfs3QRadRB) if you are interested in our work.
 
 ## ASF Incubator disclaimer
 

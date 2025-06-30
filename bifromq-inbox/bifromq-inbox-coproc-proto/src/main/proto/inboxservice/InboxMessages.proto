@@ -18,7 +18,7 @@
 
 syntax = "proto3";
 import "commontype/TopicMessage.proto";
-import "inboxservice/TopicFilterOption.proto";
+import "commontype/TopicFilterOption.proto";
 
 option java_multiple_files = true;
 option java_package = "org.apache.bifromq.inbox.storage.proto";
@@ -29,7 +29,7 @@ package inboxservice;
 message InboxMessage{
   uint64 seq = 1;
   commontype.TopicMessage msg = 2;
-  map<string, TopicFilterOption> matchedTopicFilter = 3;
+  map<string, commontype.TopicFilterOption> matchedTopicFilter = 3;
 }
 
 message InboxMessageList{

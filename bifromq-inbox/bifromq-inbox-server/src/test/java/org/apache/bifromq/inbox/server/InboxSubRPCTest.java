@@ -32,6 +32,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.testng.Assert.assertEquals;
 
+import java.util.concurrent.CompletableFuture;
 import org.apache.bifromq.basehlc.HLC;
 import org.apache.bifromq.dist.client.MatchResult;
 import org.apache.bifromq.inbox.rpc.proto.AttachReply;
@@ -40,14 +41,13 @@ import org.apache.bifromq.inbox.rpc.proto.SubReply;
 import org.apache.bifromq.inbox.rpc.proto.SubRequest;
 import org.apache.bifromq.inbox.storage.proto.InboxVersion;
 import org.apache.bifromq.inbox.storage.proto.LWT;
-import org.apache.bifromq.inbox.storage.proto.TopicFilterOption;
 import org.apache.bifromq.plugin.subbroker.CheckReply;
 import org.apache.bifromq.plugin.subbroker.CheckRequest;
 import org.apache.bifromq.type.ClientInfo;
 import org.apache.bifromq.type.MatchInfo;
 import org.apache.bifromq.type.QoS;
+import org.apache.bifromq.type.TopicFilterOption;
 import org.apache.bifromq.util.TopicUtil;
-import java.util.concurrent.CompletableFuture;
 import org.testng.annotations.Test;
 
 public class InboxSubRPCTest extends InboxServiceTest {

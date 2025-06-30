@@ -65,7 +65,6 @@ import org.apache.bifromq.inbox.storage.proto.Fetched;
 import org.apache.bifromq.inbox.storage.proto.InboxMessage;
 import org.apache.bifromq.inbox.storage.proto.InboxVersion;
 import org.apache.bifromq.inbox.storage.proto.LWT;
-import org.apache.bifromq.inbox.storage.proto.TopicFilterOption;
 import org.apache.bifromq.metrics.ITenantMeter;
 import org.apache.bifromq.mqtt.handler.condition.Condition;
 import org.apache.bifromq.mqtt.handler.record.ProtocolResponse;
@@ -78,6 +77,8 @@ import org.apache.bifromq.sysprops.props.DataPlaneMaxBurstLatencyMillis;
 import org.apache.bifromq.type.ClientInfo;
 import org.apache.bifromq.type.MatchInfo;
 import org.apache.bifromq.type.Message;
+import org.apache.bifromq.type.RoutedMessage;
+import org.apache.bifromq.type.TopicFilterOption;
 import org.apache.bifromq.type.TopicMessage;
 import org.apache.bifromq.util.TopicUtil;
 
@@ -88,7 +89,7 @@ import org.apache.bifromq.util.TopicUtil;
 public abstract class MQTTPersistentSessionHandler extends MQTTSessionHandler implements IMQTTPersistentSession {
     private final int sessionExpirySeconds;
     private final InboxVersion inboxVersion;
-    private final NavigableMap<Long, SubMessage> stagingBuffer = new TreeMap<>();
+    private final NavigableMap<Long, RoutedMessage> stagingBuffer = new TreeMap<>();
     private final IInboxClient inboxClient;
     private final Cache<String, AtomicReference<Long>> qoS0TimestampsByMQTTPublisher = Caffeine.newBuilder()
         .expireAfterAccess(2 * DataPlaneMaxBurstLatencyMillis.INSTANCE.get(), TimeUnit.MILLISECONDS)
@@ -412,7 +413,7 @@ public abstract class MQTTPersistentSessionHandler extends MQTTSessionHandler im
 
     @Override
     protected final void onConfirm(long seq) {
-        SubMessage confirmed = stagingBuffer.remove(seq);
+        RoutedMessage confirmed = stagingBuffer.remove(seq);
         if (confirmed != null) {
             // for multiple topic filters matched message, confirm to upstream when at lease one is confirmed by client
             memUsage.addAndGet(-confirmed.estBytes());
@@ -514,7 +515,7 @@ public abstract class MQTTPersistentSessionHandler extends MQTTSessionHandler im
                     .record(HLC.INST.getPhysical() - HLC.INST.getPhysical(message.getTimestamp()),
                         TimeUnit.MILLISECONDS);
                 sendQoS0SubMessage(
-                    new SubMessage(topic, message, publisher, topicFilter, option, checkResult.hasGranted(), isDup));
+                    new RoutedMessage(topic, message, publisher, topicFilter, option, checkResult.hasGranted(), isDup));
             });
     }
 
@@ -541,13 +542,12 @@ public abstract class MQTTPersistentSessionHandler extends MQTTSessionHandler im
                 String topic = topicMsg.getTopic();
                 Message message = topicMsg.getMessage();
                 ClientInfo publisher = topicMsg.getPublisher();
-                SubMessage msg =
-                    new SubMessage(topic, message, publisher, topicFilter, option, checkResult.hasGranted(), isDup,
-                        inboxSeq);
+                RoutedMessage msg = new RoutedMessage(topic, message, publisher, topicFilter, option,
+                    checkResult.hasGranted(), isDup, inboxSeq);
                 tenantMeter.timer(msg.qos() == AT_LEAST_ONCE ? MqttQoS1InternalLatency : MqttQoS2InternalLatency)
                     .record(HLC.INST.getPhysical() - HLC.INST.getPhysical(message.getTimestamp()),
                         TimeUnit.MILLISECONDS);
-                SubMessage prev = stagingBuffer.put(seq, msg);
+                RoutedMessage prev = stagingBuffer.put(seq, msg);
                 if (prev == null) {
                     memUsage.addAndGet(msg.estBytes());
                 }
@@ -555,13 +555,13 @@ public abstract class MQTTPersistentSessionHandler extends MQTTSessionHandler im
     }
 
     private void drainStaging() {
-        SortedMap<Long, SubMessage> toBeSent = stagingBuffer.tailMap(nextSendSeq);
+        SortedMap<Long, RoutedMessage> toBeSent = stagingBuffer.tailMap(nextSendSeq);
         if (toBeSent.isEmpty()) {
             return;
         }
-        Iterator<Map.Entry<Long, SubMessage>> itr = toBeSent.entrySet().iterator();
+        Iterator<Map.Entry<Long, RoutedMessage>> itr = toBeSent.entrySet().iterator();
         while (clientReceiveQuota() > 0 && itr.hasNext()) {
-            Map.Entry<Long, SubMessage> entry = itr.next();
+            Map.Entry<Long, RoutedMessage> entry = itr.next();
             long seq = entry.getKey();
             sendConfirmableSubMessage(seq, entry.getValue());
             nextSendSeq = seq + 1;

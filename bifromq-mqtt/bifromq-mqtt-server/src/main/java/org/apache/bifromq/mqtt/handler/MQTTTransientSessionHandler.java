@@ -64,7 +64,6 @@ import org.apache.bifromq.basehlc.HLC;
 import org.apache.bifromq.dist.client.MatchResult;
 import org.apache.bifromq.dist.client.UnmatchResult;
 import org.apache.bifromq.inbox.storage.proto.LWT;
-import org.apache.bifromq.inbox.storage.proto.TopicFilterOption;
 import org.apache.bifromq.metrics.ITenantMeter;
 import org.apache.bifromq.mqtt.handler.condition.Condition;
 import org.apache.bifromq.mqtt.handler.record.ProtocolResponse;
@@ -81,6 +80,8 @@ import org.apache.bifromq.type.ClientInfo;
 import org.apache.bifromq.type.MatchInfo;
 import org.apache.bifromq.type.Message;
 import org.apache.bifromq.type.QoS;
+import org.apache.bifromq.type.RoutedMessage;
+import org.apache.bifromq.type.TopicFilterOption;
 import org.apache.bifromq.type.TopicMessagePack;
 import org.apache.bifromq.util.TopicUtil;
 
@@ -88,7 +89,7 @@ import org.apache.bifromq.util.TopicUtil;
 public abstract class MQTTTransientSessionHandler extends MQTTSessionHandler implements IMQTTTransientSession {
     // the topicFilters could be accessed concurrently
     private final Map<String, TopicFilterOption> topicFilters = new ConcurrentHashMap<>();
-    private final NavigableMap<Long, SubMessage> inbox = new TreeMap<>();
+    private final NavigableMap<Long, RoutedMessage> inbox = new TreeMap<>();
     private final Cache<String, AtomicReference<Long>> latestMsgTsByMQTTPublisher = Caffeine.newBuilder()
         // we simply use 2 times of the burst latency as the expiration time
         // which is a rough estimation of stabilizing time of internal resource scheduling
@@ -154,7 +155,7 @@ public abstract class MQTTTransientSessionHandler extends MQTTSessionHandler imp
 
     @Override
     protected final void onConfirm(long seq) {
-        SubMessage msg = inbox.remove(seq);
+        RoutedMessage msg = inbox.remove(seq);
         if (msg != null) {
             memUsage.addAndGet(-msg.estBytes());
         }
@@ -331,7 +332,7 @@ public abstract class MQTTTransientSessionHandler extends MQTTSessionHandler imp
         for (Message message : messages) {
             // deduplicate messages based on topic and publisher
             for (TopicFilterAndPermission tfp : topicFilterAndPermissions) {
-                SubMessage subMsg = new SubMessage(topic, message, publisher, tfp.topicFilter, tfp.option,
+                RoutedMessage subMsg = new RoutedMessage(topic, message, publisher, tfp.topicFilter, tfp.option,
                     tfp.permissionCheckFuture.join().hasGranted(),
                     isDuplicateMessage(publisher, message, latestMsgTsByMQTTPublisher));
                 logInternalLatency(subMsg);
@@ -348,21 +349,21 @@ public abstract class MQTTTransientSessionHandler extends MQTTSessionHandler imp
     }
 
     private void send() {
-        SortedMap<Long, SubMessage> toBeSent = inbox.tailMap(nextSendSeq);
+        SortedMap<Long, RoutedMessage> toBeSent = inbox.tailMap(nextSendSeq);
         if (toBeSent.isEmpty()) {
             return;
         }
-        Iterator<Map.Entry<Long, SubMessage>> itr = toBeSent.entrySet().iterator();
+        Iterator<Map.Entry<Long, RoutedMessage>> itr = toBeSent.entrySet().iterator();
         while (clientReceiveQuota() > 0 && itr.hasNext()) {
-            Map.Entry<Long, SubMessage> entry = itr.next();
+            Map.Entry<Long, RoutedMessage> entry = itr.next();
             long seq = entry.getKey();
-            SubMessage msg = entry.getValue();
+            RoutedMessage msg = entry.getValue();
             sendConfirmableSubMessage(seq, msg);
             nextSendSeq = seq + 1;
         }
     }
 
-    private void logInternalLatency(SubMessage message) {
+    private void logInternalLatency(RoutedMessage message) {
         Timer timer = switch (message.qos()) {
             case AT_MOST_ONCE -> tenantMeter.timer(MqttQoS0InternalLatency);
             case AT_LEAST_ONCE -> tenantMeter.timer(MqttQoS1InternalLatency);

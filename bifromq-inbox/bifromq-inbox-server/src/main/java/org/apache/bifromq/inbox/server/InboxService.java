@@ -24,6 +24,12 @@ import static org.apache.bifromq.baserpc.server.UnaryResponse.response;
 import static org.apache.bifromq.inbox.util.InboxServiceUtil.getDelivererKey;
 import static org.apache.bifromq.inbox.util.InboxServiceUtil.receiverId;
 
+import io.grpc.stub.StreamObserver;
+import java.util.List;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.atomic.AtomicReference;
+import lombok.Builder;
+import lombok.extern.slf4j.Slf4j;
 import org.apache.bifromq.basescheduler.exception.BackPressureException;
 import org.apache.bifromq.basescheduler.exception.BatcherUnavailableException;
 import org.apache.bifromq.dist.client.IDistClient;
@@ -64,16 +70,10 @@ import org.apache.bifromq.inbox.server.scheduler.IInboxInsertScheduler;
 import org.apache.bifromq.inbox.server.scheduler.IInboxSendLWTScheduler;
 import org.apache.bifromq.inbox.server.scheduler.IInboxSubScheduler;
 import org.apache.bifromq.inbox.server.scheduler.IInboxUnsubScheduler;
-import org.apache.bifromq.inbox.storage.proto.TopicFilterOption;
 import org.apache.bifromq.plugin.subbroker.CheckReply;
 import org.apache.bifromq.plugin.subbroker.CheckRequest;
+import org.apache.bifromq.type.TopicFilterOption;
 import org.apache.bifromq.util.TopicUtil;
-import io.grpc.stub.StreamObserver;
-import java.util.List;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.atomic.AtomicReference;
-import lombok.Builder;
-import lombok.extern.slf4j.Slf4j;
 
 @Slf4j
 class InboxService extends InboxServiceGrpc.InboxServiceImplBase {

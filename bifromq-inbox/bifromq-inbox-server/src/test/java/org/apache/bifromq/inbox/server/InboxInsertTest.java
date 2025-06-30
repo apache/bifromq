@@ -24,6 +24,10 @@ import static org.apache.bifromq.inbox.util.InboxServiceUtil.receiverId;
 import static org.testng.Assert.assertEquals;
 import static org.testng.Assert.assertTrue;
 
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
 import org.apache.bifromq.basehlc.HLC;
 import org.apache.bifromq.inbox.client.IInboxClient;
 import org.apache.bifromq.inbox.rpc.proto.AttachReply;
@@ -31,7 +35,6 @@ import org.apache.bifromq.inbox.rpc.proto.AttachRequest;
 import org.apache.bifromq.inbox.rpc.proto.SubReply;
 import org.apache.bifromq.inbox.rpc.proto.SubRequest;
 import org.apache.bifromq.inbox.storage.proto.Fetched;
-import org.apache.bifromq.inbox.storage.proto.TopicFilterOption;
 import org.apache.bifromq.plugin.subbroker.DeliveryPack;
 import org.apache.bifromq.plugin.subbroker.DeliveryPackage;
 import org.apache.bifromq.plugin.subbroker.DeliveryReply;
@@ -42,12 +45,9 @@ import org.apache.bifromq.type.ClientInfo;
 import org.apache.bifromq.type.MatchInfo;
 import org.apache.bifromq.type.Message;
 import org.apache.bifromq.type.QoS;
+import org.apache.bifromq.type.TopicFilterOption;
 import org.apache.bifromq.type.TopicMessagePack;
 import org.apache.bifromq.util.TopicUtil;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicReference;
 import org.testng.annotations.Test;
 
 public class InboxInsertTest extends InboxServiceTest {

@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.
+ * under the License.    
  */
 
 package org.apache.bifromq.inbox.server;
@@ -31,20 +31,20 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import io.grpc.stub.StreamObserver;
+import java.util.concurrent.CompletableFuture;
 import org.apache.bifromq.basehlc.HLC;
 import org.apache.bifromq.basescheduler.exception.BatcherUnavailableException;
 import org.apache.bifromq.dist.client.MatchResult;
 import org.apache.bifromq.inbox.rpc.proto.SubReply;
 import org.apache.bifromq.inbox.rpc.proto.SubRequest;
 import org.apache.bifromq.inbox.storage.proto.InboxVersion;
-import org.apache.bifromq.inbox.storage.proto.RetainHandling;
-import org.apache.bifromq.inbox.storage.proto.TopicFilterOption;
 import org.apache.bifromq.plugin.settingprovider.Setting;
 import org.apache.bifromq.retain.rpc.proto.MatchReply;
 import org.apache.bifromq.type.QoS;
+import org.apache.bifromq.type.RetainHandling;
+import org.apache.bifromq.type.TopicFilterOption;
 import org.apache.bifromq.util.TopicUtil;
-import io.grpc.stub.StreamObserver;
-import java.util.concurrent.CompletableFuture;
 import org.testng.annotations.Test;
 
 public class MockedInboxSubTest extends MockedInboxService {

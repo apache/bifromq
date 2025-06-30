@@ -18,7 +18,7 @@
 
 syntax = "proto3";
 import "commontype/ClientInfo.proto";
-import "inboxservice/TopicFilterOption.proto";
+import "commontype/TopicFilterOption.proto";
 import "inboxservice/LWT.proto";
 
 option java_multiple_files = true;
@@ -36,7 +36,7 @@ message InboxMetadata{
   uint32 limit = 6;
   bool dropOldest = 7; // only work for qos0
   commontype.ClientInfo client = 8; // the owner client
-  map<string, TopicFilterOption> topicFilters = 9; // subscribed topic filters
+  map<string, commontype.TopicFilterOption> topicFilters = 9; // subscribed topic filters
   optional LWT lwt = 10;
 
   uint64 qos0StartSeq = 11;

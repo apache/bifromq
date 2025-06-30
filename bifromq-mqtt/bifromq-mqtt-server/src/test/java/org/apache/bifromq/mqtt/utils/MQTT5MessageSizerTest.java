@@ -22,23 +22,6 @@ package org.apache.bifromq.mqtt.utils;
 import static io.netty.handler.codec.mqtt.MqttSubscriptionOption.RetainedHandlingPolicy.SEND_AT_SUBSCRIBE;
 import static org.testng.Assert.assertEquals;
 
-import org.apache.bifromq.inbox.storage.proto.TopicFilterOption;
-import org.apache.bifromq.mqtt.MockableTest;
-import org.apache.bifromq.mqtt.handler.MQTTSessionHandler;
-import org.apache.bifromq.mqtt.handler.v5.MQTT5MessageBuilders;
-import org.apache.bifromq.mqtt.handler.v5.MQTT5MessageUtils;
-import org.apache.bifromq.mqtt.handler.v5.reason.MQTT5AuthReasonCode;
-import org.apache.bifromq.mqtt.handler.v5.reason.MQTT5DisconnectReasonCode;
-import org.apache.bifromq.mqtt.handler.v5.reason.MQTT5PubAckReasonCode;
-import org.apache.bifromq.mqtt.handler.v5.reason.MQTT5PubCompReasonCode;
-import org.apache.bifromq.mqtt.handler.v5.reason.MQTT5PubRecReasonCode;
-import org.apache.bifromq.mqtt.handler.v5.reason.MQTT5PubRelReasonCode;
-import org.apache.bifromq.mqtt.handler.v5.reason.MQTT5SubAckReasonCode;
-import org.apache.bifromq.mqtt.handler.v5.reason.MQTT5UnsubAckReasonCode;
-import org.apache.bifromq.type.ClientInfo;
-import org.apache.bifromq.type.Message;
-import org.apache.bifromq.type.StringPair;
-import org.apache.bifromq.type.UserProperties;
 import com.google.protobuf.ByteString;
 import io.netty.buffer.ByteBuf;
 import io.netty.channel.embedded.EmbeddedChannel;
@@ -51,6 +34,23 @@ import io.netty.handler.codec.mqtt.MqttProperties;
 import io.netty.handler.codec.mqtt.MqttQoS;
 import io.netty.handler.codec.mqtt.MqttSubscriptionOption;
 import io.netty.handler.codec.mqtt.MqttVersion;
+import org.apache.bifromq.mqtt.MockableTest;
+import org.apache.bifromq.mqtt.handler.v5.MQTT5MessageBuilders;
+import org.apache.bifromq.mqtt.handler.v5.MQTT5MessageUtils;
+import org.apache.bifromq.mqtt.handler.v5.reason.MQTT5AuthReasonCode;
+import org.apache.bifromq.mqtt.handler.v5.reason.MQTT5DisconnectReasonCode;
+import org.apache.bifromq.mqtt.handler.v5.reason.MQTT5PubAckReasonCode;
+import org.apache.bifromq.mqtt.handler.v5.reason.MQTT5PubCompReasonCode;
+import org.apache.bifromq.mqtt.handler.v5.reason.MQTT5PubRecReasonCode;
+import org.apache.bifromq.mqtt.handler.v5.reason.MQTT5PubRelReasonCode;
+import org.apache.bifromq.mqtt.handler.v5.reason.MQTT5SubAckReasonCode;
+import org.apache.bifromq.mqtt.handler.v5.reason.MQTT5UnsubAckReasonCode;
+import org.apache.bifromq.type.ClientInfo;
+import org.apache.bifromq.type.Message;
+import org.apache.bifromq.type.RoutedMessage;
+import org.apache.bifromq.type.StringPair;
+import org.apache.bifromq.type.TopicFilterOption;
+import org.apache.bifromq.type.UserProperties;
 import org.testng.annotations.BeforeMethod;
 import org.testng.annotations.Test;
 
@@ -108,7 +108,7 @@ public class MQTT5MessageSizerTest extends MockableTest {
         MqttMessage message = MQTT5MessageBuilders.pub()
             .setupAlias(true)
             .topicAlias(1)
-            .message(new MQTTSessionHandler.SubMessage("topic",
+            .message(new RoutedMessage("topic",
                 Message.newBuilder()
                     .setPayload(ByteString.copyFromUtf8("payload"))
                     .build(),

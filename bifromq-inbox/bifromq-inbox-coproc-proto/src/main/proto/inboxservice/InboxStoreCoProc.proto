@@ -18,9 +18,9 @@
 
 syntax = "proto3";
 import "commontype/ClientInfo.proto";
+import "commontype/TopicFilterOption.proto";
 import "commontype/TopicMessage.proto";
 import "inboxservice/Replica.proto";
-import "inboxservice/TopicFilterOption.proto";
 import "inboxservice/LWT.proto";
 import "inboxservice/InboxFetched.proto";
 
@@ -126,7 +126,7 @@ message BatchDeleteReply{
   }
   message Result{
     Code code = 1;
-    map<string, TopicFilterOption> topicFilters = 2;
+    map<string, commontype.TopicFilterOption> topicFilters = 2;
   }
   repeated Result result = 1;
 }
@@ -137,7 +137,7 @@ message BatchSubRequest{
     string inboxId = 2;
     InboxVersion version = 3;
     string topicFilter = 5;
-    TopicFilterOption option = 6;
+    commontype.TopicFilterOption option = 6;
     uint32  maxTopicFilters = 7;
     uint64 now = 8;
   }
@@ -175,7 +175,7 @@ message BatchUnsubReply{
   }
   message Result{
     Code code = 1;
-    optional TopicFilterOption option = 2; // when code is OK
+    optional commontype.TopicFilterOption option = 2; // when code is OK
   }
   repeated Result result = 1;
 }

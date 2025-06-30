@@ -28,13 +28,14 @@ import io.netty.handler.codec.mqtt.MqttUnsubAckMessage;
 import io.netty.handler.codec.mqtt.MqttUnsubscribeMessage;
 import java.util.List;
 import java.util.Optional;
-import org.apache.bifromq.inbox.storage.proto.TopicFilterOption;
 import org.apache.bifromq.mqtt.handler.record.ProtocolResponse;
 import org.apache.bifromq.plugin.authprovider.type.CheckResult;
 import org.apache.bifromq.plugin.resourcethrottler.TenantResourceType;
 import org.apache.bifromq.retain.rpc.proto.RetainReply;
 import org.apache.bifromq.type.ClientInfo;
 import org.apache.bifromq.type.Message;
+import org.apache.bifromq.type.RoutedMessage;
+import org.apache.bifromq.type.TopicFilterOption;
 import org.apache.bifromq.type.UserProperties;
 
 public interface IMQTTProtocolHelper {
@@ -94,7 +95,7 @@ public interface IMQTTProtocolHelper {
 
     ProtocolResponse onRedirect(boolean isPermanent, String serverReference);
 
-    MqttPublishMessage buildMqttPubMessage(int packetId, MQTTSessionHandler.SubMessage message, boolean isDup);
+    MqttPublishMessage buildMqttPubMessage(int packetId, RoutedMessage message, boolean isDup);
 
     ProtocolResponse respondReceivingMaximumExceeded(MqttPublishMessage mqttMessage);
 

@@ -14,23 +14,11 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.
+ * under the License.    
  */
 
 package org.apache.bifromq.mqtt.handler.v5;
 
-import org.apache.bifromq.basehlc.HLC;
-import org.apache.bifromq.inbox.storage.proto.TopicFilterOption;
-import org.apache.bifromq.mqtt.handler.MQTTSessionHandler;
-import org.apache.bifromq.mqtt.handler.v5.reason.MQTT5AuthReasonCode;
-import org.apache.bifromq.mqtt.handler.v5.reason.MQTT5DisconnectReasonCode;
-import org.apache.bifromq.mqtt.handler.v5.reason.MQTT5PubAckReasonCode;
-import org.apache.bifromq.mqtt.handler.v5.reason.MQTT5PubCompReasonCode;
-import org.apache.bifromq.mqtt.handler.v5.reason.MQTT5PubRecReasonCode;
-import org.apache.bifromq.mqtt.handler.v5.reason.MQTT5PubRelReasonCode;
-import org.apache.bifromq.mqtt.handler.v5.reason.MQTT5SubAckReasonCode;
-import org.apache.bifromq.mqtt.handler.v5.reason.MQTT5UnsubAckReasonCode;
-import org.apache.bifromq.type.UserProperties;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.protobuf.ByteString;
@@ -53,6 +41,18 @@ import io.netty.handler.codec.mqtt.MqttUnsubAckPayload;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
+import org.apache.bifromq.basehlc.HLC;
+import org.apache.bifromq.mqtt.handler.v5.reason.MQTT5AuthReasonCode;
+import org.apache.bifromq.mqtt.handler.v5.reason.MQTT5DisconnectReasonCode;
+import org.apache.bifromq.mqtt.handler.v5.reason.MQTT5PubAckReasonCode;
+import org.apache.bifromq.mqtt.handler.v5.reason.MQTT5PubCompReasonCode;
+import org.apache.bifromq.mqtt.handler.v5.reason.MQTT5PubRecReasonCode;
+import org.apache.bifromq.mqtt.handler.v5.reason.MQTT5PubRelReasonCode;
+import org.apache.bifromq.mqtt.handler.v5.reason.MQTT5SubAckReasonCode;
+import org.apache.bifromq.mqtt.handler.v5.reason.MQTT5UnsubAckReasonCode;
+import org.apache.bifromq.type.RoutedMessage;
+import org.apache.bifromq.type.TopicFilterOption;
+import org.apache.bifromq.type.UserProperties;
 
 public class MQTT5MessageBuilders {
     public static AuthBuilder auth(String authMethod) {
@@ -345,7 +345,7 @@ public class MQTT5MessageBuilders {
 
     public static final class PubBuilder {
         private int packetId;
-        private MQTTSessionHandler.SubMessage message;
+        private RoutedMessage message;
         private boolean dup;
         private boolean setupAlias;
         private int topicAlias;
@@ -370,7 +370,7 @@ public class MQTT5MessageBuilders {
             return this;
         }
 
-        public PubBuilder message(MQTTSessionHandler.SubMessage message) {
+        public PubBuilder message(RoutedMessage message) {
             this.message = message;
             return this;
         }

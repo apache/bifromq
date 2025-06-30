@@ -45,9 +45,7 @@ import java.util.List;
 import java.util.Optional;
 import lombok.AllArgsConstructor;
 import org.apache.bifromq.basehlc.HLC;
-import org.apache.bifromq.inbox.storage.proto.TopicFilterOption;
 import org.apache.bifromq.mqtt.handler.IMQTTProtocolHelper;
-import org.apache.bifromq.mqtt.handler.MQTTSessionHandler;
 import org.apache.bifromq.mqtt.handler.TenantSettings;
 import org.apache.bifromq.mqtt.handler.record.ProtocolResponse;
 import org.apache.bifromq.plugin.authprovider.type.CheckResult;
@@ -77,6 +75,8 @@ import org.apache.bifromq.sysprops.props.SanityCheckMqttUtf8String;
 import org.apache.bifromq.type.ClientInfo;
 import org.apache.bifromq.type.Message;
 import org.apache.bifromq.type.QoS;
+import org.apache.bifromq.type.RoutedMessage;
+import org.apache.bifromq.type.TopicFilterOption;
 import org.apache.bifromq.type.UserProperties;
 import org.apache.bifromq.util.TopicUtil;
 import org.apache.bifromq.util.UTF8Util;
@@ -309,7 +309,7 @@ public class MQTT3ProtocolHelper implements IMQTTProtocolHelper {
     }
 
     @Override
-    public MqttPublishMessage buildMqttPubMessage(int packetId, MQTTSessionHandler.SubMessage message, boolean isDup) {
+    public MqttPublishMessage buildMqttPubMessage(int packetId, RoutedMessage message, boolean isDup) {
         return MQTT3MessageBuilders.pub()
             .messageId(packetId)
             .topicName(message.topic())

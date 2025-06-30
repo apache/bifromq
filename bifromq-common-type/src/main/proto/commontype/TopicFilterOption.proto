@@ -18,12 +18,13 @@
 
 syntax = "proto3";
 import "commontype/QoS.proto";
+import "commontype/UserProperties.proto";
+
+package commontype;
 
 option java_multiple_files = true;
-option java_package = "org.apache.bifromq.inbox.storage.proto";
+option java_package = "org.apache.bifromq.type";
 option java_outer_classname = "TopicFilterOptionProtos";
-
-package inboxservice;
 
 enum RetainHandling{
   SEND_AT_SUBSCRIBE = 0;
@@ -38,4 +39,5 @@ message TopicFilterOption{
   bool noLocal = 4;
   RetainHandling retainHandling = 5;
   uint64 incarnation = 6;
+  UserProperties userProperties = 7; // for mqtt5
 }

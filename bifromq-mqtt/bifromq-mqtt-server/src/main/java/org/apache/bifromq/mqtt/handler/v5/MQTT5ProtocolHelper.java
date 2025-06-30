@@ -19,6 +19,7 @@
 
 package org.apache.bifromq.mqtt.handler.v5;
 
+import static io.netty.handler.codec.mqtt.MqttConnectReturnCode.CONNECTION_REFUSED_SERVER_BUSY;
 import static org.apache.bifromq.mqtt.handler.record.ProtocolResponse.farewell;
 import static org.apache.bifromq.mqtt.handler.record.ProtocolResponse.farewellNow;
 import static org.apache.bifromq.mqtt.handler.record.ProtocolResponse.response;
@@ -35,13 +36,27 @@ import static org.apache.bifromq.plugin.eventcollector.ThreadLocalEventPool.getL
 import static org.apache.bifromq.type.MQTTClientInfoConstants.MQTT_CLIENT_ADDRESS_KEY;
 import static org.apache.bifromq.util.TopicUtil.isValidTopic;
 import static org.apache.bifromq.util.UTF8Util.isWellFormed;
-import static io.netty.handler.codec.mqtt.MqttConnectReturnCode.CONNECTION_REFUSED_SERVER_BUSY;
 
+import io.netty.handler.codec.TooLongFrameException;
+import io.netty.handler.codec.mqtt.MqttConnectMessage;
+import io.netty.handler.codec.mqtt.MqttMessage;
+import io.netty.handler.codec.mqtt.MqttMessageBuilders;
+import io.netty.handler.codec.mqtt.MqttMessageIdVariableHeader;
+import io.netty.handler.codec.mqtt.MqttProperties;
+import io.netty.handler.codec.mqtt.MqttPubReplyMessageVariableHeader;
+import io.netty.handler.codec.mqtt.MqttPublishMessage;
+import io.netty.handler.codec.mqtt.MqttQoS;
+import io.netty.handler.codec.mqtt.MqttReasonCodeAndPropertiesVariableHeader;
+import io.netty.handler.codec.mqtt.MqttSubAckMessage;
+import io.netty.handler.codec.mqtt.MqttSubscribeMessage;
+import io.netty.handler.codec.mqtt.MqttTopicSubscription;
+import io.netty.handler.codec.mqtt.MqttUnsubAckMessage;
+import io.netty.handler.codec.mqtt.MqttUnsubscribeMessage;
+import java.time.Duration;
+import java.util.List;
+import java.util.Optional;
 import org.apache.bifromq.basehlc.HLC;
-import org.apache.bifromq.inbox.storage.proto.RetainHandling;
-import org.apache.bifromq.inbox.storage.proto.TopicFilterOption;
 import org.apache.bifromq.mqtt.handler.IMQTTProtocolHelper;
-import org.apache.bifromq.mqtt.handler.MQTTSessionHandler;
 import org.apache.bifromq.mqtt.handler.TenantSettings;
 import org.apache.bifromq.mqtt.handler.record.ProtocolResponse;
 import org.apache.bifromq.mqtt.handler.v5.reason.MQTT5DisconnectReasonCode;
@@ -73,33 +88,18 @@ import org.apache.bifromq.plugin.eventcollector.mqttbroker.clientdisconnect.TooL
 import org.apache.bifromq.plugin.eventcollector.mqttbroker.clientdisconnect.TooLargeUnsubscription;
 import org.apache.bifromq.plugin.eventcollector.mqttbroker.disthandling.QoS1PubAcked;
 import org.apache.bifromq.plugin.eventcollector.mqttbroker.disthandling.QoS2PubReced;
+import org.apache.bifromq.plugin.resourcethrottler.TenantResourceType;
 import org.apache.bifromq.retain.rpc.proto.RetainReply;
 import org.apache.bifromq.sysprops.props.SanityCheckMqttUtf8String;
 import org.apache.bifromq.type.ClientInfo;
 import org.apache.bifromq.type.Message;
 import org.apache.bifromq.type.QoS;
+import org.apache.bifromq.type.RetainHandling;
+import org.apache.bifromq.type.RoutedMessage;
+import org.apache.bifromq.type.TopicFilterOption;
 import org.apache.bifromq.type.UserProperties;
 import org.apache.bifromq.util.TopicUtil;
 import org.apache.bifromq.util.UTF8Util;
-import org.apache.bifromq.plugin.resourcethrottler.TenantResourceType;
-import io.netty.handler.codec.TooLongFrameException;
-import io.netty.handler.codec.mqtt.MqttConnectMessage;
-import io.netty.handler.codec.mqtt.MqttMessage;
-import io.netty.handler.codec.mqtt.MqttMessageBuilders;
-import io.netty.handler.codec.mqtt.MqttMessageIdVariableHeader;
-import io.netty.handler.codec.mqtt.MqttProperties;
-import io.netty.handler.codec.mqtt.MqttPubReplyMessageVariableHeader;
-import io.netty.handler.codec.mqtt.MqttPublishMessage;
-import io.netty.handler.codec.mqtt.MqttQoS;
-import io.netty.handler.codec.mqtt.MqttReasonCodeAndPropertiesVariableHeader;
-import io.netty.handler.codec.mqtt.MqttSubAckMessage;
-import io.netty.handler.codec.mqtt.MqttSubscribeMessage;
-import io.netty.handler.codec.mqtt.MqttTopicSubscription;
-import io.netty.handler.codec.mqtt.MqttUnsubAckMessage;
-import io.netty.handler.codec.mqtt.MqttUnsubscribeMessage;
-import java.time.Duration;
-import java.util.List;
-import java.util.Optional;
 
 public class MQTT5ProtocolHelper implements IMQTTProtocolHelper {
     private static final boolean SANITY_CHECK = SanityCheckMqttUtf8String.INSTANCE.get();
@@ -272,11 +272,11 @@ public class MQTT5ProtocolHelper implements IMQTTProtocolHelper {
             .map(MqttProperties.MqttProperty::value);
         UserProperties userProps = toUserProperties(message.idAndPropertiesVariableHeader().properties());
         return message.payload().topicSubscriptions().stream().map(sub -> {
-            TopicFilterOption.Builder optionBuilder =
-                TopicFilterOption.newBuilder().setQos(QoS.forNumber(sub.option().qos().value()))
-                    .setRetainAsPublished(sub.option().isRetainAsPublished()).setNoLocal(sub.option().isNoLocal())
-                    .setRetainHandling(RetainHandling.forNumber(sub.option().retainHandling().value()))
-                    .setIncarnation(HLC.INST.get());
+            TopicFilterOption.Builder optionBuilder = TopicFilterOption.newBuilder()
+                .setQos(QoS.forNumber(sub.option().qos().value()))
+                .setRetainAsPublished(sub.option().isRetainAsPublished()).setNoLocal(sub.option().isNoLocal())
+                .setRetainHandling(RetainHandling.forNumber(sub.option().retainHandling().value()))
+                .setIncarnation(HLC.INST.get());
             subId.ifPresent(optionBuilder::setSubId);
             return new SubTask(sub.topicFilter(), optionBuilder.build(), userProps);
         }).toList();
@@ -438,7 +438,7 @@ public class MQTT5ProtocolHelper implements IMQTTProtocolHelper {
     }
 
     @Override
-    public MqttPublishMessage buildMqttPubMessage(int packetId, MQTTSessionHandler.SubMessage message, boolean isDup) {
+    public MqttPublishMessage buildMqttPubMessage(int packetId, RoutedMessage message, boolean isDup) {
         Optional<SenderTopicAliasManager.AliasCreationResult> aliasCreationResult =
             senderTopicAliasManager.tryAlias(message.topic());
         if (aliasCreationResult.isPresent()) {

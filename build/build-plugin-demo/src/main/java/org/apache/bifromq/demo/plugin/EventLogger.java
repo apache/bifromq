@@ -34,29 +34,25 @@ public final class EventLogger implements IEventCollector {
 
     @Override
     public void report(Event<?> event) {
-        if (LOG.isDebugEnabled()) {
-            switch (event.type()) {
-                case DISCARD,
-                     WILL_DIST_ERROR,
-                     QOS0_DIST_ERROR,
-                     QOS1_DIST_ERROR,
-                     QOS2_DIST_ERROR,
-                     OVERFLOWED,
-                     QOS0_DROPPED,
-                     QOS1_DROPPED,
-                     QOS2_DROPPED,
-                     OVERSIZE_PACKET_DROPPED,
-                     MSG_RETAINED_ERROR,
-                     DELIVER_ERROR -> LOG.debug("Message dropped due to {}", event.type());
-                default -> {
-                    if (event instanceof ChannelClosedEvent || event instanceof ClientDisconnectEvent) {
-                        LOG.debug("Channel closed due to {}", event.type());
-                    }
+        switch (event.type()) {
+            case DISCARD,
+                 WILL_DIST_ERROR,
+                 QOS0_DIST_ERROR,
+                 QOS1_DIST_ERROR,
+                 QOS2_DIST_ERROR,
+                 OVERFLOWED,
+                 QOS0_DROPPED,
+                 QOS1_DROPPED,
+                 QOS2_DROPPED,
+                 OVERSIZE_PACKET_DROPPED,
+                 MSG_RETAINED_ERROR,
+                 DELIVER_ERROR -> LOG.debug("Message dropped due to {}", event.type());
+            case OUT_OF_TENANT_RESOURCE ->
+                LOG.warn("Out of tenant resource: {}", ((OutOfTenantResource) event).reason());
+            default -> {
+                if (event instanceof ChannelClosedEvent || event instanceof ClientDisconnectEvent) {
+                    LOG.debug("Channel closed due to {}", event.type());
                 }
-            }
-        } else if (LOG.isWarnEnabled()) {
-            if (event instanceof OutOfTenantResource throttled) {
-                LOG.warn("Out of tenant resource: {}", throttled.reason());
             }
         }
     }

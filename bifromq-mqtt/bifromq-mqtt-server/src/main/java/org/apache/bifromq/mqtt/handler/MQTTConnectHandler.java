@@ -80,8 +80,8 @@ import org.apache.bifromq.type.UserProperties;
 public abstract class MQTTConnectHandler extends ChannelDuplexHandler {
     protected static final boolean SANITY_CHECK = SanityCheckMqttUtf8String.INSTANCE.get();
     private final FutureTracker cancellableTasks = new FutureTracker();
-    private ChannelHandlerContext ctx;
-    private MQTTSessionContext sessionCtx;
+    protected ChannelHandlerContext ctx;
+    protected MQTTSessionContext sessionCtx;
     private IInboxClient inboxClient;
     private IEventCollector eventCollector;
     private IResourceThrottler resourceThrottler;
@@ -155,7 +155,9 @@ public abstract class MQTTConnectHandler extends ChannelDuplexHandler {
                             handleGoAway(needRedirect);
                             return CompletableFuture.completedFuture(null);
                         }
-                        LWT willMessage = connMsg.variableHeader().isWillFlag() ? getWillMessage(connMsg) : null;
+                        LWT willMessage =
+                            connMsg.variableHeader().isWillFlag() ? getWillMessage(connMsg, clientInfo) : null;
+
                         int keepAliveSeconds = keepAliveSeconds(connMsg.variableHeader().keepAliveTimeSeconds(),
                             settings);
                         String userSessionId = userSessionId(clientInfo);
@@ -449,7 +451,7 @@ public abstract class MQTTConnectHandler extends ChannelDuplexHandler {
 
     protected abstract GoAway needRedirect(ClientInfo clientInfo);
 
-    protected abstract LWT getWillMessage(MqttConnectMessage message);
+    protected abstract LWT getWillMessage(MqttConnectMessage message, ClientInfo clientInfo);
 
     protected abstract boolean isCleanStart(MqttConnectMessage message, TenantSettings settings);
 

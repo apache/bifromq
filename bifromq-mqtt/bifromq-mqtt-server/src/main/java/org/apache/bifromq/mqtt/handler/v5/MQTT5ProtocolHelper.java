@@ -57,8 +57,11 @@ import java.util.List;
 import java.util.Optional;
 import org.apache.bifromq.basehlc.HLC;
 import org.apache.bifromq.mqtt.handler.IMQTTProtocolHelper;
+import org.apache.bifromq.mqtt.handler.RoutedMessage;
 import org.apache.bifromq.mqtt.handler.TenantSettings;
 import org.apache.bifromq.mqtt.handler.record.ProtocolResponse;
+import org.apache.bifromq.mqtt.handler.record.SubTask;
+import org.apache.bifromq.mqtt.handler.record.SubTasks;
 import org.apache.bifromq.mqtt.handler.v5.reason.MQTT5DisconnectReasonCode;
 import org.apache.bifromq.mqtt.handler.v5.reason.MQTT5PubAckReasonCode;
 import org.apache.bifromq.mqtt.handler.v5.reason.MQTT5PubCompReasonCode;
@@ -66,6 +69,8 @@ import org.apache.bifromq.mqtt.handler.v5.reason.MQTT5PubRecReasonCode;
 import org.apache.bifromq.mqtt.handler.v5.reason.MQTT5PubRelReasonCode;
 import org.apache.bifromq.mqtt.handler.v5.reason.MQTT5SubAckReasonCode;
 import org.apache.bifromq.mqtt.handler.v5.reason.MQTT5UnsubAckReasonCode;
+import org.apache.bifromq.mqtt.spi.IUserPropsCustomizer;
+import org.apache.bifromq.mqtt.spi.UserProperty;
 import org.apache.bifromq.plugin.authprovider.type.CheckResult;
 import org.apache.bifromq.plugin.eventcollector.Event;
 import org.apache.bifromq.plugin.eventcollector.OutOfTenantResource;
@@ -95,8 +100,6 @@ import org.apache.bifromq.type.ClientInfo;
 import org.apache.bifromq.type.Message;
 import org.apache.bifromq.type.QoS;
 import org.apache.bifromq.type.RetainHandling;
-import org.apache.bifromq.type.RoutedMessage;
-import org.apache.bifromq.type.TopicFilterOption;
 import org.apache.bifromq.type.UserProperties;
 import org.apache.bifromq.util.TopicUtil;
 import org.apache.bifromq.util.UTF8Util;
@@ -109,11 +112,16 @@ public class MQTT5ProtocolHelper implements IMQTTProtocolHelper {
     private final boolean requestProblemInfo;
     private final ReceiverTopicAliasManager receiverTopicAliasManager;
     private final SenderTopicAliasManager senderTopicAliasManager;
+    private final IUserPropsCustomizer userPropertiesCustomizer;
 
 
-    public MQTT5ProtocolHelper(MqttConnectMessage connMsg, TenantSettings settings, ClientInfo clientInfo) {
+    public MQTT5ProtocolHelper(MqttConnectMessage connMsg,
+                               TenantSettings settings,
+                               ClientInfo clientInfo,
+                               IUserPropsCustomizer userPropertiesCustomizer) {
         this.settings = settings;
         this.clientInfo = clientInfo;
+        this.userPropertiesCustomizer = userPropertiesCustomizer;
         this.receiverTopicAliasManager = new ReceiverTopicAliasManager();
         this.senderTopicAliasManager =
             new SenderTopicAliasManager(topicAliasMaximum(connMsg.variableHeader().properties()).orElse(0),
@@ -265,21 +273,24 @@ public class MQTT5ProtocolHelper implements IMQTTProtocolHelper {
     }
 
     @Override
-    public List<SubTask> getSubTask(MqttSubscribeMessage message) {
-        Optional<Integer> subId = Optional.ofNullable(
-                (MqttProperties.IntegerProperty) message.idAndPropertiesVariableHeader().properties()
-                    .getProperty(MqttProperties.MqttPropertyType.SUBSCRIPTION_IDENTIFIER.value()))
+    public SubTasks getSubTask(MqttSubscribeMessage message) {
+        Optional<Integer> subId = Optional.ofNullable((MqttProperties.IntegerProperty) message
+                .idAndPropertiesVariableHeader()
+                .properties()
+                .getProperty(MqttProperties.MqttPropertyType.SUBSCRIPTION_IDENTIFIER.value()))
             .map(MqttProperties.MqttProperty::value);
+        List<SubTask> subTasks = message.payload().topicSubscriptions().stream()
+            .map(sub ->
+                new SubTask(sub.topicFilter(),
+                    QoS.forNumber(sub.option().qos().value()),
+                    sub.option().isRetainAsPublished(),
+                    sub.option().isNoLocal(),
+                    RetainHandling.forNumber(sub.option().retainHandling().value()),
+                    subId,
+                    HLC.INST.get()))
+            .toList();
         UserProperties userProps = toUserProperties(message.idAndPropertiesVariableHeader().properties());
-        return message.payload().topicSubscriptions().stream().map(sub -> {
-            TopicFilterOption.Builder optionBuilder = TopicFilterOption.newBuilder()
-                .setQos(QoS.forNumber(sub.option().qos().value()))
-                .setRetainAsPublished(sub.option().isRetainAsPublished()).setNoLocal(sub.option().isNoLocal())
-                .setRetainHandling(RetainHandling.forNumber(sub.option().retainHandling().value()))
-                .setIncarnation(HLC.INST.get());
-            subId.ifPresent(optionBuilder::setSubId);
-            return new SubTask(sub.topicFilter(), optionBuilder.build(), userProps);
-        }).toList();
+        return new SubTasks(subTasks, userProps);
     }
 
     @Override
@@ -351,9 +362,13 @@ public class MQTT5ProtocolHelper implements IMQTTProtocolHelper {
 
     @Override
     public MqttUnsubAckMessage respondPacketIdInUse(MqttUnsubscribeMessage message) {
-        return MQTT5MessageBuilders.unsubAck().packetId(message.variableHeader().messageId()).addReasonCodes(
-            message.payload().topics().stream().map(v -> MQTT5UnsubAckReasonCode.PacketIdentifierInUse)
-                .toArray(MQTT5UnsubAckReasonCode[]::new)).build();
+        return MQTT5MessageBuilders.unsubAck()
+            .packetId(message.variableHeader().messageId())
+            .addReasonCodes(message.payload().topics()
+                .stream()
+                .map(v -> MQTT5UnsubAckReasonCode.PacketIdentifierInUse)
+                .toArray(MQTT5UnsubAckReasonCode[]::new))
+            .build();
     }
 
     @Override
@@ -367,17 +382,20 @@ public class MQTT5ProtocolHelper implements IMQTTProtocolHelper {
     public ProtocolResponse buildUnsubAckMessage(MqttUnsubscribeMessage unsubMessage, List<UnsubResult> results) {
         MQTT5MessageBuilders.UnsubAckBuilder unsubAckBuilder =
             MQTT5MessageBuilders.unsubAck().packetId(unsubMessage.variableHeader().messageId());
-        MQTT5UnsubAckReasonCode[] reasonCodes = results.stream().map(result -> switch (result) {
-            case OK -> MQTT5UnsubAckReasonCode.Success;
-            case NO_SUB -> MQTT5UnsubAckReasonCode.NoSubscriptionExisted;
-            case TOPIC_FILTER_INVALID -> MQTT5UnsubAckReasonCode.TopicFilterInvalid;
-            case NOT_AUTHORIZED -> MQTT5UnsubAckReasonCode.NotAuthorized;
-            case TRY_LATER -> {
-                unsubAckBuilder.reasonString(result.name());
-                yield MQTT5UnsubAckReasonCode.ImplementationSpecificError;
-            }
-            default -> MQTT5UnsubAckReasonCode.UnspecifiedError;
-        }).toArray(MQTT5UnsubAckReasonCode[]::new);
+        MQTT5UnsubAckReasonCode[] reasonCodes = results.stream()
+            .map(result ->
+                switch (result) {
+                    case OK -> MQTT5UnsubAckReasonCode.Success;
+                    case NO_SUB -> MQTT5UnsubAckReasonCode.NoSubscriptionExisted;
+                    case TOPIC_FILTER_INVALID -> MQTT5UnsubAckReasonCode.TopicFilterInvalid;
+                    case NOT_AUTHORIZED -> MQTT5UnsubAckReasonCode.NotAuthorized;
+                    case TRY_LATER -> {
+                        unsubAckBuilder.reasonString(result.name());
+                        yield MQTT5UnsubAckReasonCode.ImplementationSpecificError;
+                    }
+                    default -> MQTT5UnsubAckReasonCode.UnspecifiedError;
+                })
+            .toArray(MQTT5UnsubAckReasonCode[]::new);
 
         return response(MQTT5MessageBuilders.unsubAck().packetId(unsubMessage.variableHeader().messageId())
             .addReasonCodes(reasonCodes).build());
@@ -450,7 +468,19 @@ public class MQTT5ProtocolHelper implements IMQTTProtocolHelper {
                     .message(message).build();
             }
         }
-        return MQTT5MessageBuilders.pub().packetId(packetId).message(message).build();
+        Iterable<UserProperty> extraUserProps = userPropertiesCustomizer.outbound(
+            message.topic(),
+            message.message(),
+            message.publisher(),
+            message.topicFilter(),
+            message.option(),
+            clientInfo,
+            message.hlc());
+        return MQTT5MessageBuilders.pub()
+            .packetId(packetId)
+            .message(message)
+            .extraUserProps(extraUserProps)
+            .build();
     }
 
     @Override
@@ -583,8 +613,8 @@ public class MQTT5ProtocolHelper implements IMQTTProtocolHelper {
                 }
             }
         }
-        if (settings.payloadFormatValidationEnabled && isUTF8Payload(mqttProperties) &&
-            !UTF8Util.isValidUTF8Payload(message.payload().nioBuffer())) {
+        if (settings.payloadFormatValidationEnabled && isUTF8Payload(mqttProperties)
+            && !UTF8Util.isValidUTF8Payload(message.payload().nioBuffer())) {
             return switch (message.fixedHeader().qosLevel()) {
                 case AT_MOST_ONCE -> farewell(
                     MQTT5MessageBuilders.disconnect().reasonCode(MQTT5DisconnectReasonCode.PayloadFormatInvalid)
@@ -655,8 +685,8 @@ public class MQTT5ProtocolHelper implements IMQTTProtocolHelper {
     }
 
     @Override
-    public Message buildDistMessage(MqttPublishMessage message) {
-        return MQTT5MessageUtils.toMessage(message);
+    public Message buildDistMessage(MqttPublishMessage message, ClientInfo publisher) {
+        return MQTT5MessageUtils.toMessage(message, publisher, userPropertiesCustomizer);
     }
 
     @Override
@@ -684,8 +714,8 @@ public class MQTT5ProtocolHelper implements IMQTTProtocolHelper {
 
     @Override
     public ProtocolResponse onQoS0PubHandled(PubResult result, MqttPublishMessage message, UserProperties userProps) {
-        if (result.distResult() == org.apache.bifromq.dist.client.PubResult.BACK_PRESSURE_REJECTED ||
-            result.retainResult() == RetainReply.Result.BACK_PRESSURE_REJECTED) {
+        if (result.distResult() == org.apache.bifromq.dist.client.PubResult.BACK_PRESSURE_REJECTED
+            || result.retainResult() == RetainReply.Result.BACK_PRESSURE_REJECTED) {
             String reason =
                 result.retainResult() == RetainReply.Result.BACK_PRESSURE_REJECTED ? "Too many retained qos0 publish" :
                     "Too many qos0 publish";
@@ -728,8 +758,8 @@ public class MQTT5ProtocolHelper implements IMQTTProtocolHelper {
 
     @Override
     public ProtocolResponse onQoS1PubHandled(PubResult result, MqttPublishMessage message, UserProperties userProps) {
-        if (result.distResult() == org.apache.bifromq.dist.client.PubResult.BACK_PRESSURE_REJECTED ||
-            result.retainResult() == RetainReply.Result.BACK_PRESSURE_REJECTED) {
+        if (result.distResult() == org.apache.bifromq.dist.client.PubResult.BACK_PRESSURE_REJECTED
+            || result.retainResult() == RetainReply.Result.BACK_PRESSURE_REJECTED) {
             String reason =
                 result.retainResult() == RetainReply.Result.BACK_PRESSURE_REJECTED ? "Too many retained qos1 publish" :
                     "Too many qos1 publish";
@@ -801,8 +831,8 @@ public class MQTT5ProtocolHelper implements IMQTTProtocolHelper {
 
     @Override
     public ProtocolResponse onQoS2PubHandled(PubResult result, MqttPublishMessage message, UserProperties userProps) {
-        if (result.distResult() == org.apache.bifromq.dist.client.PubResult.BACK_PRESSURE_REJECTED ||
-            result.retainResult() == RetainReply.Result.BACK_PRESSURE_REJECTED) {
+        if (result.distResult() == org.apache.bifromq.dist.client.PubResult.BACK_PRESSURE_REJECTED
+            || result.retainResult() == RetainReply.Result.BACK_PRESSURE_REJECTED) {
             String reason =
                 result.retainResult() == RetainReply.Result.BACK_PRESSURE_REJECTED ? "Too many retained qos2 publish" :
                     "Too many qos2 publish";

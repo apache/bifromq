@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.
+ * under the License.    
  */
 
 package org.apache.bifromq.mqtt.handler.v5;
@@ -27,22 +27,24 @@ import static io.netty.handler.codec.mqtt.MqttProperties.MqttPropertyType.PAYLOA
 import static io.netty.handler.codec.mqtt.MqttProperties.MqttPropertyType.REASON_STRING;
 import static io.netty.handler.codec.mqtt.MqttProperties.MqttPropertyType.RESPONSE_TOPIC;
 
-import org.apache.bifromq.basehlc.HLC;
-import org.apache.bifromq.inbox.storage.proto.LWT;
-import org.apache.bifromq.type.Message;
-import org.apache.bifromq.type.QoS;
-import org.apache.bifromq.type.StringPair;
-import org.apache.bifromq.type.UserProperties;
 import com.google.protobuf.ByteString;
 import com.google.protobuf.UnsafeByteOperations;
 import io.netty.handler.codec.mqtt.MqttConnectMessage;
 import io.netty.handler.codec.mqtt.MqttProperties;
 import io.netty.handler.codec.mqtt.MqttPublishMessage;
-import io.netty.handler.codec.mqtt.MqttQoS;
 import java.util.List;
 import java.util.Optional;
 import lombok.AccessLevel;
 import lombok.NoArgsConstructor;
+import org.apache.bifromq.basehlc.HLC;
+import org.apache.bifromq.inbox.storage.proto.LWT;
+import org.apache.bifromq.mqtt.spi.IUserPropsCustomizer;
+import org.apache.bifromq.mqtt.spi.UserProperty;
+import org.apache.bifromq.type.ClientInfo;
+import org.apache.bifromq.type.Message;
+import org.apache.bifromq.type.QoS;
+import org.apache.bifromq.type.StringPair;
+import org.apache.bifromq.type.UserProperties;
 
 public class MQTT5MessageUtils {
     public static MqttPropertiesBuilder mqttProps() {
@@ -57,8 +59,12 @@ public class MQTT5MessageUtils {
         return userProps;
     }
 
-    @SuppressWarnings("unchecked")
     public static UserProperties toUserProperties(MqttProperties mqttProperties) {
+        return toUserPropertiesBuilder(mqttProperties).build();
+    }
+
+    @SuppressWarnings("unchecked")
+    private static UserProperties.Builder toUserPropertiesBuilder(MqttProperties mqttProperties) {
         UserProperties.Builder userPropsBuilder = UserProperties.newBuilder();
         List<MqttProperties.UserProperty> userPropertyList = (List<MqttProperties.UserProperty>) mqttProperties
             .getProperties(MqttProperties.MqttPropertyType.USER_PROPERTY.value());
@@ -66,7 +72,7 @@ public class MQTT5MessageUtils {
             userPropertyList.forEach(up -> userPropsBuilder.addUserProperties(
                 StringPair.newBuilder().setKey(up.value().key).setValue(up.value().value).build()));
         }
-        return userPropsBuilder.build();
+        return userPropsBuilder;
     }
 
     public static boolean isUTF8Payload(MqttProperties mqttProperties) {
@@ -148,37 +154,64 @@ public class MQTT5MessageUtils {
             .map(UnsafeByteOperations::unsafeWrap);
     }
 
-    static LWT toWillMessage(MqttConnectMessage connMsg) {
+    static LWT toWillMessage(MqttConnectMessage connMsg,
+                             ClientInfo clientInfo,
+                             IUserPropsCustomizer userPropsCustomizer) {
+        String willTopic = connMsg.payload().willTopic();
+        QoS willQoS = QoS.forNumber(connMsg.variableHeader().willQos());
+        ByteString willPayload = UnsafeByteOperations.unsafeWrap(connMsg.payload().willMessageInBytes());
+        long now = HLC.INST.get();
+        Iterable<UserProperty> extraUserProps = userPropsCustomizer.inbound(
+            willTopic,
+            willQoS,
+            willPayload,
+            clientInfo,
+            now);
         LWT.Builder lwtBuilder = LWT.newBuilder()
             .setTopic(connMsg.payload().willTopic())
             .setDelaySeconds(integerMqttProperty(connMsg.payload().willProperties(),
                 MqttProperties.MqttPropertyType.WILL_DELAY_INTERVAL).orElse(0));
         Message willMsg = toMessage(0,
-            MqttQoS.valueOf(connMsg.variableHeader().willQos()),
+            QoS.forNumber(connMsg.variableHeader().willQos()),
             connMsg.variableHeader().isWillRetain(),
             connMsg.payload().willProperties(),
-            UnsafeByteOperations.unsafeWrap(connMsg.payload().willMessageInBytes()));
+            UnsafeByteOperations.unsafeWrap(connMsg.payload().willMessageInBytes()),
+            now,
+            extraUserProps);
         return lwtBuilder.setMessage(willMsg).build();
     }
 
-    static Message toMessage(MqttPublishMessage pubMsg) {
-        return toMessage(pubMsg.variableHeader().packetId(),
-            pubMsg.fixedHeader().qosLevel(),
-            pubMsg.fixedHeader().isRetain(),
-            pubMsg.variableHeader().properties(),
-            ByteString.copyFrom(pubMsg.payload().nioBuffer()));
+    static Message toMessage(MqttPublishMessage pubMsg,
+                             ClientInfo publisher,
+                             IUserPropsCustomizer userPropsCustomizer) {
+        String topic = pubMsg.variableHeader().topicName();
+        QoS pubQoS = QoS.forNumber(pubMsg.fixedHeader().qosLevel().value());
+        ByteString payload = ByteString.copyFrom(pubMsg.payload().nioBuffer());
+        long now = HLC.INST.get();
+        Iterable<UserProperty> extraUserProps = userPropsCustomizer.inbound(
+            topic,
+            pubQoS,
+            payload,
+            publisher,
+            now);
+        long pubMsgId = pubMsg.variableHeader().packetId();
+        boolean isRetain = pubMsg.fixedHeader().isRetain();
+        MqttProperties mqttProperties = pubMsg.variableHeader().properties();
+        return toMessage(pubMsgId, pubQoS, isRetain, mqttProperties, payload, now, extraUserProps);
     }
 
     static Message toMessage(long packetId,
-                             MqttQoS pubQoS,
+                             QoS pubQoS,
                              boolean isRetain,
                              MqttProperties mqttProperties,
-                             ByteString payload) {
+                             ByteString payload,
+                             long hlc,
+                             Iterable<UserProperty> extraUserProps) {
         Message.Builder msgBuilder = Message.newBuilder()
             .setMessageId(packetId)
-            .setPubQoS(QoS.forNumber(pubQoS.value()))
+            .setPubQoS(pubQoS)
             .setPayload(payload)
-            .setTimestamp(HLC.INST.get())
+            .setTimestamp(hlc)
             // If absent, the Application Message does not expire, we use Integer.MAX_VALUE to represent this.
             .setExpiryInterval(messageExpiryInterval(mqttProperties).orElse(Integer.MAX_VALUE))
             .setIsRetain(isRetain);
@@ -189,11 +222,15 @@ public class MQTT5MessageUtils {
         // ResponseTopic
         responseTopic(mqttProperties).ifPresent(msgBuilder::setResponseTopic);
         // CorrelationData
-        Optional<ByteString> correlationData =
-            binaryMqttProperty(mqttProperties, CORRELATION_DATA);
+        Optional<ByteString> correlationData = binaryMqttProperty(mqttProperties, CORRELATION_DATA);
         correlationData.ifPresent(msgBuilder::setCorrelationData);
         // UserProperty
-        UserProperties userProperties = toUserProperties(mqttProperties);
+        UserProperties.Builder userPropertiesBuilder = toUserPropertiesBuilder(mqttProperties);
+        extraUserProps.forEach(pair -> userPropertiesBuilder.addUserProperties(StringPair.newBuilder()
+            .setKey(pair.key())
+            .setValue(pair.value())
+            .build()));
+        UserProperties userProperties = userPropertiesBuilder.build();
         if (userProperties.getUserPropertiesCount() > 0) {
             msgBuilder.setUserProperties(userProperties);
         }

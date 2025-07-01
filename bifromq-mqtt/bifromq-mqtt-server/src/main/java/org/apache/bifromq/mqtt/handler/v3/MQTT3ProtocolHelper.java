@@ -46,8 +46,12 @@ import java.util.Optional;
 import lombok.AllArgsConstructor;
 import org.apache.bifromq.basehlc.HLC;
 import org.apache.bifromq.mqtt.handler.IMQTTProtocolHelper;
+import org.apache.bifromq.mqtt.handler.RoutedMessage;
 import org.apache.bifromq.mqtt.handler.TenantSettings;
 import org.apache.bifromq.mqtt.handler.record.ProtocolResponse;
+import org.apache.bifromq.mqtt.handler.record.SubTask;
+import org.apache.bifromq.mqtt.handler.record.SubTasks;
+import org.apache.bifromq.mqtt.spi.IUserPropsCustomizer;
 import org.apache.bifromq.plugin.authprovider.type.CheckResult;
 import org.apache.bifromq.plugin.eventcollector.OutOfTenantResource;
 import org.apache.bifromq.plugin.eventcollector.mqttbroker.clientdisconnect.BadPacket;
@@ -75,8 +79,6 @@ import org.apache.bifromq.sysprops.props.SanityCheckMqttUtf8String;
 import org.apache.bifromq.type.ClientInfo;
 import org.apache.bifromq.type.Message;
 import org.apache.bifromq.type.QoS;
-import org.apache.bifromq.type.RoutedMessage;
-import org.apache.bifromq.type.TopicFilterOption;
 import org.apache.bifromq.type.UserProperties;
 import org.apache.bifromq.util.TopicUtil;
 import org.apache.bifromq.util.UTF8Util;
@@ -86,6 +88,7 @@ public class MQTT3ProtocolHelper implements IMQTTProtocolHelper {
     private static final boolean SANITY_CHECK = SanityCheckMqttUtf8String.INSTANCE.get();
     private final TenantSettings settings;
     private final ClientInfo clientInfo;
+    private final IUserPropsCustomizer userPropsCustomizer;
 
     public final UserProperties getUserProps(MqttPublishMessage mqttMessage) {
         // MQTT3: no user properties
@@ -182,18 +185,13 @@ public class MQTT3ProtocolHelper implements IMQTTProtocolHelper {
     }
 
     @Override
-    public List<SubTask> getSubTask(MqttSubscribeMessage message) {
-        return message.payload()
+    public SubTasks getSubTask(MqttSubscribeMessage message) {
+        List<SubTask> subTasks = message.payload()
             .topicSubscriptions()
             .stream()
-            .map(sub -> new SubTask(sub.topicFilter(),
-                TopicFilterOption.newBuilder()
-                    .setQos(QoS.forNumber(sub.qualityOfService().value()))
-                    .setIncarnation(HLC.INST.get())
-                    .build(),
-                UserProperties.getDefaultInstance()
-            ))
+            .map(sub -> new SubTask(sub.topicFilter(), QoS.forNumber(sub.qualityOfService().value()), HLC.INST.get()))
             .toList();
+        return new SubTasks(subTasks, UserProperties.getDefaultInstance());
     }
 
     @Override
@@ -377,8 +375,9 @@ public class MQTT3ProtocolHelper implements IMQTTProtocolHelper {
     }
 
     @Override
-    public Message buildDistMessage(MqttPublishMessage message) {
-        return toMessage(message);
+    public Message buildDistMessage(MqttPublishMessage message,
+                                    ClientInfo publisher) {
+        return toMessage(message, publisher, userPropsCustomizer);
     }
 
     @Override

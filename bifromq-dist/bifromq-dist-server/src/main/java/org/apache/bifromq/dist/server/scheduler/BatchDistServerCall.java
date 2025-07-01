@@ -19,6 +19,7 @@
 
 package org.apache.bifromq.dist.server.scheduler;
 
+import static java.util.Collections.emptyMap;
 import static org.apache.bifromq.base.util.CompletableFutureUtil.unwrap;
 import static org.apache.bifromq.basekv.client.KVRangeRouterUtil.findByBoundary;
 import static org.apache.bifromq.basekv.utils.BoundaryUtil.toBoundary;
@@ -26,8 +27,22 @@ import static org.apache.bifromq.basekv.utils.BoundaryUtil.upperBound;
 import static org.apache.bifromq.dist.worker.schema.KVSchemaUtil.tenantBeginKey;
 import static org.apache.bifromq.util.TopicConst.NUL;
 import static org.apache.bifromq.util.TopicUtil.fastJoin;
-import static java.util.Collections.emptyMap;
 
+import com.google.common.collect.Iterables;
+import com.google.protobuf.ByteString;
+import java.util.ArrayDeque;
+import java.util.Collection;
+import java.util.HashMap;
+import java.util.Iterator;
+import java.util.LinkedList;
+import java.util.List;
+import java.util.Map;
+import java.util.NavigableMap;
+import java.util.Objects;
+import java.util.Optional;
+import java.util.Queue;
+import java.util.concurrent.CompletableFuture;
+import lombok.extern.slf4j.Slf4j;
 import org.apache.bifromq.basekv.client.IBaseKVStoreClient;
 import org.apache.bifromq.basekv.client.KVRangeSetting;
 import org.apache.bifromq.basekv.proto.Boundary;
@@ -51,21 +66,6 @@ import org.apache.bifromq.type.Message;
 import org.apache.bifromq.type.PublisherMessagePack;
 import org.apache.bifromq.type.TopicMessagePack;
 import org.apache.bifromq.util.TopicUtil;
-import com.google.common.collect.Iterables;
-import com.google.protobuf.ByteString;
-import java.util.ArrayDeque;
-import java.util.Collection;
-import java.util.HashMap;
-import java.util.Iterator;
-import java.util.LinkedList;
-import java.util.List;
-import java.util.Map;
-import java.util.NavigableMap;
-import java.util.Objects;
-import java.util.Optional;
-import java.util.Queue;
-import java.util.concurrent.CompletableFuture;
-import lombok.extern.slf4j.Slf4j;
 
 @Slf4j
 class BatchDistServerCall implements IBatchCall<TenantPubRequest, DistServerCallResult, DistServerCallBatcherKey> {
@@ -132,7 +132,8 @@ class BatchDistServerCall implements IBatchCall<TenantPubRequest, DistServerCall
                 DistPack.Builder distPackBuilder = DistPack.newBuilder().setTenantId(tenantId);
                 TopicMessagePack.Builder topicMsgPackBuilder = TopicMessagePack.newBuilder().setTopic(topic);
                 publisherMsgs.forEach((publisher, msgs) -> {
-                    TopicMessagePack.PublisherPack.Builder packBuilder = TopicMessagePack.PublisherPack.newBuilder();
+                    TopicMessagePack.PublisherPack.Builder packBuilder = TopicMessagePack.PublisherPack.newBuilder()
+                        .setPublisher(publisher);
                     msgs.forEach(packBuilder::addMessage);
                     topicMsgPackBuilder.addMessage(packBuilder.build());
                 });

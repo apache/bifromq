@@ -14,17 +14,11 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.
+ * under the License.    
  */
 
 package org.apache.bifromq.mqtt.handler.v5;
 
-import static org.apache.bifromq.plugin.eventcollector.EventType.MALFORMED_CLIENT_IDENTIFIER;
-import static org.apache.bifromq.plugin.eventcollector.EventType.MALFORMED_USERNAME;
-import static org.apache.bifromq.plugin.eventcollector.EventType.MALFORMED_WILL_TOPIC;
-import static org.apache.bifromq.plugin.eventcollector.EventType.OUT_OF_TENANT_RESOURCE;
-import static org.apache.bifromq.plugin.eventcollector.EventType.PROTOCOL_ERROR;
-import static org.apache.bifromq.plugin.eventcollector.EventType.RESOURCE_THROTTLED;
 import static io.netty.handler.codec.mqtt.MqttConnectReturnCode.CONNECTION_REFUSED_CLIENT_IDENTIFIER_NOT_VALID;
 import static io.netty.handler.codec.mqtt.MqttConnectReturnCode.CONNECTION_REFUSED_MALFORMED_PACKET;
 import static io.netty.handler.codec.mqtt.MqttConnectReturnCode.CONNECTION_REFUSED_PACKET_TOO_LARGE;
@@ -34,7 +28,14 @@ import static io.netty.handler.codec.mqtt.MqttConnectReturnCode.CONNECTION_REFUS
 import static io.netty.handler.codec.mqtt.MqttConnectReturnCode.CONNECTION_REFUSED_SERVER_MOVED;
 import static io.netty.handler.codec.mqtt.MqttConnectReturnCode.CONNECTION_REFUSED_USE_ANOTHER_SERVER;
 import static io.netty.handler.codec.mqtt.MqttProperties.MqttPropertyType.SERVER_REFERENCE;
+import static org.apache.bifromq.plugin.eventcollector.EventType.MALFORMED_CLIENT_IDENTIFIER;
+import static org.apache.bifromq.plugin.eventcollector.EventType.MALFORMED_USERNAME;
+import static org.apache.bifromq.plugin.eventcollector.EventType.MALFORMED_WILL_TOPIC;
+import static org.apache.bifromq.plugin.eventcollector.EventType.OUT_OF_TENANT_RESOURCE;
+import static org.apache.bifromq.plugin.eventcollector.EventType.PROTOCOL_ERROR;
+import static org.apache.bifromq.plugin.eventcollector.EventType.RESOURCE_THROTTLED;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
@@ -45,6 +46,20 @@ import static org.testng.Assert.assertFalse;
 import static org.testng.Assert.assertNull;
 import static org.testng.Assert.assertTrue;
 
+import com.google.protobuf.ByteString;
+import io.netty.channel.Channel;
+import io.netty.channel.ChannelInitializer;
+import io.netty.channel.ChannelPipeline;
+import io.netty.channel.embedded.EmbeddedChannel;
+import io.netty.handler.codec.mqtt.MqttConnAckMessage;
+import io.netty.handler.codec.mqtt.MqttConnectMessage;
+import io.netty.handler.codec.mqtt.MqttMessageBuilders;
+import io.netty.handler.codec.mqtt.MqttVersion;
+import java.net.InetSocketAddress;
+import java.util.Collections;
+import java.util.Optional;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.TimeUnit;
 import org.apache.bifromq.inbox.client.IInboxClient;
 import org.apache.bifromq.inbox.rpc.proto.AttachReply;
 import org.apache.bifromq.inbox.rpc.proto.DetachReply;
@@ -52,6 +67,7 @@ import org.apache.bifromq.inbox.rpc.proto.ExistReply;
 import org.apache.bifromq.mqtt.MockableTest;
 import org.apache.bifromq.mqtt.handler.ChannelAttrs;
 import org.apache.bifromq.mqtt.session.MQTTSessionContext;
+import org.apache.bifromq.mqtt.spi.IUserPropsCustomizer;
 import org.apache.bifromq.plugin.authprovider.IAuthProvider;
 import org.apache.bifromq.plugin.authprovider.type.CheckResult;
 import org.apache.bifromq.plugin.authprovider.type.Granted;
@@ -67,34 +83,23 @@ import org.apache.bifromq.plugin.eventcollector.IEventCollector;
 import org.apache.bifromq.plugin.eventcollector.OutOfTenantResource;
 import org.apache.bifromq.plugin.eventcollector.mqttbroker.clientdisconnect.Redirect;
 import org.apache.bifromq.plugin.eventcollector.mqttbroker.clientdisconnect.ResourceThrottled;
+import org.apache.bifromq.plugin.resourcethrottler.IResourceThrottler;
+import org.apache.bifromq.plugin.resourcethrottler.TenantResourceType;
 import org.apache.bifromq.plugin.settingprovider.ISettingProvider;
 import org.apache.bifromq.plugin.settingprovider.Setting;
 import org.apache.bifromq.type.ClientInfo;
-import org.apache.bifromq.plugin.resourcethrottler.IResourceThrottler;
-import org.apache.bifromq.plugin.resourcethrottler.TenantResourceType;
-import com.google.protobuf.ByteString;
-import io.netty.channel.Channel;
-import io.netty.channel.ChannelInitializer;
-import io.netty.channel.ChannelPipeline;
-import io.netty.channel.embedded.EmbeddedChannel;
-import io.netty.handler.codec.mqtt.MqttConnAckMessage;
-import io.netty.handler.codec.mqtt.MqttConnectMessage;
-import io.netty.handler.codec.mqtt.MqttMessageBuilders;
-import io.netty.handler.codec.mqtt.MqttVersion;
-import java.net.InetSocketAddress;
-import java.util.Optional;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.TimeUnit;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.testng.annotations.BeforeMethod;
 import org.testng.annotations.Test;
 
-public class MQTT5ConnectHandlerTest extends MockableTest {
+public class ConnectHandlerTest extends MockableTest {
 
     private final String serverId = "serverId";
     private final String remoteIp = "127.0.0.1";
     private final int remotePort = 8888;
+    @Mock
+    protected IUserPropsCustomizer userPropsCustomizer;
     private MQTT5ConnectHandler connectHandler;
     private EmbeddedChannel channel;
     @Mock
@@ -118,6 +123,10 @@ public class MQTT5ConnectHandlerTest extends MockableTest {
         when(clientBalancer.needRedirect(any())).thenReturn(Optional.empty());
         when(settingProvider.provide(any(Setting.class), anyString())).thenAnswer(
             invocation -> ((Setting) invocation.getArgument(0)).current(invocation.getArgument(1)));
+        when(userPropsCustomizer.inbound(anyString(), any(), any(), any(), anyLong()))
+            .thenReturn(Collections.emptyList());
+        when(userPropsCustomizer.outbound(anyString(), any(), any(), anyString(), any(), any(), anyLong()))
+            .thenReturn(Collections.emptyList());
         sessionContext = MQTTSessionContext.builder()
             .serverId(serverId)
             .authProvider(authProvider)
@@ -126,6 +135,7 @@ public class MQTT5ConnectHandlerTest extends MockableTest {
             .resourceThrottler(resourceThrottler)
             .settingProvider(settingProvider)
             .clientBalancer(clientBalancer)
+            .userPropsCustomizer(userPropsCustomizer)
             .build();
         channel = new EmbeddedChannel(true, true, new ChannelInitializer<>() {
             @Override

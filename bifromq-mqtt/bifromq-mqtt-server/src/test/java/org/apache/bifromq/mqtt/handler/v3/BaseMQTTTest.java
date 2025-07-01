@@ -19,6 +19,8 @@
 
 package org.apache.bifromq.mqtt.handler.v3;
 
+import static io.netty.handler.codec.mqtt.MqttConnectReturnCode.CONNECTION_ACCEPTED;
+import static org.apache.bifromq.inbox.rpc.proto.AttachReply.Code.OK;
 import static org.apache.bifromq.plugin.settingprovider.Setting.ByPassPermCheckError;
 import static org.apache.bifromq.plugin.settingprovider.Setting.DebugModeEnabled;
 import static org.apache.bifromq.plugin.settingprovider.Setting.ForceTransient;
@@ -32,8 +34,6 @@ import static org.apache.bifromq.plugin.settingprovider.Setting.MsgPubPerSec;
 import static org.apache.bifromq.plugin.settingprovider.Setting.OutBoundBandWidth;
 import static org.apache.bifromq.plugin.settingprovider.Setting.RetainEnabled;
 import static org.apache.bifromq.plugin.settingprovider.Setting.RetainMessageMatchLimit;
-import static io.netty.handler.codec.mqtt.MqttConnectReturnCode.CONNECTION_ACCEPTED;
-import static org.apache.bifromq.inbox.rpc.proto.AttachReply.Code.OK;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
@@ -48,25 +48,6 @@ import static org.mockito.Mockito.when;
 import static org.testng.Assert.assertEquals;
 import static org.testng.internal.junit.ArrayAsserts.assertArrayEquals;
 
-import org.apache.bifromq.plugin.authprovider.IAuthProvider;
-import org.apache.bifromq.plugin.authprovider.type.CheckResult;
-import org.apache.bifromq.plugin.authprovider.type.Denied;
-import org.apache.bifromq.plugin.authprovider.type.Granted;
-import org.apache.bifromq.plugin.authprovider.type.MQTT3AuthData;
-import org.apache.bifromq.plugin.authprovider.type.MQTT3AuthResult;
-import org.apache.bifromq.plugin.authprovider.type.MQTTAction;
-import org.apache.bifromq.plugin.authprovider.type.Ok;
-import org.apache.bifromq.plugin.authprovider.type.Reject;
-import org.apache.bifromq.plugin.clientbalancer.IClientBalancer;
-import org.apache.bifromq.plugin.eventcollector.Event;
-import org.apache.bifromq.plugin.eventcollector.EventType;
-import org.apache.bifromq.plugin.eventcollector.IEventCollector;
-import org.apache.bifromq.plugin.settingprovider.ISettingProvider;
-import org.apache.bifromq.plugin.settingprovider.Setting;
-import org.apache.bifromq.retain.client.IRetainClient;
-import org.apache.bifromq.retain.rpc.proto.MatchReply;
-import org.apache.bifromq.retain.rpc.proto.RetainReply;
-import org.apache.bifromq.plugin.resourcethrottler.IResourceThrottler;
 import com.google.protobuf.ByteString;
 import io.micrometer.core.instrument.Tags;
 import io.netty.channel.ChannelInitializer;
@@ -78,6 +59,7 @@ import io.netty.handler.codec.mqtt.MqttDecoder;
 import io.netty.handler.traffic.ChannelTrafficShapingHandler;
 import java.net.InetSocketAddress;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -109,8 +91,28 @@ import org.apache.bifromq.mqtt.service.LocalDistService;
 import org.apache.bifromq.mqtt.service.LocalSessionRegistry;
 import org.apache.bifromq.mqtt.service.LocalTopicRouter;
 import org.apache.bifromq.mqtt.session.MQTTSessionContext;
+import org.apache.bifromq.mqtt.spi.IUserPropsCustomizer;
 import org.apache.bifromq.mqtt.utils.MQTTMessageUtils;
 import org.apache.bifromq.mqtt.utils.TestTicker;
+import org.apache.bifromq.plugin.authprovider.IAuthProvider;
+import org.apache.bifromq.plugin.authprovider.type.CheckResult;
+import org.apache.bifromq.plugin.authprovider.type.Denied;
+import org.apache.bifromq.plugin.authprovider.type.Granted;
+import org.apache.bifromq.plugin.authprovider.type.MQTT3AuthData;
+import org.apache.bifromq.plugin.authprovider.type.MQTT3AuthResult;
+import org.apache.bifromq.plugin.authprovider.type.MQTTAction;
+import org.apache.bifromq.plugin.authprovider.type.Ok;
+import org.apache.bifromq.plugin.authprovider.type.Reject;
+import org.apache.bifromq.plugin.clientbalancer.IClientBalancer;
+import org.apache.bifromq.plugin.eventcollector.Event;
+import org.apache.bifromq.plugin.eventcollector.EventType;
+import org.apache.bifromq.plugin.eventcollector.IEventCollector;
+import org.apache.bifromq.plugin.resourcethrottler.IResourceThrottler;
+import org.apache.bifromq.plugin.settingprovider.ISettingProvider;
+import org.apache.bifromq.plugin.settingprovider.Setting;
+import org.apache.bifromq.retain.client.IRetainClient;
+import org.apache.bifromq.retain.rpc.proto.MatchReply;
+import org.apache.bifromq.retain.rpc.proto.RetainReply;
 import org.apache.bifromq.sessiondict.client.ISessionDictClient;
 import org.apache.bifromq.sessiondict.client.ISessionRegistration;
 import org.apache.bifromq.type.ClientInfo;
@@ -134,6 +136,8 @@ public abstract class BaseMQTTTest {
     protected IResourceThrottler resourceThrottler;
     @Mock
     protected ISettingProvider settingProvider;
+    @Mock
+    protected IUserPropsCustomizer userPropsCustomizer ;
     @Mock
     protected IDistClient distClient;
     @Mock
@@ -170,6 +174,10 @@ public abstract class BaseMQTTTest {
     public void setup() {
         closeable = MockitoAnnotations.openMocks(this);
         when(clientBalancer.needRedirect(any())).thenReturn(Optional.empty());
+        when(userPropsCustomizer.inbound(anyString(), any(), any(), any(), anyLong()))
+            .thenReturn(Collections.emptyList());
+        when(userPropsCustomizer.outbound(anyString(), any(), any(), anyString(), any(), any(), anyLong()))
+            .thenReturn(Collections.emptyList());
 
         testTicker = new TestTicker();
         sessionRegistry = new LocalSessionRegistry();
@@ -181,6 +189,7 @@ public abstract class BaseMQTTTest {
             .eventCollector(eventCollector)
             .resourceThrottler(resourceThrottler)
             .settingProvider(settingProvider)
+            .userPropsCustomizer(userPropsCustomizer)
             .distClient(distClient)
             .inboxClient(inboxClient)
             .retainClient(retainClient)

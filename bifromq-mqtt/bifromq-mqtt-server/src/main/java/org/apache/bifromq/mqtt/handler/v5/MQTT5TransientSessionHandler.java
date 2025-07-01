@@ -47,7 +47,7 @@ public final class MQTT5TransientSessionHandler extends MQTTTransientSessionHand
                                         LWT willMessage, // nullable
                                         ChannelHandlerContext ctx) {
         super(settings, tenantMeter, oomCondition, userSessionId, keepAliveTimeSeconds, clientInfo, willMessage, ctx);
-        this.helper = new MQTT5ProtocolHelper(connMsg, settings, clientInfo);
+        this.helper = new MQTT5ProtocolHelper(connMsg, settings, clientInfo, sessionCtx.userPropsCustomizer);
         this.reAuthenticator = IReAuthenticator.create(connMsg,
             authProvider,
             clientInfo,

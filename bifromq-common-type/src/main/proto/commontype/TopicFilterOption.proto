@@ -39,5 +39,5 @@ message TopicFilterOption{
   bool noLocal = 4;
   RetainHandling retainHandling = 5;
   uint64 incarnation = 6;
-  UserProperties userProperties = 7; // for mqtt5
+  UserProperties userProperties = 7; // the granted user properties for this subscription
 }

@@ -401,6 +401,11 @@
             </dependency>
             <dependency>
                 <groupId>org.apache.bifromq</groupId>
+                <artifactId>bifromq-mqtt-server-spi</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.bifromq</groupId>
                 <artifactId>bifromq-mqtt-broker-rpc-definition</artifactId>
                 <version>${project.version}</version>
             </dependency>
@@ -409,17 +414,18 @@
                 <artifactId>bifromq-mqtt-server</artifactId>
                 <version>${project.version}</version>
             </dependency>
-            <dependency>
-                <groupId>org.apache.bifromq</groupId>
-                <artifactId>build-plugin-demo</artifactId>
-                <version>${project.version}</version>
-            </dependency>
+            <!--API Server-->
             <dependency>
                 <groupId>org.apache.bifromq</groupId>
                 <artifactId>bifromq-apiserver</artifactId>
                 <version>${project.version}</version>
             </dependency>
-
+            <!--demo-->
+            <dependency>
+                <groupId>org.apache.bifromq</groupId>
+                <artifactId>build-plugin-demo</artifactId>
+                <version>${project.version}</version>
+            </dependency>
         </dependencies>
     </dependencyManagement>
 </project>

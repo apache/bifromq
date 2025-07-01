@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.
+ * under the License.    
  */
 
 package org.apache.bifromq.mqtt.session;
@@ -22,12 +22,6 @@ package org.apache.bifromq.mqtt.session;
 import static org.apache.bifromq.metrics.TenantMetric.MqttSessionWorkingMemoryGauge;
 import static org.apache.bifromq.metrics.TenantMetric.MqttTransientSubCountGauge;
 
-import org.apache.bifromq.plugin.authprovider.IAuthProvider;
-import org.apache.bifromq.plugin.clientbalancer.IClientBalancer;
-import org.apache.bifromq.plugin.eventcollector.IEventCollector;
-import org.apache.bifromq.plugin.settingprovider.ISettingProvider;
-import org.apache.bifromq.retain.client.IRetainClient;
-import org.apache.bifromq.plugin.resourcethrottler.IResourceThrottler;
 import com.google.common.base.Ticker;
 import io.netty.channel.ChannelHandlerContext;
 import java.time.Duration;
@@ -40,6 +34,13 @@ import org.apache.bifromq.dist.client.IDistClient;
 import org.apache.bifromq.inbox.client.IInboxClient;
 import org.apache.bifromq.mqtt.service.ILocalDistService;
 import org.apache.bifromq.mqtt.service.ILocalSessionRegistry;
+import org.apache.bifromq.mqtt.spi.IUserPropsCustomizer;
+import org.apache.bifromq.plugin.authprovider.IAuthProvider;
+import org.apache.bifromq.plugin.clientbalancer.IClientBalancer;
+import org.apache.bifromq.plugin.eventcollector.IEventCollector;
+import org.apache.bifromq.plugin.resourcethrottler.IResourceThrottler;
+import org.apache.bifromq.plugin.settingprovider.ISettingProvider;
+import org.apache.bifromq.retain.client.IRetainClient;
 import org.apache.bifromq.sessiondict.client.ISessionDictClient;
 import org.apache.bifromq.sysprops.props.ControlPlaneMaxBurstLatencyMillis;
 
@@ -56,6 +57,7 @@ public final class MQTTSessionContext {
     public final IRetainClient retainClient;
     public final ISessionDictClient sessionDictClient;
     public final IClientBalancer clientBalancer;
+    public final IUserPropsCustomizer userPropsCustomizer;
     public final String serverId;
     private final IAuthProvider authProvider;
     private final Ticker ticker;
@@ -76,6 +78,7 @@ public final class MQTTSessionContext {
                        IEventCollector eventCollector,
                        IResourceThrottler resourceThrottler,
                        ISettingProvider settingProvider,
+                       IUserPropsCustomizer userPropsCustomizer,
                        Ticker ticker) {
         this.serverId = serverId;
         this.localSessionRegistry = localSessionRegistry;
@@ -84,6 +87,7 @@ public final class MQTTSessionContext {
         this.eventCollector = eventCollector;
         this.resourceThrottler = resourceThrottler;
         this.settingProvider = settingProvider;
+        this.userPropsCustomizer = userPropsCustomizer;
         this.distClient = distClient;
         this.inboxClient = inboxClient;
         this.retainClient = retainClient;

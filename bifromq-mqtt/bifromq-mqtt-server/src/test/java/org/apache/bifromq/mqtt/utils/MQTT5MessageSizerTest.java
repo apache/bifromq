@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 
 package org.apache.bifromq.mqtt.utils;
@@ -34,7 +34,9 @@ import io.netty.handler.codec.mqtt.MqttProperties;
 import io.netty.handler.codec.mqtt.MqttQoS;
 import io.netty.handler.codec.mqtt.MqttSubscriptionOption;
 import io.netty.handler.codec.mqtt.MqttVersion;
+import org.apache.bifromq.basehlc.HLC;
 import org.apache.bifromq.mqtt.MockableTest;
+import org.apache.bifromq.mqtt.handler.RoutedMessage;
 import org.apache.bifromq.mqtt.handler.v5.MQTT5MessageBuilders;
 import org.apache.bifromq.mqtt.handler.v5.MQTT5MessageUtils;
 import org.apache.bifromq.mqtt.handler.v5.reason.MQTT5AuthReasonCode;
@@ -47,7 +49,6 @@ import org.apache.bifromq.mqtt.handler.v5.reason.MQTT5SubAckReasonCode;
 import org.apache.bifromq.mqtt.handler.v5.reason.MQTT5UnsubAckReasonCode;
 import org.apache.bifromq.type.ClientInfo;
 import org.apache.bifromq.type.Message;
-import org.apache.bifromq.type.RoutedMessage;
 import org.apache.bifromq.type.StringPair;
 import org.apache.bifromq.type.TopicFilterOption;
 import org.apache.bifromq.type.UserProperties;
@@ -114,7 +115,7 @@ public class MQTT5MessageSizerTest extends MockableTest {
                     .build(),
                 ClientInfo.getDefaultInstance(), "topicFilter",
                 TopicFilterOption.getDefaultInstance(),
-                true, false, 0))
+                HLC.INST.get(), true, false, 0))
             .build();
         verifySize(message);
     }

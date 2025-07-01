@@ -99,6 +99,8 @@ import org.apache.bifromq.inbox.storage.proto.LWT;
 import org.apache.bifromq.metrics.ITenantMeter;
 import org.apache.bifromq.mqtt.handler.condition.Condition;
 import org.apache.bifromq.mqtt.handler.record.ProtocolResponse;
+import org.apache.bifromq.mqtt.handler.record.SubTask;
+import org.apache.bifromq.mqtt.handler.record.SubTasks;
 import org.apache.bifromq.mqtt.inbox.rpc.proto.SubReply;
 import org.apache.bifromq.mqtt.inbox.rpc.proto.UnsubReply;
 import org.apache.bifromq.mqtt.session.IMQTTSession;
@@ -152,7 +154,6 @@ import org.apache.bifromq.type.ClientInfo;
 import org.apache.bifromq.type.MQTTClientInfoConstants;
 import org.apache.bifromq.type.Message;
 import org.apache.bifromq.type.QoS;
-import org.apache.bifromq.type.RoutedMessage;
 import org.apache.bifromq.type.TopicFilterOption;
 import org.apache.bifromq.type.UserProperties;
 import org.apache.bifromq.util.UTF8Util;
@@ -254,48 +255,44 @@ public abstract class MQTTSessionHandler extends MQTTMessageHandler implements I
     @Override
     public final CompletableFuture<SubReply.Result> subscribe(long reqId, String topicFilter, QoS qos) {
         return CompletableFuture.completedFuture(true)
-            .thenComposeAsync(v -> checkAndSubscribe(reqId, topicFilter, TopicFilterOption
-                .newBuilder()
-                .setQos(qos)
-                .setIncarnation(HLC.INST.get())
-                .build(), UserProperties.getDefaultInstance())
-                .thenApply(subResult -> {
-                    switch (subResult) {
-                        case OK -> {
-                            return SubReply.Result.OK;
+            .thenComposeAsync(v -> {
+                SubTask subTask = new SubTask(topicFilter, qos, HLC.INST.get());
+                return checkAndSubscribe(reqId, subTask, UserProperties.getDefaultInstance())
+                    .thenApply(subResult -> {
+                        switch (subResult) {
+                            case OK -> {
+                                return SubReply.Result.OK;
+                            }
+                            case EXCEED_LIMIT -> {
+                                return SubReply.Result.EXCEED_LIMIT;
+                            }
+                            case NOT_AUTHORIZED -> {
+                                return SubReply.Result.NOT_AUTHORIZED;
+                            }
+                            case TOPIC_FILTER_INVALID -> {
+                                return SubReply.Result.TOPIC_FILTER_INVALID;
+                            }
+                            case WILDCARD_NOT_SUPPORTED -> {
+                                return SubReply.Result.WILDCARD_NOT_SUPPORTED;
+                            }
+                            case SHARED_SUBSCRIPTION_NOT_SUPPORTED -> {
+                                return SubReply.Result.SHARED_SUBSCRIPTION_NOT_SUPPORTED;
+                            }
+                            case SUBSCRIPTION_IDENTIFIER_NOT_SUPPORTED -> {
+                                return SubReply.Result.SUBSCRIPTION_IDENTIFIER_NOT_SUPPORTED;
+                            }
+                            case BACK_PRESSURE_REJECTED -> {
+                                return SubReply.Result.BACK_PRESSURE_REJECTED;
+                            }
+                            case TRY_LATER -> {
+                                return SubReply.Result.TRY_LATER;
+                            }
+                            default -> {
+                                return SubReply.Result.ERROR;
+                            }
                         }
-                        case EXISTS -> {
-                            return SubReply.Result.ERROR;
-                        }
-                        case EXCEED_LIMIT -> {
-                            return SubReply.Result.EXCEED_LIMIT;
-                        }
-                        case NOT_AUTHORIZED -> {
-                            return SubReply.Result.NOT_AUTHORIZED;
-                        }
-                        case TOPIC_FILTER_INVALID -> {
-                            return SubReply.Result.TOPIC_FILTER_INVALID;
-                        }
-                        case WILDCARD_NOT_SUPPORTED -> {
-                            return SubReply.Result.WILDCARD_NOT_SUPPORTED;
-                        }
-                        case SHARED_SUBSCRIPTION_NOT_SUPPORTED -> {
-                            return SubReply.Result.SHARED_SUBSCRIPTION_NOT_SUPPORTED;
-                        }
-                        case SUBSCRIPTION_IDENTIFIER_NOT_SUPPORTED -> {
-                            return SubReply.Result.SUBSCRIPTION_IDENTIFIER_NOT_SUPPORTED;
-                        }
-                        case BACK_PRESSURE_REJECTED -> {
-                            return SubReply.Result.BACK_PRESSURE_REJECTED;
-                        }
-                        case TRY_LATER -> {
-                            return SubReply.Result.TRY_LATER;
-                        }
-                        default -> {
-                            return SubReply.Result.ERROR;
-                        }
-                    }
-                }), ctx.executor());
+                    });
+            }, ctx.executor());
     }
 
     @Override
@@ -520,8 +517,10 @@ public abstract class MQTTSessionHandler extends MQTTMessageHandler implements I
     }
 
     private CompletableFuture<ProtocolResponse> doSubscribe(long reqId, MqttSubscribeMessage message) {
-        List<CompletableFuture<IMQTTProtocolHelper.SubResult>> resultFutures = helper().getSubTask(message).stream()
-            .map(subTask -> checkAndSubscribe(reqId, subTask.topicFilter(), subTask.option(), subTask.userProperties()))
+        SubTasks subTasks = helper().getSubTask(message);
+        List<CompletableFuture<IMQTTProtocolHelper.SubResult>> resultFutures = subTasks.tasks()
+            .stream()
+            .map(subTask -> checkAndSubscribe(reqId, subTask, subTasks.userProperties()))
             .toList();
         return CompletableFuture.allOf(resultFutures.toArray(CompletableFuture[]::new))
             .thenApplyAsync(v -> {
@@ -535,9 +534,9 @@ public abstract class MQTTSessionHandler extends MQTTMessageHandler implements I
     }
 
     protected final CompletableFuture<IMQTTProtocolHelper.SubResult> checkAndSubscribe(long reqId,
-                                                                                       String topicFilter,
-                                                                                       TopicFilterOption option,
+                                                                                       SubTask subTask,
                                                                                        UserProperties userProps) {
+        String topicFilter = subTask.topicFilter();
         if (!UTF8Util.isWellFormed(topicFilter, SANITY_CHECK)) {
             eventCollector.report(getLocal(MalformedTopicFilter.class)
                 .topicFilter(topicFilter)
@@ -562,7 +561,7 @@ public abstract class MQTTSessionHandler extends MQTTMessageHandler implements I
         }
 
         return addFgTask(
-            authProvider.checkPermission(clientInfo, buildSubAction(topicFilter, option.getQos(), userProps))
+            authProvider.checkPermission(clientInfo, buildSubAction(topicFilter, subTask.subQoS(), userProps))
                 .thenCompose(checkResult -> {
                     assert ctx.executor().inEventLoop();
                     if (checkResult.hasGranted()) {
@@ -573,17 +572,27 @@ public abstract class MQTTSessionHandler extends MQTTMessageHandler implements I
                                 .clientInfo(clientInfo));
                             return CompletableFuture.completedFuture(IMQTTProtocolHelper.SubResult.EXCEED_LIMIT);
                         }
+                        UserProperties grantedUserProps = checkResult.getGranted().getUserProps();
+                        TopicFilterOption.Builder optionBuilder = TopicFilterOption.newBuilder()
+                            .setQos(subTask.subQoS())
+                            .setRetainAsPublished(subTask.retainAsPublished())
+                            .setNoLocal(subTask.noLocal())
+                            .setRetainHandling(subTask.retainHandling())
+                            .setIncarnation(subTask.incarnation())
+                            .setUserProperties(grantedUserProps);
+                        subTask.subId().ifPresent(optionBuilder::setSubId);
+                        TopicFilterOption tfOption = optionBuilder.build();
                         Timer.Sample start = Timer.start();
-                        return addFgTask(subTopicFilter(reqId, topicFilter, option))
+                        return addFgTask(subTopicFilter(reqId, topicFilter, tfOption))
                             .thenComposeAsync(subResult -> {
                                 switch (subResult) {
                                     case OK, EXISTS -> {
                                         start.stop(tenantMeter.timer(MqttTransientSubLatency));
                                         if (!isSharedSubscription(topicFilter) && settings.retainEnabled
-                                            && (option.getRetainHandling() == SEND_AT_SUBSCRIBE
+                                            && (tfOption.getRetainHandling() == SEND_AT_SUBSCRIBE
                                             || (subResult == IMQTTProtocolHelper.SubResult.OK
                                             &&
-                                            option.getRetainHandling() == SEND_AT_SUBSCRIBE_IF_NOT_YET_EXISTS))) {
+                                            tfOption.getRetainHandling() == SEND_AT_SUBSCRIBE_IF_NOT_YET_EXISTS))) {
                                             if (!resourceThrottler.hasResource(clientInfo.getTenantId(),
                                                 TotalRetainMatchPerSeconds)) {
                                                 eventCollector.report(getLocal(OutOfTenantResource.class)
@@ -598,7 +607,7 @@ public abstract class MQTTSessionHandler extends MQTTMessageHandler implements I
                                                     .clientInfo(clientInfo));
                                                 return CompletableFuture.completedFuture(EXCEED_LIMIT);
                                             }
-                                            return addFgTask(matchRetainedMessage(reqId, topicFilter, option))
+                                            return addFgTask(matchRetainedMessage(reqId, topicFilter, tfOption))
                                                 .thenApply(matchReply -> {
                                                     switch (matchReply.getResult()) {
                                                         case OK -> {
@@ -647,7 +656,7 @@ public abstract class MQTTSessionHandler extends MQTTMessageHandler implements I
                     } else {
                         eventCollector.report(getLocal(SubActionDisallow.class)
                             .topicFilter(topicFilter)
-                            .qos(option.getQos())
+                            .qos(subTask.subQoS())
                             .clientInfo(clientInfo));
                         return CompletableFuture.completedFuture(IMQTTProtocolHelper.SubResult.NOT_AUTHORIZED);
                     }
@@ -1230,7 +1239,7 @@ public abstract class MQTTSessionHandler extends MQTTMessageHandler implements I
             log.trace("Checking authorization of pub qos0 action: reqId={}, sessionId={}, topic={}", reqId,
                 userSessionId(clientInfo), topic);
         }
-        Message distMessage = helper().buildDistMessage(message);
+        Message distMessage = helper().buildDistMessage(message, clientInfo);
         UserProperties userProps = helper().getUserProps(message);
         return addFgTask(checkPubPermission(topic, distMessage, userProps))
             .thenCompose(checkResult -> {
@@ -1282,7 +1291,7 @@ public abstract class MQTTSessionHandler extends MQTTMessageHandler implements I
             log.trace("Checking authorization of pub qos1 action: reqId={}, sessionId={}, topic={}",
                 reqId, userSessionId(clientInfo), topic);
         }
-        Message distMessage = helper().buildDistMessage(message);
+        Message distMessage = helper().buildDistMessage(message, clientInfo);
         UserProperties userProps = helper().getUserProps(message);
         return addFgTask(checkPubPermission(topic, distMessage, userProps))
             .thenCompose(checkResult -> {
@@ -1342,7 +1351,7 @@ public abstract class MQTTSessionHandler extends MQTTMessageHandler implements I
 
         incReceivingCount();
         inUsePacketIds.add(packetId);
-        Message distMessage = helper().buildDistMessage(message);
+        Message distMessage = helper().buildDistMessage(message, clientInfo);
         UserProperties userProps = helper().getUserProps(message);
         return addFgTask(checkPubPermission(topic, distMessage, userProps))
             .thenCompose(checkResult -> {

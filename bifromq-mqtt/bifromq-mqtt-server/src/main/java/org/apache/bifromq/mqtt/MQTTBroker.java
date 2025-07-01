@@ -21,21 +21,6 @@ package org.apache.bifromq.mqtt;
 
 import static org.apache.bifromq.mqtt.handler.condition.ORCondition.or;
 
-import org.apache.bifromq.baseenv.NettyEnv;
-import org.apache.bifromq.mqtt.handler.ChannelAttrs;
-import org.apache.bifromq.mqtt.handler.ClientAddrHandler;
-import org.apache.bifromq.mqtt.handler.ConditionalRejectHandler;
-import org.apache.bifromq.mqtt.handler.ConnectionRateLimitHandler;
-import org.apache.bifromq.mqtt.handler.MQTTMessageDebounceHandler;
-import org.apache.bifromq.mqtt.handler.MQTTPreludeHandler;
-import org.apache.bifromq.mqtt.handler.ProxyProtocolDetector;
-import org.apache.bifromq.mqtt.handler.ProxyProtocolHandler;
-import org.apache.bifromq.mqtt.handler.condition.DirectMemPressureCondition;
-import org.apache.bifromq.mqtt.handler.condition.HeapMemPressureCondition;
-import org.apache.bifromq.mqtt.handler.ws.MqttOverWSHandler;
-import org.apache.bifromq.mqtt.handler.ws.WebSocketOnlyHandler;
-import org.apache.bifromq.mqtt.service.ILocalSessionServer;
-import org.apache.bifromq.mqtt.session.MQTTSessionContext;
 import com.google.common.util.concurrent.RateLimiter;
 import io.micrometer.core.instrument.Metrics;
 import io.micrometer.core.instrument.binder.netty4.NettyEventExecutorMetrics;
@@ -56,6 +41,22 @@ import io.netty.handler.codec.mqtt.MqttDecoder;
 import io.netty.handler.codec.mqtt.MqttEncoder;
 import io.netty.handler.traffic.ChannelTrafficShapingHandler;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.bifromq.baseenv.NettyEnv;
+import org.apache.bifromq.mqtt.handler.ChannelAttrs;
+import org.apache.bifromq.mqtt.handler.ClientAddrHandler;
+import org.apache.bifromq.mqtt.handler.ConditionalRejectHandler;
+import org.apache.bifromq.mqtt.handler.ConnectionRateLimitHandler;
+import org.apache.bifromq.mqtt.handler.MQTTMessageDebounceHandler;
+import org.apache.bifromq.mqtt.handler.MQTTPreludeHandler;
+import org.apache.bifromq.mqtt.handler.ProxyProtocolDetector;
+import org.apache.bifromq.mqtt.handler.ProxyProtocolHandler;
+import org.apache.bifromq.mqtt.handler.condition.DirectMemPressureCondition;
+import org.apache.bifromq.mqtt.handler.condition.HeapMemPressureCondition;
+import org.apache.bifromq.mqtt.handler.ws.MqttOverWSHandler;
+import org.apache.bifromq.mqtt.handler.ws.WebSocketOnlyHandler;
+import org.apache.bifromq.mqtt.service.ILocalSessionServer;
+import org.apache.bifromq.mqtt.session.MQTTSessionContext;
+import org.apache.bifromq.mqtt.spi.UserPropsCustomizerFactory;
 
 @Slf4j
 class MQTTBroker implements IMQTTBroker {
@@ -70,6 +71,7 @@ class MQTTBroker implements IMQTTBroker {
     private ChannelFuture tlsChannelF;
     private ChannelFuture wsChannelF;
     private ChannelFuture wssChannelF;
+    private final UserPropsCustomizerFactory userPropsCustomizerFactory;
 
     public MQTTBroker(MQTTBrokerBuilder builder) {
         this.builder = builder;
@@ -80,6 +82,7 @@ class MQTTBroker implements IMQTTBroker {
         connRateLimiter = RateLimiter.create(builder.connectRateLimit);
         new NettyEventExecutorMetrics(bossGroup).bindTo(Metrics.globalRegistry);
         new NettyEventExecutorMetrics(workerGroup).bindTo(Metrics.globalRegistry);
+        userPropsCustomizerFactory = new UserPropsCustomizerFactory(builder.userPropsCustomizerFactoryConfig);
         sessionServer = ILocalSessionServer.builder()
             .rpcServerBuilder(builder.rpcServerBuilder)
             .sessionRegistry(builder.sessionRegistry)
@@ -103,6 +106,7 @@ class MQTTBroker implements IMQTTBroker {
                 .retainClient(builder.retainClient)
                 .sessionDictClient(builder.sessionDictClient)
                 .clientBalancer(builder.clientBalancer)
+                .userPropsCustomizer(userPropsCustomizerFactory.create())
                 .build();
             log.info("Starting MQTT broker");
             log.debug("Starting server channel");
@@ -161,6 +165,7 @@ class MQTTBroker implements IMQTTBroker {
         log.debug("Boss group shutdown");
         workerGroup.shutdownGracefully().syncUninterruptibly();
         log.debug("Worker group shutdown");
+        userPropsCustomizerFactory.close();
         log.info("MQTT broker stopped");
     }
 

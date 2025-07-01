@@ -46,20 +46,6 @@ import static org.testng.Assert.assertFalse;
 import static org.testng.Assert.assertNull;
 import static org.testng.Assert.assertTrue;
 
-import org.apache.bifromq.inbox.rpc.proto.CommitReply;
-import org.apache.bifromq.inbox.rpc.proto.CommitRequest;
-import org.apache.bifromq.inbox.rpc.proto.UnsubReply;
-import org.apache.bifromq.inbox.storage.proto.Fetched;
-import org.apache.bifromq.inbox.storage.proto.Fetched.Result;
-import org.apache.bifromq.inbox.storage.proto.InboxVersion;
-import org.apache.bifromq.mqtt.handler.BaseSessionHandlerTest;
-import org.apache.bifromq.mqtt.handler.ChannelAttrs;
-import org.apache.bifromq.mqtt.handler.TenantSettings;
-import org.apache.bifromq.mqtt.handler.v5.reason.MQTT5DisconnectReasonCode;
-import org.apache.bifromq.mqtt.utils.MQTTMessageUtils;
-import org.apache.bifromq.plugin.eventcollector.mqttbroker.pushhandling.QoS1Confirmed;
-import org.apache.bifromq.plugin.eventcollector.mqttbroker.pushhandling.QoS2Confirmed;
-import org.apache.bifromq.type.QoS;
 import io.netty.channel.Channel;
 import io.netty.channel.ChannelDuplexHandler;
 import io.netty.channel.ChannelHandlerContext;
@@ -82,13 +68,27 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 import lombok.SneakyThrows;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.bifromq.inbox.rpc.proto.CommitReply;
+import org.apache.bifromq.inbox.rpc.proto.CommitRequest;
+import org.apache.bifromq.inbox.rpc.proto.UnsubReply;
+import org.apache.bifromq.inbox.storage.proto.Fetched;
+import org.apache.bifromq.inbox.storage.proto.Fetched.Result;
+import org.apache.bifromq.inbox.storage.proto.InboxVersion;
+import org.apache.bifromq.mqtt.handler.BaseSessionHandlerTest;
+import org.apache.bifromq.mqtt.handler.ChannelAttrs;
+import org.apache.bifromq.mqtt.handler.TenantSettings;
+import org.apache.bifromq.mqtt.handler.v5.reason.MQTT5DisconnectReasonCode;
+import org.apache.bifromq.mqtt.utils.MQTTMessageUtils;
+import org.apache.bifromq.plugin.eventcollector.mqttbroker.pushhandling.QoS1Confirmed;
+import org.apache.bifromq.plugin.eventcollector.mqttbroker.pushhandling.QoS2Confirmed;
+import org.apache.bifromq.type.QoS;
 import org.testng.Assert;
 import org.testng.annotations.AfterMethod;
 import org.testng.annotations.BeforeMethod;
 import org.testng.annotations.Test;
 
 @Slf4j
-public class MQTT5PersistentSessionHandlerTest extends BaseSessionHandlerTest {
+public class PersistentSessionHandlerTest extends BaseSessionHandlerTest {
 
     @BeforeMethod(alwaysRun = true)
     public void setup(Method method) {
@@ -254,9 +254,6 @@ public class MQTT5PersistentSessionHandlerTest extends BaseSessionHandlerTest {
         Assert.assertNotNull(unsubAckMessage);
         verifyEvent(UNSUB_ACKED);
     }
-
-
-//  =============================================== S2CPub ============================================================
 
     @Test
     public void qoS0Pub() {

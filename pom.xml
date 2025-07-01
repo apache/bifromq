@@ -135,6 +135,7 @@
         <jmh.version>1.37</jmh.version>
 
         <!-- maven.plugin.version-->
+        <maven.flatten.plugin.version>1.7.1</maven.flatten.plugin.version>
         <maven.compiler.plugin.version>3.14.0</maven.compiler.plugin.version>
         <maven.archetype.plugin.version>3.3.1</maven.archetype.plugin.version>
         <maven.jar.plugin.version>3.4.2</maven.jar.plugin.version>
@@ -402,6 +403,32 @@
         <pluginManagement>
             <plugins>
                 <plugin>
+                    <groupId>org.codehaus.mojo</groupId>
+                    <artifactId>flatten-maven-plugin</artifactId>
+                    <version>${maven.flatten.plugin.version}</version>
+                    <executions>
+                        <execution>
+                            <id>flatten</id>
+                            <phase>process-resources</phase>
+                            <goals>
+                                <goal>flatten</goal>
+                            </goals>
+                        </execution>
+                        <execution>
+                            <id>flatten.clean</id>
+                            <phase>clean</phase>
+                            <goals>
+                                <goal>clean</goal>
+                            </goals>
+                        </execution>
+                    </executions>
+                    <configuration>
+                        <updatePomFile>true</updatePomFile>
+                        <flattenMode>resolveCiFriendliesOnly</flattenMode>
+                        <outputDirectory>${project.build.directory}</outputDirectory>
+                    </configuration>
+                </plugin>
+                <plugin>
                     <groupId>org.apache.maven.plugins</groupId>
                     <artifactId>maven-compiler-plugin</artifactId>
                     <version>${maven.compiler.plugin.version}</version>
@@ -547,7 +574,7 @@
                         </dependency>
                     </dependencies>
                     <configuration>
-                        <configLocation>checkstyle.xml</configLocation>
+                        <configLocation>${maven.multiModuleProjectDirectory}/checkstyle.xml</configLocation>
                         <consoleOutput>true</consoleOutput>
                         <violationSeverity>error</violationSeverity>
                         <sourceDirectories>
@@ -638,6 +665,10 @@
             </plugins>
         </pluginManagement>
         <plugins>
+            <plugin>
+                <groupId>org.codehaus.mojo</groupId>
+                <artifactId>flatten-maven-plugin</artifactId>
+            </plugin>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-compiler-plugin</artifactId>

@@ -17,10 +17,14 @@
  * under the License.    
  */
 
-package org.apache.bifromq.type;
+package org.apache.bifromq.mqtt.handler;
 
 import lombok.Getter;
 import lombok.experimental.Accessors;
+import org.apache.bifromq.type.ClientInfo;
+import org.apache.bifromq.type.Message;
+import org.apache.bifromq.type.QoS;
+import org.apache.bifromq.type.TopicFilterOption;
 
 /**
  * Represents a message that has been routed to a specific topic and client.
@@ -38,6 +42,7 @@ public class RoutedMessage {
     private final int bytesSize;
     private final boolean permissionGranted;
     private final boolean isDup; // if duplicated because of internal retry, should be dropped before send
+    private final long hlc;
     private final long inboxPos; // used in persistent session, the position in inbox
 
     public RoutedMessage(String topic,
@@ -45,9 +50,10 @@ public class RoutedMessage {
                          ClientInfo publisher,
                          String topicFilter,
                          TopicFilterOption option,
+                         long hlc,
                          boolean permissionGranted,
                          boolean isDup) {
-        this(topic, message, publisher, topicFilter, option, permissionGranted, isDup, 0);
+        this(topic, message, publisher, topicFilter, option, hlc, permissionGranted, isDup, 0);
     }
 
     public RoutedMessage(String topic,
@@ -55,6 +61,7 @@ public class RoutedMessage {
                          ClientInfo publisher,
                          String topicFilter,
                          TopicFilterOption option,
+                         long hlc,
                          boolean permissionGranted,
                          boolean isDup,
                          long inboxPos) {
@@ -63,6 +70,7 @@ public class RoutedMessage {
         this.publisher = publisher;
         this.topicFilter = topicFilter;
         this.option = option;
+        this.hlc = hlc;
         this.permissionGranted = permissionGranted;
         this.isDup = isDup;
         this.bytesSize = topic.length() + topicFilter.length() + message.getPayload().size();

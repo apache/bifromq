@@ -14,23 +14,20 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 
 package org.apache.bifromq.mqtt;
 
-import org.apache.bifromq.baserpc.server.RPCServerBuilder;
-import org.apache.bifromq.plugin.authprovider.IAuthProvider;
-import org.apache.bifromq.plugin.clientbalancer.IClientBalancer;
-import org.apache.bifromq.plugin.eventcollector.IEventCollector;
-import org.apache.bifromq.plugin.settingprovider.ISettingProvider;
-import org.apache.bifromq.retain.client.IRetainClient;
-import org.apache.bifromq.plugin.resourcethrottler.IResourceThrottler;
+import com.google.protobuf.Struct;
+import java.util.HashMap;
+import java.util.Map;
 import lombok.AccessLevel;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
 import lombok.experimental.Accessors;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.bifromq.baserpc.server.RPCServerBuilder;
 import org.apache.bifromq.dist.client.IDistClient;
 import org.apache.bifromq.inbox.client.IInboxClient;
 import org.apache.bifromq.mqtt.service.ILocalDistService;
@@ -39,6 +36,12 @@ import org.apache.bifromq.mqtt.service.ILocalTopicRouter;
 import org.apache.bifromq.mqtt.service.LocalDistService;
 import org.apache.bifromq.mqtt.service.LocalSessionRegistry;
 import org.apache.bifromq.mqtt.service.LocalTopicRouter;
+import org.apache.bifromq.plugin.authprovider.IAuthProvider;
+import org.apache.bifromq.plugin.clientbalancer.IClientBalancer;
+import org.apache.bifromq.plugin.eventcollector.IEventCollector;
+import org.apache.bifromq.plugin.resourcethrottler.IResourceThrottler;
+import org.apache.bifromq.plugin.settingprovider.ISettingProvider;
+import org.apache.bifromq.retain.client.IRetainClient;
 import org.apache.bifromq.sessiondict.client.ISessionDictClient;
 
 @Slf4j
@@ -64,6 +67,7 @@ public class MQTTBrokerBuilder implements IMQTTBrokerBuilder {
     IInboxClient inboxClient;
     IRetainClient retainClient;
     ISessionDictClient sessionDictClient;
+    Map<String, Struct> userPropsCustomizerFactoryConfig = new HashMap<>();
 
     @Setter(AccessLevel.NONE)
     ILocalSessionRegistry sessionRegistry;

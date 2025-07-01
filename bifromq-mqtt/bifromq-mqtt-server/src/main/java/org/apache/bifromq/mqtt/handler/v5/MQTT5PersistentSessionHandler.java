@@ -59,7 +59,7 @@ public final class MQTT5PersistentSessionHandler extends MQTTPersistentSessionHa
             inboxVersion,
             noDelayLWT,
             ctx);
-        this.helper = new MQTT5ProtocolHelper(connMsg, settings, clientInfo);
+        this.helper = new MQTT5ProtocolHelper(connMsg, settings, clientInfo, sessionCtx.userPropsCustomizer);
         this.reAuthenticator = IReAuthenticator.create(connMsg,
             authProvider,
             clientInfo,

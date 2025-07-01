@@ -80,7 +80,6 @@ import org.apache.bifromq.type.ClientInfo;
 import org.apache.bifromq.type.MatchInfo;
 import org.apache.bifromq.type.Message;
 import org.apache.bifromq.type.QoS;
-import org.apache.bifromq.type.RoutedMessage;
 import org.apache.bifromq.type.TopicFilterOption;
 import org.apache.bifromq.type.TopicMessagePack;
 import org.apache.bifromq.util.TopicUtil;
@@ -329,10 +328,11 @@ public abstract class MQTTTransientSessionHandler extends MQTTSessionHandler imp
                          List<Message> messages,
                          List<TopicFilterAndPermission> topicFilterAndPermissions) {
         AtomicInteger totalMsgBytesSize = new AtomicInteger();
+        long now = HLC.INST.get();
         for (Message message : messages) {
             // deduplicate messages based on topic and publisher
             for (TopicFilterAndPermission tfp : topicFilterAndPermissions) {
-                RoutedMessage subMsg = new RoutedMessage(topic, message, publisher, tfp.topicFilter, tfp.option,
+                RoutedMessage subMsg = new RoutedMessage(topic, message, publisher, tfp.topicFilter, tfp.option, now,
                     tfp.permissionCheckFuture.join().hasGranted(),
                     isDuplicateMessage(publisher, message, latestMsgTsByMQTTPublisher));
                 logInternalLatency(subMsg);
@@ -369,8 +369,7 @@ public abstract class MQTTTransientSessionHandler extends MQTTSessionHandler imp
             case AT_LEAST_ONCE -> tenantMeter.timer(MqttQoS1InternalLatency);
             default -> tenantMeter.timer(MqttQoS2InternalLatency);
         };
-        timer.record(HLC.INST.getPhysical() - HLC.INST.getPhysical(message.message().getTimestamp()),
-            TimeUnit.MILLISECONDS);
+        timer.record(HLC.INST.getPhysical(message.hlc() - message.message().getTimestamp()), TimeUnit.MILLISECONDS);
     }
 
     private CompletableFuture<MatchResult> addMatchRecord(long reqId, String topicFilter, long incarnation) {

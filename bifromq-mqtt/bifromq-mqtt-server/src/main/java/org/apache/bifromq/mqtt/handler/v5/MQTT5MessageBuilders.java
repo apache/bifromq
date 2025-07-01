@@ -14,10 +14,12 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 
 package org.apache.bifromq.mqtt.handler.v5;
+
+import static java.util.Collections.emptyList;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
@@ -42,6 +44,7 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import org.apache.bifromq.basehlc.HLC;
+import org.apache.bifromq.mqtt.handler.RoutedMessage;
 import org.apache.bifromq.mqtt.handler.v5.reason.MQTT5AuthReasonCode;
 import org.apache.bifromq.mqtt.handler.v5.reason.MQTT5DisconnectReasonCode;
 import org.apache.bifromq.mqtt.handler.v5.reason.MQTT5PubAckReasonCode;
@@ -50,7 +53,7 @@ import org.apache.bifromq.mqtt.handler.v5.reason.MQTT5PubRecReasonCode;
 import org.apache.bifromq.mqtt.handler.v5.reason.MQTT5PubRelReasonCode;
 import org.apache.bifromq.mqtt.handler.v5.reason.MQTT5SubAckReasonCode;
 import org.apache.bifromq.mqtt.handler.v5.reason.MQTT5UnsubAckReasonCode;
-import org.apache.bifromq.type.RoutedMessage;
+import org.apache.bifromq.mqtt.spi.UserProperty;
 import org.apache.bifromq.type.TopicFilterOption;
 import org.apache.bifromq.type.UserProperties;
 
@@ -349,6 +352,7 @@ public class MQTT5MessageBuilders {
         private boolean dup;
         private boolean setupAlias;
         private int topicAlias;
+        private Iterable<UserProperty> extraUserProps = emptyList();
 
         public PubBuilder packetId(int packetId) {
             this.packetId = packetId;
@@ -372,6 +376,11 @@ public class MQTT5MessageBuilders {
 
         public PubBuilder message(RoutedMessage message) {
             this.message = message;
+            return this;
+        }
+
+        public PubBuilder extraUserProps(Iterable<UserProperty> userProperties) {
+            this.extraUserProps = userProperties;
             return this;
         }
 
@@ -407,6 +416,7 @@ public class MQTT5MessageBuilders {
             if (message.message().getUserProperties().getUserPropertiesCount() > 0) {
                 propsBuilder.addUserProperties(message.message().getUserProperties());
             }
+            extraUserProps.forEach(userProp -> propsBuilder.addUserProperty(userProp.key(), userProp.value()));
             if (message.message().getExpiryInterval() < Integer.MAX_VALUE) {
                 // If absent, the Application Message does not expire
                 int leftDelayInterval = (int) Duration.ofMillis(

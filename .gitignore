@@ -6,6 +6,7 @@ output/
 *.zip
 *.tar
 *.tar.gz
+.flattened-pom.xml
 tree.txt
 
 # eclipse ignore

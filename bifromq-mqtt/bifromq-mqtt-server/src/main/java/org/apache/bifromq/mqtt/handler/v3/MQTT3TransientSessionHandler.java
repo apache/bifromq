@@ -42,7 +42,7 @@ public final class MQTT3TransientSessionHandler extends MQTTTransientSessionHand
                                         LWT willMessage, // nullable
                                         ChannelHandlerContext ctx) {
         super(settings, tenantMeter, oomCondition, userSessionId, keepAliveTimeSeconds, clientInfo, willMessage, ctx);
-        helper = new MQTT3ProtocolHelper(settings, clientInfo);
+        helper = new MQTT3ProtocolHelper(settings, clientInfo, sessionCtx.userPropsCustomizer);
     }
 
     @Override

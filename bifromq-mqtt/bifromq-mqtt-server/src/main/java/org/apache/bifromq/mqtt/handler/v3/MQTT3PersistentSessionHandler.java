@@ -52,8 +52,9 @@ public final class MQTT3PersistentSessionHandler extends MQTTPersistentSessionHa
             sessionExpirySeconds,
             clientInfo,
             inboxVersion,
-            noDelayLWT, ctx);
-        this.helper = new MQTT3ProtocolHelper(settings, clientInfo);
+            noDelayLWT,
+            ctx);
+        this.helper = new MQTT3ProtocolHelper(settings, clientInfo, sessionCtx.userPropsCustomizer);
     }
 
     @Override

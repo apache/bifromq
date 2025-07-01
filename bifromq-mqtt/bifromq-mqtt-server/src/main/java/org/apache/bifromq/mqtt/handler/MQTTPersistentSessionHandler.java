@@ -77,7 +77,6 @@ import org.apache.bifromq.sysprops.props.DataPlaneMaxBurstLatencyMillis;
 import org.apache.bifromq.type.ClientInfo;
 import org.apache.bifromq.type.MatchInfo;
 import org.apache.bifromq.type.Message;
-import org.apache.bifromq.type.RoutedMessage;
 import org.apache.bifromq.type.TopicFilterOption;
 import org.apache.bifromq.type.TopicMessage;
 import org.apache.bifromq.util.TopicUtil;
@@ -511,11 +510,11 @@ public abstract class MQTTPersistentSessionHandler extends MQTTSessionHandler im
                 String topic = topicMsg.getTopic();
                 Message message = topicMsg.getMessage();
                 ClientInfo publisher = topicMsg.getPublisher();
+                long now = HLC.INST.get();
                 tenantMeter.timer(MqttQoS0InternalLatency)
-                    .record(HLC.INST.getPhysical() - HLC.INST.getPhysical(message.getTimestamp()),
-                        TimeUnit.MILLISECONDS);
-                sendQoS0SubMessage(
-                    new RoutedMessage(topic, message, publisher, topicFilter, option, checkResult.hasGranted(), isDup));
+                    .record(HLC.INST.getPhysical(now - message.getTimestamp()), TimeUnit.MILLISECONDS);
+                sendQoS0SubMessage(new RoutedMessage(topic, message, publisher,
+                    topicFilter, option, now, checkResult.hasGranted(), isDup));
             });
     }
 
@@ -542,11 +541,11 @@ public abstract class MQTTPersistentSessionHandler extends MQTTSessionHandler im
                 String topic = topicMsg.getTopic();
                 Message message = topicMsg.getMessage();
                 ClientInfo publisher = topicMsg.getPublisher();
-                RoutedMessage msg = new RoutedMessage(topic, message, publisher, topicFilter, option,
+                long now = HLC.INST.get();
+                RoutedMessage msg = new RoutedMessage(topic, message, publisher, topicFilter, option, now,
                     checkResult.hasGranted(), isDup, inboxSeq);
                 tenantMeter.timer(msg.qos() == AT_LEAST_ONCE ? MqttQoS1InternalLatency : MqttQoS2InternalLatency)
-                    .record(HLC.INST.getPhysical() - HLC.INST.getPhysical(message.getTimestamp()),
-                        TimeUnit.MILLISECONDS);
+                    .record(HLC.INST.getPhysical(now - message.getTimestamp()), TimeUnit.MILLISECONDS);
                 RoutedMessage prev = stagingBuffer.put(seq, msg);
                 if (prev == null) {
                     memUsage.addAndGet(msg.estBytes());

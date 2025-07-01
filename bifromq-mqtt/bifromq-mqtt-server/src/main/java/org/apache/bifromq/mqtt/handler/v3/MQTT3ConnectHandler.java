@@ -28,6 +28,7 @@ import static org.apache.bifromq.metrics.TenantMetric.MqttAuthFailureCount;
 import static org.apache.bifromq.mqtt.handler.MQTTConnectHandler.AuthResult.goAway;
 import static org.apache.bifromq.mqtt.handler.MQTTConnectHandler.AuthResult.ok;
 import static org.apache.bifromq.mqtt.handler.condition.ORCondition.or;
+import static org.apache.bifromq.mqtt.handler.v3.MQTT3MessageUtils.toWillMessage;
 import static org.apache.bifromq.mqtt.utils.AuthUtil.buildConnAction;
 import static org.apache.bifromq.plugin.eventcollector.ThreadLocalEventPool.getLocal;
 import static org.apache.bifromq.type.MQTTClientInfoConstants.MQTT_CHANNEL_ID_KEY;
@@ -42,7 +43,6 @@ import static org.apache.bifromq.type.MQTTClientInfoConstants.MQTT_USER_ID_KEY;
 
 import com.google.common.base.Strings;
 import com.google.protobuf.ByteString;
-import com.google.protobuf.UnsafeByteOperations;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.handler.codec.mqtt.MqttConnAckMessage;
 import io.netty.handler.codec.mqtt.MqttConnectMessage;
@@ -53,7 +53,6 @@ import java.net.InetSocketAddress;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import lombok.extern.slf4j.Slf4j;
-import org.apache.bifromq.basehlc.HLC;
 import org.apache.bifromq.inbox.storage.proto.InboxVersion;
 import org.apache.bifromq.inbox.storage.proto.LWT;
 import org.apache.bifromq.metrics.ITenantMeter;
@@ -89,8 +88,6 @@ import org.apache.bifromq.plugin.eventcollector.mqttbroker.clientdisconnect.Serv
 import org.apache.bifromq.plugin.resourcethrottler.TenantResourceType;
 import org.apache.bifromq.sysprops.props.MaxMqtt3ClientIdLength;
 import org.apache.bifromq.type.ClientInfo;
-import org.apache.bifromq.type.Message;
-import org.apache.bifromq.type.QoS;
 import org.apache.bifromq.type.UserProperties;
 import org.apache.bifromq.util.TopicUtil;
 import org.apache.bifromq.util.UTF8Util;
@@ -99,14 +96,12 @@ import org.apache.bifromq.util.UTF8Util;
 public class MQTT3ConnectHandler extends MQTTConnectHandler {
     public static final String NAME = "MQTT3ConnectHandler";
     private static final int MAX_CLIENT_ID_LEN = MaxMqtt3ClientIdLength.INSTANCE.get();
-    private ChannelHandlerContext ctx;
     private IClientBalancer clientBalancer;
     private IAuthProvider authProvider;
 
     @Override
     public void handlerAdded(ChannelHandlerContext ctx) {
         super.handlerAdded(ctx);
-        this.ctx = ctx;
         authProvider = ChannelAttrs.mqttSessionContext(ctx).authProvider(ctx);
         clientBalancer = ChannelAttrs.mqttSessionContext(ctx).clientBalancer;
     }
@@ -345,18 +340,8 @@ public class MQTT3ConnectHandler extends MQTTConnectHandler {
     }
 
     @Override
-    protected LWT getWillMessage(MqttConnectMessage message) {
-        return LWT.newBuilder()
-            .setTopic(message.payload().willTopic())
-            .setMessage(Message.newBuilder()
-                .setPubQoS(QoS.forNumber(message.variableHeader().willQos()))
-                .setPayload(UnsafeByteOperations.unsafeWrap(message.payload().willMessageInBytes()))
-                .setIsRetain(message.variableHeader().isWillRetain())
-                .setExpiryInterval(Integer.MAX_VALUE)
-                .setIsRetain(message.variableHeader().isWillRetain())
-                .setTimestamp(HLC.INST.get())
-                .build())
-            .build();
+    protected LWT getWillMessage(MqttConnectMessage message, ClientInfo clientInfo) {
+        return toWillMessage(message, clientInfo, sessionCtx.userPropsCustomizer);
     }
 
     @Override

@@ -648,8 +648,8 @@ public class MQTT5ConnectHandler extends MQTTConnectHandler {
     }
 
     @Override
-    protected LWT getWillMessage(MqttConnectMessage message) {
-        return toWillMessage(message);
+    protected LWT getWillMessage(MqttConnectMessage message, ClientInfo clientInfo) {
+        return toWillMessage(message, clientInfo, sessionCtx.userPropsCustomizer);
     }
 
     @Override

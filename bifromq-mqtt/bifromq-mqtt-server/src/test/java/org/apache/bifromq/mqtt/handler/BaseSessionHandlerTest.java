@@ -67,6 +67,7 @@ import java.net.InetSocketAddress;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
@@ -89,6 +90,7 @@ import org.apache.bifromq.mqtt.handler.condition.Condition;
 import org.apache.bifromq.mqtt.service.ILocalDistService;
 import org.apache.bifromq.mqtt.service.ILocalSessionRegistry;
 import org.apache.bifromq.mqtt.session.MQTTSessionContext;
+import org.apache.bifromq.mqtt.spi.IUserPropsCustomizer;
 import org.apache.bifromq.mqtt.utils.TestTicker;
 import org.apache.bifromq.plugin.authprovider.IAuthProvider;
 import org.apache.bifromq.plugin.authprovider.type.CheckResult;
@@ -161,6 +163,8 @@ public abstract class BaseSessionHandlerTest extends MockableTest {
     @Mock
     protected ISettingProvider settingProvider;
     @Mock
+    protected IUserPropsCustomizer userPropsCustomizer;
+    @Mock
     protected IInboxClient.IInboxReader inboxReader;
     @Mock
     protected ITenantMeter tenantMeter;
@@ -178,6 +182,10 @@ public abstract class BaseSessionHandlerTest extends MockableTest {
         when(tenantMeter.timer(any())).thenReturn(mock(Timer.class));
         when(oomCondition.meet()).thenReturn(false);
         when(clientBalancer.needRedirect(any())).thenReturn(Optional.empty());
+        when(userPropsCustomizer.inbound(anyString(), any(), any(), any(), anyLong()))
+            .thenReturn(Collections.emptyList());
+        when(userPropsCustomizer.outbound(anyString(), any(), any(), anyString(), any(), any(), anyLong()))
+            .thenReturn(Collections.emptyList());
         sessionContext = MQTTSessionContext.builder()
             .serverId(serverId)
             .ticker(testTicker)
@@ -192,6 +200,7 @@ public abstract class BaseSessionHandlerTest extends MockableTest {
             .eventCollector(eventCollector)
             .resourceThrottler(resourceThrottler)
             .settingProvider(settingProvider)
+            .userPropsCustomizer(userPropsCustomizer)
             .build();
         mockSettings();
     }

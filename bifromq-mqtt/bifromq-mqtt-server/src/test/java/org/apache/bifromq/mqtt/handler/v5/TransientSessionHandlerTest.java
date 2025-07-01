@@ -14,12 +14,18 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.
+ * under the License.    
  */
 
 package org.apache.bifromq.mqtt.handler.v5;
 
 
+import static io.netty.handler.codec.mqtt.MqttMessageType.DISCONNECT;
+import static io.netty.handler.codec.mqtt.MqttMessageType.PUBACK;
+import static io.netty.handler.codec.mqtt.MqttMessageType.PUBREC;
+import static io.netty.handler.codec.mqtt.MqttMessageType.PUBREL;
+import static io.netty.handler.codec.mqtt.MqttProperties.MqttPropertyType.TOPIC_ALIAS;
+import static io.netty.handler.codec.mqtt.MqttProperties.MqttPropertyType.TOPIC_ALIAS_MAXIMUM;
 import static org.apache.bifromq.mqtt.handler.MQTTSessionIdUtil.userSessionId;
 import static org.apache.bifromq.mqtt.handler.v5.reason.MQTT5UnsubAckReasonCode.NoSubscriptionExisted;
 import static org.apache.bifromq.mqtt.handler.v5.reason.MQTT5UnsubAckReasonCode.NotAuthorized;
@@ -59,12 +65,6 @@ import static org.apache.bifromq.plugin.settingprovider.Setting.RetainEnabled;
 import static org.apache.bifromq.retain.rpc.proto.RetainReply.Result.CLEARED;
 import static org.apache.bifromq.retain.rpc.proto.RetainReply.Result.ERROR;
 import static org.apache.bifromq.retain.rpc.proto.RetainReply.Result.RETAINED;
-import static io.netty.handler.codec.mqtt.MqttMessageType.DISCONNECT;
-import static io.netty.handler.codec.mqtt.MqttMessageType.PUBACK;
-import static io.netty.handler.codec.mqtt.MqttMessageType.PUBREC;
-import static io.netty.handler.codec.mqtt.MqttMessageType.PUBREL;
-import static io.netty.handler.codec.mqtt.MqttProperties.MqttPropertyType.TOPIC_ALIAS;
-import static io.netty.handler.codec.mqtt.MqttProperties.MqttPropertyType.TOPIC_ALIAS_MAXIMUM;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
@@ -81,26 +81,6 @@ import static org.testng.Assert.assertFalse;
 import static org.testng.Assert.assertNull;
 import static org.testng.Assert.assertTrue;
 
-import org.apache.bifromq.basehlc.HLC;
-import org.apache.bifromq.dist.client.PubResult;
-import org.apache.bifromq.mqtt.handler.BaseSessionHandlerTest;
-import org.apache.bifromq.mqtt.handler.ChannelAttrs;
-import org.apache.bifromq.mqtt.handler.TenantSettings;
-import org.apache.bifromq.mqtt.handler.v5.reason.MQTT5DisconnectReasonCode;
-import org.apache.bifromq.mqtt.handler.v5.reason.MQTT5PubAckReasonCode;
-import org.apache.bifromq.mqtt.handler.v5.reason.MQTT5PubRecReasonCode;
-import org.apache.bifromq.mqtt.handler.v5.reason.MQTT5SubAckReasonCode;
-import org.apache.bifromq.mqtt.session.IMQTTTransientSession;
-import org.apache.bifromq.mqtt.utils.MQTTMessageUtils;
-import org.apache.bifromq.plugin.authprovider.type.CheckResult;
-import org.apache.bifromq.plugin.authprovider.type.Granted;
-import org.apache.bifromq.plugin.authprovider.type.MQTTAction;
-import org.apache.bifromq.plugin.eventcollector.mqttbroker.clientdisconnect.ExceedReceivingLimit;
-import org.apache.bifromq.type.ClientInfo;
-import org.apache.bifromq.type.MQTTClientInfoConstants;
-import org.apache.bifromq.type.Message;
-import org.apache.bifromq.type.QoS;
-import org.apache.bifromq.type.TopicMessagePack;
 import com.google.protobuf.ByteString;
 import io.netty.channel.Channel;
 import io.netty.channel.ChannelDuplexHandler;
@@ -131,13 +111,33 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 import lombok.SneakyThrows;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.bifromq.basehlc.HLC;
+import org.apache.bifromq.dist.client.PubResult;
+import org.apache.bifromq.mqtt.handler.BaseSessionHandlerTest;
+import org.apache.bifromq.mqtt.handler.ChannelAttrs;
+import org.apache.bifromq.mqtt.handler.TenantSettings;
+import org.apache.bifromq.mqtt.handler.v5.reason.MQTT5DisconnectReasonCode;
+import org.apache.bifromq.mqtt.handler.v5.reason.MQTT5PubAckReasonCode;
+import org.apache.bifromq.mqtt.handler.v5.reason.MQTT5PubRecReasonCode;
+import org.apache.bifromq.mqtt.handler.v5.reason.MQTT5SubAckReasonCode;
+import org.apache.bifromq.mqtt.session.IMQTTTransientSession;
+import org.apache.bifromq.mqtt.utils.MQTTMessageUtils;
+import org.apache.bifromq.plugin.authprovider.type.CheckResult;
+import org.apache.bifromq.plugin.authprovider.type.Granted;
+import org.apache.bifromq.plugin.authprovider.type.MQTTAction;
+import org.apache.bifromq.plugin.eventcollector.mqttbroker.clientdisconnect.ExceedReceivingLimit;
+import org.apache.bifromq.type.ClientInfo;
+import org.apache.bifromq.type.MQTTClientInfoConstants;
+import org.apache.bifromq.type.Message;
+import org.apache.bifromq.type.QoS;
+import org.apache.bifromq.type.TopicMessagePack;
 import org.mockito.ArgumentCaptor;
 import org.testng.annotations.AfterMethod;
 import org.testng.annotations.BeforeMethod;
 import org.testng.annotations.Test;
 
 @Slf4j
-public class MQTT5TransientSessionHandlerTest extends BaseSessionHandlerTest {
+public class TransientSessionHandlerTest extends BaseSessionHandlerTest {
 
     private MQTT5TransientSessionHandler transientSessionHandler;
     private boolean shouldCleanSubs = false;
@@ -185,12 +185,19 @@ public class MQTT5TransientSessionHandlerTest extends BaseSessionHandlerTest {
             @Override
             public void channelActive(ChannelHandlerContext ctx) throws Exception {
                 super.channelActive(ctx);
-                ctx.pipeline().addLast(
-                    MQTT5TransientSessionHandler.builder().settings(new TenantSettings(tenantId, settingProvider))
-                        .tenantMeter(tenantMeter).oomCondition(oomCondition).connMsg(
-                            MqttMessageBuilders.connect().protocolVersion(MqttVersion.MQTT_5).properties(mqttProperties)
-                                .build()).userSessionId(userSessionId(clientInfo)).keepAliveTimeSeconds(120)
-                        .clientInfo(clientInfo).willMessage(null).ctx(ctx).build());
+                ctx.pipeline().addLast(MQTT5TransientSessionHandler.builder()
+                    .settings(new TenantSettings(tenantId, settingProvider))
+                    .tenantMeter(tenantMeter)
+                    .oomCondition(oomCondition)
+                    .connMsg(MqttMessageBuilders.connect()
+                        .protocolVersion(MqttVersion.MQTT_5)
+                        .properties(mqttProperties)
+                        .build())
+                    .userSessionId(userSessionId(clientInfo))
+                    .keepAliveTimeSeconds(120)
+                    .clientInfo(clientInfo)
+                    .willMessage(null).ctx(ctx)
+                    .build());
                 ctx.pipeline().remove(this);
             }
         };

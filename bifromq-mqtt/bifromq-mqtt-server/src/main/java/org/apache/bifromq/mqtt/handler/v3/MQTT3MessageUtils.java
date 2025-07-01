@@ -14,39 +14,88 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.
+ * under the License.    
  */
 
 package org.apache.bifromq.mqtt.handler.v3;
 
+import com.google.protobuf.ByteString;
+import com.google.protobuf.UnsafeByteOperations;
+import io.netty.handler.codec.mqtt.MqttConnectMessage;
+import io.netty.handler.codec.mqtt.MqttPublishMessage;
 import org.apache.bifromq.basehlc.HLC;
+import org.apache.bifromq.inbox.storage.proto.LWT;
+import org.apache.bifromq.mqtt.spi.IUserPropsCustomizer;
+import org.apache.bifromq.mqtt.spi.UserProperty;
+import org.apache.bifromq.type.ClientInfo;
 import org.apache.bifromq.type.Message;
 import org.apache.bifromq.type.QoS;
-import com.google.protobuf.ByteString;
-import io.netty.handler.codec.mqtt.MqttPublishMessage;
-import io.netty.handler.codec.mqtt.MqttQoS;
+import org.apache.bifromq.type.StringPair;
+import org.apache.bifromq.type.UserProperties;
 
 public final class MQTT3MessageUtils {
+    static LWT toWillMessage(MqttConnectMessage connMsg,
+                             ClientInfo publisher,
+                             IUserPropsCustomizer userPropsCustomizer) {
+        String willTopic = connMsg.payload().willTopic();
+        QoS willQoS = QoS.forNumber(connMsg.variableHeader().willQos());
+        ByteString willPayload = UnsafeByteOperations.unsafeWrap(connMsg.payload().willMessageInBytes());
+        long now = HLC.INST.get();
+        Iterable<UserProperty> extraUserProps = userPropsCustomizer.inbound(
+            willTopic,
+            willQoS,
+            willPayload,
+            publisher,
+            now
+        );
+        Message willMsg = toMessage(0, willQoS, connMsg.variableHeader().isWillRetain(),
+            willPayload, now, extraUserProps);
+        return LWT.newBuilder()
+            .setTopic(willTopic)
+            .setMessage(willMsg)
+            .build();
+    }
 
-    static Message toMessage(MqttPublishMessage pubMsg) {
-        return toMessage(pubMsg.variableHeader().packetId(),
-            pubMsg.fixedHeader().qosLevel(),
-            pubMsg.fixedHeader().isRetain(),
-            ByteString.copyFrom(pubMsg.payload().nioBuffer()));
+    static Message toMessage(MqttPublishMessage pubMsg,
+                             ClientInfo publisher,
+                             IUserPropsCustomizer userPropsCustomizer) {
+        String topic = pubMsg.variableHeader().topicName();
+        QoS pubQoS = QoS.forNumber(pubMsg.fixedHeader().qosLevel().value());
+        ByteString payload = ByteString.copyFrom(pubMsg.payload().nioBuffer());
+        long now = HLC.INST.get();
+        Iterable<UserProperty> extraUserProps = userPropsCustomizer.inbound(
+            topic,
+            pubQoS,
+            payload,
+            publisher,
+            now);
+        long pubMsgId = pubMsg.variableHeader().packetId();
+        boolean isRetain = pubMsg.fixedHeader().isRetain();
+        return toMessage(pubMsgId, pubQoS, isRetain, payload, now, extraUserProps);
     }
 
     static Message toMessage(long packetId,
-                             MqttQoS pubQoS,
+                             QoS pubQoS,
                              boolean isRetain,
-                             ByteString payload) {
+                             ByteString payload,
+                             long hlc,
+                             Iterable<UserProperty> extraUserProps) {
+        UserProperties.Builder userPropsBuilder = UserProperties.newBuilder();
+        for (UserProperty userProp : extraUserProps) {
+            userPropsBuilder.addUserProperties(StringPair.newBuilder()
+                .setKey(userProp.key())
+                .setValue(userProp.value())
+                .build());
+        }
         return Message.newBuilder()
             .setMessageId(packetId)
-            .setPubQoS(QoS.forNumber(pubQoS.value()))
+            .setPubQoS(pubQoS)
             .setPayload(payload)
-            .setTimestamp(HLC.INST.get())
+            .setTimestamp(hlc)
             // MessageExpiryInterval
             .setExpiryInterval(Integer.MAX_VALUE)
             .setIsRetain(isRetain)
+            .setUserProperties(userPropsBuilder.build())
             .build();
     }
 }

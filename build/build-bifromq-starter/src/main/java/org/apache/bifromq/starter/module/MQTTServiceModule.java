@@ -83,7 +83,8 @@ public class MQTTServiceModule extends AbstractModule {
                 .disconnectRate(serverConfig.getMaxDisconnPerSec())
                 .readLimit(serverConfig.getMaxConnBandwidth())
                 .writeLimit(serverConfig.getMaxConnBandwidth())
-                .maxBytesInMessage(serverConfig.getMaxMsgByteSize());
+                .maxBytesInMessage(serverConfig.getMaxMsgByteSize())
+                .userPropsCustomizerFactoryConfig(serverConfig.getUserPropsCustomizerFactoryConfig());
             if (serverConfig.getTcpListener().isEnable()) {
                 brokerBuilder.buildTcpConnListener()
                     .host(serverConfig.getTcpListener().getHost())

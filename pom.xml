@@ -111,7 +111,7 @@
         <guice.version>7.0.0</guice.version>
         <grpc.version>1.72.0</grpc.version>
         <guava.version>33.2.1-jre</guava.version>
-        <jackson.dataformat.version>2.18.1</jackson.dataformat.version>
+        <jackson.version>2.18.1</jackson.version>
         <jakarta.ws.rs-api.version>4.0.0</jakarta.ws.rs-api.version>
         <lombok.version>1.18.34</lombok.version>
         <log4j.version>2.24.3</log4j.version>
@@ -593,14 +593,11 @@
                 <scope>runtime</scope>
             </dependency>
             <dependency>
-                <groupId>com.fasterxml.jackson.core</groupId>
-                <artifactId>jackson-databind</artifactId>
-                <version>${jackson.dataformat.version}</version>
-            </dependency>
-            <dependency>
-                <groupId>com.fasterxml.jackson.dataformat</groupId>
-                <artifactId>jackson-dataformat-yaml</artifactId>
-                <version>${jackson.dataformat.version}</version>
+                <groupId>com.fasterxml.jackson</groupId>
+                <artifactId>jackson-bom</artifactId>
+                <version>${jackson.version}</version>
+                <scope>import</scope>
+                <type>pom</type>
             </dependency>
             <dependency>
                 <groupId>org.rocksdb</groupId>

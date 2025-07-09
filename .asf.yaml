@@ -43,6 +43,7 @@ github:
   features:
     issues: true
     projects: true
+    discussions: true
 notifications:
   commits: commits@bifromq.apache.org
   issues: dev@bifromq.apache.org

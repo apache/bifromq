@@ -42,7 +42,7 @@ docker run -d -m <MEM_LIMIT> -e MEM_LIMIT='<MEM_LIMIT_IN_BYTES>' --name bifromq 
 Substitute `<MEM_LIMIT>` and `<MEM_LIMIT_IN_BYTES>` with the actual memory allocation for the Docker process, for
 example, `2G` for `<MEM_LIMIT>` and `2147483648` for `<MEM_LIMIT_IN_BYTES>`. If not specified, BifroMQ defaults to using
 the hosting server's physical memory for determining JVM parameters. This can result in the Docker process being
-terminated by the host's Out-of-Memory (OOM) Killer. Refer to [here](https://bifromq.io/docs/installation/docker/)
+terminated by the host's Out-of-Memory (OOM) Killer. Refer to [here](https://bifromq.apache.org/docs/installation/docker/)
 for more information.
 
 You can build a BifroMQ cluster using Docker Compose on a single host for development and testing. Suppose you want to create a cluster with three nodes: node1, 

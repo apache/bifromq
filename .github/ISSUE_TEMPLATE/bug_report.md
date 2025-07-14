@@ -36,10 +36,8 @@ OR
 **Issues that only describe symptoms without providing either of the above may not contain enough valuable data for
 problem identification and are unlikely to receive a response from the team.**
 
-If you cannot meet either of these requirements, please contact [email](mailto:hello@bifromq.io) for paid consulting
-services.
-Alternatively, we encourage you to help troubleshooting and submit a Pull Request with an Issue Fix to become an
-external [contributor](https://github.com/bifromqio/bifromq/blob/main/CLA.md) to BifroMQ.
+We encourage you to help troubleshooting and submit a Pull Request with an Issue Fix to become a 
+[contributor](https://bifromq.apache.org/docs/contribution_guide/intro/) to BifroMQ.
 
 ## ⚠️ *重要提示：提交问题前请仔细阅读*
 
@@ -64,8 +62,7 @@ external [contributor](https://github.com/bifromqio/bifromq/blob/main/CLA.md) to
 
 **仅描述现象而不提供上述两项中任意一项的问题报告，通常无法为问题定位提供足够有价值的信息，因此可能不会得到团队的响应。**
 
-如果您无法满足这两项要求中的任何一项，请联系[邮箱](mailto:hello@bifromq.io) 获取付费咨询服务。另外，我们也鼓励您能帮助定位问题，提交解决问题的
-Pull Request，成为 BifroMQ 的[外部贡献者](https://github.com/bifromqio/bifromq/blob/main/CLA.md)。
+我们鼓励您能帮助定位问题，提交解决问题的 Pull Request，成为 BifroMQ 的[贡献者](https://bifromq.apache.org/docs/contribution_guide/intro/)。
 
 ### **Describe the bug**
 

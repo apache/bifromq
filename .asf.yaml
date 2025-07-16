@@ -43,9 +43,10 @@ github:
   features:
     issues: true
     projects: true
+    discussions: true
 notifications:
   commits: commits@bifromq.apache.org
-  issues: commits@bifromq.apache.org
-  pullrequests: commits@bifromq.apache.org
+  issues: dev@bifromq.apache.org
+  pullrequests: dev@bifromq.apache.org
   jobs:         commits@bifromq.apache.org
-  discussions:  commits@bifromq.apache.org
+  discussions: dev@bifromq.apache.org

@@ -34,7 +34,7 @@ docker run -d -m <MEM_LIMIT> -e MEM_LIMIT='<MEM_LIMIT_IN_BYTES>' --name bifromq 
 
 将`<MEM_LIMIT>`和`<MEM_LIMIT_IN_BYTES>`替换为 Docker 进程的实际内存分配，例如，使用`2G`替换`<MEM_LIMIT>`，使用 `2147483648`
 替换`<MEM_LIMIT_IN_BYTES>`。如果未指定这些值，BifroMQ 默认使用宿主服务器的物理内存来确定JVM参数。这可能导致 Docker
-进程被宿主机的OOM Killer终止，更多供信息[参考](https://bifromq.apache.org/zh-Hans/docs/installation/docker/)。
+进程被宿主机的OOM Killer终止，更多供信息[参考](https://bifromq.apache.org/docs/installation/docker/)。
 
 你可以使用Docker Compose在单个host上搭建BifroMQ集群用于开发和测试。假设你想创建一个包含三个节点的集群：node1、node2 和 node3，目录结构如下：
 ```
@@ -202,7 +202,7 @@ MQTT Broker 实例，确保高可用性。 你也可以通过添加更多的节�
 
 独立工作负载集群部署模式旨在构建大规模的，多租户的 Serverless
 集群。在这种模式下，集群由几个专门的子集群组成，每个子集群都专注于一个特定的'独立类型'的工作负载。这些子集群共同协作形成一个逻辑的
-MQTT Broker 实例。这是最复杂的部署模式，需要额外的非开源协作组件。如需商业支持，请与我们[联系](mailto:hello@bifromq.io)。
+MQTT Broker 实例。这是最复杂的部署模式，需要额外的非开源协作组件。
 
 ## 用户社区
 

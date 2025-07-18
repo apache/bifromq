@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 
 package org.apache.bifromq.inbox.store;
@@ -22,6 +22,10 @@ package org.apache.bifromq.inbox.store;
 import static org.apache.bifromq.basekv.client.KVRangeRouterUtil.findByBoundary;
 import static org.apache.bifromq.basekv.utils.BoundaryUtil.FULL_BOUNDARY;
 
+import com.google.common.collect.Sets;
+import java.util.Collection;
+import java.util.concurrent.CompletableFuture;
+import lombok.extern.slf4j.Slf4j;
 import org.apache.bifromq.basekv.client.IBaseKVStoreClient;
 import org.apache.bifromq.basekv.client.KVRangeSetting;
 import org.apache.bifromq.basekv.client.exception.BadRequestException;
@@ -33,9 +37,6 @@ import org.apache.bifromq.basekv.store.proto.ROCoProcInput;
 import org.apache.bifromq.inbox.storage.proto.GCReply;
 import org.apache.bifromq.inbox.storage.proto.GCRequest;
 import org.apache.bifromq.inbox.storage.proto.InboxServiceROCoProcInput;
-import java.util.Collection;
-import java.util.concurrent.CompletableFuture;
-import lombok.extern.slf4j.Slf4j;
 
 @Slf4j
 public class InboxStoreGCProcessor implements IInboxStoreGCProcessor {
@@ -49,8 +50,8 @@ public class InboxStoreGCProcessor implements IInboxStoreGCProcessor {
 
     @Override
     public final CompletableFuture<Result> gc(long reqId, long now) {
-        Collection<KVRangeSetting> rangeSettingList = findByBoundary(FULL_BOUNDARY,
-            storeClient.latestEffectiveRouter());
+        Collection<KVRangeSetting> rangeSettingList = Sets.newHashSet(findByBoundary(FULL_BOUNDARY,
+            storeClient.latestEffectiveRouter()));
         if (localServerId != null) {
             rangeSettingList.removeIf(rangeSetting -> !rangeSetting.leader.equals(localServerId));
         }

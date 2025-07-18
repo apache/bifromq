@@ -126,7 +126,7 @@ final class BaseKVStoreClient implements IBaseKVStoreClient {
     // key: storeId
     private final Map<String, List<IQueryPipeline>> lnrQueryPplns = Maps.newHashMap();
     private final AtomicReference<NavigableMap<Boundary, KVRangeSetting>> effectiveRouter =
-        new AtomicReference<>(new TreeMap<>(BoundaryUtil::compare));
+        new AtomicReference<>(Collections.unmodifiableNavigableMap(new TreeMap<>(BoundaryUtil::compare)));
 
     // key: serverId, val: storeId
     private volatile Map<String, String> serverToStoreMap = Maps.newHashMap();
@@ -486,7 +486,7 @@ final class BaseKVStoreClient implements IBaseKVStoreClient {
         }
         NavigableMap<Boundary, KVRangeSetting> last = effectiveRouter.get();
         if (!router.equals(last)) {
-            effectiveRouter.set(router);
+            effectiveRouter.set(Collections.unmodifiableNavigableMap(router));
             return true;
         }
         return false;
@@ -519,7 +519,7 @@ final class BaseKVStoreClient implements IBaseKVStoreClient {
                 }
             }
             patched.put(setting.boundary, setting);
-            effectiveRouter.compareAndSet(router, patched);
+            effectiveRouter.compareAndSet(router, Collections.unmodifiableNavigableMap(patched));
         }
     }
 

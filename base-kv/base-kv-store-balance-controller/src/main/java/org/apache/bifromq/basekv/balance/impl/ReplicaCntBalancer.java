@@ -26,6 +26,7 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.Sets;
 import com.google.protobuf.Struct;
 import com.google.protobuf.Value;
+import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -277,6 +278,14 @@ public class ReplicaCntBalancer extends RuleBasedPlacementBalancer {
         double totalVoters = storeVoterCount.values().stream().mapToInt(Integer::intValue).sum();
         double targetVotersPerStore = totalVoters / landscape.size();
         int maxVotersPerStore = (int) Math.ceil(targetVotersPerStore);
+        int minVotersPerStore = (int) Math.floor(targetVotersPerStore);
+
+        int globalMax = Collections.max(storeVoterCount.values());
+        int globalMin = Collections.min(storeVoterCount.values());
+        if (globalMax - globalMin <= 1) {
+            return false;
+        }
+
         for (Map.Entry<Boundary, LeaderRange> entry : effectiveRoute.leaderRanges().entrySet()) {
             Boundary boundary = entry.getKey();
             LeaderRange leaderRange = entry.getValue();
@@ -290,11 +299,11 @@ public class ReplicaCntBalancer extends RuleBasedPlacementBalancer {
             Set<String> learners = Sets.newHashSet(clusterConfig.getLearnersList());
             SortedSet<String> voterSorted = Sets.newTreeSet(clusterConfig.getVotersList());
             for (String voter : voterSorted) {
-                if (storeVoterCount.get(voter) > maxVotersPerStore) {
+                if (storeVoterCount.get(voter) >= maxVotersPerStore) {
                     // voter store has overloaded voters
                     for (StoreVoterCount underloadedStore : storeVoterCountSorted) {
                         // move to one underloaded store which is current not in the voter list
-                        if (storeVoterCount.get(underloadedStore.storeId) < maxVotersPerStore
+                        if (storeVoterCount.get(underloadedStore.storeId) <= minVotersPerStore
                             && !voterSorted.contains(underloadedStore.storeId)
                             && !learners.contains(underloadedStore.storeId)) {
                             meetingGoal = true;

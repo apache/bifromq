@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 
 package org.apache.bifromq.mqtt.handler;
@@ -116,7 +116,6 @@ public abstract class MQTTTransientSessionHandler extends MQTTSessionHandler imp
         subNumGauge = sessionCtx.getTransientSubNumGauge(clientInfo.getTenantId());
         onInitialized();
         resumeChannelRead();
-        memUsage.addAndGet(estBaseMemSize());
         // Transient session lifetime is bounded by the channel lifetime
         eventCollector.report(getLocal(MQTTSessionStart.class).sessionId(userSessionId).clientInfo(clientInfo));
     }
@@ -128,16 +127,10 @@ public abstract class MQTTTransientSessionHandler extends MQTTSessionHandler imp
             topicFilters.forEach((topicFilter, option) -> addBgTask(unsubTopicFilter(System.nanoTime(), topicFilter)));
         }
         int remainInboxSize = inbox.values().stream().reduce(0, (acc, msg) -> acc + msg.estBytes(), Integer::sum);
-        memUsage.addAndGet(-estBaseMemSize());
         memUsage.addAndGet(-remainInboxSize);
         // Transient session lifetime is bounded by the channel lifetime
         eventCollector.report(getLocal(MQTTSessionStop.class).sessionId(userSessionId).clientInfo(clientInfo));
         ctx.fireChannelInactive();
-    }
-
-    private int estBaseMemSize() {
-        // estimate bytes from JOL
-        return 28;
     }
 
     @Override
@@ -186,6 +179,7 @@ public abstract class MQTTTransientSessionHandler extends MQTTSessionHandler imp
         if (prevOption == null) {
             subNumGauge.addAndGet(1);
             memUsage.addAndGet(topicFilter.length());
+            memUsage.addAndGet(option.getSerializedSize());
         }
         return addMatchRecord(reqId, topicFilter, option.getIncarnation())
             .thenApplyAsync(matchResult -> {
@@ -250,6 +244,7 @@ public abstract class MQTTTransientSessionHandler extends MQTTSessionHandler imp
         } else {
             subNumGauge.addAndGet(-1);
             memUsage.addAndGet(-topicFilter.length());
+            memUsage.addAndGet(-option.getSerializedSize());
         }
         return removeMatchRecord(reqId, topicFilter, option.getIncarnation())
             .handleAsync((result, e) -> {

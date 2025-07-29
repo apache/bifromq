@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 
 package org.apache.bifromq.mqtt.handler;
@@ -120,10 +120,6 @@ public abstract class MQTTPersistentSessionHandler extends MQTTSessionHandler im
         this.sessionExpirySeconds = sessionExpirySeconds;
     }
 
-    private int estBaseMemSize() {
-        return 72; // base size from JOL
-    }
-
     @Override
     public void handlerAdded(ChannelHandlerContext ctx) {
         super.handlerAdded(ctx);
@@ -139,16 +135,14 @@ public abstract class MQTTPersistentSessionHandler extends MQTTSessionHandler im
             }
         }
         setupInboxReader();
-        memUsage.addAndGet(estBaseMemSize());
     }
 
     @Override
-    public final void channelInactive(ChannelHandlerContext ctx) {
+    public void channelInactive(ChannelHandlerContext ctx) {
         super.channelInactive(ctx);
         if (inboxReader != null) {
             inboxReader.close();
         }
-        memUsage.addAndGet(-estBaseMemSize());
         int remainInboxSize =
             stagingBuffer.values().stream().reduce(0, (acc, msg) -> acc + msg.estBytes(), Integer::sum);
         if (remainInboxSize > 0) {

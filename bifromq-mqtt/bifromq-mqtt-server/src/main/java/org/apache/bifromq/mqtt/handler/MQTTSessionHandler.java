@@ -224,16 +224,6 @@ public abstract class MQTTSessionHandler extends MQTTMessageHandler implements I
         resourceThrottler = sessionCtx.resourceThrottler;
     }
 
-    private int estMemSize() {
-        int s = 144; // base size from JOL
-        s += userSessionId.length();
-        s += clientInfo.getSerializedSize();
-        if (noDelayLWT != null) {
-            s += noDelayLWT.getSerializedSize();
-        }
-        return s;
-    }
-
     protected abstract IMQTTProtocolHelper helper();
 
     @Override
@@ -382,7 +372,6 @@ public abstract class MQTTSessionHandler extends MQTTMessageHandler implements I
         }
         scheduleRedirectCheck();
         onInitialized.whenComplete((v, e) -> tenantMeter.recordCount(MqttConnectCount));
-        memUsage.addAndGet(estMemSize());
     }
 
     @Override
@@ -403,7 +392,6 @@ public abstract class MQTTSessionHandler extends MQTTMessageHandler implements I
         sessionCtx.localSessionRegistry.remove(channelId(), this);
         sessionRegistration.stop();
         tenantMeter.recordCount(MqttDisconnectCount);
-        memUsage.addAndGet(-estMemSize());
         if (!isGoAway) {
             isGoAway = true;
             eventCollector.report(getLocal(ByClient.class).withoutDisconnect(true).clientInfo(clientInfo));

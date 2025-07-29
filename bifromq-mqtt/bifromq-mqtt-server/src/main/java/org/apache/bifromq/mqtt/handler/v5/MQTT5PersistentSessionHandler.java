@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 
 package org.apache.bifromq.mqtt.handler.v5;
@@ -77,5 +77,27 @@ public final class MQTT5PersistentSessionHandler extends MQTTPersistentSessionHa
         if (message.fixedHeader().messageType() == MqttMessageType.AUTH) {
             reAuthenticator.onAuth(message);
         }
+    }
+
+    @Override
+    public void handlerAdded(ChannelHandlerContext ctx) {
+        super.handlerAdded(ctx);
+        memUsage.addAndGet(estBaseMemSize());
+    }
+
+    @Override
+    public void channelInactive(ChannelHandlerContext ctx) {
+        super.channelInactive(ctx);
+        memUsage.addAndGet(-estBaseMemSize());
+    }
+
+    private int estBaseMemSize() {
+        int s = 408; // base size from JOL
+        s += userSessionId.length();
+        s += clientInfo.getSerializedSize();
+        if (willMessage() != null) {
+            s += willMessage().getSerializedSize();
+        }
+        return s;
     }
 }

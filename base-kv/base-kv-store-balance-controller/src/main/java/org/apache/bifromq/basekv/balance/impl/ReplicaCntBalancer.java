@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 
 package org.apache.bifromq.basekv.balance.impl;
@@ -22,12 +22,6 @@ package org.apache.bifromq.basekv.balance.impl;
 import static com.google.common.collect.Sets.difference;
 import static com.google.common.collect.Sets.union;
 
-import org.apache.bifromq.basekv.proto.Boundary;
-import org.apache.bifromq.basekv.proto.KVRangeDescriptor;
-import org.apache.bifromq.basekv.proto.KVRangeStoreDescriptor;
-import org.apache.bifromq.basekv.raft.proto.ClusterConfig;
-import org.apache.bifromq.basekv.utils.EffectiveRoute;
-import org.apache.bifromq.basekv.utils.LeaderRange;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Sets;
 import com.google.protobuf.Struct;
@@ -40,6 +34,12 @@ import java.util.Map;
 import java.util.Set;
 import java.util.SortedSet;
 import java.util.TreeSet;
+import org.apache.bifromq.basekv.proto.Boundary;
+import org.apache.bifromq.basekv.proto.KVRangeDescriptor;
+import org.apache.bifromq.basekv.proto.KVRangeStoreDescriptor;
+import org.apache.bifromq.basekv.raft.proto.ClusterConfig;
+import org.apache.bifromq.basekv.utils.EffectiveRoute;
+import org.apache.bifromq.basekv.utils.LeaderRange;
 
 /**
  * ReplicaCntBalancer is used to achieve following goals:
@@ -76,7 +76,7 @@ public class ReplicaCntBalancer extends RuleBasedPlacementBalancer {
     }
 
     @Override
-    protected Struct defaultLoadRules() {
+    public Struct initialLoadRules() {
         return defaultLoadRules;
     }
 

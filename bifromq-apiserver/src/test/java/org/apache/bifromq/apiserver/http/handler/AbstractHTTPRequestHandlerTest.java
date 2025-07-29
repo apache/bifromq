@@ -24,19 +24,21 @@ import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.when;
 import static org.testng.Assert.assertNotNull;
 
-import org.apache.bifromq.apiserver.MockableTest;
-import org.apache.bifromq.basekv.metaservice.IBaseKVClusterMetadataManager;
-import org.apache.bifromq.basekv.metaservice.IBaseKVMetaService;
-import org.apache.bifromq.baserpc.trafficgovernor.IRPCServiceTrafficGovernor;
-import org.apache.bifromq.baserpc.trafficgovernor.IRPCServiceTrafficService;
-import org.apache.bifromq.plugin.settingprovider.ISettingProvider;
-import org.apache.bifromq.plugin.settingprovider.Setting;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
 import io.netty.handler.codec.http.DefaultFullHttpRequest;
 import io.netty.handler.codec.http.HttpMethod;
 import io.netty.handler.codec.http.HttpVersion;
 import jakarta.ws.rs.Path;
+import org.apache.bifromq.apiserver.MockableTest;
+import org.apache.bifromq.basekv.metaservice.IBaseKVLandscapeObserver;
+import org.apache.bifromq.basekv.metaservice.IBaseKVMetaService;
+import org.apache.bifromq.basekv.metaservice.IBaseKVStoreBalancerStatesProposal;
+import org.apache.bifromq.basekv.metaservice.IBaseKVStoreBalancerStatesProposer;
+import org.apache.bifromq.baserpc.trafficgovernor.IRPCServiceTrafficGovernor;
+import org.apache.bifromq.baserpc.trafficgovernor.IRPCServiceTrafficService;
+import org.apache.bifromq.plugin.settingprovider.ISettingProvider;
+import org.apache.bifromq.plugin.settingprovider.Setting;
 import org.mockito.Mock;
 import org.testng.annotations.BeforeMethod;
 import org.testng.annotations.Test;
@@ -51,7 +53,11 @@ public abstract class AbstractHTTPRequestHandlerTest<T> extends MockableTest {
     @Mock
     protected IBaseKVMetaService metaService;
     @Mock
-    protected IBaseKVClusterMetadataManager metadataManager;
+    protected IBaseKVLandscapeObserver landscapeObserver;
+    @Mock
+    protected IBaseKVStoreBalancerStatesProposer statesProposer;
+    @Mock
+    protected IBaseKVStoreBalancerStatesProposal statesProposal;
 
     protected abstract Class<T> handlerClass();
 
@@ -60,7 +66,9 @@ public abstract class AbstractHTTPRequestHandlerTest<T> extends MockableTest {
     public void setup() {
         super.setup();
         when(trafficService.getTrafficGovernor(anyString())).thenReturn(trafficGovernor);
-        when(metaService.metadataManager(anyString())).thenReturn(metadataManager);
+        when(metaService.landscapeObserver(anyString())).thenReturn(landscapeObserver);
+        when(metaService.balancerStatesProposer(anyString())).thenReturn(statesProposer);
+        when(metaService.balancerStatesProposal(anyString())).thenReturn(statesProposal);
         when(settingProvider.provide(any(), anyString())).thenAnswer(
             invocation -> ((Setting) invocation.getArgument(0)).current(invocation.getArgument(1)));
     }

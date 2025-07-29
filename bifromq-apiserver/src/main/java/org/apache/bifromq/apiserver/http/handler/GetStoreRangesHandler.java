@@ -14,21 +14,19 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 
 package org.apache.bifromq.apiserver.http.handler;
 
 import static io.netty.handler.codec.http.HttpResponseStatus.NOT_FOUND;
 import static io.netty.handler.codec.http.HttpResponseStatus.OK;
+import static org.apache.bifromq.apiserver.http.handler.utils.JSONUtils.MAPPER;
 
-import org.apache.bifromq.apiserver.Headers;
-import org.apache.bifromq.basekv.metaservice.IBaseKVClusterMetadataManager;
-import org.apache.bifromq.basekv.metaservice.IBaseKVMetaService;
-import org.apache.bifromq.basekv.proto.KVRangeDescriptor;
-import org.apache.bifromq.basekv.proto.KVRangeStoreDescriptor;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.node.ArrayNode;
+import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.google.protobuf.ByteString;
 import io.netty.buffer.Unpooled;
 import io.netty.handler.codec.http.DefaultFullHttpResponse;
 import io.netty.handler.codec.http.FullHttpRequest;
@@ -47,24 +45,30 @@ import jakarta.ws.rs.Path;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
-import lombok.extern.slf4j.Slf4j;
+import org.apache.bifromq.apiserver.Headers;
+import org.apache.bifromq.apiserver.http.handler.utils.HeaderUtils;
+import org.apache.bifromq.basekv.metaservice.IBaseKVLandscapeObserver;
+import org.apache.bifromq.basekv.metaservice.IBaseKVMetaService;
+import org.apache.bifromq.basekv.proto.Boundary;
+import org.apache.bifromq.basekv.proto.KVRangeDescriptor;
+import org.apache.bifromq.basekv.proto.KVRangeStoreDescriptor;
+import org.apache.bifromq.basekv.raft.proto.ClusterConfig;
 
-@Slf4j
-@Path("/landscape/store/ranges")
-class GetStoreRangesHandler extends AbstractLoadRulesHandler {
+@Path("/store/ranges")
+class GetStoreRangesHandler extends AbstractLandscapeHandler {
     GetStoreRangesHandler(IBaseKVMetaService metaService) {
         super(metaService);
     }
 
     @GET
-    @Operation(summary = "Get the store ranges information")
+    @Operation(summary = "Get the ranges information in a store node")
     @Parameters({
         @Parameter(name = "req_id", in = ParameterIn.HEADER,
             description = "optional caller provided request id", schema = @Schema(implementation = Long.class)),
         @Parameter(name = "store_name", in = ParameterIn.HEADER, required = true,
             description = "the store name", schema = @Schema(implementation = String.class)),
-        @Parameter(name = "server_id", in = ParameterIn.HEADER, required = true,
-            description = "the store server id", schema = @Schema(implementation = String.class))
+        @Parameter(name = "store_id", in = ParameterIn.HEADER, required = true,
+            description = "the store id", schema = @Schema(implementation = String.class))
     })
     @RequestBody(required = false)
     @ApiResponses(value = {
@@ -79,18 +83,17 @@ class GetStoreRangesHandler extends AbstractLoadRulesHandler {
     @Override
     public CompletableFuture<FullHttpResponse> handle(@Parameter(hidden = true) long reqId,
                                                       @Parameter(hidden = true) FullHttpRequest req) {
-        log.trace("Handling http get store ranges request: {}", req);
         String storeName = HeaderUtils.getHeader(Headers.HEADER_STORE_NAME, req, true);
-        IBaseKVClusterMetadataManager metadataManager = metadataManagers.get(storeName);
-        if (metadataManager == null) {
+        IBaseKVLandscapeObserver landscapeObserver = landscapeObservers.get(storeName);
+        if (landscapeObserver == null) {
             return CompletableFuture.completedFuture(new DefaultFullHttpResponse(req.protocolVersion(), NOT_FOUND,
                 Unpooled.copiedBuffer(("Store not found: " + storeName).getBytes())));
         }
-        String serverId = HeaderUtils.getHeader(Headers.HEADER_SERVER_ID, req, true);
-        Optional<KVRangeStoreDescriptor> storeDescriptor = metadataManager.getStoreDescriptor(serverId);
+        String storeId = HeaderUtils.getHeader(Headers.HEADER_STORE_ID, req, true);
+        Optional<KVRangeStoreDescriptor> storeDescriptor = landscapeObserver.getStoreDescriptor(storeId);
         if (storeDescriptor.isEmpty()) {
             return CompletableFuture.completedFuture(new DefaultFullHttpResponse(req.protocolVersion(), NOT_FOUND,
-                Unpooled.copiedBuffer(("Server not found: " + serverId).getBytes())));
+                Unpooled.copiedBuffer(("Store server not found: " + storeId).getBytes())));
         }
 
         DefaultFullHttpResponse resp = new DefaultFullHttpResponse(req.protocolVersion(), OK,
@@ -100,11 +103,63 @@ class GetStoreRangesHandler extends AbstractLoadRulesHandler {
     }
 
     private String toJSON(List<KVRangeDescriptor> rangeDescriptors) {
-        ObjectMapper mapper = new ObjectMapper();
-        ArrayNode rootObject = mapper.createArrayNode();
+        ArrayNode rootObject = MAPPER.createArrayNode();
         for (KVRangeDescriptor rangeDescriptor : rangeDescriptors) {
-            rootObject.add(JSONUtils.toJSON(rangeDescriptor, mapper));
+            rootObject.add(toJSON(rangeDescriptor));
         }
         return rootObject.toString();
+    }
+
+    private JsonNode toJSON(KVRangeDescriptor descriptor) {
+        ObjectNode rangeObject = MAPPER.createObjectNode();
+        rangeObject.put("id", descriptor.getId().getEpoch() + "_" + descriptor.getId().getId());
+        rangeObject.put("ver", descriptor.getVer());
+        rangeObject.set("boundary", toJSON(descriptor.getBoundary()));
+        rangeObject.put("state", descriptor.getState().name());
+        rangeObject.put("role", descriptor.getRole().name());
+        rangeObject.set("clusterConfig", toJSON(descriptor.getConfig()));
+        return rangeObject;
+    }
+
+    private JsonNode toJSON(Boundary boundary) {
+        ObjectNode boundaryObject = MAPPER.createObjectNode();
+        boundaryObject.put("startKey", boundary.hasStartKey() ? toHex(boundary.getStartKey()) : null);
+        boundaryObject.put("endKey", boundary.hasEndKey() ? toHex(boundary.getEndKey()) : null);
+        return boundaryObject;
+    }
+
+    private JsonNode toJSON(ClusterConfig config) {
+        ObjectNode clusterConfigObject = MAPPER.createObjectNode();
+
+        ArrayNode votersArray = MAPPER.createArrayNode();
+        config.getVotersList().forEach(votersArray::add);
+        clusterConfigObject.set("voters", votersArray);
+
+        ArrayNode learnersArray = MAPPER.createArrayNode();
+        config.getLearnersList().forEach(learnersArray::add);
+        clusterConfigObject.set("learners", learnersArray);
+
+        ArrayNode nextVotersArray = MAPPER.createArrayNode();
+        config.getNextVotersList().forEach(nextVotersArray::add);
+        clusterConfigObject.set("nextVoters", nextVotersArray);
+
+        ArrayNode nextLearnersArray = MAPPER.createArrayNode();
+        config.getNextLearnersList().forEach(nextLearnersArray::add);
+        clusterConfigObject.set("nextLearners", nextLearnersArray);
+
+        return clusterConfigObject;
+    }
+
+    private String toHex(ByteString bs) {
+        StringBuilder sb = new StringBuilder(bs.size() * 5);
+        for (int i = 0; i < bs.size(); i++) {
+            byte b = bs.byteAt(i);
+            if (b >= 32 && b <= 126) {
+                sb.append((char) b);
+            } else {
+                sb.append(String.format("0x%02X", b));
+            }
+        }
+        return sb.toString();
     }
 }

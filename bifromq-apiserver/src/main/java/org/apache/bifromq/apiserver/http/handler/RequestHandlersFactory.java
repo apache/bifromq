@@ -14,14 +14,11 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 
 package org.apache.bifromq.apiserver.http.handler;
 
-import org.apache.bifromq.baserpc.trafficgovernor.IRPCServiceTrafficService;
-import org.apache.bifromq.plugin.settingprovider.ISettingProvider;
-import org.apache.bifromq.retain.client.IRetainClient;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.Map;
@@ -29,8 +26,11 @@ import org.apache.bifromq.apiserver.http.IHTTPRequestHandler;
 import org.apache.bifromq.apiserver.http.IHTTPRequestHandlersFactory;
 import org.apache.bifromq.basecluster.IAgentHost;
 import org.apache.bifromq.basekv.metaservice.IBaseKVMetaService;
+import org.apache.bifromq.baserpc.trafficgovernor.IRPCServiceTrafficService;
 import org.apache.bifromq.dist.client.IDistClient;
 import org.apache.bifromq.inbox.client.IInboxClient;
+import org.apache.bifromq.plugin.settingprovider.ISettingProvider;
+import org.apache.bifromq.retain.client.IRetainClient;
 import org.apache.bifromq.sessiondict.client.ISessionDictClient;
 
 public final class RequestHandlersFactory implements IHTTPRequestHandlersFactory {
@@ -47,6 +47,9 @@ public final class RequestHandlersFactory implements IHTTPRequestHandlersFactory
         register(new ListAllStoreHandler(metaService));
         register(new GetStoreLandscapeHandler(metaService, trafficService));
         register(new GetStoreRangesHandler(metaService));
+        register(new EnableBalancerHandler(metaService));
+        register(new DisableBalancerHandler(metaService));
+        register(new GetBalancerStateHandler(metaService));
         register(new GetLoadRulesHandler(metaService));
         register(new SetLoadRulesHandler(metaService));
 

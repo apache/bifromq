@@ -14,22 +14,18 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 
 package org.apache.bifromq.apiserver.http.handler;
 
-import static org.apache.bifromq.apiserver.http.handler.JSONUtils.toJSON;
 import static io.netty.handler.codec.http.HttpResponseStatus.NOT_FOUND;
 import static io.netty.handler.codec.http.HttpResponseStatus.OK;
+import static org.apache.bifromq.apiserver.http.handler.utils.JSONUtils.MAPPER;
 
-import org.apache.bifromq.apiserver.Headers;
-import org.apache.bifromq.basekv.metaservice.IBaseKVClusterMetadataManager;
-import org.apache.bifromq.basekv.metaservice.IBaseKVMetaService;
-import org.apache.bifromq.basekv.proto.KVRangeStoreDescriptor;
-import org.apache.bifromq.baserpc.trafficgovernor.IRPCServiceTrafficGovernor;
-import org.apache.bifromq.baserpc.trafficgovernor.IRPCServiceTrafficService;
-import org.apache.bifromq.baserpc.trafficgovernor.ServerEndpoint;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.node.ArrayNode;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import io.netty.buffer.Unpooled;
 import io.netty.handler.codec.http.DefaultFullHttpResponse;
 import io.netty.handler.codec.http.FullHttpRequest;
@@ -47,15 +43,22 @@ import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import jakarta.ws.rs.GET;
 import jakarta.ws.rs.Path;
+import java.util.Base64;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
-import lombok.extern.slf4j.Slf4j;
+import org.apache.bifromq.apiserver.Headers;
+import org.apache.bifromq.apiserver.http.handler.utils.HeaderUtils;
+import org.apache.bifromq.basekv.metaservice.IBaseKVLandscapeObserver;
+import org.apache.bifromq.basekv.metaservice.IBaseKVMetaService;
+import org.apache.bifromq.basekv.proto.KVRangeStoreDescriptor;
+import org.apache.bifromq.baserpc.trafficgovernor.IRPCServiceTrafficGovernor;
+import org.apache.bifromq.baserpc.trafficgovernor.IRPCServiceTrafficService;
+import org.apache.bifromq.baserpc.trafficgovernor.ServerEndpoint;
 
-@Slf4j
-@Path("/landscape/store")
-class GetStoreLandscapeHandler extends AbstractLoadRulesHandler {
+@Path("/store/landscape")
+class GetStoreLandscapeHandler extends AbstractLandscapeHandler {
     private static final String STORE_SERVICE_NAME_SUFFIX = "@basekv.BaseKVStoreService";
     protected final Map<String, IRPCServiceTrafficGovernor> governorMap = new ConcurrentHashMap<>();
     private final IRPCServiceTrafficService trafficService;
@@ -64,6 +67,26 @@ class GetStoreLandscapeHandler extends AbstractLoadRulesHandler {
     GetStoreLandscapeHandler(IBaseKVMetaService metaService, IRPCServiceTrafficService trafficService) {
         super(metaService);
         this.trafficService = trafficService;
+    }
+
+    public static JsonNode toJSON(Map<ServerEndpoint, KVRangeStoreDescriptor> landscape) {
+        ArrayNode rootObject = MAPPER.createArrayNode();
+        for (ServerEndpoint server : landscape.keySet()) {
+            KVRangeStoreDescriptor storeDescriptor = landscape.get(server);
+            ObjectNode storeNodeObject = MAPPER.createObjectNode();
+            storeNodeObject.put("hostId", Base64.getEncoder().encodeToString(server.hostId().toByteArray()));
+            storeNodeObject.put("id", storeDescriptor.getId());
+            storeNodeObject.put("address", server.address());
+            storeNodeObject.put("port", server.port());
+
+            ObjectNode attrsObject = MAPPER.createObjectNode();
+            for (String attrName : storeDescriptor.getAttributesMap().keySet()) {
+                attrsObject.put(attrName, storeDescriptor.getAttributesMap().get(attrName));
+            }
+            storeNodeObject.set("attributes", attrsObject);
+            rootObject.add(storeNodeObject);
+        }
+        return rootObject;
     }
 
     @Override
@@ -101,22 +124,21 @@ class GetStoreLandscapeHandler extends AbstractLoadRulesHandler {
             description = "Success",
             content = @Content(mediaType = "application/json")),
         @ApiResponse(responseCode = "404",
-            description = "Service not found",
+            description = "Store not found",
             content = @Content(schema = @Schema(implementation = String.class))),
     })
     @Override
     public CompletableFuture<FullHttpResponse> handle(@Parameter(hidden = true) long reqId,
                                                       @Parameter(hidden = true) FullHttpRequest req) {
-        log.trace("Handling http get service landscape request: {}", req);
         String storeName = HeaderUtils.getHeader(Headers.HEADER_STORE_NAME, req, true);
-        IBaseKVClusterMetadataManager metadataManager = metadataManagers.get(storeName);
+        IBaseKVLandscapeObserver landscapeObserver = landscapeObservers.get(storeName);
         IRPCServiceTrafficGovernor trafficGovernor = governorMap.get(storeName + STORE_SERVICE_NAME_SUFFIX);
-        if (metadataManager == null || trafficGovernor == null) {
+        if (landscapeObserver == null || trafficGovernor == null) {
             return CompletableFuture.completedFuture(new DefaultFullHttpResponse(req.protocolVersion(), NOT_FOUND,
                 Unpooled.copiedBuffer(("Service not found: " + storeName).getBytes())));
         }
 
-        return Observable.combineLatest(metadataManager.landscape(), trafficGovernor.serverEndpoints(),
+        return Observable.combineLatest(landscapeObserver.landscape(), trafficGovernor.serverEndpoints(),
                 (stores, serverEndpoints) -> {
                     Map<ServerEndpoint, KVRangeStoreDescriptor> storeToServer = new HashMap<>();
                     for (ServerEndpoint serverEndpoint : serverEndpoints) {

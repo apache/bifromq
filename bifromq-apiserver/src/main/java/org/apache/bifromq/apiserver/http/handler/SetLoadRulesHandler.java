@@ -19,19 +19,14 @@
 
 package org.apache.bifromq.apiserver.http.handler;
 
-import static org.apache.bifromq.base.util.CompletableFutureUtil.unwrap;
 import static io.netty.buffer.Unpooled.EMPTY_BUFFER;
-import static io.netty.handler.codec.http.HttpResponseStatus.BAD_REQUEST;
 import static io.netty.handler.codec.http.HttpResponseStatus.CONFLICT;
 import static io.netty.handler.codec.http.HttpResponseStatus.INTERNAL_SERVER_ERROR;
 import static io.netty.handler.codec.http.HttpResponseStatus.NOT_FOUND;
 import static io.netty.handler.codec.http.HttpResponseStatus.OK;
 import static io.netty.handler.codec.http.HttpResponseStatus.REQUEST_TIMEOUT;
+import static org.apache.bifromq.base.util.CompletableFutureUtil.unwrap;
 
-import org.apache.bifromq.apiserver.Headers;
-import org.apache.bifromq.apiserver.http.IHTTPRequestHandler;
-import org.apache.bifromq.basekv.metaservice.IBaseKVClusterMetadataManager;
-import org.apache.bifromq.basekv.metaservice.IBaseKVMetaService;
 import com.google.protobuf.Struct;
 import com.google.protobuf.util.JsonFormat;
 import io.netty.buffer.Unpooled;
@@ -52,17 +47,20 @@ import jakarta.ws.rs.Path;
 import java.io.IOException;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeoutException;
-import lombok.extern.slf4j.Slf4j;
+import org.apache.bifromq.apiserver.Headers;
+import org.apache.bifromq.apiserver.http.IHTTPRequestHandler;
+import org.apache.bifromq.apiserver.http.handler.utils.HeaderUtils;
+import org.apache.bifromq.basekv.metaservice.IBaseKVMetaService;
+import org.apache.bifromq.basekv.metaservice.IBaseKVStoreBalancerStatesProposer;
 
-@Slf4j
-@Path("/rules/load")
-final class SetLoadRulesHandler extends AbstractLoadRulesHandler implements IHTTPRequestHandler {
+@Path("/store/balancer/rules")
+final class SetLoadRulesHandler extends AbstractBalancerStateProposerHandler implements IHTTPRequestHandler {
     SetLoadRulesHandler(IBaseKVMetaService metaService) {
         super(metaService);
     }
 
     @PUT
-    @Operation(summary = "Set the load rules")
+    @Operation(summary = "Set the expected load rules of a store balancer")
     @Parameters({
         @Parameter(name = "req_id", in = ParameterIn.HEADER,
             description = "optional caller provided request id", schema = @Schema(implementation = Long.class)),
@@ -79,17 +77,16 @@ final class SetLoadRulesHandler extends AbstractLoadRulesHandler implements IHTT
     @Override
     public CompletableFuture<FullHttpResponse> handle(@Parameter(hidden = true) long reqId,
                                                       @Parameter(hidden = true) FullHttpRequest req) {
-        log.trace("Handling http set load rules request: {}", req);
         String storeName = HeaderUtils.getHeader(Headers.HEADER_STORE_NAME, req, true);
         String balancerFactoryClass = HeaderUtils.getHeader(Headers.HEADER_BALANCER_FACTORY_CLASS, req, true);
-        IBaseKVClusterMetadataManager metadataManager = metadataManagers.get(storeName);
-        if (metadataManager == null) {
+        IBaseKVStoreBalancerStatesProposer statesProposer = balancerStateProposers.get(storeName);
+        if (statesProposer == null) {
             return CompletableFuture.completedFuture(new DefaultFullHttpResponse(req.protocolVersion(), NOT_FOUND,
                 Unpooled.copiedBuffer(("Store not found: " + storeName).getBytes())));
         }
         try {
             Struct loadRules = fromJson(req.content().toString(io.netty.util.CharsetUtil.UTF_8));
-            return metadataManager.proposeLoadRules(balancerFactoryClass, loadRules)
+            return statesProposer.proposeLoadRules(balancerFactoryClass, loadRules)
                 .handle(unwrap((v, e) -> {
                     if (e != null) {
                         if (e instanceof TimeoutException) {
@@ -103,13 +100,6 @@ final class SetLoadRulesHandler extends AbstractLoadRulesHandler implements IHTT
                     switch (v) {
                         case ACCEPTED -> {
                             return new DefaultFullHttpResponse(req.protocolVersion(), OK, EMPTY_BUFFER);
-                        }
-                        case REJECTED -> {
-                            return new DefaultFullHttpResponse(req.protocolVersion(), BAD_REQUEST, EMPTY_BUFFER);
-                        }
-                        case NO_BALANCER -> {
-                            return new DefaultFullHttpResponse(req.protocolVersion(), NOT_FOUND,
-                                Unpooled.copiedBuffer(v.name().getBytes()));
                         }
                         default -> {
                             return new DefaultFullHttpResponse(req.protocolVersion(), CONFLICT, EMPTY_BUFFER);

@@ -23,7 +23,7 @@ import static org.apache.bifromq.apiserver.Headers.HEADER_CLIENT_ID;
 import static org.apache.bifromq.apiserver.Headers.HEADER_SUB_QOS;
 import static org.apache.bifromq.apiserver.Headers.HEADER_TOPIC_FILTER;
 import static org.apache.bifromq.apiserver.Headers.HEADER_USER_ID;
-import static org.apache.bifromq.apiserver.http.handler.HeaderUtils.getRequiredSubQoS;
+import static org.apache.bifromq.apiserver.http.handler.utils.HeaderUtils.getRequiredSubQoS;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.Mockito.verify;

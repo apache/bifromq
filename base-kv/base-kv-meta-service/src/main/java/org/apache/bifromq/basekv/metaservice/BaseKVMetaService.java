@@ -14,55 +14,87 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 
 package org.apache.bifromq.basekv.metaservice;
 
-import org.apache.bifromq.basecrdt.service.ICRDTService;
 import io.reactivex.rxjava3.core.Observable;
 import io.reactivex.rxjava3.schedulers.Schedulers;
-import lombok.extern.slf4j.Slf4j;
-
-import java.time.Duration;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
+import lombok.extern.slf4j.Slf4j;
+import org.apache.bifromq.basecrdt.service.ICRDTService;
 
 @Slf4j
 class BaseKVMetaService implements IBaseKVMetaService {
     private final ICRDTService crdtService;
-    private final Map<String, BaseKVClusterMetadataManager> metadataManagers = new ConcurrentHashMap<>();
-    private final Duration proposalTimeout;
+    private final Map<String, IBaseKVLandscapeCRDT> landscapeCRDTs = new ConcurrentHashMap<>();
+    private final Map<String, IBaseKVStoreBalancerStatesCRDT> balancerStatesCRDTs = new ConcurrentHashMap<>();
+    private final Map<String, IBaseKVStoreBalancerStatesProposalCRDT> balancerStatesProposalCRDTs = new ConcurrentHashMap<>();
 
     BaseKVMetaService(ICRDTService crdtService) {
-        this(crdtService, Duration.ofSeconds(5));
-    }
-
-    BaseKVMetaService(ICRDTService crdtService, Duration proposalTimeout) {
         this.crdtService = crdtService;
-        this.proposalTimeout = proposalTimeout;
     }
 
     @Override
     public Observable<Set<String>> clusterIds() {
         return crdtService.aliveCRDTs().map(crdtUris -> crdtUris.stream()
-                .filter(NameUtil::isLandscapeURI)
-                .map(NameUtil::parseClusterId)
+                .filter(CRDTUtil::isLandscapeURI)
+                .map(CRDTUtil::parseClusterId)
                 .collect(Collectors.toSet()))
             .distinctUntilChanged()
             .observeOn(Schedulers.single());
     }
 
     @Override
-    public IBaseKVClusterMetadataManager metadataManager(String clusterId) {
-        return metadataManagers.computeIfAbsent(clusterId,
-            k -> new BaseKVClusterMetadataManager(clusterId, crdtService, proposalTimeout));
+    public IBaseKVStoreBalancerStatesProposer balancerStatesProposer(String clusterId) {
+        IBaseKVStoreBalancerStatesProposalCRDT statesCRDT = balancerStatesProposalCRDTs.computeIfAbsent(clusterId,
+            k -> new BaseKVStoreBalancerStatesProposalCRDT(clusterId, crdtService));
+        return new BaseKVStoreBalancerStatesProposer(statesCRDT);
+    }
+
+    @Override
+    public IBaseKVStoreBalancerStatesProposal balancerStatesProposal(String clusterId) {
+        IBaseKVStoreBalancerStatesProposalCRDT statesCRDT = balancerStatesProposalCRDTs.computeIfAbsent(clusterId,
+            k -> new BaseKVStoreBalancerStatesProposalCRDT(clusterId, crdtService));
+        return new BaseKVStoreBalancerStatesProposal(statesCRDT);
+    }
+
+    @Override
+    public IBaseKVLandscapeObserver landscapeObserver(String clusterId) {
+        IBaseKVLandscapeCRDT landscapeCRDT = landscapeCRDTs.computeIfAbsent(clusterId,
+            k -> new BaseKVLandscapeCRDT(clusterId, crdtService));
+        return new BaseKVLandscapeObserver(landscapeCRDT);
+    }
+
+    @Override
+    public IBaseKVLandscapeReporter landscapeReporter(String clusterId, String storeId) {
+        IBaseKVLandscapeCRDT landscapeCRDT = landscapeCRDTs.computeIfAbsent(clusterId,
+            k -> new BaseKVLandscapeCRDT(clusterId, crdtService));
+        return new BaseKVLandscapeReporter(storeId, landscapeCRDT);
+    }
+
+    @Override
+    public IBaseKVStoreBalancerStatesObserver balancerStatesObserver(String clusterId) {
+        IBaseKVStoreBalancerStatesCRDT balancerStatesCRDT = balancerStatesCRDTs.computeIfAbsent(clusterId,
+            k -> new BaseKVStoreBalancerStatesCRDT(clusterId, crdtService));
+        return new BaseKVStoreBalancerStatesObserver(balancerStatesCRDT);
+    }
+
+    @Override
+    public IBaseKVStoreBalancerStatesReporter balancerStatesReporter(String clusterId, String storeId) {
+        IBaseKVStoreBalancerStatesCRDT balancerStatesCRDT = balancerStatesCRDTs.computeIfAbsent(clusterId,
+            k -> new BaseKVStoreBalancerStatesCRDT(clusterId, crdtService));
+        return new BaseKVStoreBalancerStatesReporter(storeId, balancerStatesCRDT);
     }
 
     @Override
     public void close() {
-        metadataManagers.values().forEach(BaseKVClusterMetadataManager::stop);
+        landscapeCRDTs.values().forEach(IBaseKVLandscapeCRDT::stop);
+        balancerStatesCRDTs.values().forEach(IBaseKVStoreBalancerStatesCRDT::stop);
+        balancerStatesProposalCRDTs.values().forEach(IBaseKVStoreBalancerStatesProposalCRDT::stop);
     }
 }

@@ -23,6 +23,8 @@ import static org.apache.bifromq.basekv.utils.BoundaryUtil.FULL_BOUNDARY;
 import static org.testng.Assert.assertEquals;
 import static org.testng.Assert.assertTrue;
 
+import com.google.protobuf.ByteString;
+import java.util.Set;
 import org.apache.bifromq.basekv.balance.BalanceNow;
 import org.apache.bifromq.basekv.balance.BalanceResultType;
 import org.apache.bifromq.basekv.balance.command.SplitCommand;
@@ -33,8 +35,6 @@ import org.apache.bifromq.basekv.proto.State;
 import org.apache.bifromq.basekv.raft.proto.ClusterConfig;
 import org.apache.bifromq.basekv.raft.proto.RaftNodeStatus;
 import org.apache.bifromq.basekv.utils.KVRangeIdUtil;
-import com.google.protobuf.ByteString;
-import java.util.Set;
 import org.testng.annotations.BeforeMethod;
 import org.testng.annotations.Test;
 
@@ -63,7 +63,7 @@ public class RangeSplitBalancerTest {
     @Test
     public void defaultLoadRules() {
         RangeSplitBalancer balancer = new RangeSplitBalancer(clusterId, "store1", HintType, 30, 0.8, 30, 30_000);
-        assertTrue(balancer.validate(balancer.defaultLoadRules()));
+        assertTrue(balancer.validate(balancer.initialLoadRules()));
     }
 
     @Test

@@ -14,22 +14,22 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 
 package org.apache.bifromq.basekv.metaservice;
 
 import static org.awaitility.Awaitility.await;
 
+import java.net.InetSocketAddress;
+import java.util.Map;
+import java.util.Set;
 import org.apache.bifromq.basecluster.AgentHostOptions;
 import org.apache.bifromq.basecluster.IAgentHost;
 import org.apache.bifromq.basecrdt.service.CRDTServiceOptions;
 import org.apache.bifromq.basecrdt.service.ICRDTService;
 import org.apache.bifromq.basehlc.HLC;
 import org.apache.bifromq.basekv.proto.KVRangeStoreDescriptor;
-import java.net.InetSocketAddress;
-import java.util.Map;
-import java.util.Set;
 import org.testng.annotations.AfterMethod;
 import org.testng.annotations.BeforeMethod;
 import org.testng.annotations.Test;
@@ -75,19 +75,21 @@ public class LandscapeCleanupTest {
             .build();
         Map<String, KVRangeStoreDescriptor> landscape =
             Map.of(descriptor1.getId(), descriptor1, descriptor2.getId(), descriptor2);
-        IBaseKVClusterMetadataManager manager1 = metaService1.metadataManager("test");
-        IBaseKVClusterMetadataManager manager2 = metaService2.metadataManager("test");
-        manager1.report(descriptor1).join();
-        manager2.report(descriptor2).join();
+        IBaseKVLandscapeObserver observer1  = metaService1.landscapeObserver("test");
+        IBaseKVLandscapeReporter reporter1 = metaService1.landscapeReporter("test", "testStoreId1");
+        IBaseKVLandscapeObserver observer2  = metaService2.landscapeObserver("test");
+        IBaseKVLandscapeReporter reporter2 = metaService2.landscapeReporter("test", "testStoreId2");
+        reporter1.report(descriptor1).join();
+        reporter2.report(descriptor2).join();
 
-        await().until(() -> landscape.equals(manager1.landscape().blockingFirst())
-            && landscape.equals(manager2.landscape().blockingFirst()));
+        await().until(() -> landscape.equals(observer1.landscape().blockingFirst())
+            && landscape.equals(observer2.landscape().blockingFirst()));
 
         metaService2.close();
         crdtService2.close();
         agentHost2.close();
 
         Map<String, KVRangeStoreDescriptor> landscape1 = Map.of(descriptor1.getId(), descriptor1);
-        await().until(() -> landscape1.equals(manager1.landscape().blockingFirst()));
+        await().until(() -> landscape1.equals(observer1.landscape().blockingFirst()));
     }
 }

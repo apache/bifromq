@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 
 package org.apache.bifromq.apiserver.http.handler;
@@ -23,16 +23,13 @@ import static io.netty.handler.codec.http.HttpResponseStatus.INTERNAL_SERVER_ERR
 import static io.netty.handler.codec.http.HttpResponseStatus.NOT_FOUND;
 import static io.netty.handler.codec.http.HttpResponseStatus.OK;
 
-import org.apache.bifromq.apiserver.Headers;
-import org.apache.bifromq.apiserver.http.IHTTPRequestHandler;
-import org.apache.bifromq.basekv.metaservice.IBaseKVClusterMetadataManager;
-import org.apache.bifromq.basekv.metaservice.IBaseKVMetaService;
 import com.google.protobuf.Struct;
 import com.google.protobuf.util.JsonFormat;
 import io.netty.buffer.Unpooled;
 import io.netty.handler.codec.http.DefaultFullHttpResponse;
 import io.netty.handler.codec.http.FullHttpRequest;
 import io.netty.handler.codec.http.FullHttpResponse;
+import io.reactivex.rxjava3.disposables.CompositeDisposable;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.Parameters;
@@ -44,21 +41,46 @@ import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import jakarta.ws.rs.GET;
 import jakarta.ws.rs.Path;
+import java.util.Map;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import lombok.SneakyThrows;
-import lombok.extern.slf4j.Slf4j;
+import org.apache.bifromq.apiserver.Headers;
+import org.apache.bifromq.apiserver.http.IHTTPRequestHandler;
+import org.apache.bifromq.apiserver.http.handler.utils.HeaderUtils;
+import org.apache.bifromq.basekv.metaservice.IBaseKVMetaService;
+import org.apache.bifromq.basekv.metaservice.IBaseKVStoreBalancerStatesProposal;
 
-@Slf4j
-@Path("/rules/load")
-final class GetLoadRulesHandler extends AbstractLoadRulesHandler implements IHTTPRequestHandler {
+@Path("/store/balancer/rules")
+final class GetLoadRulesHandler implements IHTTPRequestHandler {
+    private final IBaseKVMetaService metaService;
+    private final Map<String, IBaseKVStoreBalancerStatesProposal> balancerStateProposals = new ConcurrentHashMap<>();
+    private final CompositeDisposable disposable = new CompositeDisposable();
+
     GetLoadRulesHandler(IBaseKVMetaService metaService) {
-        super(metaService);
+        this.metaService = metaService;
+    }
+
+    @Override
+    public void start() {
+        disposable.add(metaService.clusterIds().subscribe(clusterIds -> {
+            balancerStateProposals.keySet().removeIf(clusterId -> !clusterIds.contains(clusterId));
+            for (String clusterId : clusterIds) {
+                balancerStateProposals.computeIfAbsent(clusterId, metaService::balancerStatesProposal);
+            }
+        }));
+    }
+
+    @Override
+    public void close() {
+        disposable.dispose();
+        balancerStateProposals.values().forEach(IBaseKVStoreBalancerStatesProposal::stop);
     }
 
     @GET
-    @Operation(summary = "Get the load rules")
+    @Operation(summary = "Get the expected load rules of a store balancer")
     @Parameters({
         @Parameter(name = "req_id", in = ParameterIn.HEADER,
             description = "optional caller provided request id",
@@ -76,27 +98,26 @@ final class GetLoadRulesHandler extends AbstractLoadRulesHandler implements IHTT
             description = "Success",
             content = @Content(mediaType = "application/json")),
         @ApiResponse(responseCode = "404",
-            description = "Success",
+            description = "Not load rules ever set for the store balancer",
             content = @Content(schema = @Schema(implementation = String.class))),
     })
     @Override
     public CompletableFuture<FullHttpResponse> handle(@Parameter(hidden = true) long reqId,
                                                       @Parameter(hidden = true) FullHttpRequest req) {
         try {
-            log.trace("Handling http get load rules request: {}", req);
             String storeName = HeaderUtils.getHeader(Headers.HEADER_STORE_NAME, req, true);
             String balancerFactoryClass = HeaderUtils.getHeader(Headers.HEADER_BALANCER_FACTORY_CLASS, req, true);
-            IBaseKVClusterMetadataManager metadataManager = metadataManagers.get(storeName);
-            if (metadataManager == null) {
+            IBaseKVStoreBalancerStatesProposal statesProposal = balancerStateProposals.get(storeName);
+            if (statesProposal == null) {
                 return CompletableFuture.completedFuture(new DefaultFullHttpResponse(req.protocolVersion(), NOT_FOUND,
                     Unpooled.copiedBuffer(("Store not found: " + storeName).getBytes())));
             }
-            return metadataManager.loadRules()
+            return statesProposal.expectedBalancerStates()
                 .timeout(1, TimeUnit.SECONDS)
                 .firstElement()
                 .toCompletionStage()
                 .toCompletableFuture()
-                .handle((loadRules, e) -> {
+                .handle((expectedStates, e) -> {
                     if (e != null) {
                         if (e instanceof TimeoutException) {
                             DefaultFullHttpResponse resp =
@@ -109,14 +130,14 @@ final class GetLoadRulesHandler extends AbstractLoadRulesHandler implements IHTT
                                 Unpooled.copiedBuffer(e.getMessage().getBytes()));
                         }
                     } else {
-                        if (loadRules.containsKey(balancerFactoryClass)) {
+                        if (expectedStates.containsKey(balancerFactoryClass)) {
                             DefaultFullHttpResponse resp = new DefaultFullHttpResponse(req.protocolVersion(), OK,
-                                Unpooled.wrappedBuffer(toJson(loadRules.get(balancerFactoryClass)).getBytes()));
+                                Unpooled.wrappedBuffer(toJson(expectedStates.get(balancerFactoryClass).getLoadRules())
+                                    .getBytes()));
                             resp.headers().set("Content-Type", "application/json");
                             return resp;
                         } else {
-                            return new DefaultFullHttpResponse(req.protocolVersion(), NOT_FOUND,
-                                Unpooled.copiedBuffer("NO_BALANCER".getBytes()));
+                            return new DefaultFullHttpResponse(req.protocolVersion(), NOT_FOUND, Unpooled.EMPTY_BUFFER);
                         }
                     }
                 });

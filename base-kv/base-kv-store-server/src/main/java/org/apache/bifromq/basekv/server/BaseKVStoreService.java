@@ -29,7 +29,8 @@ import io.reactivex.rxjava3.disposables.CompositeDisposable;
 import lombok.Setter;
 import lombok.experimental.Accessors;
 import org.apache.bifromq.basecluster.IAgentHost;
-import org.apache.bifromq.basekv.metaservice.IBaseKVClusterMetadataManager;
+import org.apache.bifromq.basekv.metaservice.IBaseKVLandscapeReporter;
+import org.apache.bifromq.basekv.metaservice.IBaseKVMetaService;
 import org.apache.bifromq.basekv.store.IKVRangeStore;
 import org.apache.bifromq.basekv.store.KVRangeStore;
 import org.apache.bifromq.basekv.store.exception.KVRangeException;
@@ -63,8 +64,9 @@ class BaseKVStoreService extends BaseKVStoreServiceGrpc.BaseKVStoreServiceImplBa
     private final CompositeDisposable disposables = new CompositeDisposable();
     private final IKVRangeStore kvRangeStore;
     private final IAgentHost agentHost;
-    private final IBaseKVClusterMetadataManager metadataManager;
     private final String clusterId;
+    private final IBaseKVMetaService metaService;
+    private IBaseKVLandscapeReporter landscapeReporter;
 
     BaseKVStoreService(BaseKVStoreServiceBuilder builder) {
         kvRangeStore = new KVRangeStore(
@@ -77,8 +79,8 @@ class BaseKVStoreService extends BaseKVStoreServiceGrpc.BaseKVStoreServiceImplBa
             builder.attributes);
         this.clusterId = builder.clusterId;
         this.agentHost = builder.agentHost;
+        this.metaService = builder.serverBuilder.metaService;
         log = MDCLogger.getLogger(BaseKVStoreService.class, "clusterId", clusterId, "storeId", kvRangeStore.id());
-        metadataManager = builder.serverBuilder.metaService.metadataManager(clusterId);
     }
 
     public String clusterId() {
@@ -93,14 +95,15 @@ class BaseKVStoreService extends BaseKVStoreServiceGrpc.BaseKVStoreServiceImplBa
         log.debug("Starting BaseKVStore service");
         kvRangeStore.start(new AgentHostStoreMessenger(agentHost, clusterId, kvRangeStore.id()));
         kvRangeStore.bootstrap(KVRangeIdUtil.generate(), FULL_BOUNDARY);
+        landscapeReporter = metaService.landscapeReporter(clusterId, kvRangeStore.id());
         // sync store descriptor via crdt
-        disposables.add(kvRangeStore.describe().subscribe(metadataManager::report));
+        disposables.add(kvRangeStore.describe().subscribe(landscapeReporter::report));
         log.debug("BaseKVStore service started");
     }
 
     public void stop() {
         log.debug("Stopping BaseKVStore service");
-        metadataManager.stopReport(kvRangeStore.id()).join();
+        landscapeReporter.stop();
         disposables.dispose();
         kvRangeStore.stop();
         log.debug("BaseKVStore service stopped");

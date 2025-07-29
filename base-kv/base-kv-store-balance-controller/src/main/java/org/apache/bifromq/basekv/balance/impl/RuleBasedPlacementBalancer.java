@@ -23,6 +23,16 @@ import static org.apache.bifromq.basekv.balance.util.CommandUtil.diffBy;
 import static org.apache.bifromq.basekv.utils.DescriptorUtil.getEffectiveEpoch;
 import static org.apache.bifromq.basekv.utils.DescriptorUtil.getEffectiveRoute;
 
+import com.google.common.annotations.VisibleForTesting;
+import com.google.common.collect.Sets;
+import com.google.protobuf.Struct;
+import java.util.Map;
+import java.util.NavigableMap;
+import java.util.Optional;
+import java.util.Set;
+import java.util.TreeMap;
+import java.util.concurrent.atomic.AtomicReference;
+import java.util.stream.Collectors;
 import org.apache.bifromq.basekv.balance.BalanceNow;
 import org.apache.bifromq.basekv.balance.BalanceResult;
 import org.apache.bifromq.basekv.balance.NoNeedBalance;
@@ -34,16 +44,6 @@ import org.apache.bifromq.basekv.raft.proto.ClusterConfig;
 import org.apache.bifromq.basekv.utils.BoundaryUtil;
 import org.apache.bifromq.basekv.utils.EffectiveEpoch;
 import org.apache.bifromq.basekv.utils.EffectiveRoute;
-import com.google.common.annotations.VisibleForTesting;
-import com.google.common.collect.Sets;
-import com.google.protobuf.Struct;
-import java.util.Map;
-import java.util.NavigableMap;
-import java.util.Optional;
-import java.util.Set;
-import java.util.TreeMap;
-import java.util.concurrent.atomic.AtomicReference;
-import java.util.stream.Collectors;
 
 /**
  * The base class for implementing Rule-based range placement balancer, subclasses can define the load rules and how the
@@ -75,7 +75,7 @@ public abstract class RuleBasedPlacementBalancer extends StoreBalancer {
         if (loadRules != null) {
             update(loadRules, landscape);
         } else {
-            Struct defaultLoadRules = defaultLoadRules();
+            Struct defaultLoadRules = initialLoadRules();
             if (defaultLoadRules != null) {
                 update(defaultLoadRules, landscape);
             }
@@ -124,8 +124,6 @@ public abstract class RuleBasedPlacementBalancer extends StoreBalancer {
             return BalanceNow.of(command);
         }
     }
-
-    protected abstract Struct defaultLoadRules();
 
     public abstract boolean validate(Struct loadRules);
 

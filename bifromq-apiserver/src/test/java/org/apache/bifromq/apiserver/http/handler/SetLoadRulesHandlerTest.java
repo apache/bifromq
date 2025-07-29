@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 
 package org.apache.bifromq.apiserver.http.handler;
@@ -25,7 +25,6 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.when;
 import static org.testng.Assert.assertEquals;
 
-import org.apache.bifromq.basekv.metaservice.IBaseKVClusterMetadataManager;
 import com.google.protobuf.Struct;
 import io.netty.buffer.Unpooled;
 import io.netty.handler.codec.http.DefaultFullHttpRequest;
@@ -39,15 +38,13 @@ import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.TimeoutException;
-import org.mockito.Mock;
+import org.apache.bifromq.basekv.metaservice.IBaseKVStoreBalancerStatesProposer;
 import org.testng.annotations.BeforeMethod;
 import org.testng.annotations.Test;
 
 public class SetLoadRulesHandlerTest extends AbstractHTTPRequestHandlerTest<SetLoadRulesHandler> {
 
-    @Mock
-    private IBaseKVClusterMetadataManager metadataManager;
-    private Subject<Set<String>> mockClusterIdSubject = BehaviorSubject.create();
+    private final Subject<Set<String>> mockClusterIdSubject = BehaviorSubject.create();
 
     @BeforeMethod
     public void setup() {
@@ -78,9 +75,9 @@ public class SetLoadRulesHandlerTest extends AbstractHTTPRequestHandlerTest<SetL
         DefaultFullHttpRequest req = buildRequest(HttpMethod.PUT, Unpooled.copiedBuffer("{}".getBytes()));
         req.headers().set(HEADER_STORE_NAME.header, clusterId);
         req.headers().set(HEADER_BALANCER_FACTORY_CLASS.header, balancerClass);
-        when(metaService.metadataManager(eq(clusterId))).thenReturn(metadataManager);
-        when(metadataManager.proposeLoadRules(eq(balancerClass), eq(loadRules))).thenReturn(
-            CompletableFuture.completedFuture(IBaseKVClusterMetadataManager.ProposalResult.ACCEPTED));
+        when(metaService.balancerStatesProposer(eq(clusterId))).thenReturn(statesProposer);
+        when(statesProposer.proposeLoadRules(eq(balancerClass), eq(loadRules)))
+            .thenReturn(CompletableFuture.completedFuture(IBaseKVStoreBalancerStatesProposer.ProposalResult.ACCEPTED));
 
         SetLoadRulesHandler handler = new SetLoadRulesHandler(metaService);
         handler.start();
@@ -98,17 +95,16 @@ public class SetLoadRulesHandlerTest extends AbstractHTTPRequestHandlerTest<SetL
 
     @Test
     public void requestTimeout() {
-        String storeName = "dist.worker";
+        String clusterId = "dist.worker";
         String balancerClass = "balancerClass";
         Struct loadRules = Struct.getDefaultInstance();
-        mockClusterIdSubject.onNext(Set.of(storeName));
-        when(metaService.metadataManager(eq(storeName))).thenReturn(metadataManager);
-
-        when(metadataManager.proposeLoadRules(eq(balancerClass), eq(loadRules))).thenReturn(
+        mockClusterIdSubject.onNext(Set.of(clusterId));
+        when(metaService.balancerStatesProposer(eq(clusterId))).thenReturn(statesProposer);
+        when(statesProposer.proposeLoadRules(eq(balancerClass), eq(loadRules))).thenReturn(
             CompletableFuture.failedFuture(new CompletionException(new TimeoutException("timeout"))));
 
         DefaultFullHttpRequest req = buildRequest(HttpMethod.PUT, Unpooled.copiedBuffer("{}".getBytes()));
-        req.headers().set(HEADER_STORE_NAME.header, storeName);
+        req.headers().set(HEADER_STORE_NAME.header, clusterId);
         req.headers().set(HEADER_BALANCER_FACTORY_CLASS.header, balancerClass);
         SetLoadRulesHandler handler = new SetLoadRulesHandler(metaService);
         handler.start();
@@ -122,10 +118,10 @@ public class SetLoadRulesHandlerTest extends AbstractHTTPRequestHandlerTest<SetL
         String balancerClass = "balancerClass";
         Struct loadRules = Struct.getDefaultInstance();
         mockClusterIdSubject.onNext(Set.of(clusterId));
-        when(metaService.metadataManager(eq(clusterId))).thenReturn(metadataManager);
+        when(metaService.balancerStatesProposer(eq(clusterId))).thenReturn(statesProposer);
 
-        when(metadataManager.proposeLoadRules(eq(balancerClass), eq(loadRules))).thenReturn(
-            CompletableFuture.completedFuture(IBaseKVClusterMetadataManager.ProposalResult.ACCEPTED));
+        when(statesProposer.proposeLoadRules(eq(balancerClass), eq(loadRules))).thenReturn(
+            CompletableFuture.completedFuture(IBaseKVStoreBalancerStatesProposer.ProposalResult.ACCEPTED));
         DefaultFullHttpRequest req = buildRequest(HttpMethod.PUT, Unpooled.copiedBuffer("{}".getBytes()));
         req.headers().set(HEADER_STORE_NAME.header, clusterId);
         req.headers().set(HEADER_BALANCER_FACTORY_CLASS.header, balancerClass);
@@ -136,52 +132,16 @@ public class SetLoadRulesHandlerTest extends AbstractHTTPRequestHandlerTest<SetL
     }
 
     @Test
-    public void requestRejected() {
-        String clusterId = "dist.worker";
-        String balancerClass = "balancerClass";
-        Struct loadRules = Struct.getDefaultInstance();
-        mockClusterIdSubject.onNext(Set.of(clusterId));
-        when(metaService.metadataManager(eq(clusterId))).thenReturn(metadataManager);
-
-        when(metadataManager.proposeLoadRules(eq(balancerClass), eq(loadRules))).thenReturn(
-            CompletableFuture.completedFuture(IBaseKVClusterMetadataManager.ProposalResult.REJECTED));
-        DefaultFullHttpRequest req = buildRequest(HttpMethod.PUT, Unpooled.copiedBuffer("{}".getBytes()));
-        req.headers().set(HEADER_STORE_NAME.header, clusterId);
-        req.headers().set(HEADER_BALANCER_FACTORY_CLASS.header, balancerClass);
-        SetLoadRulesHandler handler = new SetLoadRulesHandler(metaService);
-        handler.start();
-        FullHttpResponse resp = handler.handle(123, req).join();
-        assertEquals(resp.status(), HttpResponseStatus.BAD_REQUEST);
-    }
-
-    @Test
-    public void requestNoBalancer() {
-        String clusterId = "dist.worker";
-        String balancerClass = "balancerClass";
-        Struct loadRules = Struct.getDefaultInstance();
-        mockClusterIdSubject.onNext(Set.of(clusterId));
-        when(metaService.metadataManager(eq(clusterId))).thenReturn(metadataManager);
-
-        when(metadataManager.proposeLoadRules(eq(balancerClass), eq(loadRules))).thenReturn(
-            CompletableFuture.completedFuture(IBaseKVClusterMetadataManager.ProposalResult.NO_BALANCER));
-        DefaultFullHttpRequest req = buildRequest(HttpMethod.PUT, Unpooled.copiedBuffer("{}".getBytes()));
-        req.headers().set(HEADER_STORE_NAME.header, clusterId);
-        req.headers().set(HEADER_BALANCER_FACTORY_CLASS.header, balancerClass);
-        SetLoadRulesHandler handler = new SetLoadRulesHandler(metaService);
-        FullHttpResponse resp = handler.handle(123, req).join();
-        assertEquals(resp.status(), HttpResponseStatus.NOT_FOUND);
-    }
-
-    @Test
     public void requestConflict() {
         String clusterId = "dist.worker";
         String balancerClass = "balancerClass";
         Struct loadRules = Struct.getDefaultInstance();
         mockClusterIdSubject.onNext(Set.of(clusterId));
-        when(metaService.metadataManager(eq(clusterId))).thenReturn(metadataManager);
+        when(metaService.balancerStatesProposer(eq(clusterId))).thenReturn(statesProposer);
 
-        when(metadataManager.proposeLoadRules(eq(balancerClass), eq(loadRules))).thenReturn(
-            CompletableFuture.completedFuture(IBaseKVClusterMetadataManager.ProposalResult.OVERRIDDEN));
+        when(statesProposer.proposeLoadRules(eq(balancerClass), eq(loadRules)))
+            .thenReturn(
+                CompletableFuture.completedFuture(IBaseKVStoreBalancerStatesProposer.ProposalResult.OVERRIDDEN));
         DefaultFullHttpRequest req = buildRequest(HttpMethod.PUT, Unpooled.copiedBuffer("{}".getBytes()));
         req.headers().set(HEADER_STORE_NAME.header, clusterId);
         req.headers().set(HEADER_BALANCER_FACTORY_CLASS.header, balancerClass);

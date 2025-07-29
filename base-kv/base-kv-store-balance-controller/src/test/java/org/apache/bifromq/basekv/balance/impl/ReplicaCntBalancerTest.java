@@ -27,6 +27,11 @@ import static org.testng.Assert.assertFalse;
 import static org.testng.Assert.assertSame;
 import static org.testng.Assert.assertTrue;
 
+import com.google.protobuf.ByteString;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.Map;
+import java.util.Set;
 import org.apache.bifromq.basekv.balance.BalanceNow;
 import org.apache.bifromq.basekv.balance.BalanceResult;
 import org.apache.bifromq.basekv.balance.BalanceResultType;
@@ -38,11 +43,6 @@ import org.apache.bifromq.basekv.proto.KVRangeStoreDescriptor;
 import org.apache.bifromq.basekv.raft.proto.ClusterConfig;
 import org.apache.bifromq.basekv.raft.proto.RaftNodeStatus;
 import org.apache.bifromq.basekv.utils.EffectiveRoute;
-import com.google.protobuf.ByteString;
-import java.util.HashMap;
-import java.util.HashSet;
-import java.util.Map;
-import java.util.Set;
 import org.testng.annotations.BeforeMethod;
 import org.testng.annotations.Test;
 
@@ -460,7 +460,7 @@ public class ReplicaCntBalancerTest {
         EffectiveRoute effectiveRoute = getEffectiveRoute(getEffectiveEpoch(allStoreDescriptors).get());
 
         Map<Boundary, ClusterConfig> layout =
-            balancer.doGenerate(balancer.defaultLoadRules(), storeDescriptors, effectiveRoute);
+            balancer.doGenerate(balancer.initialLoadRules(), storeDescriptors, effectiveRoute);
 
         assertTrue(balancer.verify(layout, allStoreDescriptors));
     }

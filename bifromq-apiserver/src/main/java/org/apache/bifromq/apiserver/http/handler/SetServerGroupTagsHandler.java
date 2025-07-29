@@ -14,27 +14,23 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 
 package org.apache.bifromq.apiserver.http.handler;
 
-import static org.apache.bifromq.apiserver.Headers.HEADER_SERVER_ID;
-import static org.apache.bifromq.apiserver.http.handler.HeaderUtils.getHeader;
 import static io.netty.handler.codec.http.HttpResponseStatus.NOT_FOUND;
 import static io.netty.handler.codec.http.HttpResponseStatus.OK;
+import static org.apache.bifromq.apiserver.Headers.HEADER_SERVER_ID;
+import static org.apache.bifromq.apiserver.http.handler.utils.HeaderUtils.getHeader;
 
-import org.apache.bifromq.apiserver.Headers;
-import org.apache.bifromq.apiserver.http.IHTTPRequestHandler;
-import org.apache.bifromq.baserpc.trafficgovernor.IRPCServiceTrafficGovernor;
-import org.apache.bifromq.baserpc.trafficgovernor.IRPCServiceTrafficService;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import io.netty.buffer.Unpooled;
 import io.netty.handler.codec.http.DefaultFullHttpResponse;
 import io.netty.handler.codec.http.FullHttpRequest;
 import io.netty.handler.codec.http.FullHttpResponse;
 import io.netty.handler.codec.http.HttpResponseStatus;
+import io.netty.util.CharsetUtil;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.Parameters;
@@ -49,10 +45,14 @@ import jakarta.ws.rs.Path;
 import java.util.HashSet;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
-import lombok.extern.slf4j.Slf4j;
+import org.apache.bifromq.apiserver.Headers;
+import org.apache.bifromq.apiserver.http.IHTTPRequestHandler;
+import org.apache.bifromq.apiserver.http.handler.utils.HeaderUtils;
+import org.apache.bifromq.apiserver.http.handler.utils.JSONUtils;
+import org.apache.bifromq.baserpc.trafficgovernor.IRPCServiceTrafficGovernor;
+import org.apache.bifromq.baserpc.trafficgovernor.IRPCServiceTrafficService;
 
-@Slf4j
-@Path("/rules/group")
+@Path("/service/group")
 final class SetServerGroupTagsHandler extends AbstractTrafficRulesHandler implements IHTTPRequestHandler {
 
     SetServerGroupTagsHandler(IRPCServiceTrafficService trafficService) {
@@ -60,7 +60,7 @@ final class SetServerGroupTagsHandler extends AbstractTrafficRulesHandler implem
     }
 
     @PUT
-    @Operation(summary = "Set server groups")
+    @Operation(summary = "Set group tag to a server in a service")
     @Parameters({
         @Parameter(name = "req_id", in = ParameterIn.HEADER,
             description = "optional caller provided request id", schema = @Schema(implementation = Long.class)),
@@ -82,24 +82,24 @@ final class SetServerGroupTagsHandler extends AbstractTrafficRulesHandler implem
                                                       @Parameter(hidden = true) FullHttpRequest req) {
         String serverId = getHeader(HEADER_SERVER_ID, req, true);
         String serviceName = HeaderUtils.getHeader(Headers.HEADER_SERVICE_NAME, req, true);
+        if (!isTrafficGovernable(serviceName)) {
+            return CompletableFuture.completedFuture(new DefaultFullHttpResponse(req.protocolVersion(), NOT_FOUND,
+                Unpooled.copiedBuffer(("Service not found: " + serviceName).getBytes())));
+        }
         IRPCServiceTrafficGovernor governor = governorMap.get(serviceName);
         if (governor == null) {
             return CompletableFuture.completedFuture(new DefaultFullHttpResponse(req.protocolVersion(), NOT_FOUND,
                 Unpooled.copiedBuffer(("Service not found: " + serviceName).getBytes())));
         }
-
         Set<String> groupTags = new HashSet<>();
         try {
-            ObjectMapper objectMapper = new ObjectMapper();
-            ArrayNode groupTagsArray =
-                (ArrayNode) objectMapper.readTree(req.content().toString(io.netty.util.CharsetUtil.UTF_8));
+            ArrayNode groupTagsArray = (ArrayNode) JSONUtils.MAPPER.readTree(req.content().toString(CharsetUtil.UTF_8));
             groupTagsArray.forEach(tagNode -> groupTags.add(tagNode.asText()));
         } catch (Exception e) {
             return CompletableFuture.completedFuture(
                 new DefaultFullHttpResponse(req.protocolVersion(), HttpResponseStatus.BAD_REQUEST,
                     Unpooled.EMPTY_BUFFER));
         }
-        log.trace("Handling http set server group tags request: {}", req);
         return governor.setServerGroups(serverId, groupTags)
             .handle((v, e) -> {
                 if (e != null) {

@@ -19,25 +19,16 @@
 
 package org.apache.bifromq.apiserver.http.handler;
 
-import static org.apache.bifromq.apiserver.Headers.HEADER_CLIENT_TYPE;
-import static org.apache.bifromq.apiserver.Headers.HEADER_EXPIRY_SECONDS;
-import static org.apache.bifromq.apiserver.Headers.HEADER_QOS;
-import static org.apache.bifromq.apiserver.http.handler.HeaderUtils.getClientMeta;
-import static org.apache.bifromq.apiserver.http.handler.HeaderUtils.getHeader;
 import static io.netty.handler.codec.http.HttpResponseStatus.BAD_REQUEST;
 import static io.netty.handler.codec.http.HttpResponseStatus.FORBIDDEN;
 import static io.netty.handler.codec.http.HttpResponseStatus.INTERNAL_SERVER_ERROR;
 import static io.netty.handler.codec.http.HttpResponseStatus.OK;
+import static org.apache.bifromq.apiserver.Headers.HEADER_CLIENT_TYPE;
+import static org.apache.bifromq.apiserver.Headers.HEADER_EXPIRY_SECONDS;
+import static org.apache.bifromq.apiserver.Headers.HEADER_QOS;
+import static org.apache.bifromq.apiserver.http.handler.utils.HeaderUtils.getClientMeta;
+import static org.apache.bifromq.apiserver.http.handler.utils.HeaderUtils.getHeader;
 
-import org.apache.bifromq.apiserver.Headers;
-import org.apache.bifromq.apiserver.utils.TopicUtil;
-import org.apache.bifromq.basehlc.HLC;
-import org.apache.bifromq.dist.client.IDistClient;
-import org.apache.bifromq.dist.client.PubResult;
-import org.apache.bifromq.plugin.settingprovider.ISettingProvider;
-import org.apache.bifromq.type.ClientInfo;
-import org.apache.bifromq.type.Message;
-import org.apache.bifromq.type.QoS;
 import com.google.protobuf.ByteString;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
@@ -58,9 +49,16 @@ import jakarta.ws.rs.Path;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
-import lombok.extern.slf4j.Slf4j;
+import org.apache.bifromq.apiserver.Headers;
+import org.apache.bifromq.apiserver.utils.TopicUtil;
+import org.apache.bifromq.basehlc.HLC;
+import org.apache.bifromq.dist.client.IDistClient;
+import org.apache.bifromq.dist.client.PubResult;
+import org.apache.bifromq.plugin.settingprovider.ISettingProvider;
+import org.apache.bifromq.type.ClientInfo;
+import org.apache.bifromq.type.Message;
+import org.apache.bifromq.type.QoS;
 
-@Slf4j
 @Path("/pub")
 final class PubHandler extends TenantAwareHandler {
     private static final ByteBuf UNACCEPTED_TOPIC = Unpooled.wrappedBuffer("Unaccepted Topic".getBytes());
@@ -111,12 +109,9 @@ final class PubHandler extends TenantAwareHandler {
                                                       @Parameter(hidden = true) String tenantId,
                                                       @Parameter(hidden = true) FullHttpRequest req) {
         String topic = getHeader(Headers.HEADER_TOPIC, req, true);
-        String clientType = getHeader(HEADER_CLIENT_TYPE, req, true);
         int qos = Integer.parseInt(getHeader(HEADER_QOS, req, true));
         int expirySeconds = Optional.ofNullable(getHeader(HEADER_EXPIRY_SECONDS, req, false)).map(Integer::parseInt)
             .orElse(Integer.MAX_VALUE);
-        Map<String, String> clientMeta = getClientMeta(req);
-        log.trace("Handling http pub request: {}", req);
         if (!TopicUtil.checkTopicFilter(topic, tenantId, settingProvider)) {
             return CompletableFuture.completedFuture(
                 new DefaultFullHttpResponse(req.protocolVersion(), FORBIDDEN, UNACCEPTED_TOPIC));
@@ -129,6 +124,8 @@ final class PubHandler extends TenantAwareHandler {
             return CompletableFuture.completedFuture(
                 new DefaultFullHttpResponse(req.protocolVersion(), BAD_REQUEST, INVALID_EXPIRY_SECONDS));
         }
+        String clientType = getHeader(HEADER_CLIENT_TYPE, req, true);
+        Map<String, String> clientMeta = getClientMeta(req);
         ClientInfo clientInfo = ClientInfo.newBuilder()
             .setTenantId(tenantId)
             .setType(clientType)

@@ -19,29 +19,28 @@
 
 package org.apache.bifromq.apiserver.http.handler;
 
-import org.apache.bifromq.apiserver.http.IHTTPRequestHandler;
-import org.apache.bifromq.basekv.metaservice.IBaseKVClusterMetadataManager;
-import org.apache.bifromq.basekv.metaservice.IBaseKVMetaService;
 import io.reactivex.rxjava3.disposables.CompositeDisposable;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import org.apache.bifromq.apiserver.http.IHTTPRequestHandler;
+import org.apache.bifromq.basekv.metaservice.IBaseKVLandscapeObserver;
+import org.apache.bifromq.basekv.metaservice.IBaseKVMetaService;
 
-abstract class AbstractLoadRulesHandler implements IHTTPRequestHandler {
-    protected final Map<String, IBaseKVClusterMetadataManager> metadataManagers = new ConcurrentHashMap<>();
+abstract class AbstractLandscapeHandler implements IHTTPRequestHandler {
+    protected final Map<String, IBaseKVLandscapeObserver> landscapeObservers = new ConcurrentHashMap<>();
     private final IBaseKVMetaService metaService;
     private final CompositeDisposable disposable = new CompositeDisposable();
 
-
-    protected AbstractLoadRulesHandler(IBaseKVMetaService metaService) {
+    protected AbstractLandscapeHandler(IBaseKVMetaService metaService) {
         this.metaService = metaService;
     }
 
     @Override
     public void start() {
         disposable.add(metaService.clusterIds().subscribe(clusterIds -> {
-            metadataManagers.keySet().removeIf(clusterId -> !clusterIds.contains(clusterId));
+            landscapeObservers.keySet().removeIf(clusterId -> !clusterIds.contains(clusterId));
             for (String clusterId : clusterIds) {
-                metadataManagers.computeIfAbsent(clusterId, metaService::metadataManager);
+                landscapeObservers.computeIfAbsent(clusterId, metaService::landscapeObserver);
             }
         }));
     }
@@ -49,5 +48,6 @@ abstract class AbstractLoadRulesHandler implements IHTTPRequestHandler {
     @Override
     public void close() {
         disposable.dispose();
+        landscapeObservers.values().forEach(IBaseKVLandscapeObserver::stop);
     }
 }

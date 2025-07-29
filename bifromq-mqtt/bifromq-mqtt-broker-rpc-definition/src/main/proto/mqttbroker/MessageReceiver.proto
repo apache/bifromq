@@ -26,7 +26,7 @@ option java_outer_classname = "MessageReceiverProtos";
 
 package mqttbroker;
 
-service OnlineInboxBroker {
+service BrokerService {
   rpc write (stream WriteRequest) returns (stream WriteReply);
   rpc sub(SubRequest) returns (SubReply);
   rpc unsub(UnsubRequest) returns (UnsubReply);

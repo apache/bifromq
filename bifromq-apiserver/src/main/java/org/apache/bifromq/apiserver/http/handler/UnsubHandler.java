@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 
 package org.apache.bifromq.apiserver.http.handler;
@@ -27,9 +27,8 @@ import static io.netty.handler.codec.http.HttpResponseStatus.UNAUTHORIZED;
 import static org.apache.bifromq.apiserver.Headers.HEADER_CLIENT_ID;
 import static org.apache.bifromq.apiserver.Headers.HEADER_TOPIC_FILTER;
 import static org.apache.bifromq.apiserver.Headers.HEADER_USER_ID;
-import static org.apache.bifromq.apiserver.http.handler.HeaderUtils.getHeader;
+import static org.apache.bifromq.apiserver.http.handler.utils.HeaderUtils.getHeader;
 
-import org.apache.bifromq.plugin.settingprovider.ISettingProvider;
 import io.netty.buffer.Unpooled;
 import io.netty.handler.codec.http.DefaultFullHttpResponse;
 import io.netty.handler.codec.http.FullHttpRequest;
@@ -45,11 +44,10 @@ import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import jakarta.ws.rs.DELETE;
 import jakarta.ws.rs.Path;
 import java.util.concurrent.CompletableFuture;
-import lombok.extern.slf4j.Slf4j;
+import org.apache.bifromq.plugin.settingprovider.ISettingProvider;
 import org.apache.bifromq.sessiondict.client.ISessionDictClient;
 import org.apache.bifromq.sessiondict.rpc.proto.UnsubRequest;
 
-@Slf4j
 @Path("/unsub")
 final class UnsubHandler extends TenantAwareHandler {
     private final ISessionDictClient sessionDictClient;
@@ -87,7 +85,6 @@ final class UnsubHandler extends TenantAwareHandler {
         String topicFilter = getHeader(HEADER_TOPIC_FILTER, req, true);
         String userId = getHeader(HEADER_USER_ID, req, true);
         String clientId = getHeader(HEADER_CLIENT_ID, req, true);
-        log.trace("Handling http unsub request: {}", req);
         return sessionDictClient.unsub(UnsubRequest.newBuilder()
                 .setReqId(reqId)
                 .setTenantId(tenantId)

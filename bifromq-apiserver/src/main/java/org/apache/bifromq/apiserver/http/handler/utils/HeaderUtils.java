@@ -14,22 +14,22 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 
-package org.apache.bifromq.apiserver.http.handler;
+package org.apache.bifromq.apiserver.http.handler.utils;
 
 import static org.apache.bifromq.apiserver.Headers.HEADER_CLIENT_META_PREFIX;
 import static org.apache.bifromq.apiserver.Headers.HEADER_REQ_ID;
 import static org.apache.bifromq.apiserver.Headers.HEADER_SUB_QOS;
 
-import org.apache.bifromq.apiserver.Headers;
-import org.apache.bifromq.basehlc.HLC;
-import org.apache.bifromq.type.QoS;
 import io.netty.handler.codec.http.FullHttpRequest;
 import io.netty.handler.codec.http.HttpRequest;
 import java.util.HashMap;
 import java.util.Map;
+import org.apache.bifromq.apiserver.Headers;
+import org.apache.bifromq.basehlc.HLC;
+import org.apache.bifromq.type.QoS;
 
 public final class HeaderUtils {
     public static long getOptionalReqId(FullHttpRequest req) {

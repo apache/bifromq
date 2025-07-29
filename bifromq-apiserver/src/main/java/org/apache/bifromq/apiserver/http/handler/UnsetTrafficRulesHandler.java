@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 
 package org.apache.bifromq.apiserver.http.handler;
@@ -23,11 +23,6 @@ import static io.netty.handler.codec.http.HttpResponseStatus.NOT_FOUND;
 import static io.netty.handler.codec.http.HttpResponseStatus.OK;
 import static io.netty.util.CharsetUtil.UTF_8;
 
-import org.apache.bifromq.apiserver.Headers;
-import org.apache.bifromq.apiserver.http.IHTTPRequestHandler;
-import org.apache.bifromq.baserpc.trafficgovernor.IRPCServiceTrafficGovernor;
-import org.apache.bifromq.baserpc.trafficgovernor.IRPCServiceTrafficService;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import io.netty.buffer.Unpooled;
 import io.netty.handler.codec.http.DefaultFullHttpResponse;
@@ -49,17 +44,21 @@ import jakarta.ws.rs.Path;
 import java.util.HashSet;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
-import lombok.extern.slf4j.Slf4j;
+import org.apache.bifromq.apiserver.Headers;
+import org.apache.bifromq.apiserver.http.IHTTPRequestHandler;
+import org.apache.bifromq.apiserver.http.handler.utils.HeaderUtils;
+import org.apache.bifromq.apiserver.http.handler.utils.JSONUtils;
+import org.apache.bifromq.baserpc.trafficgovernor.IRPCServiceTrafficGovernor;
+import org.apache.bifromq.baserpc.trafficgovernor.IRPCServiceTrafficService;
 
-@Slf4j
-@Path("/rules/traffic")
+@Path("/service/traffic")
 final class UnsetTrafficRulesHandler extends AbstractTrafficRulesHandler implements IHTTPRequestHandler {
     UnsetTrafficRulesHandler(IRPCServiceTrafficService trafficService) {
         super(trafficService);
     }
 
     @DELETE
-    @Operation(summary = "Unset the traffic directive")
+    @Operation(summary = "Unset the traffic rules of a service")
     @Parameters({
         @Parameter(name = "req_id", in = ParameterIn.HEADER,
             description = "optional caller provided request id", schema = @Schema(implementation = Long.class)),
@@ -77,6 +76,10 @@ final class UnsetTrafficRulesHandler extends AbstractTrafficRulesHandler impleme
     public CompletableFuture<FullHttpResponse> handle(@Parameter(hidden = true) long reqId,
                                                       @Parameter(hidden = true) FullHttpRequest req) {
         String serviceName = HeaderUtils.getHeader(Headers.HEADER_SERVICE_NAME, req, true);
+        if (!isTrafficGovernable(serviceName)) {
+            return CompletableFuture.completedFuture(new DefaultFullHttpResponse(req.protocolVersion(), NOT_FOUND,
+                Unpooled.copiedBuffer(("Service not found: " + serviceName).getBytes())));
+        }
         IRPCServiceTrafficGovernor governor = governorMap.get(serviceName);
         if (governor == null) {
             return CompletableFuture.completedFuture(new DefaultFullHttpResponse(req.protocolVersion(), NOT_FOUND,
@@ -85,15 +88,13 @@ final class UnsetTrafficRulesHandler extends AbstractTrafficRulesHandler impleme
 
         Set<String> trafficRules = new HashSet<>();
         try {
-            ObjectMapper objectMapper = new ObjectMapper();
-            ArrayNode tdObject = (ArrayNode) objectMapper.readTree(req.content().toString(UTF_8));
+            ArrayNode tdObject = (ArrayNode) JSONUtils.MAPPER.readTree(req.content().toString(UTF_8));
             tdObject.forEach(node -> trafficRules.add(node.asText()));
         } catch (Exception e) {
             return CompletableFuture.completedFuture(
                 new DefaultFullHttpResponse(req.protocolVersion(), HttpResponseStatus.BAD_REQUEST,
                     Unpooled.copiedBuffer(e.getMessage().getBytes())));
         }
-        log.trace("Handling http unset traffic directive request: {}", req);
         return CompletableFuture.allOf(trafficRules
                 .stream()
                 .map(governor::unsetTrafficRules)

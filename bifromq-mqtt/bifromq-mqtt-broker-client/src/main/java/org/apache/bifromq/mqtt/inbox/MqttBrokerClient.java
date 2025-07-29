@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 
 package org.apache.bifromq.mqtt.inbox;
@@ -25,23 +25,23 @@ import static org.apache.bifromq.mqtt.inbox.rpc.proto.SubReply.Result.ERROR;
 import static org.apache.bifromq.mqtt.inbox.util.DelivererKeyUtil.parseServerId;
 import static org.apache.bifromq.mqtt.inbox.util.DelivererKeyUtil.parseTenantId;
 
-import org.apache.bifromq.baserpc.client.IRPCClient;
-import org.apache.bifromq.baserpc.client.exception.ServerNotFoundException;
-import org.apache.bifromq.plugin.subbroker.CheckReply;
-import org.apache.bifromq.plugin.subbroker.CheckRequest;
-import org.apache.bifromq.plugin.subbroker.IDeliverer;
 import com.google.common.base.Preconditions;
 import io.reactivex.rxjava3.core.Observable;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicBoolean;
 import lombok.extern.slf4j.Slf4j;
-import org.apache.bifromq.mqtt.inbox.rpc.proto.OnlineInboxBrokerGrpc;
+import org.apache.bifromq.baserpc.client.IRPCClient;
+import org.apache.bifromq.baserpc.client.exception.ServerNotFoundException;
+import org.apache.bifromq.mqtt.inbox.rpc.proto.BrokerServiceGrpc;
 import org.apache.bifromq.mqtt.inbox.rpc.proto.SubReply;
 import org.apache.bifromq.mqtt.inbox.rpc.proto.SubRequest;
 import org.apache.bifromq.mqtt.inbox.rpc.proto.UnsubReply;
 import org.apache.bifromq.mqtt.inbox.rpc.proto.UnsubRequest;
 import org.apache.bifromq.mqtt.inbox.rpc.proto.WriteReply;
 import org.apache.bifromq.mqtt.inbox.rpc.proto.WriteRequest;
+import org.apache.bifromq.plugin.subbroker.CheckReply;
+import org.apache.bifromq.plugin.subbroker.CheckRequest;
+import org.apache.bifromq.plugin.subbroker.IDeliverer;
 import org.apache.bifromq.type.MatchInfo;
 import org.apache.bifromq.type.QoS;
 
@@ -57,7 +57,7 @@ final class MqttBrokerClient implements IMqttBrokerClient {
     @Override
     public CompletableFuture<CheckReply> check(CheckRequest request) {
         return rpcClient.invoke(request.getTenantId(), parseServerId(request.getDelivererKey()), request,
-                OnlineInboxBrokerGrpc.getCheckSubscriptionsMethod())
+                BrokerServiceGrpc.getCheckSubscriptionsMethod())
             .exceptionally(unwrap(e -> {
                 log.debug("Failed to check subscription", e);
                 CheckReply.Builder replyBuilder = CheckReply.newBuilder();
@@ -74,7 +74,7 @@ final class MqttBrokerClient implements IMqttBrokerClient {
         Preconditions.checkState(!hasStopped.get());
         IRPCClient.IRequestPipeline<WriteRequest, WriteReply> ppln =
             rpcClient.createRequestPipeline(parseTenantId(delivererKey), parseServerId(delivererKey), null, emptyMap(),
-                OnlineInboxBrokerGrpc.getWriteMethod());
+                BrokerServiceGrpc.getWriteMethod());
         return new DeliveryPipeline(ppln);
     }
 
@@ -98,7 +98,7 @@ final class MqttBrokerClient implements IMqttBrokerClient {
                                            String brokerServerId) {
         return rpcClient.invoke(tenantId, brokerServerId,
                 SubRequest.newBuilder().setReqId(reqId).setTenantId(tenantId).setSessionId(sessionId)
-                    .setTopicFilter(topicFilter).setSubQoS(qos).build(), OnlineInboxBrokerGrpc.getSubMethod())
+                    .setTopicFilter(topicFilter).setSubQoS(qos).build(), BrokerServiceGrpc.getSubMethod())
             .exceptionally(e -> {
                 log.debug("Failed to sub", e);
                 return SubReply.newBuilder().setReqId(reqId).setResult(ERROR).build();
@@ -110,7 +110,7 @@ final class MqttBrokerClient implements IMqttBrokerClient {
                                                String brokerServerId) {
         return rpcClient.invoke(tenantId, brokerServerId,
             UnsubRequest.newBuilder().setReqId(reqId).setTenantId(tenantId).setSessionId(sessionId)
-                .setTopicFilter(topicFilter).build(), OnlineInboxBrokerGrpc.getUnsubMethod()).exceptionally(e -> {
+                .setTopicFilter(topicFilter).build(), BrokerServiceGrpc.getUnsubMethod()).exceptionally(e -> {
             log.debug("Failed to unsub", e);
             return UnsubReply.newBuilder().setResult(UnsubReply.Result.ERROR).build();
         });

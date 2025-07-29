@@ -19,12 +19,12 @@
 
 package org.apache.bifromq.apiserver.http.handler;
 
-import org.apache.bifromq.apiserver.http.IHTTPRequestHandler;
-import org.apache.bifromq.baserpc.trafficgovernor.IRPCServiceTrafficGovernor;
-import org.apache.bifromq.baserpc.trafficgovernor.IRPCServiceTrafficService;
 import io.reactivex.rxjava3.disposables.CompositeDisposable;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import org.apache.bifromq.apiserver.http.IHTTPRequestHandler;
+import org.apache.bifromq.baserpc.trafficgovernor.IRPCServiceTrafficGovernor;
+import org.apache.bifromq.baserpc.trafficgovernor.IRPCServiceTrafficService;
 
 abstract class AbstractTrafficRulesHandler implements IHTTPRequestHandler {
     protected final Map<String, IRPCServiceTrafficGovernor> governorMap = new ConcurrentHashMap<>();
@@ -40,8 +40,8 @@ abstract class AbstractTrafficRulesHandler implements IHTTPRequestHandler {
         disposable.add(trafficService.services().subscribe(serviceUniqueNames -> {
             governorMap.keySet().removeIf(serviceUniqueName -> !serviceUniqueNames.contains(serviceUniqueName));
             for (String serviceUniqueName : serviceUniqueNames) {
-                if (isTrafficGovernable(serviceUniqueName)) {
-                    governorMap.computeIfAbsent(tryShorten(serviceUniqueName),
+                if (isRPCService(serviceUniqueName)) {
+                    governorMap.computeIfAbsent(shortServiceName(serviceUniqueName),
                         k -> trafficService.getTrafficGovernor(serviceUniqueName));
                 }
             }
@@ -53,24 +53,15 @@ abstract class AbstractTrafficRulesHandler implements IHTTPRequestHandler {
         disposable.dispose();
     }
 
-    private boolean isTrafficGovernable(String serviceUniqueName) {
-        return switch (serviceUniqueName) {
-            case "distservice.DistService",
-                 "inboxservice.InboxService",
-                 "sessiondict.SessionDictService",
-                 "retainservice.RetainService" -> true;
-            case "mqttbroker.OnlineInboxBroker" -> false;
-            default -> !serviceUniqueName.endsWith("@basekv.BaseKVStoreService");
-        };
+    protected boolean isTrafficGovernable(String serviceName) {
+        return !serviceName.equals("BrokerService");
     }
 
-    private String tryShorten(String serviceUniqueName) {
-        return switch (serviceUniqueName) {
-            case "distservice.DistService" -> "dist.service";
-            case "inboxservice.InboxService" -> "inbox.service";
-            case "sessiondict.SessionDictService" -> "sessiondict.service";
-            case "retainservice.RetainService" -> "retain.service";
-            default -> serviceUniqueName;
-        };
+    private boolean isRPCService(String serviceUniqueName) {
+        return !serviceUniqueName.endsWith("@basekv.BaseKVStoreService");
+    }
+
+    private String shortServiceName(String serviceUniqueName) {
+        return serviceUniqueName.substring(serviceUniqueName.lastIndexOf('.') + 1);
     }
 }

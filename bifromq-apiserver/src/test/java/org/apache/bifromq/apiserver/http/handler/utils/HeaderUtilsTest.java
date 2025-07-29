@@ -14,23 +14,23 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 
-package org.apache.bifromq.apiserver.http.handler;
+package org.apache.bifromq.apiserver.http.handler.utils;
 
-import static org.apache.bifromq.apiserver.http.handler.HeaderUtils.getHeader;
+import static org.apache.bifromq.apiserver.http.handler.utils.HeaderUtils.getHeader;
 import static org.testng.Assert.assertEquals;
 import static org.testng.Assert.assertNull;
 import static org.testng.Assert.assertThrows;
 import static org.testng.Assert.assertTrue;
 
-import org.apache.bifromq.apiserver.Headers;
-import org.apache.bifromq.type.QoS;
 import io.netty.handler.codec.http.DefaultFullHttpRequest;
 import io.netty.handler.codec.http.HttpMethod;
 import io.netty.handler.codec.http.HttpVersion;
 import java.util.Map;
+import org.apache.bifromq.apiserver.Headers;
+import org.apache.bifromq.type.QoS;
 import org.testng.annotations.Test;
 
 public class HeaderUtilsTest {

@@ -14,21 +14,11 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 
 package org.apache.bifromq.dist.worker;
 
-import org.apache.bifromq.baseenv.EnvProvider;
-import org.apache.bifromq.basehookloader.BaseHookLoader;
-import org.apache.bifromq.basekv.balance.KVStoreBalanceController;
-import org.apache.bifromq.basekv.client.IBaseKVStoreClient;
-import org.apache.bifromq.basekv.server.IBaseKVStoreServer;
-import org.apache.bifromq.baserpc.client.IConnectable;
-import org.apache.bifromq.deliverer.BatchDeliveryCallBuilderFactory;
-import org.apache.bifromq.deliverer.IMessageDeliverer;
-import org.apache.bifromq.deliverer.MessageDeliverer;
-import org.apache.bifromq.dist.worker.spi.IDistWorkerBalancerFactory;
 import com.google.common.util.concurrent.MoreExecutors;
 import io.micrometer.core.instrument.Metrics;
 import io.micrometer.core.instrument.binder.jvm.ExecutorServiceMetrics;
@@ -43,6 +33,16 @@ import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.bifromq.baseenv.EnvProvider;
+import org.apache.bifromq.basehookloader.BaseHookLoader;
+import org.apache.bifromq.basekv.balance.KVStoreBalanceController;
+import org.apache.bifromq.basekv.client.IBaseKVStoreClient;
+import org.apache.bifromq.basekv.server.IBaseKVStoreServer;
+import org.apache.bifromq.baserpc.client.IConnectable;
+import org.apache.bifromq.deliverer.BatchDeliveryCallBuilderFactory;
+import org.apache.bifromq.deliverer.IMessageDeliverer;
+import org.apache.bifromq.deliverer.MessageDeliverer;
+import org.apache.bifromq.dist.worker.spi.IDistWorkerBalancerFactory;
 
 @Slf4j
 class DistWorker implements IDistWorker {
@@ -83,7 +83,7 @@ class DistWorker implements IDistWorker {
         }
 
         storeBalanceController = new KVStoreBalanceController(
-            builder.metaService.metadataManager(clusterId),
+            builder.metaService,
             builder.distWorkerClient,
             effectiveBalancerFactories,
             builder.bootstrapDelay,

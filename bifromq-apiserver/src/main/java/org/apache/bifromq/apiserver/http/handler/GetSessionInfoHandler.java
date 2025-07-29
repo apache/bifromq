@@ -24,9 +24,8 @@ import static io.netty.handler.codec.http.HttpResponseStatus.NOT_FOUND;
 import static io.netty.handler.codec.http.HttpResponseStatus.OK;
 import static org.apache.bifromq.apiserver.Headers.HEADER_CLIENT_ID;
 import static org.apache.bifromq.apiserver.Headers.HEADER_USER_ID;
-import static org.apache.bifromq.apiserver.http.handler.HeaderUtils.getHeader;
+import static org.apache.bifromq.apiserver.http.handler.utils.HeaderUtils.getHeader;
 
-import org.apache.bifromq.plugin.settingprovider.ISettingProvider;
 import com.google.protobuf.util.JsonFormat;
 import io.netty.buffer.Unpooled;
 import io.netty.handler.codec.http.DefaultFullHttpResponse;
@@ -45,12 +44,11 @@ import jakarta.ws.rs.GET;
 import jakarta.ws.rs.Path;
 import java.util.concurrent.CompletableFuture;
 import lombok.SneakyThrows;
-import lombok.extern.slf4j.Slf4j;
+import org.apache.bifromq.plugin.settingprovider.ISettingProvider;
 import org.apache.bifromq.sessiondict.client.ISessionDictClient;
 import org.apache.bifromq.sessiondict.rpc.proto.GetRequest;
 import org.apache.bifromq.type.ClientInfo;
 
-@Slf4j
 @Path("/session")
 final class GetSessionInfoHandler extends TenantAwareHandler {
     private final ISessionDictClient sessionDictClient;
@@ -88,7 +86,6 @@ final class GetSessionInfoHandler extends TenantAwareHandler {
                                                       @Parameter(hidden = true) FullHttpRequest req) {
         String userId = getHeader(HEADER_USER_ID, req, true);
         String clientId = getHeader(HEADER_CLIENT_ID, req, true);
-        log.trace("Handling http get session info request: {}", req);
         return sessionDictClient.get(GetRequest.newBuilder()
                 .setReqId(reqId)
                 .setTenantId(tenantId)

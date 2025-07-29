@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 
 package org.apache.bifromq.basekv.client;
@@ -65,7 +65,7 @@ import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.IntStream;
 import org.apache.bifromq.baseenv.EnvProvider;
 import org.apache.bifromq.basekv.RPCBluePrint;
-import org.apache.bifromq.basekv.metaservice.IBaseKVClusterMetadataManager;
+import org.apache.bifromq.basekv.metaservice.IBaseKVLandscapeObserver;
 import org.apache.bifromq.basekv.metaservice.IBaseKVMetaService;
 import org.apache.bifromq.basekv.proto.Boundary;
 import org.apache.bifromq.basekv.proto.KVRangeDescriptor;
@@ -111,7 +111,7 @@ final class BaseKVStoreClient implements IBaseKVStoreClient {
     private final AtomicBoolean closed = new AtomicBoolean();
     private final CompositeDisposable disposables = new CompositeDisposable();
     private final int queryPipelinesPerStore;
-    private final IBaseKVClusterMetadataManager metadataManager;
+    private final IBaseKVLandscapeObserver landscapeObserver;
     private final MethodDescriptor<BootstrapRequest, BootstrapReply> bootstrapMethod;
     private final MethodDescriptor<RecoverRequest, RecoverReply> recoverMethod;
     private final MethodDescriptor<TransferLeadershipRequest, TransferLeadershipReply> transferLeadershipMethod;
@@ -170,8 +170,8 @@ final class BaseKVStoreClient implements IBaseKVStoreClient {
             .idleTimeoutInSec(builder.idleTimeoutInSec)
             .keepAliveInSec(builder.keepAliveInSec)
             .build();
-        metadataManager = metaService.metadataManager(clusterId);
-        clusterInfoObservable = Observable.combineLatest(metadataManager.landscape(), rpcClient.serverList()
+        landscapeObserver = metaService.landscapeObserver(clusterId);
+        clusterInfoObservable = Observable.combineLatest(landscapeObserver.landscape(), rpcClient.serverList()
                 .map(servers -> Maps.transformValues(servers, metadata ->
                     metadata.get(RPC_METADATA_STORE_ID))), ClusterInfo::new)
             .observeOn(SHARE_CLIENT_SCHEDULER)
@@ -447,6 +447,7 @@ final class BaseKVStoreClient implements IBaseKVStoreClient {
     public void close() {
         if (closed.compareAndSet(false, true)) {
             log.debug("Stopping BaseKVStore client: cluster[{}]", clusterId);
+            landscapeObserver.stop();
             disposables.dispose();
             log.debug("Closing execution pipelines: cluster[{}]", clusterId);
             mutPplns.values().forEach(pplns -> pplns.values().forEach(IMutationPipeline::close));

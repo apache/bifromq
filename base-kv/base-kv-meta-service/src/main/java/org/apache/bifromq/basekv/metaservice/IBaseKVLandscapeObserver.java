@@ -19,18 +19,33 @@
 
 package org.apache.bifromq.basekv.metaservice;
 
-import com.google.protobuf.Struct;
+import io.reactivex.rxjava3.core.Observable;
+import java.util.Map;
+import java.util.Optional;
+import org.apache.bifromq.basekv.proto.KVRangeStoreDescriptor;
 
 /**
- * The proposal of LoadRules.
+ * The landscape observer of base-kv cluster.
  */
-public interface LoadRulesProposalHandler {
+public interface IBaseKVLandscapeObserver {
     /**
-     * The handle result of the proposal.
+     * Get the observable of landscape.
+     *
+     * @return the observable of landscape
      */
-    enum Result {
-        ACCEPTED, REJECTED, NO_BALANCER
-    }
+    Observable<Map<String, KVRangeStoreDescriptor>> landscape();
 
-    LoadRulesProposalHandler.Result handle(String balancerClassFQN, Struct loadRules);
+    /**
+     * Get the store descriptor for the given store id in current landscape.
+     *
+     * @param storeId the store id
+     * @return the store descriptor
+     */
+    Optional<KVRangeStoreDescriptor> getStoreDescriptor(String storeId);
+
+    /**
+     * Stop the manager.
+     *
+     */
+    void stop();
 }

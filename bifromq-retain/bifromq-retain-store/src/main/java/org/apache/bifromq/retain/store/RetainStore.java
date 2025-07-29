@@ -19,17 +19,6 @@
 
 package org.apache.bifromq.retain.store;
 
-import org.apache.bifromq.base.util.AsyncRunner;
-import org.apache.bifromq.baseenv.EnvProvider;
-import org.apache.bifromq.basehlc.HLC;
-import org.apache.bifromq.basehookloader.BaseHookLoader;
-import org.apache.bifromq.basekv.balance.KVStoreBalanceController;
-import org.apache.bifromq.basekv.client.IBaseKVStoreClient;
-import org.apache.bifromq.basekv.server.IBaseKVStoreServer;
-import org.apache.bifromq.baserpc.client.IConnectable;
-import org.apache.bifromq.retain.store.gc.IRetainStoreGCProcessor;
-import org.apache.bifromq.retain.store.gc.RetainStoreGCProcessor;
-import org.apache.bifromq.retain.store.spi.IRetainStoreBalancerFactory;
 import com.google.common.util.concurrent.MoreExecutors;
 import io.micrometer.core.instrument.Metrics;
 import io.micrometer.core.instrument.binder.jvm.ExecutorServiceMetrics;
@@ -46,6 +35,17 @@ import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.bifromq.base.util.AsyncRunner;
+import org.apache.bifromq.baseenv.EnvProvider;
+import org.apache.bifromq.basehlc.HLC;
+import org.apache.bifromq.basehookloader.BaseHookLoader;
+import org.apache.bifromq.basekv.balance.KVStoreBalanceController;
+import org.apache.bifromq.basekv.client.IBaseKVStoreClient;
+import org.apache.bifromq.basekv.server.IBaseKVStoreServer;
+import org.apache.bifromq.baserpc.client.IConnectable;
+import org.apache.bifromq.retain.store.gc.IRetainStoreGCProcessor;
+import org.apache.bifromq.retain.store.gc.RetainStoreGCProcessor;
+import org.apache.bifromq.retain.store.spi.IRetainStoreBalancerFactory;
 
 @Slf4j
 class RetainStore implements IRetainStore {
@@ -84,7 +84,7 @@ class RetainStore implements IRetainStore {
 
 
         balanceController = new KVStoreBalanceController(
-            builder.metaService.metadataManager(clusterId),
+            builder.metaService,
             storeClient,
             effectiveBalancerFactories,
             builder.bootstrapDelay,

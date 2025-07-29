@@ -19,16 +19,11 @@
 
 package org.apache.bifromq.apiserver.http.handler;
 
-import static org.apache.bifromq.apiserver.Headers.HEADER_EXPIRY_SECONDS;
-import static org.apache.bifromq.apiserver.http.handler.HeaderUtils.getHeader;
 import static io.netty.handler.codec.http.HttpResponseStatus.OK;
 import static io.netty.handler.codec.http.HttpResponseStatus.TOO_MANY_REQUESTS;
+import static org.apache.bifromq.apiserver.Headers.HEADER_EXPIRY_SECONDS;
+import static org.apache.bifromq.apiserver.http.handler.utils.HeaderUtils.getHeader;
 
-import org.apache.bifromq.basehlc.HLC;
-import org.apache.bifromq.inbox.client.IInboxClient;
-import org.apache.bifromq.inbox.rpc.proto.ExpireAllReply;
-import org.apache.bifromq.inbox.rpc.proto.ExpireAllRequest;
-import org.apache.bifromq.plugin.settingprovider.ISettingProvider;
 import io.netty.buffer.Unpooled;
 import io.netty.handler.codec.http.DefaultFullHttpResponse;
 import io.netty.handler.codec.http.FullHttpRequest;
@@ -44,9 +39,12 @@ import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import jakarta.ws.rs.DELETE;
 import jakarta.ws.rs.Path;
 import java.util.concurrent.CompletableFuture;
-import lombok.extern.slf4j.Slf4j;
+import org.apache.bifromq.basehlc.HLC;
+import org.apache.bifromq.inbox.client.IInboxClient;
+import org.apache.bifromq.inbox.rpc.proto.ExpireAllReply;
+import org.apache.bifromq.inbox.rpc.proto.ExpireAllRequest;
+import org.apache.bifromq.plugin.settingprovider.ISettingProvider;
 
-@Slf4j
 @Path("/session")
 final class ExpireSessionHandler extends TenantAwareHandler {
     private final IInboxClient inboxClient;
@@ -76,7 +74,6 @@ final class ExpireSessionHandler extends TenantAwareHandler {
                                                       @Parameter(hidden = true) String tenantId,
                                                       @Parameter(hidden = true) FullHttpRequest req) {
         int expirySeconds = Integer.parseInt(getHeader(HEADER_EXPIRY_SECONDS, req, true));
-        log.trace("Handling http expiry inbox request: {}", req);
         ExpireAllRequest.Builder reqBuilder = ExpireAllRequest.newBuilder()
             .setReqId(reqId)
             .setExpirySeconds(expirySeconds)

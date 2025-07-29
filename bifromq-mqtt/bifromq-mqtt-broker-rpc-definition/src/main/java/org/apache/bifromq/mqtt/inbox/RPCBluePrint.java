@@ -14,20 +14,20 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 
 package org.apache.bifromq.mqtt.inbox;
 
 import org.apache.bifromq.baserpc.BluePrint;
-import org.apache.bifromq.mqtt.inbox.rpc.proto.OnlineInboxBrokerGrpc;
+import org.apache.bifromq.mqtt.inbox.rpc.proto.BrokerServiceGrpc;
 
 public class RPCBluePrint {
     public static final BluePrint INSTANCE = BluePrint.builder()
-        .serviceDescriptor(OnlineInboxBrokerGrpc.getServiceDescriptor())
-        .methodSemantic(OnlineInboxBrokerGrpc.getWriteMethod(), BluePrint.DDPipelineUnaryMethod.getInstance())
-        .methodSemantic(OnlineInboxBrokerGrpc.getSubMethod(), BluePrint.DDUnaryMethod.getInstance())
-        .methodSemantic(OnlineInboxBrokerGrpc.getUnsubMethod(), BluePrint.DDUnaryMethod.getInstance())
-        .methodSemantic(OnlineInboxBrokerGrpc.getCheckSubscriptionsMethod(), BluePrint.DDUnaryMethod.getInstance())
+        .serviceDescriptor(BrokerServiceGrpc.getServiceDescriptor())
+        .methodSemantic(BrokerServiceGrpc.getWriteMethod(), BluePrint.DDPipelineUnaryMethod.getInstance())
+        .methodSemantic(BrokerServiceGrpc.getSubMethod(), BluePrint.DDUnaryMethod.getInstance())
+        .methodSemantic(BrokerServiceGrpc.getUnsubMethod(), BluePrint.DDUnaryMethod.getInstance())
+        .methodSemantic(BrokerServiceGrpc.getCheckSubscriptionsMethod(), BluePrint.DDUnaryMethod.getInstance())
         .build();
 }

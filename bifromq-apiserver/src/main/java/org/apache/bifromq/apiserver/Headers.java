@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 
 package org.apache.bifromq.apiserver;
@@ -35,6 +35,7 @@ public enum Headers {
     HEADER_QOS("qos"),
     HEADER_EXPIRY_SECONDS("expiry_seconds"),
     HEADER_SERVER_ID("server_id"),
+    HEADER_STORE_ID("store_id"),
     HEADER_SERVICE_NAME("service_name"),
     HEADER_STORE_NAME("store_name"),
     HEADER_BALANCER_FACTORY_CLASS("balancer_factory_class");

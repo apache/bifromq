@@ -19,15 +19,6 @@
 
 package org.apache.bifromq.inbox.store;
 
-import org.apache.bifromq.base.util.AsyncRunner;
-import org.apache.bifromq.baseenv.EnvProvider;
-import org.apache.bifromq.basehlc.HLC;
-import org.apache.bifromq.basehookloader.BaseHookLoader;
-import org.apache.bifromq.basekv.balance.KVStoreBalanceController;
-import org.apache.bifromq.basekv.client.IBaseKVStoreClient;
-import org.apache.bifromq.basekv.server.IBaseKVStoreServer;
-import org.apache.bifromq.baserpc.client.IConnectable;
-import org.apache.bifromq.inbox.store.spi.IInboxStoreBalancerFactory;
 import com.google.common.util.concurrent.MoreExecutors;
 import io.micrometer.core.instrument.Metrics;
 import io.micrometer.core.instrument.binder.jvm.ExecutorServiceMetrics;
@@ -44,6 +35,15 @@ import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.bifromq.base.util.AsyncRunner;
+import org.apache.bifromq.baseenv.EnvProvider;
+import org.apache.bifromq.basehlc.HLC;
+import org.apache.bifromq.basehookloader.BaseHookLoader;
+import org.apache.bifromq.basekv.balance.KVStoreBalanceController;
+import org.apache.bifromq.basekv.client.IBaseKVStoreClient;
+import org.apache.bifromq.basekv.server.IBaseKVStoreServer;
+import org.apache.bifromq.baserpc.client.IConnectable;
+import org.apache.bifromq.inbox.store.spi.IInboxStoreBalancerFactory;
 
 @Slf4j
 class InboxStore implements IInboxStore {
@@ -91,7 +91,7 @@ class InboxStore implements IInboxStore {
         }
 
         balanceController = new KVStoreBalanceController(
-            builder.metaService.metadataManager(clusterId),
+            builder.metaService,
             inboxStoreClient,
             effectiveBalancerFactories,
             builder.bootstrapDelay,

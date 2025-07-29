@@ -21,7 +21,6 @@ package org.apache.bifromq.apiserver.http.handler;
 
 import static io.netty.handler.codec.http.HttpResponseStatus.OK;
 
-import org.apache.bifromq.baserpc.trafficgovernor.IRPCServiceTrafficService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import io.netty.buffer.Unpooled;
@@ -41,19 +40,18 @@ import jakarta.ws.rs.GET;
 import jakarta.ws.rs.Path;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
-import lombok.extern.slf4j.Slf4j;
+import org.apache.bifromq.apiserver.http.handler.utils.JSONUtils;
+import org.apache.bifromq.baserpc.trafficgovernor.IRPCServiceTrafficService;
 
-@Slf4j
-@Path("/landscape/services")
+@Path("/services")
 final class ListAllServicesHandler extends AbstractTrafficRulesHandler {
 
     ListAllServicesHandler(IRPCServiceTrafficService trafficService) {
         super(trafficService);
     }
 
-
     @GET
-    @Operation(summary = "List the name of sub-services in the cluster")
+    @Operation(summary = "List the name of services in BifroMQ cluster")
     @Parameters({
         @Parameter(name = "req_id",
             in = ParameterIn.HEADER,
@@ -69,7 +67,6 @@ final class ListAllServicesHandler extends AbstractTrafficRulesHandler {
     @Override
     public CompletableFuture<FullHttpResponse> handle(@Parameter(hidden = true) long reqId,
                                                       @Parameter(hidden = true) FullHttpRequest req) {
-        log.trace("Handling http get service landscape request: {}", req);
         Set<String> serviceUniqueNames = governorMap.keySet();
         DefaultFullHttpResponse
             resp = new DefaultFullHttpResponse(req.protocolVersion(), OK,
@@ -79,7 +76,7 @@ final class ListAllServicesHandler extends AbstractTrafficRulesHandler {
     }
 
     private String toJSON(Set<String> serviceUniqueNames) {
-        ObjectMapper mapper = new ObjectMapper();
+        ObjectMapper mapper = JSONUtils.MAPPER;
         ArrayNode rootObject = mapper.createArrayNode();
         for (String name : serviceUniqueNames) {
             rootObject.add(name);

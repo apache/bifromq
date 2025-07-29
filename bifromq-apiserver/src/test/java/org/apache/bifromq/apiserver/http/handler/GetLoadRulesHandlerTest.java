@@ -14,19 +14,16 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 
 package org.apache.bifromq.apiserver.http.handler;
 
 import static org.apache.bifromq.apiserver.Headers.HEADER_BALANCER_FACTORY_CLASS;
 import static org.apache.bifromq.apiserver.Headers.HEADER_STORE_NAME;
-import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.when;
 import static org.testng.Assert.assertEquals;
 
-import org.apache.bifromq.basekv.metaservice.IBaseKVClusterMetadataManager;
-import com.google.protobuf.Struct;
 import io.netty.handler.codec.http.DefaultFullHttpRequest;
 import io.netty.handler.codec.http.FullHttpResponse;
 import io.netty.handler.codec.http.HttpMethod;
@@ -36,16 +33,14 @@ import io.reactivex.rxjava3.subjects.Subject;
 import java.util.Collections;
 import java.util.Map;
 import java.util.Set;
-import org.mockito.Mock;
+import org.apache.bifromq.basekv.proto.BalancerStateSnapshot;
 import org.testng.annotations.BeforeMethod;
 import org.testng.annotations.Test;
 
 public class GetLoadRulesHandlerTest extends AbstractHTTPRequestHandlerTest<GetLoadRulesHandler> {
 
-    @Mock
-    private IBaseKVClusterMetadataManager metadataManager;
-    private Subject<Map<String, Struct>> mockLoadRulesSubject = BehaviorSubject.create();
-    private Subject<Set<String>> mockClusterIdSubject = BehaviorSubject.create();
+    private final Subject<Map<String, BalancerStateSnapshot>> mockBalancerStatesSubject = BehaviorSubject.create();
+    private final Subject<Set<String>> mockClusterIdSubject = BehaviorSubject.create();
 
     @BeforeMethod
     public void setup() {
@@ -75,8 +70,7 @@ public class GetLoadRulesHandlerTest extends AbstractHTTPRequestHandlerTest<GetL
         DefaultFullHttpRequest req = buildRequest(HttpMethod.GET);
         req.headers().set(HEADER_STORE_NAME.header, clusterId);
         req.headers().set(HEADER_BALANCER_FACTORY_CLASS.header, balancerFacClass);
-        when(metaService.metadataManager(eq(clusterId))).thenReturn(metadataManager);
-        when(metadataManager.loadRules()).thenReturn(mockLoadRulesSubject);
+        when(statesProposal.expectedBalancerStates()).thenReturn(mockBalancerStatesSubject);
 
         GetLoadRulesHandler handler = new GetLoadRulesHandler(metaService);
         handler.start();
@@ -97,13 +91,14 @@ public class GetLoadRulesHandlerTest extends AbstractHTTPRequestHandlerTest<GetL
         String storeName = "dist.worker";
         String balancerFacClass = "balancerFactoryClass";
         DefaultFullHttpRequest req = buildRequest(HttpMethod.GET);
-        Map<String, Struct> loadRules = Map.of("balancerFactoryClass", Struct.getDefaultInstance());
         req.headers().set(HEADER_STORE_NAME.header, storeName);
         req.headers().set(HEADER_BALANCER_FACTORY_CLASS.header, balancerFacClass);
-        when(metaService.metadataManager(eq(storeName))).thenReturn(metadataManager);
-        when(metadataManager.loadRules()).thenReturn(mockLoadRulesSubject);
+        when(statesProposal.expectedBalancerStates()).thenReturn(mockBalancerStatesSubject);
         mockClusterIdSubject.onNext(Set.of(storeName));
-        mockLoadRulesSubject.onNext(loadRules);
+
+        Map<String, BalancerStateSnapshot> expected = Map.of("balancerFactoryClass",
+            BalancerStateSnapshot.getDefaultInstance());
+        mockBalancerStatesSubject.onNext(expected);
         GetLoadRulesHandler handler = new GetLoadRulesHandler(metaService);
         handler.start();
         FullHttpResponse resp = handler.handle(123, req).join();

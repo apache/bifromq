@@ -14,37 +14,23 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 
 package org.apache.bifromq.basekv.balance;
 
 import static org.apache.bifromq.basekv.utils.BoundaryUtil.FULL_BOUNDARY;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.reset;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
-import static org.testng.Assert.assertEquals;
 
-import org.apache.bifromq.basekv.balance.command.BootstrapCommand;
-import org.apache.bifromq.basekv.balance.command.ChangeConfigCommand;
-import org.apache.bifromq.basekv.balance.command.MergeCommand;
-import org.apache.bifromq.basekv.balance.command.RecoveryCommand;
-import org.apache.bifromq.basekv.balance.command.SplitCommand;
-import org.apache.bifromq.basekv.balance.command.TransferLeadershipCommand;
-import org.apache.bifromq.basekv.balance.utils.DescriptorUtils;
-import org.apache.bifromq.basekv.client.IBaseKVStoreClient;
-import org.apache.bifromq.basekv.metaservice.IBaseKVClusterMetadataManager;
-import org.apache.bifromq.basekv.metaservice.LoadRulesProposalHandler;
-import org.apache.bifromq.basekv.proto.KVRangeDescriptor;
-import org.apache.bifromq.basekv.proto.KVRangeId;
-import org.apache.bifromq.basekv.proto.KVRangeStoreDescriptor;
-import org.apache.bifromq.basekv.store.proto.KVRangeSplitReply;
-import org.apache.bifromq.basekv.store.proto.ReplyCode;
-import org.apache.bifromq.basekv.utils.KVRangeIdUtil;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 import com.google.protobuf.ByteString;
@@ -62,7 +48,24 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import lombok.extern.slf4j.Slf4j;
-import org.mockito.ArgumentCaptor;
+import org.apache.bifromq.basekv.balance.command.BootstrapCommand;
+import org.apache.bifromq.basekv.balance.command.ChangeConfigCommand;
+import org.apache.bifromq.basekv.balance.command.MergeCommand;
+import org.apache.bifromq.basekv.balance.command.RecoveryCommand;
+import org.apache.bifromq.basekv.balance.command.SplitCommand;
+import org.apache.bifromq.basekv.balance.command.TransferLeadershipCommand;
+import org.apache.bifromq.basekv.balance.utils.DescriptorUtils;
+import org.apache.bifromq.basekv.client.IBaseKVStoreClient;
+import org.apache.bifromq.basekv.metaservice.IBaseKVMetaService;
+import org.apache.bifromq.basekv.metaservice.IBaseKVStoreBalancerStatesProposal;
+import org.apache.bifromq.basekv.metaservice.IBaseKVStoreBalancerStatesReporter;
+import org.apache.bifromq.basekv.proto.BalancerStateSnapshot;
+import org.apache.bifromq.basekv.proto.KVRangeDescriptor;
+import org.apache.bifromq.basekv.proto.KVRangeId;
+import org.apache.bifromq.basekv.proto.KVRangeStoreDescriptor;
+import org.apache.bifromq.basekv.store.proto.KVRangeSplitReply;
+import org.apache.bifromq.basekv.store.proto.ReplyCode;
+import org.apache.bifromq.basekv.utils.KVRangeIdUtil;
 import org.mockito.Mock;
 import org.mockito.MockitoAnnotations;
 import org.testng.annotations.AfterMethod;
@@ -74,10 +77,14 @@ public class KVStoreBalanceControllerTest {
 
     private static final String CLUSTER_ID = "test_cluster";
     private static final String LOCAL_STORE_ID = "localStoreId";
-    private final PublishSubject<Map<String, Struct>> loadRuleSubject = PublishSubject.create();
+    private final PublishSubject<Map<String, BalancerStateSnapshot>> proposalSubject = PublishSubject.create();
     private final PublishSubject<Set<KVRangeStoreDescriptor>> storeDescSubject = PublishSubject.create();
     @Mock
-    private IBaseKVClusterMetadataManager metadataManager;
+    private IBaseKVMetaService metaService;
+    @Mock
+    private IBaseKVStoreBalancerStatesProposal statesProposal;
+    @Mock
+    private IBaseKVStoreBalancerStatesReporter statesReporter;
     @Mock
     private IBaseKVStoreClient storeClient;
     @Mock
@@ -92,17 +99,20 @@ public class KVStoreBalanceControllerTest {
     public void setup() throws IOException {
         closeable = MockitoAnnotations.openMocks(this);
         when(storeClient.clusterId()).thenReturn(CLUSTER_ID);
+        when(storeBalancer.initialLoadRules()).thenReturn(Struct.getDefaultInstance());
         when(balancerFactory.newBalancer(eq(CLUSTER_ID), eq(LOCAL_STORE_ID))).thenReturn(storeBalancer);
+        when(metaService.balancerStatesProposal(eq(CLUSTER_ID))).thenReturn(statesProposal);
+        when(metaService.balancerStatesReporter(eq(CLUSTER_ID), eq(LOCAL_STORE_ID))).thenReturn(statesReporter);
+        when(statesProposal.expectedBalancerStates()).thenReturn(proposalSubject);
+        when(storeClient.describe()).thenReturn(storeDescSubject);
         executor = Executors.newScheduledThreadPool(1);
-        balanceController = new KVStoreBalanceController(metadataManager,
+        balanceController = new KVStoreBalanceController(metaService,
             storeClient,
             List.of(balancerFactory),
             Duration.ofMillis(100),
             Duration.ofMillis(100),
             Duration.ofMillis(100),
             executor);
-        when(metadataManager.loadRules()).thenReturn(loadRuleSubject);
-        when(storeClient.describe()).thenReturn(storeDescSubject);
         balanceController.start(LOCAL_STORE_ID);
     }
 
@@ -123,6 +133,7 @@ public class KVStoreBalanceControllerTest {
     @Test
     public void testInput() {
         Set<KVRangeStoreDescriptor> storeDescriptors = generateDescriptor();
+        when(storeBalancer.validate(any())).thenReturn(true);
         when(storeBalancer.balance()).thenReturn(NoNeedBalance.INSTANCE);
         storeDescSubject.onNext(storeDescriptors);
         awaitExecute(200);
@@ -131,9 +142,14 @@ public class KVStoreBalanceControllerTest {
         verify(storeBalancer, times(1)).balance();
 
         log.info("Test input done");
-        loadRuleSubject.onNext(Map.of(balancerFactory.getClass().getName(), Struct.getDefaultInstance()));
+        BalancerStateSnapshot proposal = BalancerStateSnapshot.newBuilder()
+            .setLoadRules(Struct.newBuilder()
+                .putFields("test", Value.newBuilder().setNumberValue(1).build())
+                .build())
+            .build();
+        proposalSubject.onNext(Map.of(balancerFactory.getClass().getName(), proposal));
         awaitExecute(200);
-        verify(storeBalancer, times(1)).update(eq(Struct.getDefaultInstance()));
+        verify(storeBalancer, times(1)).update(eq(proposal.getLoadRules()));
         verify(storeBalancer, times(2)).balance();
     }
 
@@ -241,10 +257,10 @@ public class KVStoreBalanceControllerTest {
         storeDescSubject.onNext(storeDescriptors);
         awaitExecute(200);
         verify(storeClient, times(1)).splitRange(eq(LOCAL_STORE_ID), argThat(
-            r -> r.getKvRangeId().equals(id) && r.getVer() == command.getExpectedVer() &&
-                r.getSplitKey().equals(command.getSplitKey())));
+            r -> r.getKvRangeId().equals(id) && r.getVer() == command.getExpectedVer()
+                && r.getSplitKey().equals(command.getSplitKey())));
 
-        loadRuleSubject.onNext(Map.of(storeBalancer.getClass().getName(), Struct.getDefaultInstance()));
+        proposalSubject.onNext(Map.of(storeBalancer.getClass().getName(), BalancerStateSnapshot.getDefaultInstance()));
 
         awaitExecute(200);
         verify(storeClient, times(1)).splitRange(eq(LOCAL_STORE_ID), argThat(
@@ -315,26 +331,41 @@ public class KVStoreBalanceControllerTest {
     public void testRetryBeingPreempted() {
         KVRangeId id = KVRangeIdUtil.generate();
         Set<KVRangeStoreDescriptor> storeDescriptors = generateDescriptor();
-        SplitCommand command =
-            SplitCommand.builder().toStore(LOCAL_STORE_ID).kvRangeId(id).splitKey(ByteString.copyFromUtf8("splitKey"))
-                .expectedVer(2L).build();
+        SplitCommand command = SplitCommand.builder()
+            .toStore(LOCAL_STORE_ID)
+            .kvRangeId(id)
+            .splitKey(ByteString.copyFromUtf8("splitKey"))
+            .expectedVer(2L).build();
+        when(storeBalancer.validate(any())).thenReturn(true);
         when(storeBalancer.balance()).thenReturn(AwaitBalance.of(Duration.ofSeconds(10)), BalanceNow.of(command));
-        when(storeClient.splitRange(eq(LOCAL_STORE_ID), any())).thenReturn(
-            CompletableFuture.completedFuture(KVRangeSplitReply.newBuilder().setCode(ReplyCode.Ok).build()));
+        when(storeClient.splitRange(eq(LOCAL_STORE_ID), any()))
+            .thenReturn(CompletableFuture.completedFuture(KVRangeSplitReply.newBuilder()
+                .setCode(ReplyCode.Ok)
+                .build()));
         storeDescSubject.onNext(storeDescriptors);
         awaitExecute(200);
         verify(storeBalancer, times(1)).update(any(Set.class));
-        loadRuleSubject.onNext(Map.of(balancerFactory.getClass().getName(), Struct.getDefaultInstance()));
+
+        BalancerStateSnapshot proposal = BalancerStateSnapshot.newBuilder()
+            .setDisable(false)
+            .setLoadRules(Struct.newBuilder()
+                .putFields("test", Value.newBuilder().setNumberValue(1).build())
+                .build())
+            .build();
+        proposalSubject.onNext(Map.of(balancerFactory.getClass().getName(), proposal));
         awaitExecute(200);
         verify(storeBalancer, times(1)).update(any(Struct.class));
         awaitExecute(200);
-        verify(storeClient, times(1)).splitRange(eq(LOCAL_STORE_ID), argThat(
-            r -> r.getKvRangeId().equals(id) && r.getVer() == command.getExpectedVer()
+        verify(statesReporter).reportBalancerState(anyString(), eq(false), eq(proposal.getLoadRules()));
+        verify(storeClient, times(1)).splitRange(
+            eq(LOCAL_STORE_ID),
+            argThat(r -> r.getKvRangeId().equals(id)
+                && r.getVer() == command.getExpectedVer()
                 && r.getSplitKey().equals(command.getSplitKey())));
     }
 
     @Test
-    public void testDisableBalancerViaLoadRules() {
+    public void testDisableBalancer() {
         KVRangeId id = KVRangeIdUtil.generate();
         Set<KVRangeStoreDescriptor> storeDescriptors = generateDescriptor();
         when(storeBalancer.balance()).thenReturn(BalanceNow.of(
@@ -346,8 +377,8 @@ public class KVStoreBalanceControllerTest {
         verify(storeClient, times(1)).bootstrap(eq(LOCAL_STORE_ID),
             argThat(c -> c.getKvRangeId().equals(id) && c.getBoundary().equals(FULL_BOUNDARY)));
 
-        loadRuleSubject.onNext(Map.of(storeBalancer.getClass().getName(),
-            Struct.newBuilder().putFields("disable", Value.newBuilder().setBoolValue(true).build()).build()));
+        proposalSubject.onNext(Map.of(storeBalancer.getClass().getName(),
+            BalancerStateSnapshot.newBuilder().setDisable(true).build()));
         reset(storeClient);
         awaitExecute(200);
         verify(storeClient, times(0)).bootstrap(eq(LOCAL_STORE_ID),
@@ -355,21 +386,18 @@ public class KVStoreBalanceControllerTest {
     }
 
     @Test
-    public void testRejectProposalWhenDisableFieldTypeWrong() {
-        ArgumentCaptor<LoadRulesProposalHandler> captor = ArgumentCaptor.forClass(LoadRulesProposalHandler.class);
-        verify(metadataManager).setLoadRulesProposalHandler(captor.capture());
-        LoadRulesProposalHandler.Result result = captor.getValue().handle(balancerFactory.getClass().getName(),
-            Struct.newBuilder().putFields("disable", Value.newBuilder().setStringValue("wrongtype").build()).build());
-        assertEquals(result, LoadRulesProposalHandler.Result.REJECTED);
-    }
-
-    @Test
-    public void testDisableFieldRemovedBeforeValidation() {
-        ArgumentCaptor<LoadRulesProposalHandler> captor = ArgumentCaptor.forClass(LoadRulesProposalHandler.class);
-        verify(metadataManager).setLoadRulesProposalHandler(captor.capture());
-        LoadRulesProposalHandler.Result result = captor.getValue().handle(balancerFactory.getClass().getName(),
-            Struct.newBuilder().putFields("disable", Value.newBuilder().setBoolValue(true).build()).build());
-        verify(storeBalancer).validate(argThat(s -> !s.containsFields("disable")));
+    public void testInvalidRules() {
+        reset(statesReporter);
+        KVRangeId id = KVRangeIdUtil.generate();
+        Set<KVRangeStoreDescriptor> storeDescriptors = generateDescriptor(id, 2L);
+        when(storeClient.bootstrap(anyString(), any())).thenReturn(new CompletableFuture<>());
+        when(storeBalancer.validate(any())).thenReturn(false);
+        when(storeBalancer.balance()).thenReturn(BalanceNow.of(
+            BootstrapCommand.builder().kvRangeId(id).toStore(LOCAL_STORE_ID).boundary(FULL_BOUNDARY).build()));
+        storeDescSubject.onNext(storeDescriptors);
+        awaitExecute(200);
+        verify(storeBalancer, never()).update(any(Struct.class));
+        verify(statesReporter, never()).reportBalancerState(anyString(), anyBoolean(), any(Struct.class));
     }
 
     private Set<KVRangeStoreDescriptor> generateDescriptor(KVRangeId id, long ver) {

@@ -14,12 +14,11 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 
 package org.apache.bifromq.apiserver.http;
 
-import static org.apache.bifromq.apiserver.Headers.HEADER_REQ_ID;
 import static io.netty.handler.codec.http.HttpHeaderNames.CONNECTION;
 import static io.netty.handler.codec.http.HttpHeaderNames.CONTENT_LENGTH;
 import static io.netty.handler.codec.http.HttpHeaderNames.CONTENT_TYPE;
@@ -27,9 +26,8 @@ import static io.netty.handler.codec.http.HttpHeaderValues.CLOSE;
 import static io.netty.handler.codec.http.HttpHeaderValues.KEEP_ALIVE;
 import static io.netty.handler.codec.http.HttpVersion.HTTP_1_0;
 import static io.netty.handler.codec.http.HttpVersion.HTTP_1_1;
+import static org.apache.bifromq.apiserver.Headers.HEADER_REQ_ID;
 
-import org.apache.bifromq.apiserver.http.handler.HeaderUtils;
-import org.apache.bifromq.plugin.settingprovider.ISettingProvider;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
 import io.netty.channel.ChannelFutureListener;
@@ -45,6 +43,8 @@ import io.netty.handler.codec.http.HttpUtil;
 import io.netty.handler.codec.http.HttpVersion;
 import java.util.concurrent.CompletableFuture;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.bifromq.apiserver.http.handler.utils.HeaderUtils;
+import org.apache.bifromq.plugin.settingprovider.ISettingProvider;
 
 @Slf4j
 public class HTTPRequestRouter extends SimpleChannelInboundHandler<FullHttpRequest> {
@@ -96,6 +96,7 @@ public class HTTPRequestRouter extends SimpleChannelInboundHandler<FullHttpReque
 
     private CompletableFuture<FullHttpResponse> doHandle(long reqId, FullHttpRequest req) {
         try {
+            log.trace("Handling request: reqId={} \n{}", reqId, req);
             return routeMap.getHandler(req).handle(reqId, req);
         } catch (Throwable e) {
             return CompletableFuture.failedFuture(e);

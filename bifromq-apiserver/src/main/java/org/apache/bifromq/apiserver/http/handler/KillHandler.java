@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 
 package org.apache.bifromq.apiserver.http.handler;
@@ -27,10 +27,9 @@ import static org.apache.bifromq.apiserver.Headers.HEADER_CLIENT_TYPE;
 import static org.apache.bifromq.apiserver.Headers.HEADER_SERVER_REDIRECT;
 import static org.apache.bifromq.apiserver.Headers.HEADER_SERVER_REFERENCE;
 import static org.apache.bifromq.apiserver.Headers.HEADER_USER_ID;
-import static org.apache.bifromq.apiserver.http.handler.HeaderUtils.getClientMeta;
-import static org.apache.bifromq.apiserver.http.handler.HeaderUtils.getHeader;
+import static org.apache.bifromq.apiserver.http.handler.utils.HeaderUtils.getClientMeta;
+import static org.apache.bifromq.apiserver.http.handler.utils.HeaderUtils.getHeader;
 
-import org.apache.bifromq.plugin.settingprovider.ISettingProvider;
 import com.google.common.base.Strings;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
@@ -51,14 +50,13 @@ import jakarta.ws.rs.Path;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
-import lombok.extern.slf4j.Slf4j;
+import org.apache.bifromq.plugin.settingprovider.ISettingProvider;
 import org.apache.bifromq.sessiondict.client.ISessionDictClient;
 import org.apache.bifromq.sessiondict.rpc.proto.KillAllReply;
 import org.apache.bifromq.sessiondict.rpc.proto.KillReply;
 import org.apache.bifromq.sessiondict.rpc.proto.ServerRedirection;
 import org.apache.bifromq.type.ClientInfo;
 
-@Slf4j
 @Path("/kill")
 final class KillHandler extends TenantAwareHandler {
     private static final int MAX_SERVER_REFERENCE_LENGTH = 65535;
@@ -129,7 +127,6 @@ final class KillHandler extends TenantAwareHandler {
         }
 
         ServerRedirection serverRedirection = buildServerRedirection(serverRedirect, serverReference);
-        log.trace("Handling http kill request: {}", req);
         if (Strings.isNullOrEmpty(userId) || Strings.isNullOrEmpty(clientId)) {
             return sessionDictClient.killAll(reqId, tenantId, userId, ClientInfo.newBuilder()
                     .setTenantId(tenantId)

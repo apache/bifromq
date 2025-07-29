@@ -17,29 +17,13 @@
  */
 
 syntax = "proto3";
-
-import "google/protobuf/struct.proto";
-
 package basekv;
 
 option java_multiple_files = true;
 option java_package = "org.apache.bifromq.basekv.proto";
 option optimize_for = SPEED;
 
-message LoadRules{
-  google.protobuf.Struct loadRules = 1; // json object
-  uint64 hlc = 2;
-}
-
-enum ProposalResult{
-  ACCEPTED = 0;
-  REJECTED = 1;
-}
-
-message LoadRulesProposition{
-  oneof Type{
-    google.protobuf.Struct proposal = 1;
-    ProposalResult proposalResult = 2;
-  }
-  uint64 hlc = 3;
+message StoreKey{
+  string storeId = 1;
+  bytes replicaId = 2;
 }

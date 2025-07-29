@@ -19,23 +19,16 @@
 
 package org.apache.bifromq.apiserver.http.handler;
 
-import static org.apache.bifromq.apiserver.Headers.HEADER_CLIENT_TYPE;
-import static org.apache.bifromq.apiserver.Headers.HEADER_EXPIRY_SECONDS;
-import static org.apache.bifromq.apiserver.Headers.HEADER_QOS;
-import static org.apache.bifromq.apiserver.http.handler.HeaderUtils.getClientMeta;
-import static org.apache.bifromq.apiserver.http.handler.HeaderUtils.getHeader;
 import static io.netty.handler.codec.http.HttpResponseStatus.BAD_REQUEST;
 import static io.netty.handler.codec.http.HttpResponseStatus.INTERNAL_SERVER_ERROR;
 import static io.netty.handler.codec.http.HttpResponseStatus.OK;
 import static io.netty.handler.codec.http.HttpResponseStatus.UNAUTHORIZED;
+import static org.apache.bifromq.apiserver.Headers.HEADER_CLIENT_TYPE;
+import static org.apache.bifromq.apiserver.Headers.HEADER_EXPIRY_SECONDS;
+import static org.apache.bifromq.apiserver.Headers.HEADER_QOS;
+import static org.apache.bifromq.apiserver.http.handler.utils.HeaderUtils.getClientMeta;
+import static org.apache.bifromq.apiserver.http.handler.utils.HeaderUtils.getHeader;
 
-import org.apache.bifromq.apiserver.Headers;
-import org.apache.bifromq.apiserver.utils.TopicUtil;
-import org.apache.bifromq.plugin.settingprovider.ISettingProvider;
-import org.apache.bifromq.plugin.settingprovider.Setting;
-import org.apache.bifromq.retain.client.IRetainClient;
-import org.apache.bifromq.type.ClientInfo;
-import org.apache.bifromq.type.QoS;
 import com.google.protobuf.ByteString;
 import io.netty.buffer.Unpooled;
 import io.netty.handler.codec.http.DefaultFullHttpResponse;
@@ -55,9 +48,14 @@ import jakarta.ws.rs.Path;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
-import lombok.extern.slf4j.Slf4j;
+import org.apache.bifromq.apiserver.Headers;
+import org.apache.bifromq.apiserver.utils.TopicUtil;
+import org.apache.bifromq.plugin.settingprovider.ISettingProvider;
+import org.apache.bifromq.plugin.settingprovider.Setting;
+import org.apache.bifromq.retain.client.IRetainClient;
+import org.apache.bifromq.type.ClientInfo;
+import org.apache.bifromq.type.QoS;
 
-@Slf4j
 @Path("/retain")
 final class RetainHandler extends TenantAwareHandler {
     private final IRetainClient retainClient;
@@ -104,12 +102,7 @@ final class RetainHandler extends TenantAwareHandler {
                                                       @Parameter(hidden = true) String tenantId,
                                                       @Parameter(hidden = true) FullHttpRequest req) {
         String topic = getHeader(Headers.HEADER_TOPIC, req, true);
-        String clientType = getHeader(HEADER_CLIENT_TYPE, req, true);
         int qos = Integer.parseInt(getHeader(HEADER_QOS, req, true));
-        int expirySeconds = Optional.ofNullable(getHeader(HEADER_EXPIRY_SECONDS, req, false)).map(Integer::parseInt)
-            .orElse(Integer.MAX_VALUE);
-        Map<String, String> clientMeta = getClientMeta(req);
-        log.trace("Handling http retain request: {}", req);
         boolean retainEnabled = settingProvider.provide(Setting.RetainEnabled, tenantId);
         if (!retainEnabled) {
             return CompletableFuture.completedFuture(
@@ -123,6 +116,11 @@ final class RetainHandler extends TenantAwareHandler {
             return CompletableFuture.completedFuture(
                 new DefaultFullHttpResponse(req.protocolVersion(), BAD_REQUEST, Unpooled.EMPTY_BUFFER));
         }
+        int expirySeconds = Optional.ofNullable(getHeader(HEADER_EXPIRY_SECONDS, req, false))
+            .map(Integer::parseInt)
+            .orElse(Integer.MAX_VALUE);
+        String clientType = getHeader(HEADER_CLIENT_TYPE, req, true);
+        Map<String, String> clientMeta = getClientMeta(req);
         ClientInfo clientInfo = ClientInfo.newBuilder()
             .setTenantId(tenantId)
             .setType(clientType)

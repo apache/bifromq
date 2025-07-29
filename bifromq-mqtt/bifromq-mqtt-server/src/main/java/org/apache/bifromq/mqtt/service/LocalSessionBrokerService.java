@@ -21,23 +21,23 @@ package org.apache.bifromq.mqtt.service;
 
 import static org.apache.bifromq.baserpc.server.UnaryResponse.response;
 
-import org.apache.bifromq.mqtt.session.IMQTTSession;
-import org.apache.bifromq.plugin.subbroker.CheckReply;
-import org.apache.bifromq.plugin.subbroker.CheckRequest;
 import io.grpc.stub.StreamObserver;
 import java.util.concurrent.CompletableFuture;
 import lombok.extern.slf4j.Slf4j;
-import org.apache.bifromq.mqtt.inbox.rpc.proto.OnlineInboxBrokerGrpc;
+import org.apache.bifromq.mqtt.inbox.rpc.proto.BrokerServiceGrpc;
 import org.apache.bifromq.mqtt.inbox.rpc.proto.SubReply;
 import org.apache.bifromq.mqtt.inbox.rpc.proto.SubRequest;
 import org.apache.bifromq.mqtt.inbox.rpc.proto.UnsubReply;
 import org.apache.bifromq.mqtt.inbox.rpc.proto.UnsubRequest;
 import org.apache.bifromq.mqtt.inbox.rpc.proto.WriteReply;
 import org.apache.bifromq.mqtt.inbox.rpc.proto.WriteRequest;
+import org.apache.bifromq.mqtt.session.IMQTTSession;
+import org.apache.bifromq.plugin.subbroker.CheckReply;
+import org.apache.bifromq.plugin.subbroker.CheckRequest;
 import org.apache.bifromq.type.MatchInfo;
 
 @Slf4j
-final class LocalSessionBrokerService extends OnlineInboxBrokerGrpc.OnlineInboxBrokerImplBase {
+final class LocalSessionBrokerService extends BrokerServiceGrpc.BrokerServiceImplBase {
     private final ILocalSessionRegistry localSessionRegistry;
     private final ILocalDistService localDistService;
 

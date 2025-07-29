@@ -24,6 +24,11 @@ import static org.apache.bifromq.basekv.utils.BoundaryUtil.compareStartKey;
 import static org.apache.bifromq.basekv.utils.BoundaryUtil.endKey;
 import static org.apache.bifromq.basekv.utils.BoundaryUtil.startKey;
 
+import com.google.protobuf.Struct;
+import com.google.protobuf.Value;
+import java.util.HashMap;
+import java.util.Map;
+import java.util.Optional;
 import org.apache.bifromq.basekv.proto.Boundary;
 import org.apache.bifromq.basekv.proto.KVRangeDescriptor;
 import org.apache.bifromq.basekv.proto.KVRangeStoreDescriptor;
@@ -31,11 +36,6 @@ import org.apache.bifromq.basekv.proto.SplitHint;
 import org.apache.bifromq.basekv.raft.proto.ClusterConfig;
 import org.apache.bifromq.basekv.utils.EffectiveRoute;
 import org.apache.bifromq.basekv.utils.LeaderRange;
-import com.google.protobuf.Struct;
-import com.google.protobuf.Value;
-import java.util.HashMap;
-import java.util.Map;
-import java.util.Optional;
 
 /**
  * The load-based split balancer.
@@ -85,7 +85,7 @@ public class RangeSplitBalancer extends RuleBasedPlacementBalancer {
     }
 
     @Override
-    protected Struct defaultLoadRules() {
+    public Struct initialLoadRules() {
         return defaultLoadRules;
     }
 

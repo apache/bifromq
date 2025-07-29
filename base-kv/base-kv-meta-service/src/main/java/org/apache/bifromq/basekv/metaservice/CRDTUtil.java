@@ -19,13 +19,32 @@
 
 package org.apache.bifromq.basekv.metaservice;
 
+import com.google.protobuf.ByteString;
+import lombok.SneakyThrows;
 import org.apache.bifromq.basecrdt.core.api.CRDTURI;
 import org.apache.bifromq.basecrdt.core.api.CausalCRDTType;
+import org.apache.bifromq.basekv.proto.StoreKey;
 
-class NameUtil {
+class CRDTUtil {
+    private static final String PREFIX_BALANCER_STATE = "balancerState-";
+    private static final String PREFIX_BALANCER_STATE_PROPOSAL = "balancerState-proposal-";
     private static final String PREFIX_LOAD_RULES = "loadRules-";
     private static final String PREFIX_LOAD_RULES_PROPOSAL = "loadRules-proposal-";
     private static final String PREFIX_LANDSCAPE = "landscape-";
+
+    @SneakyThrows
+    static StoreKey parseDescriptorKey(ByteString key) {
+        return StoreKey.parseFrom(key);
+    }
+
+
+    static String toBalancerStateURI(String clusterId) {
+        return CRDTURI.toURI(CausalCRDTType.ormap, PREFIX_BALANCER_STATE + clusterId);
+    }
+
+    static String toBalancerStateProposalURI(String clusterId) {
+        return CRDTURI.toURI(CausalCRDTType.ormap, PREFIX_BALANCER_STATE_PROPOSAL + clusterId);
+    }
 
     static String toLoadRulesURI(String clusterId) {
         return CRDTURI.toURI(CausalCRDTType.ormap, PREFIX_LOAD_RULES + clusterId);

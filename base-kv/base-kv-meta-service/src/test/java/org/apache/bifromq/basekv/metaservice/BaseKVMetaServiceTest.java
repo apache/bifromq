@@ -21,13 +21,13 @@ package org.apache.bifromq.basekv.metaservice;
 
 import static org.testng.Assert.assertTrue;
 
+import io.reactivex.rxjava3.observers.TestObserver;
+import java.net.InetSocketAddress;
+import java.util.Set;
 import org.apache.bifromq.basecluster.AgentHostOptions;
 import org.apache.bifromq.basecluster.IAgentHost;
 import org.apache.bifromq.basecrdt.service.CRDTServiceOptions;
 import org.apache.bifromq.basecrdt.service.ICRDTService;
-import io.reactivex.rxjava3.observers.TestObserver;
-import java.net.InetSocketAddress;
-import java.util.Set;
 import org.testng.annotations.AfterMethod;
 import org.testng.annotations.BeforeMethod;
 import org.testng.annotations.Test;
@@ -72,7 +72,7 @@ public class BaseKVMetaServiceTest {
         TestObserver<Set<String>> clusterIdObserver1 = metaService1.clusterIds().test();
         TestObserver<Set<String>> clusterIdObserver2 = metaService2.clusterIds().test();
 
-        crdtService1.host(NameUtil.toLandscapeURI("testCluster1"));
+        crdtService1.host(CRDTUtil.toLandscapeURI("testCluster1"));
 
         clusterIdObserver1.awaitCount(2);
         clusterIdObserver1.assertValueAt(1, Set.of("testCluster1"));
@@ -80,7 +80,7 @@ public class BaseKVMetaServiceTest {
         clusterIdObserver2.awaitCount(2);
         clusterIdObserver2.assertValueAt(1, Set.of("testCluster1"));
 
-        crdtService1.host(NameUtil.toLandscapeURI("testCluster2"));
+        crdtService1.host(CRDTUtil.toLandscapeURI("testCluster2"));
 
         clusterIdObserver1.awaitCount(3);
         clusterIdObserver1.assertValueAt(2, Set.of("testCluster1", "testCluster2"));
@@ -88,7 +88,7 @@ public class BaseKVMetaServiceTest {
         clusterIdObserver2.awaitCount(3);
         clusterIdObserver2.assertValueAt(2, Set.of("testCluster1", "testCluster2"));
 
-        crdtService1.stopHosting(NameUtil.toLandscapeURI("testCluster1")).join();
+        crdtService1.stopHosting(CRDTUtil.toLandscapeURI("testCluster1")).join();
 
         clusterIdObserver1.awaitCount(4);
         clusterIdObserver1.assertValueAt(3, Set.of("testCluster2"));

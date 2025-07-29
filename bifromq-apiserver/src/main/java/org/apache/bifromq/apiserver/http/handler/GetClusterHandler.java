@@ -14,16 +14,13 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 
 package org.apache.bifromq.apiserver.http.handler;
 
 import static io.netty.handler.codec.http.HttpResponseStatus.OK;
 
-import org.apache.bifromq.apiserver.http.IHTTPRequestHandler;
-import org.apache.bifromq.basecluster.IAgentHost;
-import org.apache.bifromq.basecluster.membership.proto.HostEndpoint;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
@@ -45,9 +42,11 @@ import jakarta.ws.rs.Path;
 import java.util.Base64;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
-import lombok.extern.slf4j.Slf4j;
+import org.apache.bifromq.apiserver.http.IHTTPRequestHandler;
+import org.apache.bifromq.apiserver.http.handler.utils.JSONUtils;
+import org.apache.bifromq.basecluster.IAgentHost;
+import org.apache.bifromq.basecluster.membership.proto.HostEndpoint;
 
-@Slf4j
 @Path("/cluster")
 final class GetClusterHandler implements IHTTPRequestHandler {
     private final IAgentHost agentHost;
@@ -69,7 +68,6 @@ final class GetClusterHandler implements IHTTPRequestHandler {
     @Override
     public CompletableFuture<FullHttpResponse> handle(@Parameter(hidden = true) long reqId,
                                                       @Parameter(hidden = true) FullHttpRequest req) {
-        log.trace("Handling http get cluster request: {}", req);
         return agentHost.membership().first(Set.of(agentHost.local()))
             .toCompletionStage()
             .toCompletableFuture()
@@ -82,7 +80,7 @@ final class GetClusterHandler implements IHTTPRequestHandler {
     }
 
     private String toJSON(Set<HostEndpoint> nodes) {
-        ObjectMapper mapper = new ObjectMapper();
+        ObjectMapper mapper = JSONUtils.MAPPER;
         ObjectNode rootObject = mapper.createObjectNode();
         rootObject.put("env", agentHost.env());
         ArrayNode arrayNode = mapper.createArrayNode();

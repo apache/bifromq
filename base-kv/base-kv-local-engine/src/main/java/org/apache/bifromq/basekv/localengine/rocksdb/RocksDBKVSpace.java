@@ -14,11 +14,15 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 
 package org.apache.bifromq.basekv.localengine.rocksdb;
 
+import static com.google.protobuf.UnsafeByteOperations.unsafeWrap;
+import static io.reactivex.rxjava3.subjects.BehaviorSubject.createDefault;
+import static java.util.Collections.emptyMap;
+import static java.util.Collections.singletonList;
 import static org.apache.bifromq.basekv.localengine.IKVEngine.DEFAULT_NS;
 import static org.apache.bifromq.basekv.localengine.metrics.KVSpaceMeters.getCounter;
 import static org.apache.bifromq.basekv.localengine.metrics.KVSpaceMeters.getGauge;
@@ -26,20 +30,7 @@ import static org.apache.bifromq.basekv.localengine.metrics.KVSpaceMeters.getTim
 import static org.apache.bifromq.basekv.localengine.rocksdb.Keys.META_SECTION_END;
 import static org.apache.bifromq.basekv.localengine.rocksdb.Keys.META_SECTION_START;
 import static org.apache.bifromq.basekv.localengine.rocksdb.Keys.fromMetaKey;
-import static com.google.protobuf.UnsafeByteOperations.unsafeWrap;
-import static io.reactivex.rxjava3.subjects.BehaviorSubject.createDefault;
-import static java.util.Collections.emptyMap;
-import static java.util.Collections.singletonList;
 
-import org.apache.bifromq.baseenv.EnvProvider;
-import org.apache.bifromq.basekv.localengine.IKVSpace;
-import org.apache.bifromq.basekv.localengine.IKVSpaceWriter;
-import org.apache.bifromq.basekv.localengine.ISyncContext;
-import org.apache.bifromq.basekv.localengine.KVEngineException;
-import org.apache.bifromq.basekv.localengine.KVSpaceDescriptor;
-import org.apache.bifromq.basekv.localengine.SyncContext;
-import org.apache.bifromq.basekv.localengine.metrics.KVSpaceOpMeters;
-import org.apache.bifromq.basekv.localengine.rocksdb.metrics.RocksDBKVSpaceMetric;
 import com.google.common.collect.Maps;
 import com.google.protobuf.ByteString;
 import io.micrometer.core.instrument.Counter;
@@ -70,6 +61,15 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 import lombok.SneakyThrows;
+import org.apache.bifromq.baseenv.EnvProvider;
+import org.apache.bifromq.basekv.localengine.IKVSpace;
+import org.apache.bifromq.basekv.localengine.IKVSpaceWriter;
+import org.apache.bifromq.basekv.localengine.ISyncContext;
+import org.apache.bifromq.basekv.localengine.KVEngineException;
+import org.apache.bifromq.basekv.localengine.KVSpaceDescriptor;
+import org.apache.bifromq.basekv.localengine.SyncContext;
+import org.apache.bifromq.basekv.localengine.metrics.KVSpaceOpMeters;
+import org.apache.bifromq.basekv.localengine.rocksdb.metrics.RocksDBKVSpaceMetric;
 import org.rocksdb.BlockBasedTableConfig;
 import org.rocksdb.ColumnFamilyDescriptor;
 import org.rocksdb.ColumnFamilyHandle;
@@ -119,7 +119,7 @@ abstract class RocksDBKVSpace<
             configurator.compactMinTombstoneKeys(),
             configurator.compactMinTombstoneRanges(),
             configurator.compactTombstoneKeysRatio(),
-            this::scheduleCompact) : NoopWriteStatsRecorder.INSTANCE;
+            this::scheduleCompact, tags) : NoopWriteStatsRecorder.INSTANCE;
         this.engine = engine;
         compactionExecutor = ExecutorServiceMetrics.monitor(Metrics.globalRegistry, new ThreadPoolExecutor(1, 1,
                 0L, TimeUnit.MILLISECONDS, new LinkedBlockingQueue<>(),

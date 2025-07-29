@@ -19,8 +19,8 @@
 
 package org.apache.bifromq.basekv.localengine.rocksdb;
 
-import org.apache.bifromq.basekv.localengine.KVEngineException;
 import java.lang.ref.Cleaner;
+import org.apache.bifromq.basekv.localengine.KVEngineException;
 import org.rocksdb.ColumnFamilyHandle;
 import org.rocksdb.ReadOptions;
 import org.rocksdb.RocksDB;
@@ -30,23 +30,6 @@ import org.rocksdb.Snapshot;
 
 class RocksDBKVEngineIterator implements AutoCloseable {
     private static final Cleaner CLEANER = Cleaner.create();
-
-    private record NativeState(RocksIterator itr, ReadOptions readOptions, Slice lowerSlice, Slice upperSlice)
-        implements Runnable {
-
-        @Override
-        public void run() {
-            itr.close();
-            readOptions.close();
-            if (lowerSlice != null) {
-                lowerSlice.close();
-            }
-            if (upperSlice != null) {
-                upperSlice.close();
-            }
-        }
-    }
-
     private final RocksIterator rocksIterator;
     private final Cleaner.Cleanable onClose;
 
@@ -55,6 +38,7 @@ class RocksDBKVEngineIterator implements AutoCloseable {
                             Snapshot snapshot,
                             byte[] startKey,
                             byte[] endKey) {
+//        ReadOptions readOptions = new ReadOptions().setPinData(true);
         ReadOptions readOptions = new ReadOptions();
         Slice lowerSlice = null;
         if (startKey != null) {
@@ -121,5 +105,21 @@ class RocksDBKVEngineIterator implements AutoCloseable {
     @Override
     public void close() {
         onClose.clean();
+    }
+
+    private record NativeState(RocksIterator itr, ReadOptions readOptions, Slice lowerSlice, Slice upperSlice)
+        implements Runnable {
+
+        @Override
+        public void run() {
+            itr.close();
+            readOptions.close();
+            if (lowerSlice != null) {
+                lowerSlice.close();
+            }
+            if (upperSlice != null) {
+                upperSlice.close();
+            }
+        }
     }
 }

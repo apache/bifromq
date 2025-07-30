@@ -38,8 +38,7 @@ class RocksDBKVEngineIterator implements AutoCloseable {
                             Snapshot snapshot,
                             byte[] startKey,
                             byte[] endKey) {
-//        ReadOptions readOptions = new ReadOptions().setPinData(true);
-        ReadOptions readOptions = new ReadOptions();
+        ReadOptions readOptions = new ReadOptions().setPinData(true);
         Slice lowerSlice = null;
         if (startKey != null) {
             lowerSlice = new Slice(startKey);

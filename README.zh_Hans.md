@@ -206,8 +206,10 @@ MQTT Broker 实例。这是最复杂的部署模式，需要额外的非开源�
 
 ## 用户社区
 
-加入我们的 [Discord](https://discord.gg/Pfs3QRadRB) 用户群组
+欢迎加入 BifroMQ 社区，与我们保持联系：
 
+* **[邮件列表](https://bifromq.apache.org/community/#about-the-mailing-list)** – 通过公开的邮件列表获取最新信息、参与开发话题讨论，并与其他贡献者协作。
+* **[Discord](https://discord.gg/Pfs3QRadRB)** – 加入我们，进行实时聊天、分享想法，并获取项目的最新动态。
 
 ## ASF Incubator disclaimer
 

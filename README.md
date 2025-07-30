@@ -221,7 +221,10 @@ support.
 
 ## User Community
 
-Join our [Discord](https://discord.gg/Pfs3QRadRB) if you are interested in our work.
+We welcome you to connect with the BifroMQ community:
+
+* **[Mailing Lists](https://bifromq.apache.org/community/#about-the-mailing-list)** – Stay informed, discuss development topics, and collaborate with other contributors via our public mailing lists.
+* **[Discord server](https://discord.gg/Pfs3QRadRB)** – Join us to chat, share ideas, and get real-time updates on ongoing work.
 
 ## ASF Incubator disclaimer
 

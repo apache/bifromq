@@ -22,6 +22,10 @@ package org.apache.bifromq.basekv.balance.impl;
 import static org.testng.Assert.assertEquals;
 import static org.testng.Assert.assertSame;
 
+import com.google.protobuf.ByteString;
+import java.util.Collections;
+import java.util.HashSet;
+import java.util.Set;
 import org.apache.bifromq.basekv.balance.BalanceNow;
 import org.apache.bifromq.basekv.balance.BalanceResult;
 import org.apache.bifromq.basekv.balance.BalanceResultType;
@@ -32,10 +36,6 @@ import org.apache.bifromq.basekv.proto.KVRangeId;
 import org.apache.bifromq.basekv.proto.KVRangeStoreDescriptor;
 import org.apache.bifromq.basekv.raft.proto.ClusterConfig;
 import org.apache.bifromq.basekv.raft.proto.RaftNodeStatus;
-import com.google.protobuf.ByteString;
-import java.util.Collections;
-import java.util.HashSet;
-import java.util.Set;
 import org.testng.annotations.BeforeMethod;
 import org.testng.annotations.Test;
 
@@ -241,6 +241,103 @@ public class RedundantRangeRemovalBalancerTest {
         Set<KVRangeStoreDescriptor> landscape = Collections.singleton(nonLocalStoreDescriptor);
 
         balancer.update(landscape);
+
+        BalanceResult result = balancer.balance();
+        assertSame(result.type(), BalanceResultType.NoNeedBalance);
+    }
+
+    @Test
+    public void removeIdConflictingRangeWhenLocalStoreIsLoser() {
+        String peerStoreId = "aStore";
+        KVRangeId kvRangeId = KVRangeId.newBuilder().setEpoch(1).setId(1).build();
+        Boundary boundary = Boundary.newBuilder()
+            .setStartKey(ByteString.copyFromUtf8("a"))
+            .setEndKey(ByteString.copyFromUtf8("z"))
+            .build();
+
+        // Local store is Leader of the range
+        KVRangeDescriptor localRange = KVRangeDescriptor.newBuilder()
+            .setId(kvRangeId)
+            .setRole(RaftNodeStatus.Leader)
+            .setVer(1)
+            .setBoundary(boundary)
+            .setConfig(ClusterConfig.newBuilder()
+                .addVoters(localStoreId)
+                .build())
+            .build();
+
+        KVRangeDescriptor peerRange = KVRangeDescriptor.newBuilder()
+            .setId(kvRangeId)
+            .setRole(RaftNodeStatus.Leader)
+            .setVer(1)
+            .setBoundary(boundary)
+            .setConfig(ClusterConfig.newBuilder()
+                .addVoters(peerStoreId)
+                .build())
+            .build();
+
+        KVRangeStoreDescriptor localStoreDesc = KVRangeStoreDescriptor.newBuilder()
+            .setId(localStoreId)
+            .addRanges(localRange)
+            .build();
+
+        KVRangeStoreDescriptor peerStoreDesc = KVRangeStoreDescriptor.newBuilder()
+            .setId(peerStoreId)
+            .addRanges(peerRange)
+            .build();
+
+        balancer.update(Set.of(localStoreDesc, peerStoreDesc));
+
+        BalanceResult result = balancer.balance();
+        assertEquals(result.type(), BalanceResultType.BalanceNow);
+
+        ChangeConfigCommand cmd = (ChangeConfigCommand) ((BalanceNow<?>) result).command;
+        assertEquals(cmd.getToStore(), localStoreId);
+        assertEquals(cmd.getKvRangeId(), kvRangeId);
+        assertEquals(cmd.getVoters(), Collections.emptySet());
+        assertEquals(cmd.getLearners(), Collections.emptySet());
+    }
+
+    @Test
+    public void ignoreIdConflictingRangeWhenLocalStoreIsWinner() {
+        String peerStoreId = "zStore";              // larger than "localStore"
+        KVRangeId kvRangeId = KVRangeId.newBuilder().setEpoch(1).setId(1).build();
+        Boundary boundary = Boundary.newBuilder()
+            .setStartKey(ByteString.copyFromUtf8("a"))
+            .setEndKey(ByteString.copyFromUtf8("z"))
+            .build();
+
+        KVRangeDescriptor localRange = KVRangeDescriptor.newBuilder()
+            .setId(kvRangeId)
+            .setRole(RaftNodeStatus.Leader)
+            .setVer(1)
+            .setBoundary(boundary)
+            .setConfig(ClusterConfig.newBuilder()
+                .addVoters(localStoreId)
+                .build())
+            .build();
+
+        KVRangeDescriptor peerRange = KVRangeDescriptor.newBuilder()
+            .setId(kvRangeId)
+            .setRole(RaftNodeStatus.Leader)
+            .setVer(1)
+            .setBoundary(boundary)
+            .setConfig(ClusterConfig.newBuilder()
+                .addVoters(peerStoreId)
+                .build())
+            .build();
+
+        KVRangeStoreDescriptor localStoreDesc = KVRangeStoreDescriptor.newBuilder()
+            .setId(localStoreId)
+            .addRanges(localRange)
+            .build();
+
+        KVRangeStoreDescriptor peerStoreDesc = KVRangeStoreDescriptor.newBuilder()
+            .setId(peerStoreId)
+            .addRanges(peerRange)
+            .build();
+
+        balancer.update(Set.of(localStoreDesc, peerStoreDesc));
 
         BalanceResult result = balancer.balance();
         assertSame(result.type(), BalanceResultType.NoNeedBalance);

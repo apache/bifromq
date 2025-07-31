@@ -23,19 +23,25 @@ import static org.apache.bifromq.basekv.balance.util.CommandUtil.quit;
 import static org.apache.bifromq.basekv.utils.DescriptorUtil.getEffectiveRoute;
 import static org.apache.bifromq.basekv.utils.DescriptorUtil.organizeByEpoch;
 
+import java.util.Collections;
+import java.util.Comparator;
+import java.util.HashMap;
+import java.util.Map;
+import java.util.NavigableMap;
+import java.util.Set;
+import java.util.SortedSet;
+import java.util.TreeSet;
 import org.apache.bifromq.basekv.balance.BalanceResult;
 import org.apache.bifromq.basekv.balance.NoNeedBalance;
 import org.apache.bifromq.basekv.balance.StoreBalancer;
 import org.apache.bifromq.basekv.proto.Boundary;
 import org.apache.bifromq.basekv.proto.KVRangeDescriptor;
+import org.apache.bifromq.basekv.proto.KVRangeId;
 import org.apache.bifromq.basekv.proto.KVRangeStoreDescriptor;
 import org.apache.bifromq.basekv.raft.proto.RaftNodeStatus;
 import org.apache.bifromq.basekv.utils.EffectiveEpoch;
+import org.apache.bifromq.basekv.utils.KVRangeIdUtil;
 import org.apache.bifromq.basekv.utils.LeaderRange;
-import java.util.Collections;
-import java.util.Map;
-import java.util.NavigableMap;
-import java.util.Set;
 
 /**
  * The RedundantEpochRemovalBalancer is a specialized StoreBalancer designed to manage and remove redundant replicas
@@ -72,7 +78,7 @@ public class RedundantRangeRemovalBalancer extends StoreBalancer {
             return NoNeedBalance.INSTANCE;
         }
         if (latest.size() > 1) {
-            // deal with higher epoch redundant replicas generated during bootstrap at startup time
+            // deal with epoch-conflict ranges
             Set<KVRangeStoreDescriptor> storeDescriptors = latest.lastEntry().getValue();
             for (KVRangeStoreDescriptor storeDescriptor : storeDescriptors) {
                 if (!storeDescriptor.getId().equals(localStoreId)) {
@@ -82,12 +88,33 @@ public class RedundantRangeRemovalBalancer extends StoreBalancer {
                     if (rangeDescriptor.getRole() != RaftNodeStatus.Leader) {
                         continue;
                     }
+                    log.debug("Remove Epoch-Conflict range: {} in store {}",
+                        KVRangeIdUtil.toString(rangeDescriptor.getId()),
+                        storeDescriptor.getId());
                     return quit(localStoreId, rangeDescriptor);
                 }
             }
+            return NoNeedBalance.INSTANCE;
         }
-        // deal with redundant replicas generated within the effective epoch but not be included in the effective route
         Map.Entry<Long, Set<KVRangeStoreDescriptor>> oldestEntry = latest.firstEntry();
+        Map<KVRangeId, SortedSet<LeaderRange>> conflictingRanges = findConflictingRanges(oldestEntry.getValue());
+        if (!conflictingRanges.isEmpty()) {
+            // deal with id-conflict ranges
+            for (KVRangeId rangeId : conflictingRanges.keySet()) {
+                SortedSet<LeaderRange> leaderRanges = conflictingRanges.get(rangeId);
+                for (LeaderRange leaderRange : leaderRanges) {
+                    if (!leaderRange.ownerStoreDescriptor().getId().equals(localStoreId)) {
+                        return NoNeedBalance.INSTANCE;
+                    }
+                    log.debug("Remove Id-Conflict range: {} in store {}",
+                        KVRangeIdUtil.toString(leaderRange.descriptor().getId()),
+                        leaderRange.ownerStoreDescriptor().getId());
+                    return quit(localStoreId, leaderRange.descriptor());
+                }
+            }
+            return NoNeedBalance.INSTANCE;
+        }
+        // deal with boundary-conflict ranges
         EffectiveEpoch effectiveEpoch = new EffectiveEpoch(oldestEntry.getKey(), oldestEntry.getValue());
         NavigableMap<Boundary, LeaderRange> effectiveLeaders = getEffectiveRoute(effectiveEpoch).leaderRanges();
         for (KVRangeStoreDescriptor storeDescriptor : effectiveEpoch.storeDescriptors()) {
@@ -101,10 +128,35 @@ public class RedundantRangeRemovalBalancer extends StoreBalancer {
                 Boundary boundary = rangeDescriptor.getBoundary();
                 LeaderRange leaderRange = effectiveLeaders.get(boundary);
                 if (leaderRange == null || !leaderRange.descriptor().getId().equals(rangeDescriptor.getId())) {
+                    log.debug("Remove Boundary-Conflict range: {} in store {}",
+                        KVRangeIdUtil.toString(rangeDescriptor.getId()),
+                        storeDescriptor.getId());
                     return quit(localStoreId, rangeDescriptor);
                 }
             }
         }
         return NoNeedBalance.INSTANCE;
+    }
+
+    private Map<KVRangeId, SortedSet<LeaderRange>> findConflictingRanges(Set<KVRangeStoreDescriptor> effectiveEpoch) {
+        Map<KVRangeId, SortedSet<LeaderRange>> leaderRangesByRangeId = new HashMap<>();
+        Map<KVRangeId, SortedSet<LeaderRange>> conflictingRanges = new HashMap<>();
+        for (KVRangeStoreDescriptor storeDescriptor : effectiveEpoch) {
+            for (KVRangeDescriptor rangeDescriptor : storeDescriptor.getRangesList()) {
+                if (rangeDescriptor.getRole() != RaftNodeStatus.Leader) {
+                    continue;
+                }
+                KVRangeId rangeId = rangeDescriptor.getId();
+                SortedSet<LeaderRange> leaderRanges = leaderRangesByRangeId.computeIfAbsent(rangeId, k -> new TreeSet<>(
+                    Comparator.comparing((LeaderRange lr) -> lr.ownerStoreDescriptor().getId(), String::compareTo)
+                        .reversed()));
+                leaderRanges.add(new LeaderRange(rangeDescriptor, storeDescriptor));
+                if (leaderRanges.size() > 1) {
+                    // More than one leader for the same range, add to conflicting ranges
+                    conflictingRanges.put(rangeId, leaderRanges);
+                }
+            }
+        }
+        return conflictingRanges;
     }
 }

@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 
 package org.apache.bifromq.dist.worker;
@@ -38,6 +38,26 @@ import static org.mockito.Mockito.lenient;
 import static org.testng.Assert.assertEquals;
 import static org.testng.Assert.assertTrue;
 
+import com.google.protobuf.ByteString;
+import io.micrometer.core.instrument.Metrics;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import java.io.File;
+import java.io.IOException;
+import java.lang.reflect.Method;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.time.Duration;
+import java.util.Comparator;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledThreadPoolExecutor;
+import java.util.concurrent.ThreadLocalRandom;
+import lombok.extern.slf4j.Slf4j;
 import org.apache.bifromq.basecluster.AgentHostOptions;
 import org.apache.bifromq.basecluster.IAgentHost;
 import org.apache.bifromq.basecrdt.service.CRDTServiceOptions;
@@ -76,6 +96,9 @@ import org.apache.bifromq.dist.rpc.proto.DistServiceRWCoProcInput;
 import org.apache.bifromq.dist.rpc.proto.MatchRoute;
 import org.apache.bifromq.dist.rpc.proto.TenantOption;
 import org.apache.bifromq.plugin.eventcollector.IEventCollector;
+import org.apache.bifromq.plugin.resourcethrottler.IResourceThrottler;
+import org.apache.bifromq.plugin.settingprovider.ISettingProvider;
+import org.apache.bifromq.plugin.settingprovider.Setting;
 import org.apache.bifromq.plugin.subbroker.DeliveryPack;
 import org.apache.bifromq.plugin.subbroker.DeliveryPackage;
 import org.apache.bifromq.plugin.subbroker.DeliveryReply;
@@ -91,27 +114,6 @@ import org.apache.bifromq.type.QoS;
 import org.apache.bifromq.type.RouteMatcher;
 import org.apache.bifromq.type.TopicMessagePack;
 import org.apache.bifromq.util.TopicUtil;
-import org.apache.bifromq.plugin.resourcethrottler.IResourceThrottler;
-import com.google.protobuf.ByteString;
-import io.micrometer.core.instrument.Metrics;
-import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
-import java.io.File;
-import java.io.IOException;
-import java.lang.reflect.Method;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.Paths;
-import java.time.Duration;
-import java.util.Comparator;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.UUID;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.ScheduledThreadPoolExecutor;
-import java.util.concurrent.ThreadLocalRandom;
-import lombok.extern.slf4j.Slf4j;
 import org.mockito.Mock;
 import org.mockito.MockitoAnnotations;
 import org.mockito.stubbing.Answer;
@@ -133,6 +135,8 @@ public abstract class DistWorkerTest {
     protected IEventCollector eventCollector;
     @Mock
     protected IResourceThrottler resourceThrottler;
+    @Mock
+    protected ISettingProvider settingProvider;
     @Mock
     protected IDistClient distClient;
     @Mock
@@ -174,6 +178,11 @@ public abstract class DistWorkerTest {
         lenient().when(receiverManager.get(MqttBroker)).thenReturn(mqttBroker);
         lenient().when(receiverManager.get(InboxService)).thenReturn(inboxBroker);
         lenient().when(resourceThrottler.hasResource(anyString(), any())).thenReturn(true);
+        lenient().when(settingProvider.provide(any(), anyString())).thenAnswer(invocation -> {
+            Setting setting = invocation.getArgument(0);
+            String tenantId = invocation.getArgument(1);
+            return setting.current(tenantId);
+        });
 
         bgTaskExecutor = new ScheduledThreadPoolExecutor(1,
             EnvProvider.INSTANCE.newThreadFactory("bg-task-executor"));
@@ -203,7 +212,6 @@ public abstract class DistWorkerTest {
         ((RocksDBWALableKVEngineConfigurator) options.getWalEngineConfigurator())
             .dbRootDir(Paths.get(dbRootDir.toString(), DB_WAL_NAME, uuid).toString());
 
-
         storeClient = IBaseKVStoreClient
             .newBuilder()
             .eventLoopGroup(NettyEnv.createEventLoopGroup("store-client"))
@@ -224,6 +232,8 @@ public abstract class DistWorkerTest {
             .bgTaskExecutor(bgTaskExecutor)
             .storeOptions(options)
             .subBrokerManager(receiverManager)
+            .settingProvider(settingProvider)
+            .inlineFanoutThreshold(1)
             .build();
         rpcServer = rpcServerBuilder.build();
         rpcServer.start();

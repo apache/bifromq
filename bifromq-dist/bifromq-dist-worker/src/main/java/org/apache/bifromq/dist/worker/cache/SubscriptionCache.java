@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 
 package org.apache.bifromq.dist.worker.cache;
@@ -26,13 +26,6 @@ import static org.apache.bifromq.dist.worker.cache.SubscriptionCache.TenantKey.n
 import static org.apache.bifromq.dist.worker.cache.SubscriptionCache.TenantKey.refreshExpiry;
 import static org.apache.bifromq.dist.worker.schema.KVSchemaUtil.tenantBeginKey;
 
-import org.apache.bifromq.basekv.proto.Boundary;
-import org.apache.bifromq.basekv.proto.KVRangeId;
-import org.apache.bifromq.basekv.store.api.IKVCloseableReader;
-import org.apache.bifromq.basekv.utils.KVRangeIdUtil;
-import org.apache.bifromq.dist.worker.schema.Matching;
-import org.apache.bifromq.sysprops.props.DistTopicMatchExpirySeconds;
-import org.apache.bifromq.type.RouteMatcher;
 import com.github.benmanes.caffeine.cache.Caffeine;
 import com.github.benmanes.caffeine.cache.Expiry;
 import com.github.benmanes.caffeine.cache.LoadingCache;
@@ -49,6 +42,15 @@ import java.util.concurrent.Executor;
 import java.util.function.Supplier;
 import lombok.EqualsAndHashCode;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.bifromq.basekv.proto.Boundary;
+import org.apache.bifromq.basekv.proto.KVRangeId;
+import org.apache.bifromq.basekv.store.api.IKVCloseableReader;
+import org.apache.bifromq.basekv.utils.KVRangeIdUtil;
+import org.apache.bifromq.dist.worker.schema.Matching;
+import org.apache.bifromq.plugin.settingprovider.ISettingProvider;
+import org.apache.bifromq.sysprops.props.DistCachedRoutesFanoutCheckIntervalSeconds;
+import org.apache.bifromq.sysprops.props.DistTopicMatchExpirySeconds;
+import org.apache.bifromq.type.RouteMatcher;
 
 /**
  * Cache for subscription matching.
@@ -59,11 +61,14 @@ public class SubscriptionCache implements ISubscriptionCache {
     private final LoadingCache<TenantKey, ITenantRouteCache> tenantCache;
     private volatile Boundary boundary;
 
-    public SubscriptionCache(KVRangeId id, Supplier<IKVCloseableReader> rangeReaderProvider, Executor matchExecutor) {
-        this(id, new TenantRouteCacheFactory(rangeReaderProvider,
-                Duration.ofSeconds(DistTopicMatchExpirySeconds.INSTANCE.get()), matchExecutor,
-                "id", KVRangeIdUtil.toString(id)),
-            Ticker.systemTicker());
+    public SubscriptionCache(KVRangeId id,
+                             Supplier<IKVCloseableReader> rangeReaderProvider,
+                             ISettingProvider settingProvider,
+                             Executor matchExecutor) {
+        this(id, new TenantRouteCacheFactory(rangeReaderProvider, settingProvider,
+            Duration.ofSeconds(DistTopicMatchExpirySeconds.INSTANCE.get()),
+            Duration.ofSeconds(DistCachedRoutesFanoutCheckIntervalSeconds.INSTANCE.get()),
+            matchExecutor, "id", KVRangeIdUtil.toString(id)), Ticker.systemTicker());
     }
 
     public SubscriptionCache(KVRangeId id,

@@ -24,6 +24,10 @@ import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.when;
 
+import java.time.Duration;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import lombok.extern.slf4j.Slf4j;
 import org.apache.bifromq.basecluster.AgentHostOptions;
 import org.apache.bifromq.basecluster.IAgentHost;
 import org.apache.bifromq.basecrdt.service.CRDTServiceOptions;
@@ -41,16 +45,12 @@ import org.apache.bifromq.dist.client.IDistClient;
 import org.apache.bifromq.dist.worker.IDistWorker;
 import org.apache.bifromq.plugin.eventcollector.Event;
 import org.apache.bifromq.plugin.eventcollector.IEventCollector;
+import org.apache.bifromq.plugin.resourcethrottler.IResourceThrottler;
 import org.apache.bifromq.plugin.settingprovider.ISettingProvider;
 import org.apache.bifromq.plugin.settingprovider.Setting;
 import org.apache.bifromq.plugin.subbroker.IDeliverer;
 import org.apache.bifromq.plugin.subbroker.ISubBroker;
 import org.apache.bifromq.plugin.subbroker.ISubBrokerManager;
-import org.apache.bifromq.plugin.resourcethrottler.IResourceThrottler;
-import java.time.Duration;
-import java.util.concurrent.Executors;
-import java.util.concurrent.ScheduledExecutorService;
-import lombok.extern.slf4j.Slf4j;
 import org.mockito.Mock;
 import org.mockito.MockitoAnnotations;
 import org.testng.annotations.AfterClass;
@@ -134,6 +134,7 @@ public abstract class DistServiceTest {
             .bgTaskExecutor(bgTaskExecutor)
             .storeOptions(kvRangeStoreOptions)
             .subBrokerManager(subBrokerMgr)
+            .settingProvider(settingProvider)
             .build();
         distServer = IDistServer.builder()
             .rpcServerBuilder(rpcServerBuilder)

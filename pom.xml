@@ -108,7 +108,7 @@
         <apache.commons.cli.version>1.5.0</apache.commons.cli.version>
         <apache.commons.collections.version>4.4</apache.commons.collections.version>
         <bouncycastle.version>1.78.1</bouncycastle.version>
-        <caffeine.version>3.1.8</caffeine.version>
+        <caffeine.version>3.2.2</caffeine.version>
         <guice.version>7.0.0</guice.version>
         <grpc.version>1.72.0</grpc.version>
         <guava.version>33.2.1-jre</guava.version>

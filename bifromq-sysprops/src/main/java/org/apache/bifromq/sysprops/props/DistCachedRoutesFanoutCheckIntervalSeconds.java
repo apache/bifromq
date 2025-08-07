@@ -17,22 +17,18 @@
  * under the License.
  */
 
-package org.apache.bifromq.dist.worker.cache;
+package org.apache.bifromq.sysprops.props;
 
-import java.util.Map;
-import java.util.Set;
+import org.apache.bifromq.sysprops.BifroMQSysProp;
+import org.apache.bifromq.sysprops.parser.IntegerParser;
 
 /**
- * The interface for tenant route matcher.
+ * The system property for the interval seconds of checking cached routes against fanout related settings.
  */
-public interface ITenantRouteMatcher {
-    /**
-     * Match the topic within the given boundary.
-     *
-     * @param topics the topics to match
-     * @param maxPersistentFanoutCount the maximum number of persistent fanout matches to return
-     * @param maxGroupFanoutCount the maximum number of group fanout matches to return
-     * @return the result
-     */
-    Map<String, IMatchedRoutes> matchAll(Set<String> topics, int maxPersistentFanoutCount, int maxGroupFanoutCount);
+public final class DistCachedRoutesFanoutCheckIntervalSeconds extends BifroMQSysProp<Integer, IntegerParser> {
+    public static final DistCachedRoutesFanoutCheckIntervalSeconds INSTANCE = new DistCachedRoutesFanoutCheckIntervalSeconds();
+
+    private DistCachedRoutesFanoutCheckIntervalSeconds() {
+        super("dist_worker_cache_fanout_check_seconds", 5, IntegerParser.POSITIVE);
+    }
 }

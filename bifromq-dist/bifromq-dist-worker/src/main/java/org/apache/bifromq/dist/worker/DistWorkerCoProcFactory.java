@@ -14,29 +14,11 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 
 package org.apache.bifromq.dist.worker;
 
-import org.apache.bifromq.basekv.proto.KVRangeId;
-import org.apache.bifromq.basekv.store.api.IKVCloseableReader;
-import org.apache.bifromq.basekv.store.api.IKVRangeCoProc;
-import org.apache.bifromq.basekv.store.api.IKVRangeCoProcFactory;
-import org.apache.bifromq.basekv.store.api.IKVRangeSplitHinter;
-import org.apache.bifromq.basekv.store.range.hinter.MutationKVLoadBasedSplitHinter;
-import org.apache.bifromq.basekv.utils.KVRangeIdUtil;
-import org.apache.bifromq.deliverer.IMessageDeliverer;
-import org.apache.bifromq.dist.client.IDistClient;
-import org.apache.bifromq.dist.worker.cache.ISubscriptionCache;
-import org.apache.bifromq.dist.worker.cache.SubscriptionCache;
-import org.apache.bifromq.dist.worker.hinter.FanoutSplitHinter;
-import org.apache.bifromq.plugin.eventcollector.IEventCollector;
-import org.apache.bifromq.plugin.subbroker.ISubBrokerManager;
-import org.apache.bifromq.sysprops.props.DistFanOutParallelism;
-import org.apache.bifromq.sysprops.props.DistMatchParallelism;
-import org.apache.bifromq.sysprops.props.DistWorkerFanOutSplitThreshold;
-import org.apache.bifromq.plugin.resourcethrottler.IResourceThrottler;
 import com.google.common.util.concurrent.MoreExecutors;
 import io.micrometer.core.instrument.Metrics;
 import io.micrometer.core.instrument.binder.jvm.ExecutorServiceMetrics;
@@ -50,15 +32,36 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Supplier;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.bifromq.basekv.proto.KVRangeId;
+import org.apache.bifromq.basekv.store.api.IKVCloseableReader;
+import org.apache.bifromq.basekv.store.api.IKVRangeCoProc;
+import org.apache.bifromq.basekv.store.api.IKVRangeCoProcFactory;
+import org.apache.bifromq.basekv.store.api.IKVRangeSplitHinter;
+import org.apache.bifromq.basekv.store.range.hinter.MutationKVLoadBasedSplitHinter;
+import org.apache.bifromq.basekv.utils.KVRangeIdUtil;
+import org.apache.bifromq.deliverer.IMessageDeliverer;
+import org.apache.bifromq.dist.client.IDistClient;
+import org.apache.bifromq.dist.worker.cache.ISubscriptionCache;
+import org.apache.bifromq.dist.worker.cache.SubscriptionCache;
+import org.apache.bifromq.dist.worker.hinter.FanoutSplitHinter;
+import org.apache.bifromq.plugin.eventcollector.IEventCollector;
+import org.apache.bifromq.plugin.resourcethrottler.IResourceThrottler;
+import org.apache.bifromq.plugin.settingprovider.ISettingProvider;
+import org.apache.bifromq.plugin.subbroker.ISubBrokerManager;
+import org.apache.bifromq.sysprops.props.DistMatchParallelism;
+import org.apache.bifromq.sysprops.props.DistWorkerFanOutSplitThreshold;
 
 @Slf4j
 public class DistWorkerCoProcFactory implements IKVRangeCoProcFactory {
     private final IEventCollector eventCollector;
     private final IResourceThrottler resourceThrottler;
     private final IMessageDeliverer deliverer;
+    private final ISettingProvider settingProvider;
     private final ISubscriptionCleaner subscriptionChecker;
     private final ExecutorService matchExecutor;
     private final Duration loadEstWindow;
+    private final int fanoutParallelism;
+    private final int inlineFanOutThreshold;
     private final int fanoutSplitThreshold = DistWorkerFanOutSplitThreshold.INSTANCE.get();
 
     public DistWorkerCoProcFactory(IDistClient distClient,
@@ -66,11 +69,17 @@ public class DistWorkerCoProcFactory implements IKVRangeCoProcFactory {
                                    IResourceThrottler resourceThrottler,
                                    ISubBrokerManager subBrokerManager,
                                    IMessageDeliverer messageDeliverer,
-                                   Duration loadEstimateWindow) {
+                                   ISettingProvider settingProvider,
+                                   Duration loadEstimateWindow,
+                                   int fanoutParallelism,
+                                   int inlineFanOutThreshold) {
         this.eventCollector = eventCollector;
         this.resourceThrottler = resourceThrottler;
         this.loadEstWindow = loadEstimateWindow;
         this.deliverer = messageDeliverer;
+        this.settingProvider = settingProvider;
+        this.fanoutParallelism = fanoutParallelism;
+        this.inlineFanOutThreshold = inlineFanOutThreshold;
         subscriptionChecker = new SubscriptionCleaner(subBrokerManager, distClient);
 
         matchExecutor = ExecutorServiceMetrics.monitor(Metrics.globalRegistry,
@@ -100,12 +109,12 @@ public class DistWorkerCoProcFactory implements IKVRangeCoProcFactory {
     @Override
     public IKVRangeCoProc createCoProc(String clusterId, String storeId, KVRangeId id,
                                        Supplier<IKVCloseableReader> rangeReaderProvider) {
-        ISubscriptionCache routeCache = new SubscriptionCache(id, rangeReaderProvider, matchExecutor);
+        ISubscriptionCache routeCache = new SubscriptionCache(id, rangeReaderProvider, settingProvider, matchExecutor);
         ITenantsState tenantsState = new TenantsState(rangeReaderProvider.get(),
             "clusterId", clusterId, "storeId", storeId, "rangeId", KVRangeIdUtil.toString(id));
 
         IDeliverExecutorGroup deliverExecutorGroup = new DeliverExecutorGroup(
-            deliverer, eventCollector, resourceThrottler, DistFanOutParallelism.INSTANCE.get());
+            deliverer, eventCollector, resourceThrottler, settingProvider, fanoutParallelism, inlineFanOutThreshold);
         return new DistWorkerCoProc(
             id, rangeReaderProvider, routeCache, tenantsState, deliverExecutorGroup, subscriptionChecker);
     }

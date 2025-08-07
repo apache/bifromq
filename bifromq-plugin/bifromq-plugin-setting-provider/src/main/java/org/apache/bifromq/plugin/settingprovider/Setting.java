@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 
 package org.apache.bifromq.plugin.settingprovider;
@@ -51,6 +51,9 @@ public enum Setting {
     MaxResendTimes(Integer.class, val -> (int) val >= 0, 3),
     ResendTimeoutSeconds(Integer.class, val -> (int) val > 0, 10),
     MaxTopicFiltersPerSub(Integer.class, val -> (int) val > 0 && (int) val <= 100, 10),
+    MaxGroupFanout(Integer.class, val -> (int) val > 0, 100),
+    MaxPersistentFanout(Integer.class, val -> (int) val > 0, Integer.MAX_VALUE),
+    MaxPersistentFanoutBytes(Long.class, val -> (long) val > 0, Long.MAX_VALUE),
     MaxSessionExpirySeconds(Integer.class, val -> (int) val > 0 && Integer.compareUnsigned((int) val, 0xFFFFFFFF) <= 0,
         24 * 60 * 60),
     MinSessionExpirySeconds(Integer.class, (val, tenantId) -> {

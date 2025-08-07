@@ -69,7 +69,10 @@ class DistWorker implements IDistWorker {
             builder.resourceThrottler,
             builder.subBrokerManager,
             this.messageDeliverer,
-            builder.loadEstimateWindow);
+            builder.settingProvider,
+            builder.loadEstimateWindow,
+            builder.fanoutParallelism,
+            builder.inlineFanoutThreshold);
         Map<String, IDistWorkerBalancerFactory> loadedFactories = BaseHookLoader.load(IDistWorkerBalancerFactory.class);
         for (String factoryName : builder.balancerFactoryConfig.keySet()) {
             if (!loadedFactories.containsKey(factoryName)) {

@@ -14,18 +14,15 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 
 package org.apache.bifromq.dist.worker.cache;
 
-import org.apache.bifromq.basekv.proto.Boundary;
-import org.apache.bifromq.dist.worker.TopicIndex;
-import org.apache.bifromq.dist.worker.schema.Matching;
-import org.apache.bifromq.metrics.ITenantMeter;
-import org.apache.bifromq.metrics.TenantMetric;
-import org.apache.bifromq.sysprops.props.DistMaxCachedRoutesPerTenant;
-import org.apache.bifromq.type.RouteMatcher;
+import static java.util.Collections.singleton;
+import static org.apache.bifromq.plugin.settingprovider.Setting.MaxGroupFanout;
+import static org.apache.bifromq.plugin.settingprovider.Setting.MaxPersistentFanout;
+
 import com.github.benmanes.caffeine.cache.AsyncLoadingCache;
 import com.github.benmanes.caffeine.cache.CacheLoader;
 import com.github.benmanes.caffeine.cache.Caffeine;
@@ -33,7 +30,6 @@ import com.github.benmanes.caffeine.cache.Scheduler;
 import com.github.benmanes.caffeine.cache.Ticker;
 import com.github.benmanes.caffeine.cache.Weigher;
 import java.time.Duration;
-import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -41,24 +37,37 @@ import java.util.NavigableSet;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
+import org.apache.bifromq.basekv.proto.Boundary;
+import org.apache.bifromq.dist.worker.TopicIndex;
+import org.apache.bifromq.dist.worker.schema.Matching;
+import org.apache.bifromq.metrics.ITenantMeter;
+import org.apache.bifromq.metrics.TenantMetric;
+import org.apache.bifromq.plugin.settingprovider.ISettingProvider;
+import org.apache.bifromq.sysprops.props.DistMaxCachedRoutesPerTenant;
+import org.apache.bifromq.type.RouteMatcher;
 import org.checkerframework.checker.index.qual.NonNegative;
 import org.checkerframework.checker.nullness.qual.Nullable;
 
 class TenantRouteCache implements ITenantRouteCache {
     private final String tenantId;
-    private final AsyncLoadingCache<RouteCacheKey, Set<Matching>> routesCache;
+    private final AsyncLoadingCache<RouteCacheKey, IMatchedRoutes> routesCache;
     private final TopicIndex<RouteCacheKey> index;
 
     TenantRouteCache(String tenantId,
                      ITenantRouteMatcher matcher,
+                     ISettingProvider settingProvider,
                      Duration expiryAfterAccess,
+                     Duration fanoutCheckInterval,
                      Executor matchExecutor) {
-        this(tenantId, matcher, expiryAfterAccess, Ticker.systemTicker(), matchExecutor);
+        this(tenantId, matcher, settingProvider, expiryAfterAccess, fanoutCheckInterval, Ticker.systemTicker(),
+            matchExecutor);
     }
 
     TenantRouteCache(String tenantId,
                      ITenantRouteMatcher matcher,
+                     ISettingProvider settingProvider,
                      Duration expiryAfterAccess,
+                     Duration fanoutCheckInterval,
                      Ticker ticker,
                      Executor matchExecutor) {
         this.tenantId = tenantId;
@@ -68,13 +77,14 @@ class TenantRouteCache implements ITenantRouteCache {
             .ticker(ticker)
             .executor(matchExecutor)
             .maximumWeight(DistMaxCachedRoutesPerTenant.INSTANCE.get())
-            .weigher(new Weigher<RouteCacheKey, Set<Matching>>() {
+            .weigher(new Weigher<RouteCacheKey, IMatchedRoutes>() {
                 @Override
-                public @NonNegative int weigh(RouteCacheKey key, Set<Matching> value) {
-                    return value.size();
+                public @NonNegative int weigh(RouteCacheKey key, IMatchedRoutes value) {
+                    return value.routes().size();
                 }
             })
             .expireAfterAccess(expiryAfterAccess)
+            .refreshAfterWrite(fanoutCheckInterval)
             .evictionListener((key, value, cause) -> {
                 if (key != null) {
                     index.remove(key.topic, key);
@@ -82,21 +92,27 @@ class TenantRouteCache implements ITenantRouteCache {
             })
             .buildAsync(new CacheLoader<>() {
                 @Override
-                public @Nullable Set<Matching> load(RouteCacheKey key) {
+                public @Nullable IMatchedRoutes load(RouteCacheKey key) {
+                    int maxPersistentFanouts = settingProvider.provide(MaxPersistentFanout, tenantId);
+                    int maxGroupFanouts = settingProvider.provide(MaxGroupFanout, tenantId);
                     ITenantMeter.get(tenantId).recordCount(TenantMetric.MqttRouteCacheMissCount);
-                    Map<String, Set<Matching>> results = matcher.matchAll(Collections.singleton(key.topic));
+                    Map<String, IMatchedRoutes> results = matcher.matchAll(singleton(key.topic),
+                        maxPersistentFanouts, maxGroupFanouts);
                     index.add(key.topic, key);
                     return results.get(key.topic);
                 }
 
                 @Override
-                public Map<RouteCacheKey, Set<Matching>> loadAll(Set<? extends RouteCacheKey> keys) {
+                public Map<RouteCacheKey, IMatchedRoutes> loadAll(Set<? extends RouteCacheKey> keys) {
                     ITenantMeter.get(tenantId).recordCount(TenantMetric.MqttRouteCacheMissCount, keys.size());
                     Map<String, RouteCacheKey> topicToKeyMap = new HashMap<>();
                     keys.forEach(k -> topicToKeyMap.put(k.topic(), k));
-                    Map<String, Set<Matching>> resultMap = matcher.matchAll(topicToKeyMap.keySet());
-                    Map<RouteCacheKey, Set<Matching>> result = new HashMap<>();
-                    for (Map.Entry<String, Set<Matching>> entry : resultMap.entrySet()) {
+                    int maxPersistentFanouts = settingProvider.provide(MaxPersistentFanout, tenantId);
+                    int maxGroupFanouts = settingProvider.provide(MaxGroupFanout, tenantId);
+                    Map<String, IMatchedRoutes> resultMap = matcher.matchAll(topicToKeyMap.keySet(),
+                        maxPersistentFanouts, maxGroupFanouts);
+                    Map<RouteCacheKey, IMatchedRoutes> result = new HashMap<>();
+                    for (Map.Entry<String, IMatchedRoutes> entry : resultMap.entrySet()) {
                         RouteCacheKey key = topicToKeyMap.get(entry.getKey());
                         result.put(key, entry.getValue());
                         index.add(key.topic, key);
@@ -105,12 +121,59 @@ class TenantRouteCache implements ITenantRouteCache {
                 }
 
                 @Override
-                public @Nullable Set<Matching> reload(RouteCacheKey key, Set<Matching> oldValue) {
-                    Map<String, Set<Matching>> results = matcher.matchAll(Collections.singleton(key.topic));
-                    return results.get(key.topic);
+                public @Nullable IMatchedRoutes reload(RouteCacheKey key, IMatchedRoutes oldValue) {
+                    int maxPersistentFanouts = settingProvider.provide(MaxPersistentFanout, tenantId);
+                    int maxGroupFanouts = settingProvider.provide(MaxGroupFanout, tenantId);
+                    if (needRefresh(oldValue, maxPersistentFanouts, maxGroupFanouts)) {
+                        Map<String, IMatchedRoutes> results = matcher.matchAll(singleton(key.topic),
+                            maxPersistentFanouts, maxGroupFanouts);
+                        return results.get(key.topic);
+                    } else if (oldValue.maxPersistentFanout() != maxPersistentFanouts
+                        || oldValue.maxGroupFanout() != maxGroupFanouts) {
+                        return new IMatchedRoutes() {
+                            @Override
+                            public int maxPersistentFanout() {
+                                return maxPersistentFanouts;
+                            }
+
+                            @Override
+                            public int maxGroupFanout() {
+                                return maxGroupFanouts;
+                            }
+
+                            @Override
+                            public int persistentFanout() {
+                                return oldValue.persistentFanout();
+                            }
+
+                            @Override
+                            public int groupFanout() {
+                                return oldValue.groupFanout();
+                            }
+
+                            @Override
+                            public Set<Matching> routes() {
+                                return oldValue.routes();
+                            }
+                        };
+                    } else {
+                        return oldValue;
+                    }
                 }
             });
         ITenantMeter.gauging(tenantId, TenantMetric.MqttRouteCacheSize, routesCache.synchronous()::estimatedSize);
+    }
+
+    private boolean needRefresh(IMatchedRoutes cachedRoutes, int maxPersistentFanouts, int maxGroupFanouts) {
+        return needRefresh(maxPersistentFanouts, cachedRoutes.maxPersistentFanout(), cachedRoutes.persistentFanout())
+            || needRefresh(maxGroupFanouts, cachedRoutes.maxGroupFanout(), cachedRoutes.groupFanout());
+    }
+
+    private boolean needRefresh(int currentLimit, int previousLimit, int currentFanout) {
+        // current limit increases and cachedRoutes reached the previous limit, need refresh
+        // current limit decreases and cachedRoutes exceeded the current limit, need refresh
+        return (previousLimit < currentLimit && currentFanout == previousLimit)
+            || (previousLimit > currentLimit && currentFanout > currentLimit);
     }
 
     @Override
@@ -122,6 +185,8 @@ class TenantRouteCache implements ITenantRouteCache {
     public void refresh(NavigableSet<RouteMatcher> routeMatchers) {
         routeMatchers.forEach(topicFilter -> {
             for (RouteCacheKey cacheKey : index.match(topicFilter.getFilterLevelList())) {
+                // we must invalidate the cache entry first to ensure the refresh will trigger a load
+                routesCache.synchronous().invalidate(cacheKey);
                 routesCache.synchronous().refresh(cacheKey);
             }
         });
@@ -129,7 +194,7 @@ class TenantRouteCache implements ITenantRouteCache {
 
     @Override
     public CompletableFuture<Set<Matching>> getMatch(String topic, Boundary currentTenantRange) {
-        return routesCache.get(new RouteCacheKey(topic, currentTenantRange));
+        return routesCache.get(new RouteCacheKey(topic, currentTenantRange)).thenApply(IMatchedRoutes::routes);
     }
 
     @Override

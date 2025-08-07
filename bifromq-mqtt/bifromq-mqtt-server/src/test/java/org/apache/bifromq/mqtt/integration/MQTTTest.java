@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 
 package org.apache.bifromq.mqtt.integration;
@@ -24,22 +24,6 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.lenient;
 
-import org.apache.bifromq.baserpc.client.IRPCClient;
-import org.apache.bifromq.baserpc.server.IRPCServer;
-import org.apache.bifromq.baserpc.server.RPCServerBuilder;
-import org.apache.bifromq.baserpc.trafficgovernor.IRPCServiceTrafficService;
-import org.apache.bifromq.plugin.authprovider.IAuthProvider;
-import org.apache.bifromq.plugin.clientbalancer.IClientBalancer;
-import org.apache.bifromq.plugin.eventcollector.Event;
-import org.apache.bifromq.plugin.eventcollector.IEventCollector;
-import org.apache.bifromq.plugin.settingprovider.ISettingProvider;
-import org.apache.bifromq.plugin.settingprovider.Setting;
-import org.apache.bifromq.plugin.subbroker.ISubBrokerManager;
-import org.apache.bifromq.plugin.subbroker.SubBrokerManager;
-import org.apache.bifromq.retain.client.IRetainClient;
-import org.apache.bifromq.retain.server.IRetainServer;
-import org.apache.bifromq.retain.store.IRetainStore;
-import org.apache.bifromq.plugin.resourcethrottler.IResourceThrottler;
 import com.google.common.collect.Sets;
 import io.reactivex.rxjava3.core.Observable;
 import java.lang.reflect.Method;
@@ -58,6 +42,10 @@ import org.apache.bifromq.basekv.localengine.memory.InMemKVEngineConfigurator;
 import org.apache.bifromq.basekv.metaservice.IBaseKVMetaService;
 import org.apache.bifromq.basekv.store.option.KVRangeStoreOptions;
 import org.apache.bifromq.basekv.utils.BoundaryUtil;
+import org.apache.bifromq.baserpc.client.IRPCClient;
+import org.apache.bifromq.baserpc.server.IRPCServer;
+import org.apache.bifromq.baserpc.server.RPCServerBuilder;
+import org.apache.bifromq.baserpc.trafficgovernor.IRPCServiceTrafficService;
 import org.apache.bifromq.dist.client.IDistClient;
 import org.apache.bifromq.dist.server.IDistServer;
 import org.apache.bifromq.dist.worker.IDistWorker;
@@ -66,6 +54,18 @@ import org.apache.bifromq.inbox.server.IInboxServer;
 import org.apache.bifromq.inbox.store.IInboxStore;
 import org.apache.bifromq.mqtt.IMQTTBroker;
 import org.apache.bifromq.mqtt.inbox.IMqttBrokerClient;
+import org.apache.bifromq.plugin.authprovider.IAuthProvider;
+import org.apache.bifromq.plugin.clientbalancer.IClientBalancer;
+import org.apache.bifromq.plugin.eventcollector.Event;
+import org.apache.bifromq.plugin.eventcollector.IEventCollector;
+import org.apache.bifromq.plugin.resourcethrottler.IResourceThrottler;
+import org.apache.bifromq.plugin.settingprovider.ISettingProvider;
+import org.apache.bifromq.plugin.settingprovider.Setting;
+import org.apache.bifromq.plugin.subbroker.ISubBrokerManager;
+import org.apache.bifromq.plugin.subbroker.SubBrokerManager;
+import org.apache.bifromq.retain.client.IRetainClient;
+import org.apache.bifromq.retain.server.IRetainServer;
+import org.apache.bifromq.retain.store.IRetainStore;
 import org.apache.bifromq.sessiondict.client.ISessionDictClient;
 import org.apache.bifromq.sessiondict.rpc.proto.KillReply;
 import org.apache.bifromq.sessiondict.rpc.proto.ServerRedirection;
@@ -247,6 +247,7 @@ public abstract class MQTTTest {
                 .setDataEngineConfigurator(new InMemKVEngineConfigurator())
                 .setWalEngineConfigurator(new InMemKVEngineConfigurator()))
             .subBrokerManager(inboxBrokerMgr)
+            .settingProvider(settingProvider)
             .build();
         distServer = IDistServer.builder()
             .rpcServerBuilder(rpcServerBuilder)
@@ -254,7 +255,6 @@ public abstract class MQTTTest {
             .settingProvider(settingProvider)
             .eventCollector(eventCollector)
             .build();
-
         mqttBroker = IMQTTBroker.builder()
             .rpcServerBuilder(rpcServerBuilder)
             .mqttBossELGThreads(1)

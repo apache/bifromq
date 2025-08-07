@@ -14,31 +14,38 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 
 package org.apache.bifromq.dist.worker.cache;
 
-import org.apache.bifromq.basekv.store.api.IKVCloseableReader;
 import io.micrometer.core.instrument.Metrics;
 import io.micrometer.core.instrument.Timer;
 import java.time.Duration;
 import java.util.concurrent.Executor;
 import java.util.function.Supplier;
+import org.apache.bifromq.basekv.store.api.IKVCloseableReader;
+import org.apache.bifromq.plugin.settingprovider.ISettingProvider;
 
 class TenantRouteCacheFactory implements ITenantRouteCacheFactory {
+    private final ISettingProvider settingProvider;
     private final Executor matchExecutor;
     private final ThreadLocalKVReader threadLocalReader;
     private final Timer internalMatchTimer;
     private final Duration expiry;
+    private final Duration fanoutCheckInterval;
 
     public TenantRouteCacheFactory(Supplier<IKVCloseableReader> readerSupplier,
+                                   ISettingProvider settingProvider,
                                    Duration expiry,
+                                   Duration fanoutCheckInterval,
                                    Executor matchExecutor,
                                    String... tags) {
+        this.settingProvider = settingProvider;
         this.matchExecutor = matchExecutor;
         this.threadLocalReader = new ThreadLocalKVReader(readerSupplier);
         this.expiry = expiry;
+        this.fanoutCheckInterval = fanoutCheckInterval;
         internalMatchTimer = Timer.builder("dist.match.internal")
             .tags(tags)
             .register(Metrics.globalRegistry);
@@ -52,8 +59,8 @@ class TenantRouteCacheFactory implements ITenantRouteCacheFactory {
 
     @Override
     public ITenantRouteCache create(String tenantId) {
-        return new TenantRouteCache(tenantId,
-            new TenantRouteMatcher(tenantId, threadLocalReader, internalMatchTimer), expiry, matchExecutor);
+        return new TenantRouteCache(tenantId, new TenantRouteMatcher(tenantId, threadLocalReader, internalMatchTimer),
+            settingProvider, expiry, fanoutCheckInterval, matchExecutor);
     }
 
     @Override

@@ -80,6 +80,10 @@
         </dependency>
         <dependency>
             <groupId>org.apache.bifromq</groupId>
+            <artifactId>bifromq-plugin-setting-provider</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.bifromq</groupId>
             <artifactId>bifromq-dist-client</artifactId>
         </dependency>
         <dependency>

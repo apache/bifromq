@@ -14,17 +14,17 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 
 package org.apache.bifromq.dist.worker.schema;
 
-import org.apache.bifromq.type.RouteMatcher;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
 import lombok.EqualsAndHashCode;
 import lombok.ToString;
+import org.apache.bifromq.type.RouteMatcher;
 
 /**
  * Represent a group matching route.
@@ -37,7 +37,6 @@ public final class GroupMatching extends Matching {
     @EqualsAndHashCode.Exclude
     public final List<NormalMatching> receiverList;
     private final Map<String, Long> receivers;
-
 
     GroupMatching(String tenantId, RouteMatcher matcher, Map<String, Long> members) {
         super(tenantId, matcher);

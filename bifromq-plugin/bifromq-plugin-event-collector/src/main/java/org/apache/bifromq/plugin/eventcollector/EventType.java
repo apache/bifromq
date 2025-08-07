@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 
 package org.apache.bifromq.plugin.eventcollector;
@@ -98,16 +98,13 @@ public enum EventType {
     DISTED,
     DIST_ERROR,
     DELIVER_ERROR,
-    DELIVER_NO_INBOX, // deprecated
+    PERSISTENT_FANOUT_THROTTLED,
+    GROUP_FANOUT_THROTTLED,
     DELIVERED,
     MATCHED,
     MATCH_ERROR,
     UNMATCHED,
     UNMATCH_ERROR,
-    SUBSCRIBED,
-    SUBSCRIBE_ERROR,
-    UNSUBSCRIBED,
-    UNSUBSCRIBED_ERROR,
 
     // inbox service
     OVERFLOWED,

@@ -14,42 +14,39 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 
 package org.apache.bifromq.plugin.eventcollector.distservice;
 
-import org.apache.bifromq.plugin.eventcollector.Event;
-import org.apache.bifromq.plugin.eventcollector.EventType;
-import org.apache.bifromq.type.MatchInfo;
-import org.apache.bifromq.type.TopicMessagePack;
 import lombok.Getter;
 import lombok.Setter;
 import lombok.ToString;
 import lombok.experimental.Accessors;
+import org.apache.bifromq.plugin.eventcollector.Event;
+import org.apache.bifromq.plugin.eventcollector.EventType;
 
 @Getter
 @Setter
 @Accessors(fluent = true, chain = true)
 @ToString(callSuper = true)
-@Deprecated(since = "4.0.0", forRemoval = true)
-public final class DeliverNoInbox extends Event<DeliverNoInbox> {
-    private int brokerId;
-    private String delivererKey;
-    private MatchInfo subInfo;
-    private TopicMessagePack messages;
+public final class PersistentFanoutThrottled extends Event<PersistentFanoutThrottled> {
+    private String tenantId;
+    private String topic;
+    private int maxCount;
+    private long maxBytes;
 
     @Override
     public EventType type() {
-        return EventType.DELIVER_NO_INBOX;
+        return EventType.PERSISTENT_FANOUT_THROTTLED;
     }
 
     @Override
-    public void clone(DeliverNoInbox orig) {
+    public void clone(PersistentFanoutThrottled orig) {
         super.clone(orig);
-        this.brokerId = orig.brokerId;
-        this.delivererKey = orig.delivererKey;
-        this.subInfo = orig.subInfo;
-        this.messages = orig.messages;
+        this.tenantId = orig.tenantId;
+        this.topic = orig.topic;
+        this.maxCount = orig.maxCount;
+        this.maxBytes = orig.maxBytes;
     }
 }

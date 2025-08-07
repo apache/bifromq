@@ -14,13 +14,13 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 
 package org.apache.bifromq.dist.worker;
 
-import static org.apache.bifromq.type.QoS.AT_MOST_ONCE;
 import static com.google.protobuf.ByteString.copyFromUtf8;
+import static org.apache.bifromq.type.QoS.AT_MOST_ONCE;
 import static org.awaitility.Awaitility.await;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.after;
@@ -32,6 +32,12 @@ import static org.mockito.Mockito.when;
 import static org.testng.Assert.assertEquals;
 import static org.testng.Assert.assertTrue;
 
+import com.google.common.collect.Sets;
+import com.google.protobuf.ByteString;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Set;
+import lombok.extern.slf4j.Slf4j;
 import org.apache.bifromq.dist.rpc.proto.BatchDistReply;
 import org.apache.bifromq.plugin.subbroker.DeliveryPack;
 import org.apache.bifromq.plugin.subbroker.DeliveryPackage;
@@ -40,12 +46,6 @@ import org.apache.bifromq.plugin.subbroker.DeliveryResult;
 import org.apache.bifromq.type.MatchInfo;
 import org.apache.bifromq.type.Message;
 import org.apache.bifromq.type.TopicMessagePack;
-import com.google.common.collect.Sets;
-import com.google.protobuf.ByteString;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Set;
-import lombok.extern.slf4j.Slf4j;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mockito;
 import org.testng.annotations.AfterMethod;
@@ -150,6 +150,7 @@ public class DistQoS0Test extends DistWorkerTest {
 
     @Test(groups = "integration")
     public void testDistCase3() {
+        // inline test
         when(mqttBroker.open("batch1")).thenReturn(writer1);
 
         match(tenantA, "/a/b/c", MqttBroker, "inbox1", "batch1");
@@ -162,6 +163,7 @@ public class DistQoS0Test extends DistWorkerTest {
                 assertEquals(reply.getResultMap().get(tenantA).getFanoutMap().get("/a/b/c").intValue(), 2);
 
                 ArgumentCaptor<DeliveryRequest> list1 = ArgumentCaptor.forClass(DeliveryRequest.class);
+                // the call is inlined
                 verify(writer1, timeout(1).times(1)).deliver(list1.capture());
                 log.info("Case3: verify writer1, list size is {}", list1.getAllValues().size());
                 int msgCount = 0;

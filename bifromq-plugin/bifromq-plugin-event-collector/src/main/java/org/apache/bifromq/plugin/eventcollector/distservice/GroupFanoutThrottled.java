@@ -19,38 +19,32 @@
 
 package org.apache.bifromq.plugin.eventcollector.distservice;
 
-import org.apache.bifromq.plugin.eventcollector.Event;
-import org.apache.bifromq.plugin.eventcollector.EventType;
 import lombok.Getter;
 import lombok.Setter;
 import lombok.ToString;
 import lombok.experimental.Accessors;
+import org.apache.bifromq.plugin.eventcollector.Event;
+import org.apache.bifromq.plugin.eventcollector.EventType;
 
 @Getter
 @Setter
 @Accessors(fluent = true, chain = true)
 @ToString(callSuper = true)
-public final class Unsubscribed extends Event<Unsubscribed> {
-    private long reqId;
-    private String topicFilter;
+public final class GroupFanoutThrottled extends Event<GroupFanoutThrottled> {
     private String tenantId;
-    private String inboxId;
-    private int subBrokerId;
-    private String delivererKey;
+    private String topic;
+    private int maxCount;
 
     @Override
     public EventType type() {
-        return EventType.UNSUBSCRIBED;
+        return EventType.GROUP_FANOUT_THROTTLED;
     }
 
     @Override
-    public void clone(Unsubscribed orig) {
+    public void clone(GroupFanoutThrottled orig) {
         super.clone(orig);
-        this.reqId = orig.reqId;
-        this.topicFilter = orig.topicFilter;
         this.tenantId = orig.tenantId;
-        this.inboxId = orig.inboxId;
-        this.subBrokerId = orig.subBrokerId;
-        this.delivererKey = orig.delivererKey;
+        this.topic = orig.topic;
+        this.maxCount = orig.maxCount;
     }
 }

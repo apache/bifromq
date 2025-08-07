@@ -215,9 +215,7 @@ nodes, while some types of messaging related workload are not horizontal scalabl
 
 The Independent Workload Cluster deployment mode is designed for building large-scale, multi-tenant serverless clusters.
 In this mode, the cluster consists of several specialized sub-clusters, each focusing on a particular 'independent type'
-of workload. These sub-clusters work together coherently to form a logical MQTT broker instance. This is the most
-complex deployment mode and requires additional non-open-sourced building blocks. Feel free to contact us for commercial
-support.
+of workload. These sub-clusters work together coherently to form a logical MQTT broker instance. 
 
 ## User Community
 

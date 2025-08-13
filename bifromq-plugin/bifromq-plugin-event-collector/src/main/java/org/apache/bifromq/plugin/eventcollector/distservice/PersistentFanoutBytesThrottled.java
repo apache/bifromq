@@ -30,21 +30,21 @@ import org.apache.bifromq.plugin.eventcollector.EventType;
 @Setter
 @Accessors(fluent = true, chain = true)
 @ToString(callSuper = true)
-public final class PersistentFanoutThrottled extends Event<PersistentFanoutThrottled> {
+public final class PersistentFanoutBytesThrottled extends Event<PersistentFanoutBytesThrottled> {
     private String tenantId;
     private String topic;
-    private int maxCount;
+    private long maxBytes;
 
     @Override
     public EventType type() {
-        return EventType.PERSISTENT_FANOUT_THROTTLED;
+        return EventType.PERSISTENT_FANOUT_BYTES_THROTTLED;
     }
 
     @Override
-    public void clone(PersistentFanoutThrottled orig) {
+    public void clone(PersistentFanoutBytesThrottled orig) {
         super.clone(orig);
         this.tenantId = orig.tenantId;
         this.topic = orig.topic;
-        this.maxCount = orig.maxCount;
+        this.maxBytes = orig.maxBytes;
     }
 }

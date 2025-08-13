@@ -47,6 +47,7 @@ import org.apache.bifromq.basekv.proto.KVRangeId;
 import org.apache.bifromq.basekv.store.api.IKVCloseableReader;
 import org.apache.bifromq.basekv.utils.KVRangeIdUtil;
 import org.apache.bifromq.dist.worker.schema.Matching;
+import org.apache.bifromq.plugin.eventcollector.IEventCollector;
 import org.apache.bifromq.plugin.settingprovider.ISettingProvider;
 import org.apache.bifromq.sysprops.props.DistCachedRoutesFanoutCheckIntervalSeconds;
 import org.apache.bifromq.sysprops.props.DistTopicMatchExpirySeconds;
@@ -64,8 +65,9 @@ public class SubscriptionCache implements ISubscriptionCache {
     public SubscriptionCache(KVRangeId id,
                              Supplier<IKVCloseableReader> rangeReaderProvider,
                              ISettingProvider settingProvider,
+                             IEventCollector eventCollector,
                              Executor matchExecutor) {
-        this(id, new TenantRouteCacheFactory(rangeReaderProvider, settingProvider,
+        this(id, new TenantRouteCacheFactory(rangeReaderProvider, settingProvider, eventCollector,
             Duration.ofSeconds(DistTopicMatchExpirySeconds.INSTANCE.get()),
             Duration.ofSeconds(DistCachedRoutesFanoutCheckIntervalSeconds.INSTANCE.get()),
             matchExecutor, "id", KVRangeIdUtil.toString(id)), Ticker.systemTicker());

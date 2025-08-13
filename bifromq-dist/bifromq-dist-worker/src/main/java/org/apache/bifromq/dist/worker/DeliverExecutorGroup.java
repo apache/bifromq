@@ -48,6 +48,7 @@ import org.apache.bifromq.metrics.ITenantMeter;
 import org.apache.bifromq.plugin.eventcollector.IEventCollector;
 import org.apache.bifromq.plugin.eventcollector.OutOfTenantResource;
 import org.apache.bifromq.plugin.eventcollector.distservice.GroupFanoutThrottled;
+import org.apache.bifromq.plugin.eventcollector.distservice.PersistentFanoutBytesThrottled;
 import org.apache.bifromq.plugin.eventcollector.distservice.PersistentFanoutThrottled;
 import org.apache.bifromq.plugin.resourcethrottler.IResourceThrottler;
 import org.apache.bifromq.plugin.resourcethrottler.TenantResourceType;
@@ -167,12 +168,20 @@ class DeliverExecutorGroup implements IDeliverExecutorGroup {
                                 if (!isPersistentFanoutThrottled) {
                                     isPersistentFanoutThrottled = true;
                                     // persistent fanout throttled
-                                    eventCollector.report(getLocal(PersistentFanoutThrottled.class)
-                                        .tenantId(tenantId)
-                                        .topic(msgPack.getTopic())
-                                        .maxCount(maxPFanoutCount)
-                                        .maxBytes(maxPFanoutBytes)
-                                    );
+                                    if (persistentFanoutCount >= maxPFanoutCount) {
+                                        eventCollector.report(getLocal(PersistentFanoutThrottled.class)
+                                            .tenantId(tenantId)
+                                            .topic(msgPack.getTopic())
+                                            .maxCount(maxPFanoutCount)
+                                        );
+                                    }
+                                    if (persistentFanoutBytes >= maxPFanoutBytes) {
+                                        eventCollector.report(getLocal(PersistentFanoutBytesThrottled.class)
+                                            .tenantId(tenantId)
+                                            .topic(msgPack.getTopic())
+                                            .maxBytes(maxPFanoutBytes)
+                                        );
+                                    }
                                 }
                             }
                         } else {

@@ -35,6 +35,7 @@ import static org.awaitility.Awaitility.await;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.lenient;
+import static org.mockito.Mockito.reset;
 import static org.testng.Assert.assertEquals;
 import static org.testng.Assert.assertTrue;
 
@@ -275,6 +276,7 @@ public abstract class DistWorkerTest {
     public void printCaseFinish(Method method) {
         log.info("Test case[{}.{}] finished, doing teardown",
             method.getDeclaringClass().getName(), method.getName());
+        reset(eventCollector);
     }
 
     protected BatchMatchReply.TenantBatch.Code match(String tenantId,

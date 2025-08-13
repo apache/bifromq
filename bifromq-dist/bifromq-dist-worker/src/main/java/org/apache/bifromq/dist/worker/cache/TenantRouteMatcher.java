@@ -27,6 +27,7 @@ import static org.apache.bifromq.basekv.utils.BoundaryUtil.upperBound;
 import static org.apache.bifromq.dist.worker.schema.KVSchemaUtil.buildMatchRoute;
 import static org.apache.bifromq.dist.worker.schema.KVSchemaUtil.tenantBeginKey;
 import static org.apache.bifromq.dist.worker.schema.KVSchemaUtil.tenantRouteStartKey;
+import static org.apache.bifromq.plugin.eventcollector.ThreadLocalEventPool.getLocal;
 
 import com.google.protobuf.ByteString;
 import io.micrometer.core.instrument.Timer;
@@ -44,17 +45,25 @@ import org.apache.bifromq.dist.trie.TopicFilterIterator;
 import org.apache.bifromq.dist.trie.TopicTrieNode;
 import org.apache.bifromq.dist.worker.schema.Matching;
 import org.apache.bifromq.dist.worker.schema.NormalMatching;
+import org.apache.bifromq.plugin.eventcollector.IEventCollector;
+import org.apache.bifromq.plugin.eventcollector.distservice.GroupFanoutThrottled;
+import org.apache.bifromq.plugin.eventcollector.distservice.PersistentFanoutThrottled;
 import org.apache.bifromq.util.TopicUtil;
 
 class TenantRouteMatcher implements ITenantRouteMatcher {
     private final String tenantId;
     private final Timer timer;
     private final Supplier<IKVReader> kvReaderSupplier;
+    private final IEventCollector eventCollector;
 
-    public TenantRouteMatcher(String tenantId, Supplier<IKVReader> kvReaderSupplier, Timer timer) {
+    public TenantRouteMatcher(String tenantId,
+                              Supplier<IKVReader> kvReaderSupplier,
+                              IEventCollector eventCollector,
+                              Timer timer) {
         this.tenantId = tenantId;
         this.timer = timer;
         this.kvReaderSupplier = kvReaderSupplier;
+        this.eventCollector = eventCollector;
     }
 
     @Override
@@ -63,6 +72,8 @@ class TenantRouteMatcher implements ITenantRouteMatcher {
                                                 int maxGroupFanoutCount) {
         final Timer.Sample sample = Timer.start();
         Map<String, IMatchedRoutes> matchedRoutes = new HashMap<>();
+        Set<String> pFanoutTrimedTopic = new HashSet<>();
+        Set<String> gFanoutTrimedTopic = new HashSet<>();
         TopicTrieNode.Builder<String> topicTrieBuilder = TopicTrieNode.builder(false);
         topics.forEach(topic -> {
             topicTrieBuilder.addTopic(TopicUtil.parse(topic, false), topic);
@@ -108,6 +119,8 @@ class TenantRouteMatcher implements ITenantRouteMatcher {
                                             if (matchResult.persistentFanoutCount.get() < maxPersistentFanoutCount) {
                                                 matchResult.persistentFanoutCount.incrementAndGet();
                                                 matchResult.routes.add(matching);
+                                            } else {
+                                                pFanoutTrimedTopic.add(topic);
                                             }
                                         } else {
                                             matchResult.routes.add(matching);
@@ -117,6 +130,8 @@ class TenantRouteMatcher implements ITenantRouteMatcher {
                                         if (matchResult.groupFanoutCount.get() < maxGroupFanoutCount) {
                                             matchResult.groupFanoutCount.incrementAndGet();
                                             matchResult.routes.add(matching);
+                                        } else {
+                                            gFanoutTrimedTopic.add(topic);
                                         }
                                     }
                                     default -> {
@@ -155,6 +170,8 @@ class TenantRouteMatcher implements ITenantRouteMatcher {
                                 if (matchResult.persistentFanoutCount.get() < maxPersistentFanoutCount) {
                                     matchResult.persistentFanoutCount.incrementAndGet();
                                     matchResult.routes.add(matching);
+                                } else {
+                                    pFanoutTrimedTopic.add(topic);
                                 }
                             } else {
                                 matchResult.routes.add(matching);
@@ -164,6 +181,8 @@ class TenantRouteMatcher implements ITenantRouteMatcher {
                             if (matchResult.groupFanoutCount.get() < maxGroupFanoutCount) {
                                 matchResult.groupFanoutCount.incrementAndGet();
                                 matchResult.routes.add(matching);
+                            } else {
+                                gFanoutTrimedTopic.add(topic);
                             }
                         }
                         default -> {
@@ -174,6 +193,16 @@ class TenantRouteMatcher implements ITenantRouteMatcher {
             }
         }
         sample.stop(timer);
+        pFanoutTrimedTopic.forEach(topic -> eventCollector.report(getLocal(PersistentFanoutThrottled.class)
+            .tenantId(tenantId)
+            .topic(topic)
+            .maxCount(maxPersistentFanoutCount)
+        ));
+        gFanoutTrimedTopic.forEach(topic -> eventCollector.report(getLocal(GroupFanoutThrottled.class)
+            .tenantId(tenantId)
+            .topic(topic)
+            .maxCount(maxGroupFanoutCount)
+        ));
         return matchedRoutes;
     }
 

@@ -34,6 +34,7 @@ import org.apache.bifromq.dist.rpc.proto.BatchDistReply;
 import org.apache.bifromq.plugin.eventcollector.EventType;
 import org.apache.bifromq.plugin.eventcollector.OutOfTenantResource;
 import org.apache.bifromq.plugin.eventcollector.distservice.GroupFanoutThrottled;
+import org.apache.bifromq.plugin.eventcollector.distservice.PersistentFanoutBytesThrottled;
 import org.apache.bifromq.plugin.eventcollector.distservice.PersistentFanoutThrottled;
 import org.apache.bifromq.plugin.resourcethrottler.TenantResourceType;
 import org.apache.bifromq.plugin.settingprovider.Setting;
@@ -88,6 +89,7 @@ public class FanoutThrottledTest extends DistWorkerTest {
 
         // set max persistent fanout = 2
         when(settingProvider.provide(eq(Setting.MaxPersistentFanout), any())).thenReturn(2);
+        when(settingProvider.provide(eq(Setting.MaxPersistentFanoutBytes), any())).thenReturn(Long.MAX_VALUE);
 
         // trigger dist and cache will be used
         dist(tenantA, AT_MOST_ONCE, "/fanout/topic2", copyFromUtf8("throttled"), "orderKey1");
@@ -120,16 +122,16 @@ public class FanoutThrottledTest extends DistWorkerTest {
         // verify reply shows fanout = 3
         assertEquals(reply.getResultMap().get(tenantA).getFanoutMap().get("/fanout/topic").intValue(), 3);
 
-        // set max persistent fanout = 2
+        when(settingProvider.provide(eq(Setting.MaxPersistentFanout), any())).thenReturn(Integer.MAX_VALUE);
         when(settingProvider.provide(eq(Setting.MaxPersistentFanoutBytes), any())).thenReturn(10L);
 
         // trigger dist and cache will be used
         dist(tenantA, AT_MOST_ONCE, "/fanout/topic", copyFromUtf8("throttled"), "orderKey1");
 
-        verify(eventCollector).report(argThat(e -> e.type() == EventType.PERSISTENT_FANOUT_THROTTLED
-            && ((PersistentFanoutThrottled) e).tenantId().equals(tenantA)
-            && ((PersistentFanoutThrottled) e).topic().equals("/fanout/topic")
-            && ((PersistentFanoutThrottled) e).maxBytes() == 10));
+        verify(eventCollector).report(argThat(e -> e.type() == EventType.PERSISTENT_FANOUT_BYTES_THROTTLED
+            && ((PersistentFanoutBytesThrottled) e).tenantId().equals(tenantA)
+            && ((PersistentFanoutBytesThrottled) e).topic().equals("/fanout/topic")
+            && ((PersistentFanoutBytesThrottled) e).maxBytes() == 10));
         // cleanup
         unmatch(tenantA, "/fanout/topic", MqttBroker, "inbox1", "batch1");
         unmatch(tenantA, "/fanout/topic", MqttBroker, "inbox2", "batch2");

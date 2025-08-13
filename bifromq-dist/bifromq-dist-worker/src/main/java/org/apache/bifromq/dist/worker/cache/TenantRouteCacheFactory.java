@@ -25,10 +25,12 @@ import java.time.Duration;
 import java.util.concurrent.Executor;
 import java.util.function.Supplier;
 import org.apache.bifromq.basekv.store.api.IKVCloseableReader;
+import org.apache.bifromq.plugin.eventcollector.IEventCollector;
 import org.apache.bifromq.plugin.settingprovider.ISettingProvider;
 
 class TenantRouteCacheFactory implements ITenantRouteCacheFactory {
     private final ISettingProvider settingProvider;
+    private final IEventCollector eventCollector;
     private final Executor matchExecutor;
     private final ThreadLocalKVReader threadLocalReader;
     private final Timer internalMatchTimer;
@@ -37,11 +39,13 @@ class TenantRouteCacheFactory implements ITenantRouteCacheFactory {
 
     public TenantRouteCacheFactory(Supplier<IKVCloseableReader> readerSupplier,
                                    ISettingProvider settingProvider,
+                                   IEventCollector eventCollector,
                                    Duration expiry,
                                    Duration fanoutCheckInterval,
                                    Executor matchExecutor,
                                    String... tags) {
         this.settingProvider = settingProvider;
+        this.eventCollector = eventCollector;
         this.matchExecutor = matchExecutor;
         this.threadLocalReader = new ThreadLocalKVReader(readerSupplier);
         this.expiry = expiry;
@@ -59,7 +63,8 @@ class TenantRouteCacheFactory implements ITenantRouteCacheFactory {
 
     @Override
     public ITenantRouteCache create(String tenantId) {
-        return new TenantRouteCache(tenantId, new TenantRouteMatcher(tenantId, threadLocalReader, internalMatchTimer),
+        return new TenantRouteCache(tenantId,
+            new TenantRouteMatcher(tenantId, threadLocalReader, eventCollector, internalMatchTimer),
             settingProvider, expiry, fanoutCheckInterval, matchExecutor);
     }
 

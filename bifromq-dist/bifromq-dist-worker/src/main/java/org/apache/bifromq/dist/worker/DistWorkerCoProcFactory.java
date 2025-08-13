@@ -109,7 +109,8 @@ public class DistWorkerCoProcFactory implements IKVRangeCoProcFactory {
     @Override
     public IKVRangeCoProc createCoProc(String clusterId, String storeId, KVRangeId id,
                                        Supplier<IKVCloseableReader> rangeReaderProvider) {
-        ISubscriptionCache routeCache = new SubscriptionCache(id, rangeReaderProvider, settingProvider, matchExecutor);
+        ISubscriptionCache routeCache = new SubscriptionCache(id, rangeReaderProvider,
+            settingProvider, eventCollector, matchExecutor);
         ITenantsState tenantsState = new TenantsState(rangeReaderProvider.get(),
             "clusterId", clusterId, "storeId", storeId, "rangeId", KVRangeIdUtil.toString(id));
 

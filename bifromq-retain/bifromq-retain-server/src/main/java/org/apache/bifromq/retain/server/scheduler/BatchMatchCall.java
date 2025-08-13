@@ -26,6 +26,16 @@ import static org.apache.bifromq.retain.server.scheduler.BatchMatchCallHelper.se
 import static org.apache.bifromq.retain.server.scheduler.MatchCallRangeRouter.rangeLookup;
 import static org.apache.bifromq.util.TopicUtil.isWildcardTopicFilter;
 
+import java.util.ArrayDeque;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.Map;
+import java.util.NavigableMap;
+import java.util.Queue;
+import java.util.Set;
+import java.util.concurrent.CompletableFuture;
+import lombok.extern.slf4j.Slf4j;
 import org.apache.bifromq.basehlc.HLC;
 import org.apache.bifromq.basekv.client.IBaseKVStoreClient;
 import org.apache.bifromq.basekv.client.KVRangeSetting;
@@ -47,26 +57,16 @@ import org.apache.bifromq.retain.rpc.proto.MatchParam;
 import org.apache.bifromq.retain.rpc.proto.MatchReply;
 import org.apache.bifromq.retain.rpc.proto.MatchResult;
 import org.apache.bifromq.retain.rpc.proto.RetainServiceROCoProcInput;
-import java.util.ArrayDeque;
-import java.util.Collections;
-import java.util.HashMap;
-import java.util.HashSet;
-import java.util.Map;
-import java.util.NavigableMap;
-import java.util.Queue;
-import java.util.Set;
-import java.util.concurrent.CompletableFuture;
-import lombok.extern.slf4j.Slf4j;
 
 @Slf4j
 class BatchMatchCall implements IBatchCall<MatchRetainedRequest, MatchRetainedResult, MatchCallBatcherKey> {
     private final MatchCallBatcherKey batcherKey;
     private final IBaseKVStoreClient retainStoreClient;
     private final ISettingProvider settingProvider;
-    private final Queue<ICallTask<MatchRetainedRequest, MatchRetainedResult, MatchCallBatcherKey>> tasks = new ArrayDeque<>(
-        128);
-    private Set<String> nonWildcardTopicFilters = new HashSet<>(128);
-    private Set<String> wildcardTopicFilters = new HashSet<>(128);
+    private final Queue<ICallTask<MatchRetainedRequest, MatchRetainedResult, MatchCallBatcherKey>> tasks =
+        new ArrayDeque<>(128);
+    private final Set<String> nonWildcardTopicFilters = new HashSet<>(128);
+    private final Set<String> wildcardTopicFilters = new HashSet<>(128);
 
 
     BatchMatchCall(MatchCallBatcherKey batcherKey, IBaseKVStoreClient retainStoreClient,
@@ -88,8 +88,8 @@ class BatchMatchCall implements IBatchCall<MatchRetainedRequest, MatchRetainedRe
 
     @Override
     public void reset() {
-        nonWildcardTopicFilters = new HashSet<>(128);
-        wildcardTopicFilters = new HashSet<>(128);
+        nonWildcardTopicFilters.clear();
+        wildcardTopicFilters.clear();
     }
 
     @Override

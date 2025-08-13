@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 
 package org.apache.bifromq.deliverer;
@@ -26,6 +26,17 @@ import static org.apache.bifromq.deliverer.DeliveryCallResult.NO_SUB;
 import static org.apache.bifromq.deliverer.DeliveryCallResult.OK;
 import static org.apache.bifromq.plugin.subbroker.TypeUtil.toMap;
 
+import java.util.ArrayDeque;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.Iterator;
+import java.util.LinkedHashMap;
+import java.util.Map;
+import java.util.Queue;
+import java.util.Set;
+import java.util.concurrent.CompletableFuture;
+import lombok.extern.slf4j.Slf4j;
 import org.apache.bifromq.basescheduler.IBatchCall;
 import org.apache.bifromq.basescheduler.ICallTask;
 import org.apache.bifromq.dist.client.IDistClient;
@@ -36,16 +47,6 @@ import org.apache.bifromq.plugin.subbroker.DeliveryRequest;
 import org.apache.bifromq.plugin.subbroker.DeliveryResult;
 import org.apache.bifromq.plugin.subbroker.IDeliverer;
 import org.apache.bifromq.type.MatchInfo;
-import java.util.ArrayDeque;
-import java.util.Collections;
-import java.util.HashMap;
-import java.util.HashSet;
-import java.util.LinkedHashMap;
-import java.util.Map;
-import java.util.Queue;
-import java.util.Set;
-import java.util.concurrent.CompletableFuture;
-import lombok.extern.slf4j.Slf4j;
 
 @Slf4j
 class BatchDeliveryCall implements IBatchCall<DeliveryCall, DeliveryCallResult, DelivererKey> {
@@ -53,7 +54,7 @@ class BatchDeliveryCall implements IBatchCall<DeliveryCall, DeliveryCallResult, 
     private final IDeliverer deliverer;
     private final DelivererKey batcherKey;
     private final Queue<ICallTask<DeliveryCall, DeliveryCallResult, DelivererKey>> tasks = new ArrayDeque<>(128);
-    private Map<String, Map<TopicMessagePackHolder, Set<MatchInfo>>> batch = new HashMap<>(128);
+    private final Map<String, Map<TopicMessagePackHolder, Set<MatchInfo>>> batch = new HashMap<>(128);
 
     BatchDeliveryCall(IDistClient distClient, IDeliverer deliverer, DelivererKey batcherKey) {
         this.distClient = distClient;
@@ -63,8 +64,6 @@ class BatchDeliveryCall implements IBatchCall<DeliveryCall, DeliveryCallResult, 
 
     @Override
     public void reset() {
-        batch = new HashMap<>(128);
-        tasks.clear();
     }
 
     @Override
@@ -78,7 +77,11 @@ class BatchDeliveryCall implements IBatchCall<DeliveryCall, DeliveryCallResult, 
     @Override
     public CompletableFuture<Void> execute() {
         DeliveryRequest.Builder requestBuilder = DeliveryRequest.newBuilder();
-        batch.forEach((tenantId, pack) -> {
+        Iterator<Map.Entry<String, Map<TopicMessagePackHolder, Set<MatchInfo>>>> itr = batch.entrySet().iterator();
+        while (itr.hasNext()) {
+            Map.Entry<String, Map<TopicMessagePackHolder, Set<MatchInfo>>> entry = itr.next();
+            String tenantId = entry.getKey();
+            Map<TopicMessagePackHolder, Set<MatchInfo>> pack = entry.getValue();
             DeliveryPackage.Builder packageBuilder = DeliveryPackage.newBuilder();
             pack.forEach((msgPackWrapper, matchInfos) -> {
                 DeliveryPack.Builder packBuilder = DeliveryPack.newBuilder().setMessagePack(msgPackWrapper.messagePack);
@@ -86,7 +89,8 @@ class BatchDeliveryCall implements IBatchCall<DeliveryCall, DeliveryCallResult, 
                 packageBuilder.addPack(packBuilder.build());
             });
             requestBuilder.putPackage(tenantId, packageBuilder.build());
-        });
+            itr.remove();
+        }
         DeliveryRequest request = requestBuilder.build();
         return execute(request);
     }

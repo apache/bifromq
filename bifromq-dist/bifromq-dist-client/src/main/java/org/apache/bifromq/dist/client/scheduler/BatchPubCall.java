@@ -14,11 +14,17 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 
 package org.apache.bifromq.dist.client.scheduler;
 
+import java.util.ArrayDeque;
+import java.util.HashMap;
+import java.util.Iterator;
+import java.util.Map;
+import java.util.Queue;
+import java.util.concurrent.CompletableFuture;
 import org.apache.bifromq.base.util.AsyncRetry;
 import org.apache.bifromq.base.util.exception.NeedRetryException;
 import org.apache.bifromq.baserpc.client.IRPCClient;
@@ -29,17 +35,12 @@ import org.apache.bifromq.dist.rpc.proto.DistReply;
 import org.apache.bifromq.dist.rpc.proto.DistRequest;
 import org.apache.bifromq.type.ClientInfo;
 import org.apache.bifromq.type.PublisherMessagePack;
-import java.util.ArrayDeque;
-import java.util.HashMap;
-import java.util.Map;
-import java.util.Queue;
-import java.util.concurrent.CompletableFuture;
 
 class BatchPubCall implements IBatchCall<PubRequest, PubResult, PubCallBatcherKey> {
     private final IRPCClient.IRequestPipeline<DistRequest, DistReply> ppln;
     private final Queue<ICallTask<PubRequest, PubResult, PubCallBatcherKey>> tasks = new ArrayDeque<>(64);
     private final long retryTimeoutNanos;
-    private Map<ClientInfo, Map<String, PublisherMessagePack.TopicPack.Builder>> clientMsgPack = new HashMap<>(128);
+    private final Map<ClientInfo, Map<String, PublisherMessagePack.TopicPack.Builder>> clientMsgPack = new HashMap<>(128);
 
     BatchPubCall(IRPCClient.IRequestPipeline<DistRequest, DistReply> ppln, long retryTimeoutNanos) {
         this.ppln = ppln;
@@ -48,8 +49,6 @@ class BatchPubCall implements IBatchCall<PubRequest, PubResult, PubCallBatcherKe
 
     @Override
     public void reset() {
-        clientMsgPack = new HashMap<>(128);
-        tasks.clear();
     }
 
     @Override
@@ -64,13 +63,20 @@ class BatchPubCall implements IBatchCall<PubRequest, PubResult, PubCallBatcherKe
     @Override
     public CompletableFuture<Void> execute() {
         DistRequest.Builder requestBuilder = DistRequest.newBuilder().setReqId(System.nanoTime());
-        clientMsgPack.forEach((k, v) -> {
-            PublisherMessagePack.Builder senderMsgPackBuilder = PublisherMessagePack.newBuilder().setPublisher(k);
-            for (PublisherMessagePack.TopicPack.Builder packBuilder : v.values()) {
+        Iterator<Map.Entry<ClientInfo, Map<String, PublisherMessagePack.TopicPack.Builder>>> itr =
+            clientMsgPack.entrySet().iterator();
+        while (itr.hasNext()) {
+            Map.Entry<ClientInfo, Map<String, PublisherMessagePack.TopicPack.Builder>> entry = itr.next();
+            ClientInfo publisher = entry.getKey();
+            Map<String, PublisherMessagePack.TopicPack.Builder> topicPackMap = entry.getValue();
+            PublisherMessagePack.Builder senderMsgPackBuilder = PublisherMessagePack.newBuilder()
+                .setPublisher(publisher);
+            for (PublisherMessagePack.TopicPack.Builder packBuilder : topicPackMap.values()) {
                 senderMsgPackBuilder.addMessagePack(packBuilder);
             }
             requestBuilder.addMessages(senderMsgPackBuilder.build());
-        });
+            itr.remove();
+        }
         DistRequest request = requestBuilder.build();
         return AsyncRetry.exec(() -> execute(request), retryTimeoutNanos);
     }

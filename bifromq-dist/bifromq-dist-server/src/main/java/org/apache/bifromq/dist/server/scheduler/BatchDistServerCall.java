@@ -74,7 +74,7 @@ class BatchDistServerCall implements IBatchCall<TenantPubRequest, DistServerCall
     private final String orderKey;
     private final Queue<ICallTask<TenantPubRequest, DistServerCallResult, DistServerCallBatcherKey>> tasks =
         new ArrayDeque<>();
-    private Map<String, Map<ClientInfo, Iterable<Message>>> batch = new HashMap<>(128);
+    private final Map<String, Map<ClientInfo, Iterable<Message>>> batch = new HashMap<>(128);
 
     BatchDistServerCall(IBaseKVStoreClient distWorkerClient, DistServerCallBatcherKey batcherKey) {
         this.distWorkerClient = distWorkerClient;
@@ -99,7 +99,7 @@ class BatchDistServerCall implements IBatchCall<TenantPubRequest, DistServerCall
 
     @Override
     public void reset() {
-        batch = new HashMap<>(128);
+        batch.clear();
     }
 
     @Override

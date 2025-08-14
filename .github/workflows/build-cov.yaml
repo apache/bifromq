@@ -37,3 +37,4 @@ jobs:
         uses: coverallsapp/github-action@v2
         with:
           format: jacoco
+        continue-on-error: true

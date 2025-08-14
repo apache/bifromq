@@ -18,7 +18,7 @@
 # See: https://cwiki.apache.org/confluence/display/INFRA/git+-+.asf.yaml+features
 
 github:
-  description: BifroMQ(Incubating) is a high-performance, distributed MQTT broker implementation that seamlessly integrates native multi-tenancy support. It is designed to support building large-scale IoT device connections and messaging systems.
+  description: Apache BifroMQ (Incubating) is a high-performance, distributed MQTT broker that natively supports multi-tenancy. It is designed to enable the building of large-scale IoT device connectivity and messaging systems.
   homepage: https://bifromq.apache.org/
   labels:
     - mqtt
@@ -47,6 +47,5 @@ github:
 notifications:
   commits: commits@bifromq.apache.org
   issues: dev@bifromq.apache.org
-  pullrequests: dev@bifromq.apache.org
   jobs:         commits@bifromq.apache.org
   discussions: dev@bifromq.apache.org

@@ -1,16 +1,9 @@
-# BifroMQ
+# Apache BifroMQ (Incubating)
 
 [![GitHub Release](https://img.shields.io/github/release/bifromqio/bifromq?color=brightgreen&label=Release)](https://github.com/bifromqio/bifromq/releases)
 <a href="https://discord.gg/Pfs3QRadRB"><img src="https://img.shields.io/discord/1115542029531885599?logo=discord&logoColor=white" alt="BifroMQ Discord server" /></a>
-[![Coverage Status](https://img.shields.io/coveralls/github/bifromqio/bifromq/main?label=Coverage)](https://coveralls.io/github/bifromqio/bifromq?branch=main)
-[![Docker Pulls](https://img.shields.io/docker/pulls/bifromq/bifromq?label=Docker%20Pulls)](https://hub.docker.com/r/bifromq/bifromq)
 
-English | [中文简体](./README.zh_Hans.md)
-
----
-
-BifroMQ is a high-performance, distributed MQTT broker implementation that seamlessly integrates native multi-tenancy
-support. It is designed to support building large-scale IoT device connections and messaging systems.
+BifroMQ is a high-performance, distributed MQTT broker that natively supports multi-tenancy. It is designed to enable the building of large-scale IoT device connectivity and messaging systems.
 
 ## Features
 

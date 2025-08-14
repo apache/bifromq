@@ -24,6 +24,8 @@ import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.ChannelInboundHandlerAdapter;
 import io.netty.channel.ChannelPipeline;
 import io.netty.handler.codec.haproxy.HAProxyMessage;
+import lombok.extern.slf4j.Slf4j;
+
 import java.net.InetSocketAddress;
 import java.util.Iterator;
 import java.util.Map;
@@ -31,6 +33,7 @@ import java.util.Map;
 /**
  * This handler is used to parse the HAProxy protocol message and extract the real IP and port of the client.
  */
+@Slf4j
 public class ProxyProtocolHandler extends ChannelInboundHandlerAdapter {
 
     @Override
@@ -73,4 +76,10 @@ public class ProxyProtocolHandler extends ChannelInboundHandlerAdapter {
             ctx.pipeline().remove(this);
         }
     }
+
+    @Override
+    public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) throws Exception {
+        log.debug("ctx: {}, cause:", ctx, cause);
+    }
+
 }

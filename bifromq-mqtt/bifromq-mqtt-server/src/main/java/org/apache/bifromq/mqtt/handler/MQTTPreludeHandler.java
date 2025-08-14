@@ -199,14 +199,14 @@ public class MQTTPreludeHandler extends ChannelDuplexHandler {
                 ctx.pipeline().remove(this);
                 break;
             default:
-                log.warn("Unsupported protocol version: {}", connectMessage.variableHeader().version());
+                log.debug("Unsupported protocol version: {}", connectMessage.variableHeader().version());
         }
     }
 
     @Override
     public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) {
         // simple strategy: shutdown the channel directly
-        log.warn("ctx: {}, cause:", ctx, cause);
+        log.debug("ctx: {}, cause:", ctx, cause);
         eventCollector.report(getLocal(ChannelError.class).peerAddress(remoteAddr).cause(cause));
         ctx.channel().close();
     }

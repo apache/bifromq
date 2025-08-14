@@ -101,13 +101,12 @@ public class WeightedServerGroupRouterTest {
 
         Optional<String> server = router.random();
         assertTrue(server.isPresent());
-        assertNotEquals("server4", server.get());
+        assertNotEquals(server.get(), "server4");
 
         server = router.roundRobin();
         assertTrue(server.isPresent());
-        assertNotEquals("server4", server.get());
+        assertNotEquals(server.get(), "server4");
     }
-
 
     @Test
     void roundRobinRouting() {
@@ -122,9 +121,9 @@ public class WeightedServerGroupRouterTest {
             new WeightedServerGroupRouter(allServers, trafficAssignment, groupAssignment);
 
         // First round-robin call should return server1, then server2
-        assertEquals("server1", router.roundRobin().get());
-        assertEquals("server2", router.roundRobin().get());
-        assertEquals("server1", router.roundRobin().get());
+        assertEquals(router.roundRobin().get(), "server1");
+        assertEquals(router.roundRobin().get(), "server2");
+        assertEquals(router.roundRobin().get(), "server1");
     }
 
     @Test
@@ -139,9 +138,9 @@ public class WeightedServerGroupRouterTest {
         WeightedServerGroupRouter router =
             new WeightedServerGroupRouter(allServers, trafficAssignment, groupAssignment);
 
-        assertEquals("server1", router.roundRobin().get());
-        assertEquals("server1", router.roundRobin().get());
-        assertEquals("server1", router.roundRobin().get());
+        assertEquals(router.roundRobin().get(), "server1");
+        assertEquals(router.roundRobin().get(), "server1");
+        assertEquals(router.roundRobin().get(), "server1");
     }
 
     @Test
@@ -160,5 +159,27 @@ public class WeightedServerGroupRouterTest {
         Optional<String> server = router.hashing(key);
         assertTrue(server.isPresent());
         assertTrue(Set.of("server1", "server2", "server3").contains(server.get()));
+    }
+
+    @Test
+    void stickHashingRouting() {
+        Map<String, Boolean> allServers = Map.of("server1", false, "server2", false, "server3", false);
+        Map<String, Boolean> allServersWithInProc = Map.of("server1", false, "server2", true, "server3", false);
+        Map<String, Integer> trafficAssignment = Map.of("group1", 5);
+        Map<String, Set<String>> groupAssignment = Map.of(
+            "group1", Set.of("server1", "server2", "server3")
+        );
+        WeightedServerGroupRouter router =
+            new WeightedServerGroupRouter(allServers, trafficAssignment, groupAssignment);
+        WeightedServerGroupRouter routerWithInProc =
+            new WeightedServerGroupRouter(allServersWithInProc, trafficAssignment, groupAssignment);
+        String key = "myKey";
+        Optional<String> server = router.stickyHashing(key);
+        assertTrue(server.isPresent());
+        assertEquals(server.get(), "server1");
+
+        server = routerWithInProc.stickyHashing(key);
+        assertTrue(server.isPresent());
+        assertEquals(server.get(), "server2");
     }
 }

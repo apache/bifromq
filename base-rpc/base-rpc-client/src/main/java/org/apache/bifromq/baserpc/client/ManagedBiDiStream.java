@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 
 package org.apache.bifromq.baserpc.client;
@@ -52,6 +52,7 @@ abstract class ManagedBiDiStream<InT, OutT> {
     private final CompositeDisposable disposables = new CompositeDisposable();
     private final String tenantId;
     private final String wchKey;
+    private final boolean sticky;
     private final String targetServerId;
     private final Supplier<Map<String, String>> metadataSupplier;
     private final Channel channel;
@@ -66,18 +67,20 @@ abstract class ManagedBiDiStream<InT, OutT> {
     ManagedBiDiStream(String tenantId,
                       String wchKey,
                       String targetServerId,
-                      BluePrint.BalanceMode balanceMode,
+                      BluePrint.MethodSemantic methodSemantic,
                       Supplier<Map<String, String>> metadataSupplier,
                       Channel channel,
                       CallOptions callOptions,
                       MethodDescriptor<InT, OutT> methodDescriptor) {
-        checkArgument(balanceMode != BluePrint.BalanceMode.DDBalanced || targetServerId != null,
+        checkArgument(methodSemantic.mode() != BluePrint.BalanceMode.DDBalanced || targetServerId != null,
             "targetServerId is required");
-        checkArgument(balanceMode != BluePrint.BalanceMode.WCHBalanced | wchKey != null, "wchKey is required");
+        checkArgument(methodSemantic.mode() != BluePrint.BalanceMode.WCHBalanced || wchKey != null,
+            "wchKey is required");
         this.tenantId = tenantId;
         this.wchKey = wchKey;
         this.targetServerId = targetServerId;
-        this.balanceMode = balanceMode;
+        this.balanceMode = methodSemantic.mode();
+        this.sticky = methodSemantic instanceof BluePrint.HRWPipelineUnaryMethod;
         this.metadataSupplier = metadataSupplier;
         this.channel = channel;
         this.callOptions = callOptions;
@@ -149,11 +152,11 @@ abstract class ManagedBiDiStream<InT, OutT> {
                     return;
                 }
                 Optional<String> currentServer = prevRouter.hashing(wchKey);
-                Optional<String> newServer = router.hashing(wchKey);
+                Optional<String> newServer = sticky ? router.stickyHashing(wchKey) : router.hashing(wchKey);
                 if (newServer.isEmpty()) {
                     // cancel current bidi-stream
                     synchronized (this) {
-                        bidiStream.get().bidiStream().cancel("no server available");
+                        bidiStream.get().bidiStream().cancel("No server available");
                     }
                 } else if (!newServer.equals(currentServer)) {
                     switch (state.get()) {
@@ -179,7 +182,7 @@ abstract class ManagedBiDiStream<InT, OutT> {
                 if (newServer.isEmpty()) {
                     // cancel current bidi-stream
                     synchronized (this) {
-                        bidiStream.get().bidiStream().cancel("no server available");
+                        bidiStream.get().bidiStream().cancel("No server available");
                     }
                 } else {
                     switch (state.get()) {
@@ -212,7 +215,7 @@ abstract class ManagedBiDiStream<InT, OutT> {
                 if (newServer.isEmpty()) {
                     // cancel current bidi-stream
                     synchronized (this) {
-                        bidiStream.get().bidiStream().cancel("no server available");
+                        bidiStream.get().bidiStream().cancel("No server available");
                     }
                 } else {
                     switch (state.get()) {
@@ -294,7 +297,7 @@ abstract class ManagedBiDiStream<InT, OutT> {
                 }
                 case WCHBalanced -> {
                     IServerGroupRouter router = serverSelector.get(tenantId);
-                    Optional<String> selectedServer = router.hashing(wchKey);
+                    Optional<String> selectedServer = sticky ? router.stickyHashing(wchKey) : router.hashing(wchKey);
                     if (selectedServer.isEmpty()) {
                         state.set(State.NoServerAvailable);
                         reportServiceUnavailable();
@@ -423,13 +426,13 @@ abstract class ManagedBiDiStream<InT, OutT> {
         @Override
         public void cancel(String message) {
             // do nothing
-            managedBiDiStream.onStreamError(new IllegalStateException("bidi-stream is not ready"));
+            managedBiDiStream.onStreamError(new IllegalStateException("Stream is not ready"));
         }
 
         @Override
         public void send(InT in) {
             // do nothing
-            managedBiDiStream.onStreamError(new IllegalStateException("bidi-stream is not ready"));
+            managedBiDiStream.onStreamError(new IllegalStateException("Stream is not ready"));
         }
 
         @Override

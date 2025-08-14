@@ -19,9 +19,9 @@
 
 package org.apache.bifromq.baserpc.client;
 
+import java.util.Optional;
 import org.apache.bifromq.baserpc.client.loadbalancer.IServerGroupRouter;
 import org.apache.bifromq.baserpc.client.loadbalancer.IServerSelector;
-import java.util.Optional;
 
 class DummyServerSelector implements IServerSelector {
     public static final IServerSelector INSTANCE = new DummyServerSelector();
@@ -56,6 +56,11 @@ class DummyServerSelector implements IServerSelector {
 
             @Override
             public Optional<String> hashing(String key) {
+                return Optional.empty();
+            }
+
+            @Override
+            public Optional<String> stickyHashing(String key) {
                 return Optional.empty();
             }
         };

@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 
 package org.apache.bifromq.dist;
@@ -27,6 +27,6 @@ public class RPCBluePrint {
         .serviceDescriptor(DistServiceGrpc.getServiceDescriptor())
         .methodSemantic(DistServiceGrpc.getMatchMethod(), BluePrint.WRUnaryMethod.getInstance())
         .methodSemantic(DistServiceGrpc.getUnmatchMethod(), BluePrint.WRUnaryMethod.getInstance())
-        .methodSemantic(DistServiceGrpc.getDistMethod(), BluePrint.WRRPipelineUnaryMethod.getInstance())
+        .methodSemantic(DistServiceGrpc.getDistMethod(), BluePrint.HRWPipelineUnaryMethod.getInstance())
         .build();
 }

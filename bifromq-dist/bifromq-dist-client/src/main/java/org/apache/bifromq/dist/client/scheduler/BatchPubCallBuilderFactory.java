@@ -14,13 +14,15 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 
 package org.apache.bifromq.dist.client.scheduler;
 
 import static java.util.Collections.emptyMap;
 
+import java.time.Duration;
+import java.util.UUID;
 import org.apache.bifromq.baserpc.client.IRPCClient;
 import org.apache.bifromq.basescheduler.IBatchCall;
 import org.apache.bifromq.basescheduler.IBatchCallBuilder;
@@ -30,7 +32,6 @@ import org.apache.bifromq.dist.rpc.proto.DistReply;
 import org.apache.bifromq.dist.rpc.proto.DistRequest;
 import org.apache.bifromq.dist.rpc.proto.DistServiceGrpc;
 import org.apache.bifromq.sysprops.props.DataPlaneMaxBurstLatencyMillis;
-import java.time.Duration;
 
 public class BatchPubCallBuilderFactory implements IBatchCallBuilderFactory<PubRequest, PubResult, PubCallBatcherKey> {
     private final IRPCClient rpcClient;
@@ -45,8 +46,9 @@ public class BatchPubCallBuilderFactory implements IBatchCallBuilderFactory<PubR
     public IBatchCallBuilder<PubRequest, PubResult, PubCallBatcherKey> newBuilder(String name,
                                                                                   PubCallBatcherKey batcherKey) {
         IRPCClient.IRequestPipeline<DistRequest, DistReply> ppln =
-            rpcClient.createRequestPipeline(batcherKey.tenantId(), null, null, emptyMap(),
-                DistServiceGrpc.getDistMethod());
+            rpcClient.createRequestPipeline(batcherKey.tenantId(), null,
+                // using random UUID for pipeline routing key to achieve better load balancing
+                UUID.randomUUID().toString(), emptyMap(), DistServiceGrpc.getDistMethod());
         return new IBatchCallBuilder<>() {
             @Override
             public IBatchCall<PubRequest, PubResult, PubCallBatcherKey> newBatchCall() {

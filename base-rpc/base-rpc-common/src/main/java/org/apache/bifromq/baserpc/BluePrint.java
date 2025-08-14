@@ -40,7 +40,6 @@ import lombok.NoArgsConstructor;
 public final class BluePrint {
     private final ServiceDescriptor serviceDescriptor;
     private final Map<String, MethodSemantic> methodSemantics;
-    private final Map<String, MethodDescriptor<?, ?>> methods;
     private final Map<String, MethodDescriptor<?, ?>> wrappedMethods;
 
     private BluePrint(
@@ -50,7 +49,6 @@ public final class BluePrint {
         Map<String, MethodDescriptor<?, ?>> wrappedMethods) {
         this.serviceDescriptor = serviceDescriptor;
         this.methodSemantics = methodSemantics;
-        this.methods = methods;
         this.wrappedMethods = wrappedMethods;
         if (!serviceDescriptor.getMethods().containsAll(methods.values())) {
             throw new RuntimeException("Some method is not defined in the supplied service descriptor");
@@ -237,6 +235,18 @@ public final class BluePrint {
     public static final class WCHPipelineUnaryMethod implements PipelineUnary {
         public static WCHPipelineUnaryMethod getInstance() {
             return new WCHPipelineUnaryMethod();
+        }
+
+        @Override
+        public BalanceMode mode() {
+            return BalanceMode.WCHBalanced;
+        }
+    }
+
+    @NoArgsConstructor(access = AccessLevel.PRIVATE)
+    public static final class HRWPipelineUnaryMethod implements PipelineUnary {
+        public static HRWPipelineUnaryMethod getInstance() {
+            return new HRWPipelineUnaryMethod();
         }
 
         @Override

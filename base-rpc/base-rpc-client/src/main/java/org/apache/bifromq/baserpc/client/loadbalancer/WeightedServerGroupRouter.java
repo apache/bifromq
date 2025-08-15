@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 
 package org.apache.bifromq.baserpc.client.loadbalancer;
@@ -26,11 +26,12 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.SortedMap;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.atomic.AtomicInteger;
 
 class WeightedServerGroupRouter implements IServerGroupRouter {
-    private final Map<String, Integer> weightedServers;
+    private final SortedMap<String, Integer> weightedServers;
     private final List<String> weightedServerRRSequence;
     private final HRWRouter<String> hrwRouter;
     private final WCHRouter<String> chRouter;
@@ -40,7 +41,7 @@ class WeightedServerGroupRouter implements IServerGroupRouter {
     WeightedServerGroupRouter(Map<String, Boolean> allServers,
                               Map<String, Integer> groupWeights,
                               Map<String, Set<String>> serverGroups) {
-        weightedServers = Maps.newHashMap();
+        weightedServers = Maps.newTreeMap();
         for (String group : groupWeights.keySet()) {
             int weight = Math.abs(groupWeights.get(group)) % 11; // weight range: 0-10
             serverGroups.getOrDefault(group, Collections.emptySet()).forEach(serverId ->

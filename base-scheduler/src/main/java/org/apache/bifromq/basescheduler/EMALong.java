@@ -19,43 +19,58 @@
 
 package org.apache.bifromq.basescheduler;
 
-import java.util.concurrent.atomic.AtomicLong;
+import com.google.common.base.Preconditions;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Supplier;
 
 class EMALong {
     private static final double NANOS_PER_SECOND = 1_000_000_000.0;
     private final Supplier<Long> nowSupplier;
-    private final double alpha;
-    private final double decay;
+    private final double alpha; // (0,1]
+    private final double decay; // (0,1]
     private final long decayDelayNanos;
-    private final AtomicLong value = new AtomicLong(0);
-    private final AtomicLong lastUpdateTime = new AtomicLong(0);
+    private final AtomicReference<State> state;
 
     public EMALong(Supplier<Long> nowSupplier, double alpha, double decay, long decayDelayNanos) {
+        Preconditions.checkArgument(alpha > 0.0 && alpha <= 1.0, "alpha must be in (0,1]");
+        Preconditions.checkArgument(decay > 0.0 && decay <= 1.0, "decay must be in (0,1]");
+        Preconditions.checkArgument(decayDelayNanos >= 0, "decayDelayNanos must be non-negative");
         this.nowSupplier = nowSupplier;
         this.alpha = alpha;
         this.decay = decay;
         this.decayDelayNanos = decayDelayNanos;
+        this.state = new AtomicReference<>(new State(0L, 0L));
     }
 
     public void update(long newValue) {
-        value.updateAndGet(v -> {
-            lastUpdateTime.set(nowSupplier.get());
-            if (v == 0) {
-                return newValue;
-            } else {
-                return (long) Math.ceil(v * (1 - alpha) + newValue * alpha);
+        long now = nowSupplier.get();
+        while (true) {
+            State prev = state.get();
+            long newEma = (prev.ema == 0L) ? newValue : (long) Math.ceil(prev.ema * (1 - alpha) + newValue * alpha);
+            State next = new State(newEma, now);
+            if (state.compareAndSet(prev, next)) {
+                return;
             }
-        });
+        }
     }
 
     public long get() {
         long now = nowSupplier.get();
-        long lastUpdate = lastUpdateTime.get();
-        if (decayDelayNanos < Long.MAX_VALUE && lastUpdate + decayDelayNanos < now) {
-            return (long) (value.get()
-                * Math.pow(decay, Math.ceil((now - lastUpdate - decayDelayNanos) / NANOS_PER_SECOND)));
+        State s = state.get();
+        if (s.ema == 0L || s.lastTs == 0L) {
+            return s.ema;
         }
-        return value.get();
+        if (decayDelayNanos < Long.MAX_VALUE) {
+            long dt = now - s.lastTs;
+            if (dt > decayDelayNanos) {
+                double seconds = Math.ceil((dt - decayDelayNanos) / NANOS_PER_SECOND);
+                double decayed = s.ema * Math.pow(decay, seconds);
+                return decayed < 1.0 ? 0L : Math.round(decayed);
+            }
+        }
+        return s.ema;
+    }
+
+    private record State(long ema, long lastTs) {
     }
 }

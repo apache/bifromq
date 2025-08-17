@@ -14,14 +14,14 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 
 package org.apache.bifromq.basescheduler;
 
 import static org.testng.Assert.assertEquals;
+import static org.testng.Assert.fail;
 
-import org.apache.bifromq.basescheduler.exception.BackPressureException;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
@@ -33,6 +33,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import lombok.SneakyThrows;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.bifromq.basescheduler.exception.BackPressureException;
 import org.testng.annotations.AfterMethod;
 import org.testng.annotations.BeforeMethod;
 import org.testng.annotations.Test;
@@ -61,9 +62,7 @@ public class BatchCallSchedulerTest {
         executor.submit(() -> {
             int i;
             while ((i = count.decrementAndGet()) >= 0) {
-                scheduler.schedule(i).whenComplete((v, e) -> {
-                    latch.countDown();
-                });
+                scheduler.schedule(i).whenComplete((v, e) -> latch.countDown());
             }
         });
         latch.await();
@@ -92,5 +91,18 @@ public class BatchCallSchedulerTest {
         } catch (Throwable e) {
             assertEquals(e.getCause().getClass(), BackPressureException.class);
         }
+    }
+
+    @Test
+    public void batchCallTimeout() {
+        TestBatchCallScheduler scheduler =
+            new TestBatchCallScheduler(1, Duration.ofNanos(Long.MAX_VALUE), Duration.ofSeconds(1));
+        try {
+            scheduler.schedule(1).join();
+            fail();
+        } catch (Throwable e) {
+            assertEquals(e.getCause().getClass(), BackPressureException.class);
+        }
+        scheduler.close();
     }
 }

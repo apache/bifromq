@@ -14,32 +14,33 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 
 package org.apache.bifromq.basescheduler;
 
-import org.apache.bifromq.basescheduler.exception.BackPressureException;
-import org.apache.bifromq.basescheduler.spi.ICapacityEstimator;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.DistributionSummary;
 import io.micrometer.core.instrument.Gauge;
 import io.micrometer.core.instrument.Metrics;
 import io.micrometer.core.instrument.Tags;
 import io.micrometer.core.instrument.Timer;
-import java.util.ArrayDeque;
 import java.util.LinkedList;
 import java.util.Queue;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentLinkedDeque;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.bifromq.basescheduler.exception.BackPressureException;
+import org.apache.bifromq.basescheduler.spi.ICapacityEstimator;
 
 @Slf4j
 final class Batcher<CallT, CallResultT, BatcherKeyT> {
@@ -72,7 +73,7 @@ final class Batcher<CallT, CallResultT, BatcherKeyT> {
         this.batchCallBuilder = batchCallBuilder;
         this.capacityEstimator = capacityEstimator;
         this.maxBurstLatency = maxBurstLatency;
-        this.batchPool = new ArrayDeque<>();
+        this.batchPool = new ConcurrentLinkedDeque<>();
         this.emaQueueingTime = new EMALong(System::nanoTime, 0.1, 0.9, maxBurstLatency);
         Tags tags = Tags.of("name", name, "key", Integer.toUnsignedString(System.identityHashCode(this)));
         maxPipelineDepthGauge = Gauge.builder("batcher.pipeline.max", capacityEstimator::maxPipelineDepth)
@@ -96,7 +97,7 @@ final class Batcher<CallT, CallResultT, BatcherKeyT> {
             return CompletableFuture.failedFuture(
                 new RejectedExecutionException("Batcher has been shut down"));
         }
-        if (emaQueueingTime.get() < maxBurstLatency) {
+        if (Math.max(emaQueueingTime.get(), headCallWaitingNanos()) < maxBurstLatency) {
             ICallTask<CallT, CallResultT, BatcherKeyT> callTask = new CallTask<>(batcherKey, request);
             boolean offered = callTaskBuffers.offer(callTask);
             assert offered;
@@ -104,8 +105,16 @@ final class Batcher<CallT, CallResultT, BatcherKeyT> {
             return callTask.resultPromise();
         } else {
             dropCounter.increment();
-            return CompletableFuture.failedFuture(new BackPressureException("Too high average latency"));
+            return CompletableFuture.failedFuture(new BackPressureException("Batch call busy"));
         }
+    }
+
+    private long headCallWaitingNanos() {
+        ICallTask<CallT, CallResultT, BatcherKeyT> head = callTaskBuffers.peek();
+        if (head != null) {
+            return System.nanoTime() - head.ts();
+        }
+        return 0;
     }
 
     public CompletableFuture<Void> close() {
@@ -137,6 +146,7 @@ final class Batcher<CallT, CallResultT, BatcherKeyT> {
         while ((batchCall = batchPool.poll()) != null) {
             batchCall.destroy();
         }
+        batchCallBuilder.close();
     }
 
     private void trigger() {
@@ -178,30 +188,37 @@ final class Batcher<CallT, CallResultT, BatcherKeyT> {
             int finalBatchSize = batchSize;
             CompletableFuture<Void> future = batchCall.execute();
             runningBatchCalls.add(future);
-            future.whenComplete((v, e) -> {
-                runningBatchCalls.remove(future);
-                long execEnd = System.nanoTime();
-                if (e != null) {
-                    batchedTasks.forEach(t -> t.resultPromise().completeExceptionally(e));
-                } else {
-                    long batchCallLatency = execEnd - execBegin;
-                    capacityEstimator.record(finalBatchSize, batchCallLatency);
-                    batchExecTimer.record(batchCallLatency, TimeUnit.NANOSECONDS);
-                    batchedTasks.forEach(t -> {
-                        long callLatency = execEnd - t.ts();
-                        batchCallTimer.record(callLatency, TimeUnit.NANOSECONDS);
-                    });
-                }
-                returnBatchCall(batchCall);
-                pipelineDepth.getAndDecrement();
-                // After each completion, check for shutdown
-                if (state.get() == State.SHUTTING_DOWN) {
-                    checkShutdownCompletion();
-                }
-                if (!callTaskBuffers.isEmpty()) {
-                    trigger();
-                }
-            });
+            future
+                .orTimeout(maxBurstLatency, TimeUnit.NANOSECONDS) // Ensure we don't block indefinitely
+                .whenComplete((v, e) -> {
+                    runningBatchCalls.remove(future);
+                    long execEnd = System.nanoTime();
+                    if (e != null) {
+                        if (e instanceof TimeoutException) {
+                            batchedTasks.forEach(t -> t.resultPromise()
+                                .completeExceptionally(new BackPressureException("Batch Call timeout", e)));
+                        } else {
+                            batchedTasks.forEach(t -> t.resultPromise().completeExceptionally(e));
+                        }
+                    } else {
+                        long batchCallLatency = execEnd - execBegin;
+                        capacityEstimator.record(finalBatchSize, batchCallLatency);
+                        batchExecTimer.record(batchCallLatency, TimeUnit.NANOSECONDS);
+                        batchedTasks.forEach(t -> {
+                            long callLatency = execEnd - t.ts();
+                            batchCallTimer.record(callLatency, TimeUnit.NANOSECONDS);
+                        });
+                    }
+                    returnBatchCall(batchCall);
+                    pipelineDepth.getAndDecrement();
+                    // After each completion, check for shutdown
+                    if (state.get() == State.SHUTTING_DOWN) {
+                        checkShutdownCompletion();
+                    }
+                    if (!callTaskBuffers.isEmpty()) {
+                        trigger();
+                    }
+                });
         } catch (Throwable e) {
             log.error("Batch call failed unexpectedly", e);
             batchedTasks.forEach(t -> t.resultPromise().completeExceptionally(e));

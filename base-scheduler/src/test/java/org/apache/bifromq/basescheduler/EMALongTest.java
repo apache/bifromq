@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 
 package org.apache.bifromq.basescheduler;
@@ -81,10 +81,10 @@ public class EMALongTest {
     void testDecayAfterDelay() {
         // set decay=0.5, decayDelay=1s
         EMALong ema = new EMALong(nowSupplier, 0.5, 0.5, 1_000_000_000L);
-        fakeTime.set(0L);
+        fakeTime.set(1L);
         ema.update(100L);
         // advance time to after delay + 2s total => one decay period
-        fakeTime.set(1_000_000_000L + 1_000_000_000L);
+        fakeTime.set(1_000_000_001L + 1_000_000_000L);
         // (now - lastUpdate - delay) / 1e9 = (2s - 1s)/1e9 = 1 => ceil(1) =1
         // value * decay^1 = 100 * 0.5 = 50
         assertEquals(ema.get(), 50);
@@ -94,7 +94,7 @@ public class EMALongTest {
     void testMultipleDecayPeriods() {
         // decay=0.5, delay=1s
         EMALong ema = new EMALong(nowSupplier, 0.5, 0.5, 1_000_000_000L);
-        fakeTime.set(0L);
+        fakeTime.set(1L);
         ema.update(80L);
         // advance time to after delay + 3.2s => ceil(3.2)=4 periods
         fakeTime.set(1_000_000_000L + 3_200_000_000L);

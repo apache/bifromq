@@ -25,6 +25,12 @@ import static org.testng.Assert.assertEquals;
 import static org.testng.Assert.assertFalse;
 import static org.testng.Assert.assertSame;
 
+import java.time.Duration;
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.Map;
+import java.util.Set;
+import java.util.function.Supplier;
 import org.apache.bifromq.basekv.balance.BalanceNow;
 import org.apache.bifromq.basekv.balance.BalanceResult;
 import org.apache.bifromq.basekv.balance.BalanceResultType;
@@ -36,22 +42,16 @@ import org.apache.bifromq.basekv.proto.State;
 import org.apache.bifromq.basekv.raft.proto.ClusterConfig;
 import org.apache.bifromq.basekv.raft.proto.RaftNodeStatus;
 import org.apache.bifromq.basekv.raft.proto.RaftNodeSyncState;
-import java.time.Duration;
-import java.util.Arrays;
-import java.util.Collections;
-import java.util.Map;
-import java.util.Set;
-import java.util.function.Supplier;
 import org.testng.annotations.BeforeMethod;
 import org.testng.annotations.Test;
 
 public class UnreachableReplicaRemovalBalancerTest {
 
-    private UnreachableReplicaRemovalBalancer balancer;
-    private Supplier<Long> mockTimeSource;
     private final String localStoreId = "localStore";
     private final String peerStoreId = "peerStore";
     private final KVRangeId rangeId = KVRangeId.newBuilder().setEpoch(1).setId(1).build();
+    private UnreachableReplicaRemovalBalancer balancer;
+    private Supplier<Long> mockTimeSource;
 
     @BeforeMethod
     public void setUp() {
@@ -59,6 +59,36 @@ public class UnreachableReplicaRemovalBalancerTest {
         when(mockTimeSource.get()).thenReturn(System.currentTimeMillis());
         balancer =
             new UnreachableReplicaRemovalBalancer("clusterId", localStoreId, Duration.ofSeconds(15), mockTimeSource);
+    }
+
+    @Test
+    public void noChangeWhenLocalStoreMissingInitially() {
+        KVRangeStoreDescriptor peerStoreDescriptor = createStoreDescriptor(peerStoreId);
+        balancer.update(Set.of(peerStoreDescriptor));
+        assertSame(balancer.balance().type(), BalanceResultType.NoNeedBalance);
+    }
+
+    @Test
+    public void noNPEWhenLocalStoreDisappearsAfterBeingLeader() {
+        KVRangeStoreDescriptor localStoreDescriptor = createStoreDescriptor(
+            localStoreId,
+            createRangeDescriptor(
+                rangeId,
+                RaftNodeStatus.Leader,
+                Map.of(localStoreId, RaftNodeSyncState.Replicating, peerStoreId, RaftNodeSyncState.Probing),
+                Set.of(localStoreId, peerStoreId),
+                Set.of()
+            )
+        );
+        KVRangeStoreDescriptor peerStoreDescriptor = createStoreDescriptor(peerStoreId);
+
+        when(mockTimeSource.get()).thenReturn(System.currentTimeMillis());
+        balancer.update(Set.of(localStoreDescriptor, peerStoreDescriptor));
+
+        when(mockTimeSource.get()).thenReturn(System.currentTimeMillis() + 16000);
+        balancer.update(Set.of(peerStoreDescriptor));
+
+        assertSame(balancer.balance().type(), BalanceResultType.NoNeedBalance);
     }
 
     @Test
@@ -72,7 +102,6 @@ public class UnreachableReplicaRemovalBalancerTest {
         );
 
         balancer.update(Set.of(storeDescriptor));
-
 
         assertSame(balancer.balance().type(), BalanceResultType.NoNeedBalance);
     }
@@ -101,7 +130,7 @@ public class UnreachableReplicaRemovalBalancerTest {
         // Verify that the unhealthy replica is scheduled for removal
         assertEquals(localStoreId, command.getToStore());
         assertEquals(rangeId, command.getKvRangeId());
-        assertEquals(5, command.getExpectedVer());
+        assertEquals(command.getExpectedVer(), 5);
         assertFalse(command.getVoters().contains(peerStoreId));
     }
 
@@ -129,10 +158,9 @@ public class UnreachableReplicaRemovalBalancerTest {
         // Verify that the unhealthy replica is scheduled for removal
         assertEquals(localStoreId, command.getToStore());
         assertEquals(rangeId, command.getKvRangeId());
-        assertEquals(5, command.getExpectedVer());
+        assertEquals(command.getExpectedVer(), 5);
         assertFalse(command.getLearners().contains(peerStoreId));
     }
-
 
     @Test
     public void noCommandIfReplicaReachableAgain() {
@@ -176,7 +204,6 @@ public class UnreachableReplicaRemovalBalancerTest {
             createRangeDescriptor(rangeId, RaftNodeStatus.Follower, Collections.emptyMap(),
                 Set.of(localStoreId), Set.of(peerStoreId))
         );
-
 
         balancer.update(Set.of(storeDescriptor, peerStoreDescriptor));
 

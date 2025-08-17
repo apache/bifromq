@@ -14,13 +14,21 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 
 package org.apache.bifromq.basekv.balance.impl;
 
 import static org.apache.bifromq.basekv.proto.State.StateType.Normal;
 
+import com.google.common.collect.Sets;
+import java.time.Duration;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.Supplier;
 import org.apache.bifromq.basehlc.HLC;
 import org.apache.bifromq.basekv.balance.BalanceNow;
 import org.apache.bifromq.basekv.balance.BalanceResult;
@@ -34,14 +42,6 @@ import org.apache.bifromq.basekv.raft.proto.ClusterConfig;
 import org.apache.bifromq.basekv.raft.proto.RaftNodeStatus;
 import org.apache.bifromq.basekv.raft.proto.RaftNodeSyncState;
 import org.apache.bifromq.basekv.utils.KVRangeIdUtil;
-import com.google.common.collect.Sets;
-import java.time.Duration;
-import java.util.HashMap;
-import java.util.HashSet;
-import java.util.Map;
-import java.util.Set;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.function.Supplier;
 
 /**
  * The UnreachableReplicaRemovalBalancer is a specialized balancer responsible for managing and removing unreachable
@@ -99,7 +99,10 @@ public final class UnreachableReplicaRemovalBalancer extends StoreBalancer {
     public void update(Set<KVRangeStoreDescriptor> landscape) {
         Map<String, Map<KVRangeId, KVRangeDescriptor>> descriptorMap = build(landscape);
         latestDescriptorMap = descriptorMap;
-
+        if (!descriptorMap.containsKey(localStoreId)) {
+            replicaSuspicionTimeMap.clear();
+            return; // No need to process if local store is not present in the landscape
+        }
         // Track the current leaders
         Set<KVRangeId> currentLeaders = new HashSet<>();
 

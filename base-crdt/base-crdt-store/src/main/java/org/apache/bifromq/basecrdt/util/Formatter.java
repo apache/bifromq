@@ -41,30 +41,36 @@ public class Formatter {
         return () -> replica.getUri() + "-" + BaseEncoding.base32().encode(replica.getId().toByteArray());
     }
 
-    public static String toPrintable(DeltaMessage delta) {
-        try {
-            return JsonFormat.printer().print(delta);
-        } catch (Exception e) {
-            // ignore
-            return delta.toString();
-        }
+    public static Supplier<String> toPrintable(DeltaMessage delta) {
+        return () -> {
+            try {
+                return JsonFormat.printer().print(delta);
+            } catch (Exception e) {
+                // ignore
+                return delta.toString();
+            }
+        };
     }
 
-    public static String toPrintable(AckMessage ack) {
-        try {
-            return JsonFormat.printer().print(ack);
-        } catch (Exception e) {
-            // ignore
-            return ack.toString();
-        }
+    public static Supplier<String> toPrintable(AckMessage ack) {
+        return () -> {
+            try {
+                return JsonFormat.printer().print(ack);
+            } catch (Exception e) {
+                // ignore
+                return ack.toString();
+            }
+        };
     }
 
-    public static String toPrintable(CRDTStoreMessage ack) {
-        try {
-            return JsonFormat.printer().print(ack);
-        } catch (Exception e) {
-            // ignore
-            return ack.toString();
-        }
+    public static Supplier<String> toPrintable(CRDTStoreMessage ack) {
+        return () -> {
+            try {
+                return JsonFormat.printer().print(ack);
+            } catch (Exception e) {
+                // ignore
+                return ack.toString();
+            }
+        };
     }
 }

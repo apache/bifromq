@@ -35,6 +35,10 @@
         </dependency>
         <dependency>
             <groupId>org.apache.bifromq</groupId>
+            <artifactId>base-util</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.bifromq</groupId>
             <artifactId>base-hlc</artifactId>
         </dependency>
         <dependency>

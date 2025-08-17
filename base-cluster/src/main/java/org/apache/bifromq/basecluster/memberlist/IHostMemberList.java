@@ -14,19 +14,22 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 
 package org.apache.bifromq.basecluster.memberlist;
 
-import org.apache.bifromq.basecluster.memberlist.agent.IAgent;
-import org.apache.bifromq.basecluster.membership.proto.HostEndpoint;
-import org.apache.bifromq.basecluster.membership.proto.HostMember;
 import io.reactivex.rxjava3.core.Observable;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
+import org.apache.bifromq.basecluster.memberlist.agent.IAgent;
+import org.apache.bifromq.basecluster.membership.proto.HostEndpoint;
+import org.apache.bifromq.basecluster.membership.proto.HostMember;
 
+/**
+ * The interface of host member list service.
+ */
 public interface IHostMemberList {
     /**
      * The member from local.
@@ -35,6 +38,12 @@ public interface IHostMemberList {
      */
     HostMember local();
 
+    /**
+     * If the given endpoint is considered a zombie(The dead endpoint used to live in the local host).
+     *
+     * @param endpoint the endpoint
+     * @return true if the given endpoint is considered a zombie.
+     */
     boolean isZombie(HostEndpoint endpoint);
 
     /**

@@ -239,7 +239,7 @@ final class AntiEntropy {
             if (currentDelta == toResend) {
                 log.trace("Local[{}] resend delta to neighbor[{}]:\n{}",
                     toPrintable(localAddr), toPrintable(neighborAddr), toPrintable(toResend));
-                deltaMsgCounter.increment(1D);
+                deltaMsgCounter.increment();
                 deltaMsgBytesCounter.increment(currentDelta.getSerializedSize());
                 neighborMessageSubject.onNext(new NeighborMessage(currentDelta, neighborAddr));
                 if (resendCount++ < 10) {

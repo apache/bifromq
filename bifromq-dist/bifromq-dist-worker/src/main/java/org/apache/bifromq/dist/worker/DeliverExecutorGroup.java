@@ -39,6 +39,7 @@ import java.util.Set;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.TimeUnit;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.bifromq.base.util.RendezvousHash;
 import org.apache.bifromq.deliverer.IMessageDeliverer;
 import org.apache.bifromq.deliverer.TopicMessagePackHolder;
 import org.apache.bifromq.dist.worker.schema.GroupMatching;

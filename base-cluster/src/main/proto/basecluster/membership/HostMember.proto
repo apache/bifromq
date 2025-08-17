@@ -34,6 +34,6 @@ message HostEndpoint{
 message HostMember {
   HostEndpoint endpoint = 1;
   uint32 incarnation = 2; // incarnation of the node, managed by the node itself
-  repeated string agentId = 3; // deprecate since 3.3.3, the list of agents reside on the host
+  //repeated string agentId = 3; deprecate since 3.3.3, the list of agents reside on the host
   map<string, uint64> agent = 4; // the map of agent id to incarnation
 }

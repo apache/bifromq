@@ -17,7 +17,7 @@
  * under the License.
  */
 
-package org.apache.bifromq.dist.worker;
+package org.apache.bifromq.base.util;
 
 import static org.testng.Assert.assertEquals;
 import static org.testng.Assert.assertNotNull;

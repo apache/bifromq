@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 
 package org.apache.bifromq.basecluster.memberlist;
@@ -25,28 +25,8 @@ import static org.apache.bifromq.basecluster.memberlist.CRDTUtil.iterate;
 import static org.apache.bifromq.basecrdt.core.api.CausalCRDTType.mvreg;
 import static org.apache.bifromq.basecrdt.store.ReplicaIdGenerator.generate;
 
-import org.apache.bifromq.basecluster.agent.proto.AgentEndpoint;
-import org.apache.bifromq.basecluster.memberlist.agent.Agent;
-import org.apache.bifromq.basecluster.memberlist.agent.AgentAddressProvider;
-import org.apache.bifromq.basecluster.memberlist.agent.AgentMessenger;
-import org.apache.bifromq.basecluster.memberlist.agent.IAgent;
-import org.apache.bifromq.basecluster.membership.proto.Doubt;
-import org.apache.bifromq.basecluster.membership.proto.Fail;
-import org.apache.bifromq.basecluster.membership.proto.HostEndpoint;
-import org.apache.bifromq.basecluster.membership.proto.HostMember;
-import org.apache.bifromq.basecluster.membership.proto.Join;
-import org.apache.bifromq.basecluster.membership.proto.Quit;
-import org.apache.bifromq.basecluster.messenger.IMessenger;
-import org.apache.bifromq.basecluster.proto.ClusterMessage;
-import org.apache.bifromq.basecrdt.core.api.IORMap;
-import org.apache.bifromq.basecrdt.core.api.MVRegOperation;
-import org.apache.bifromq.basecrdt.core.api.ORMapOperation;
-import org.apache.bifromq.basecrdt.proto.Replica;
-import org.apache.bifromq.basecrdt.store.ICRDTStore;
-import org.apache.bifromq.basehlc.HLC;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Maps;
-import com.google.common.collect.Sets;
 import com.google.protobuf.AbstractMessageLite;
 import com.google.protobuf.ByteString;
 import io.micrometer.core.instrument.Gauge;
@@ -69,7 +49,30 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Collectors;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.bifromq.base.util.RendezvousHash;
+import org.apache.bifromq.basecluster.agent.proto.AgentEndpoint;
+import org.apache.bifromq.basecluster.memberlist.agent.Agent;
+import org.apache.bifromq.basecluster.memberlist.agent.AgentAddressProvider;
+import org.apache.bifromq.basecluster.memberlist.agent.AgentMessenger;
+import org.apache.bifromq.basecluster.memberlist.agent.IAgent;
+import org.apache.bifromq.basecluster.membership.proto.Doubt;
+import org.apache.bifromq.basecluster.membership.proto.Fail;
+import org.apache.bifromq.basecluster.membership.proto.HostEndpoint;
+import org.apache.bifromq.basecluster.membership.proto.HostMember;
+import org.apache.bifromq.basecluster.membership.proto.Join;
+import org.apache.bifromq.basecluster.membership.proto.Quit;
+import org.apache.bifromq.basecluster.messenger.IMessenger;
+import org.apache.bifromq.basecluster.proto.ClusterMessage;
+import org.apache.bifromq.basecrdt.core.api.IORMap;
+import org.apache.bifromq.basecrdt.core.api.MVRegOperation;
+import org.apache.bifromq.basecrdt.core.api.ORMapOperation;
+import org.apache.bifromq.basecrdt.proto.Replica;
+import org.apache.bifromq.basecrdt.store.ICRDTStore;
+import org.apache.bifromq.basehlc.HLC;
 
+/**
+ * HostMemberList implementation using CRDT for achieving a consistent view of the host members in the cluster.
+ */
 @Slf4j
 public class HostMemberList implements IHostMemberList {
     private final AtomicReference<State> state = new AtomicReference<>(State.JOINED);
@@ -85,6 +88,18 @@ public class HostMemberList implements IHostMemberList {
     private final MetricManager metricManager;
     private final String[] tags;
     private volatile HostMember local;
+
+    /**
+     * Constructor of HostMemberList.
+     *
+     * @param bindAddr the address to bind the host member
+     * @param port the port to bind the host member
+     * @param messenger the messenger to use for communication
+     * @param scheduler the scheduler to use for scheduling tasks
+     * @param store the CRDT store to use for storing internal OR-Map
+     * @param addressResolver the address resolver to resolve host endpoints to addresses
+     * @param tags the tags to be used for metrics
+     */
     public HostMemberList(String bindAddr,
                           int port,
                           IMessenger messenger,
@@ -134,10 +149,13 @@ public class HostMemberList implements IHostMemberList {
             if (joined) {
                 // add it into crdt
                 log.debug("Member[{}] joins the cluster: local={}", member, local);
-                Optional<HostMember> memberInCRDT = getHostMember(hostListCRDT, member.getEndpoint());
-                if (memberInCRDT.isEmpty() || memberInCRDT.get().getIncarnation() < member.getIncarnation()) {
-                    hostListCRDT.execute(ORMapOperation.update(member.getEndpoint().toByteString())
-                        .with(MVRegOperation.write(member.toByteString())));
+                if (member == local) {
+                    // only update crdt if it's local member
+                    Optional<HostMember> memberInCRDT = getHostMember(hostListCRDT, member.getEndpoint());
+                    if (memberInCRDT.isEmpty() || memberInCRDT.get().getIncarnation() < member.getIncarnation()) {
+                        hostListCRDT.execute(ORMapOperation.update(member.getEndpoint().toByteString())
+                            .with(MVRegOperation.write(member.toByteString())));
+                    }
                 }
                 // update crdt landscape
                 store.join(hostListCRDT.id(), currentMembers().keySet().stream()
@@ -148,12 +166,11 @@ public class HostMemberList implements IHostMemberList {
         }
     }
 
-    private void drop(HostEndpoint memberEndpoint, int incarnation) {
+    private void drop(HostEndpoint memberEndpoint, int incarnation, boolean fromQuit) {
         synchronized (this) {
             boolean removed = removeMember(memberEndpoint, incarnation);
             Optional<HostMember> memberInCRDT = getHostMember(hostListCRDT, memberEndpoint);
-            if (memberInCRDT.isPresent()) {
-                // remove it from crdt if any
+            if (!fromQuit && memberInCRDT.isPresent() && shouldReportFailure(memberInCRDT.get().getEndpoint())) {
                 hostListCRDT.execute(ORMapOperation.remove(memberEndpoint.toByteString()).of(mvreg));
             }
             if (removed) {
@@ -163,6 +180,17 @@ public class HostMemberList implements IHostMemberList {
                     .collect(Collectors.toSet()));
             }
         }
+    }
+
+    private boolean shouldReportFailure(HostEndpoint failedMemberEndpoint) {
+        // if local member is responsible for removing the failed member from CRDT
+        RendezvousHash<HostEndpoint, HostEndpoint> hash = RendezvousHash.<HostEndpoint, HostEndpoint>builder()
+            .keyFunnel((from, into) -> into.putBytes(from.getId().asReadOnlyByteBuffer()))
+            .nodeFunnel((from, into) -> into.putBytes(from.getId().asReadOnlyByteBuffer()))
+            .nodes(currentMembers().keySet())
+            .build();
+        HostEndpoint reporter = hash.get(failedMemberEndpoint);
+        return reporter.getId().equals(local.getEndpoint().getId());
     }
 
     @Override
@@ -247,7 +275,6 @@ public class HostMemberList implements IHostMemberList {
                     tags));
                 local = local.toBuilder()
                     .setIncarnation(local.getIncarnation() + 1)
-                    .addAgentId(agentId) // deprecate since 3.3.3
                     .putAgent(agentId, agentEndpoint.getIncarnation())
                     .build();
                 join(local);
@@ -265,8 +292,6 @@ public class HostMemberList implements IHostMemberList {
                 synchronized (this) {
                     local = local.toBuilder()
                         .setIncarnation(local.getIncarnation() + 1)
-                        .clearAgentId()
-                        .addAllAgentId(agentMap.keySet()) // deprecate since 3.3.3
                         .clearAgent()
                         .putAllAgent(Maps.transformValues(agentMap, a -> a.local().getIncarnation()))
                         .build();
@@ -279,7 +304,7 @@ public class HostMemberList implements IHostMemberList {
 
     @Override
     public Observable<Map<HostEndpoint, Set<String>>> landscape() {
-        return membershipSubject.map(m -> Maps.transformValues(m, v -> Sets.newHashSet(v.getAgentIdList())));
+        return membershipSubject.map(m -> Maps.transformValues(m, v -> v.getAgentMap().keySet()));
     }
 
     private Map<HostEndpoint, HostMember> currentMembers() {
@@ -327,6 +352,9 @@ public class HostMemberList implements IHostMemberList {
             case QUIT -> handleQuit(message.getQuit());
             case FAIL -> handleFail(message.getFail());
             case DOUBT -> handleDoubt(message.getDoubt());
+            default -> {
+                // never happen
+            }
         }
     }
 
@@ -363,7 +391,7 @@ public class HostMemberList implements IHostMemberList {
         } else if (isZombie(failedEndpoint)) {
             clearZombie(failedEndpoint);
         } else {
-            drop(failedEndpoint, fail.getIncarnation());
+            drop(failedEndpoint, fail.getIncarnation(), false);
         }
     }
 
@@ -371,7 +399,7 @@ public class HostMemberList implements IHostMemberList {
         HostEndpoint quitEndpoint = quit.getEndpoint();
         log.debug("Member[{}] quits the cluster", quitEndpoint);
         if (!quitEndpoint.equals(local.getEndpoint()) && !isZombie(quitEndpoint)) {
-            drop(quitEndpoint, quit.getIncarnation());
+            drop(quitEndpoint, quit.getIncarnation(), true);
         }
     }
 
@@ -388,7 +416,7 @@ public class HostMemberList implements IHostMemberList {
 
     private void clearZombie(HostEndpoint zombieEndpoint) {
         // drop zombie if any, and broadcast a quit on behalf of it
-        drop(zombieEndpoint, Integer.MAX_VALUE);
+        drop(zombieEndpoint, Integer.MAX_VALUE, false);
         messenger.spread(ClusterMessage.newBuilder()
             .setQuit(Quit.newBuilder().setEndpoint(zombieEndpoint).setIncarnation(Integer.MAX_VALUE).build())
             .build());

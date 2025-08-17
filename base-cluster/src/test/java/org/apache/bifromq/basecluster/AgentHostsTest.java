@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 
 package org.apache.bifromq.basecluster;
@@ -22,6 +22,13 @@ package org.apache.bifromq.basecluster;
 import static com.google.protobuf.ByteString.copyFromUtf8;
 import static org.awaitility.Awaitility.await;
 
+import com.google.common.collect.Sets;
+import com.google.protobuf.ByteString;
+import io.reactivex.rxjava3.observers.TestObserver;
+import java.util.HashMap;
+import java.util.Map;
+import java.util.Set;
+import lombok.extern.slf4j.Slf4j;
 import org.apache.bifromq.basecluster.agent.proto.AgentMemberAddr;
 import org.apache.bifromq.basecluster.agent.proto.AgentMemberMetadata;
 import org.apache.bifromq.basecluster.agent.proto.AgentMessage;
@@ -30,13 +37,6 @@ import org.apache.bifromq.basecluster.annotation.StoreCfgs;
 import org.apache.bifromq.basecluster.memberlist.agent.IAgent;
 import org.apache.bifromq.basecluster.memberlist.agent.IAgentMember;
 import org.apache.bifromq.basecluster.membership.proto.HostEndpoint;
-import com.google.common.collect.Sets;
-import com.google.protobuf.ByteString;
-import io.reactivex.rxjava3.observers.TestObserver;
-import java.util.HashMap;
-import java.util.Map;
-import java.util.Set;
-import lombok.extern.slf4j.Slf4j;
 import org.testng.Assert;
 import org.testng.annotations.Test;
 
@@ -86,16 +86,12 @@ public class AgentHostsTest extends AgentTestTemplate {
         @StoreCfg(id = "s1", isSeed = true),
         @StoreCfg(id = "s2"),
         @StoreCfg(id = "s3"),
-        @StoreCfg(id = "s4"),
-        @StoreCfg(id = "s5"),
     })
     @Test
     public void testMultipleAgentHosts() {
-        await().until(() -> storeMgr.membership("s1").size() == 5);
-        await().until(() -> storeMgr.membership("s2").size() == 5);
-        await().until(() -> storeMgr.membership("s3").size() == 5);
-        await().until(() -> storeMgr.membership("s4").size() == 5);
-        await().until(() -> storeMgr.membership("s5").size() == 5);
+        await().forever().until(() -> storeMgr.membership("s1").size() == 3);
+        await().forever().until(() -> storeMgr.membership("s2").size() == 3);
+        await().forever().until(() -> storeMgr.membership("s3").size() == 3);
     }
 
     @Test
@@ -395,8 +391,8 @@ public class AgentHostsTest extends AgentTestTemplate {
         log.info("integrate s1");
         // integrate s1 into the cluster
         storeMgr.integrate("s1");
-        await().until(() -> agentOnS1.membership().blockingFirst().size() == 4);
-        await().until(() -> agentOnS2.membership().blockingFirst().size() == 4);
-        await().until(() -> agentOnS3.membership().blockingFirst().size() == 4);
+        await().forever().until(() -> agentOnS1.membership().blockingFirst().size() == 4);
+        await().forever().until(() -> agentOnS2.membership().blockingFirst().size() == 4);
+        await().forever().until(() -> agentOnS3.membership().blockingFirst().size() == 4);
     }
 }

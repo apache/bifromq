@@ -14,11 +14,12 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 
 package org.apache.bifromq.basecluster.memberlist;
 
+import static java.util.Collections.emptyIterator;
 import static org.apache.bifromq.basecluster.memberlist.CRDTUtil.AGENT_HOST_MAP_URI;
 import static org.apache.bifromq.basecluster.memberlist.Fixtures.LOCAL_ADDR;
 import static org.apache.bifromq.basecluster.memberlist.Fixtures.LOCAL_ENDPOINT;
@@ -27,7 +28,6 @@ import static org.apache.bifromq.basecluster.memberlist.Fixtures.LOCAL_STORE_ID;
 import static org.apache.bifromq.basecluster.memberlist.Fixtures.REMOTE_ADDR_1;
 import static org.apache.bifromq.basecluster.memberlist.Fixtures.REMOTE_HOST_1_ENDPOINT;
 import static org.apache.bifromq.basecluster.memberlist.Fixtures.ZOMBIE_ENDPOINT;
-import static java.util.Collections.emptyIterator;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.Mockito.mockConstruction;
@@ -39,6 +39,18 @@ import static org.testng.Assert.assertEquals;
 import static org.testng.Assert.assertFalse;
 import static org.testng.Assert.assertTrue;
 
+import com.google.common.collect.Iterators;
+import com.google.common.util.concurrent.MoreExecutors;
+import com.google.protobuf.ByteString;
+import io.reactivex.rxjava3.core.Scheduler;
+import io.reactivex.rxjava3.schedulers.Schedulers;
+import io.reactivex.rxjava3.schedulers.Timed;
+import io.reactivex.rxjava3.subjects.PublishSubject;
+import java.net.InetSocketAddress;
+import java.util.Map;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.TimeUnit;
+import lombok.extern.slf4j.Slf4j;
 import org.apache.bifromq.basecluster.memberlist.agent.Agent;
 import org.apache.bifromq.basecluster.memberlist.agent.IAgent;
 import org.apache.bifromq.basecluster.membership.proto.Doubt;
@@ -55,18 +67,6 @@ import org.apache.bifromq.basecrdt.core.api.IMVReg;
 import org.apache.bifromq.basecrdt.core.api.IORMap;
 import org.apache.bifromq.basecrdt.core.api.ORMapOperation;
 import org.apache.bifromq.basecrdt.store.ICRDTStore;
-import com.google.common.collect.Iterators;
-import com.google.common.util.concurrent.MoreExecutors;
-import com.google.protobuf.ByteString;
-import io.reactivex.rxjava3.core.Scheduler;
-import io.reactivex.rxjava3.schedulers.Schedulers;
-import io.reactivex.rxjava3.schedulers.Timed;
-import io.reactivex.rxjava3.subjects.PublishSubject;
-import java.net.InetSocketAddress;
-import java.util.Map;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.TimeUnit;
-import lombok.extern.slf4j.Slf4j;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.MockedConstruction;
@@ -120,7 +120,7 @@ public class HostMemberListTest {
         assertEquals(local.getEndpoint().getAddress(), LOCAL_ADDR.getHostName());
         assertEquals(local.getEndpoint().getPort(), LOCAL_ADDR.getPort());
         assertTrue(local.getIncarnation() >= 0);
-        assertTrue(local.getAgentIdList().isEmpty());
+        assertTrue(local.getAgentMap().isEmpty());
         assertEquals(memberList.landscape().blockingFirst().size(), 1);
         Map<HostEndpoint, Integer> hostMap = memberList.members().blockingFirst();
         assertEquals(hostMap.size(), 1);
@@ -157,15 +157,15 @@ public class HostMemberListTest {
             when(hostMemberOnCRDT.read()).thenReturn(emptyIterator());
             IHostMemberList memberList = new HostMemberList(LOCAL_ADDR.getHostName(), LOCAL_ADDR.getPort(),
                 messenger, scheduler, store, addressResolver);
-            HostMember local = memberList.local();
             memberList.host(agentId);
             when(mockAgent.constructed().get(0).quit()).thenReturn(CompletableFuture.completedFuture(null));
             memberList.stopHosting(agentId);
-            assertEquals(memberList.local().getAgentIdCount(), 0);
+            assertEquals(memberList.local().getAgentMap().size(), 0);
             assertEquals(memberList.landscape().blockingFirst().size(), 1);
-            assertTrue(local.getIncarnation() + 2 == memberList.local().getIncarnation());
+            HostMember local = memberList.local();
+            assertEquals(memberList.local().getIncarnation(), local.getIncarnation());
             Map<HostEndpoint, Integer> hostMap = memberList.members().blockingFirst();
-            assertTrue(local.getIncarnation() + 2 == hostMap.get(local.getEndpoint()));
+            assertEquals((int) hostMap.get(local.getEndpoint()), local.getIncarnation());
 
             verify(hostListCRDT, times(3)).execute(any(ORMapOperation.ORMapUpdate.class));
         }
@@ -197,7 +197,7 @@ public class HostMemberListTest {
             .build()));
 
         ArgumentCaptor<ORMapOperation> opCap = ArgumentCaptor.forClass(ORMapOperation.class);
-        verify(hostListCRDT, times(2)).execute(opCap.capture());
+        verify(hostListCRDT, times(1)).execute(opCap.capture());
         verify(store, times(2)).join(
             argThat(r -> r.getUri().equals(AGENT_HOST_MAP_URI) && r.getId().equals(LOCAL_STORE_ID)), any());
     }
@@ -243,7 +243,7 @@ public class HostMemberListTest {
             .build(), LOCAL_ENDPOINT));
 
         ArgumentCaptor<ORMapOperation> opCap = ArgumentCaptor.forClass(ORMapOperation.class);
-        verify(hostListCRDT, times(2)).execute(opCap.capture());
+        verify(hostListCRDT, times(1)).execute(opCap.capture());
 
         ArgumentCaptor<ClusterMessage> msgCap = ArgumentCaptor.forClass(ClusterMessage.class);
         ArgumentCaptor<InetSocketAddress> addrCap = ArgumentCaptor.forClass(InetSocketAddress.class);
@@ -274,7 +274,7 @@ public class HostMemberListTest {
             .build(), LOCAL_ENDPOINT));
 
         ArgumentCaptor<ORMapOperation> opCap = ArgumentCaptor.forClass(ORMapOperation.class);
-        verify(hostListCRDT, times(3)).execute(opCap.capture());
+        verify(hostListCRDT, times(2)).execute(opCap.capture());
 
         ArgumentCaptor<ClusterMessage> msgCap = ArgumentCaptor.forClass(ClusterMessage.class);
         ArgumentCaptor<InetSocketAddress> addrCap = ArgumentCaptor.forClass(InetSocketAddress.class);
@@ -333,9 +333,9 @@ public class HostMemberListTest {
         messageSubject.onNext(failMsg(REMOTE_HOST_1_ENDPOINT, 1));
 
         ArgumentCaptor<ORMapOperation> opCap = ArgumentCaptor.forClass(ORMapOperation.class);
-        verify(hostListCRDT, times(3)).execute(opCap.capture());
-        assertEquals(((ORMapOperation.ORMapRemove) opCap.getAllValues().get(2)).valueType, CausalCRDTType.mvreg);
-        assertEquals(opCap.getAllValues().get(2).keyPath[0], REMOTE_HOST_1_ENDPOINT.toByteString());
+        verify(hostListCRDT, times(2)).execute(opCap.capture());
+        assertEquals(((ORMapOperation.ORMapRemove) opCap.getAllValues().get(1)).valueType, CausalCRDTType.mvreg);
+        assertEquals(opCap.getAllValues().get(1).keyPath[0], REMOTE_HOST_1_ENDPOINT.toByteString());
     }
 
     @Test
@@ -345,7 +345,6 @@ public class HostMemberListTest {
         IHostMemberList memberList = new HostMemberList(LOCAL_ADDR.getHostName(), LOCAL_ADDR.getPort(),
             messenger, scheduler, store, addressResolver);
         assertEquals(memberList.members().blockingFirst().get(LOCAL_ENDPOINT).intValue(), 0);
-
 
         messageSubject.onNext(failMsg(LOCAL_ENDPOINT, 0));
         messageSubject.onNext(failMsg(LOCAL_ENDPOINT, 0)); // this time will be ignored
@@ -388,7 +387,7 @@ public class HostMemberListTest {
 
         messageSubject.onNext(quitMsg(REMOTE_HOST_1_ENDPOINT, 1));
         // nothing will happen
-        verify(hostListCRDT, times(1)).execute(any(ORMapOperation.ORMapRemove.class));
+        verify(hostListCRDT, never()).execute(any(ORMapOperation.ORMapRemove.class));
         verify(store, times(1)).join(
             argThat(r -> r.getUri().equals(AGENT_HOST_MAP_URI) && r.getId().equals(LOCAL_STORE_ID)), any());
     }
@@ -408,7 +407,6 @@ public class HostMemberListTest {
         verify(store, times(1)).join(
             argThat(r -> r.getUri().equals(AGENT_HOST_MAP_URI) && r.getId().equals(LOCAL_STORE_ID)), any());
     }
-
 
     @Test
     public void handleQuitSelf() {
@@ -444,8 +442,8 @@ public class HostMemberListTest {
         messageSubject.onNext(quitMsg(REMOTE_HOST_1_ENDPOINT, 0));
         // nothing will happen
         ArgumentCaptor<ORMapOperation> opCap = ArgumentCaptor.forClass(ORMapOperation.class);
-        verify(hostListCRDT, times(3)).execute(opCap.capture());
-        assertTrue(opCap.getAllValues().get(2) instanceof ORMapOperation.ORMapRemove);
+        verify(hostListCRDT, times(1)).execute(opCap.capture());
+        assertFalse(opCap.getAllValues().get(0) instanceof ORMapOperation.ORMapRemove);
 
         verify(store, times(3)).join(
             argThat(r -> r.getUri().equals(AGENT_HOST_MAP_URI) && r.getId().equals(LOCAL_STORE_ID)), any());
@@ -479,7 +477,6 @@ public class HostMemberListTest {
         verify(messenger, times(0)).spread(any());
         assertEquals(memberList.members().blockingFirst().get(LOCAL_ENDPOINT).intValue(), 0);
     }
-
 
     private Timed<MessageEnvelope> joinMsg(HostMember member) {
         return to(ClusterMessage.newBuilder()

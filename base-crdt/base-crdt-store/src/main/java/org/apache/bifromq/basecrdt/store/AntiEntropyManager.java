@@ -99,7 +99,17 @@ final class AntiEntropyManager {
     CompletableFuture<AckMessage> receive(DeltaMessage delta, ByteString sender) {
         log.trace("Local[{}] receive delta[{}] from addr[{}]:\n{}",
             toPrintable(localAddr), delta.getSeqNo(), toPrintable(sender), toPrintable(delta));
-        metricManager.receiveDeltaNum.increment(1D);
+        return handleDelta(delta, sender).thenApply(ack -> {
+            metricManager.sendAckNum.increment();
+            metricManager.sendAckBytes.increment(ack.getSerializedSize());
+            log.trace("Local[{}] send ack[{}] to addr[{}]:\n{}",
+                toPrintable(localAddr), ack.getSeqNo(), toPrintable(sender), toPrintable(ack));
+            return ack;
+        });
+    }
+
+    private CompletableFuture<AckMessage> handleDelta(DeltaMessage delta, ByteString sender) {
+        metricManager.receiveDeltaNum.increment();
         metricManager.receiveDeltaBytes.increment(delta.getSerializedSize());
         AntiEntropy neighborAntiEntropy = neighborMap.get(sender);
         if (neighborAntiEntropy != null) {
@@ -124,7 +134,7 @@ final class AntiEntropyManager {
     }
 
     void receive(AckMessage ack, ByteString neighborAddr) {
-        metricManager.receiveAckNum.increment(1D);
+        metricManager.receiveAckNum.increment();
         metricManager.receiveAckBytes.increment(ack.getSerializedSize());
         AntiEntropy neighborAntiEntropy = neighborMap.get(neighborAddr);
         if (neighborAntiEntropy != null) {

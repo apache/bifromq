@@ -23,7 +23,6 @@ BASE_DIR=$(
   cd "$(dirname "$0")"
   pwd
 )/..
-export LOG_DIR=$BASE_DIR/logs
 
 if [ $# -lt 1 ]; then
   echo "USAGE: $0 {start|stop|restart} [-fg]"

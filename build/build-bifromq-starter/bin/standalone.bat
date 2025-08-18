@@ -27,7 +27,7 @@ set BIN_DIR=%~dp0
 for %%i in ("%BIN_DIR%\..") do (
   set BASE_DIR=%%~fi
 )
-set LOG_DIR=%BASE_DIR%\logs
+
 set SCRIPT=%0
 set COMMAND=%1
 set FOREGROUND=%2

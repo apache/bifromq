@@ -19,16 +19,6 @@
 
 package org.apache.bifromq.baserpc.client;
 
-import org.apache.bifromq.baseenv.EnvProvider;
-import org.apache.bifromq.baseenv.NettyEnv;
-import org.apache.bifromq.baserpc.BluePrint;
-import org.apache.bifromq.baserpc.client.interceptor.TenantAwareClientInterceptor;
-import org.apache.bifromq.baserpc.client.loadbalancer.IServerSelector;
-import org.apache.bifromq.baserpc.client.loadbalancer.TrafficDirectiveLoadBalancerProvider;
-import org.apache.bifromq.baserpc.client.nameresolver.TrafficGovernorNameResolverProvider;
-import org.apache.bifromq.baserpc.client.util.FastBehaviorSubject;
-import org.apache.bifromq.baserpc.trafficgovernor.IRPCServiceLandscape;
-import org.apache.bifromq.baserpc.trafficgovernor.IRPCServiceTrafficService;
 import com.google.common.util.concurrent.MoreExecutors;
 import io.grpc.Channel;
 import io.grpc.ConnectivityState;
@@ -50,6 +40,16 @@ import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 import lombok.Builder;
+import org.apache.bifromq.baseenv.EnvProvider;
+import org.apache.bifromq.baseenv.NettyEnv;
+import org.apache.bifromq.baserpc.BluePrint;
+import org.apache.bifromq.baserpc.client.interceptor.TenantAwareClientInterceptor;
+import org.apache.bifromq.baserpc.client.loadbalancer.IServerSelector;
+import org.apache.bifromq.baserpc.client.loadbalancer.TrafficDirectiveLoadBalancerProvider;
+import org.apache.bifromq.baserpc.client.nameresolver.TrafficGovernorNameResolverProvider;
+import org.apache.bifromq.baserpc.client.util.FastBehaviorSubject;
+import org.apache.bifromq.baserpc.trafficgovernor.IRPCServiceLandscape;
+import org.apache.bifromq.baserpc.trafficgovernor.IRPCServiceTrafficService;
 
 class ClientChannel implements IClientChannel {
     private final String serviceUniqueName;
@@ -136,7 +136,7 @@ class ClientChannel implements IClientChannel {
 
     @Override
     public Observable<IServerSelector> serverSelectorObservable() {
-        return serverSelectorSubject;
+        return serverSelectorSubject.distinctUntilChanged();
     }
 
     @Override

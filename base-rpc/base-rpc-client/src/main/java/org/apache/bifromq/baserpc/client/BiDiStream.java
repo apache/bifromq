@@ -21,8 +21,6 @@ package org.apache.bifromq.baserpc.client;
 
 import static io.grpc.stub.ClientCalls.asyncBidiStreamingCall;
 
-import org.apache.bifromq.baserpc.RPCContext;
-import org.apache.bifromq.baserpc.client.util.FastBehaviorSubject;
 import io.grpc.CallOptions;
 import io.grpc.Channel;
 import io.grpc.Context;
@@ -36,10 +34,11 @@ import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
 import lombok.SneakyThrows;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.bifromq.baserpc.RPCContext;
+import org.apache.bifromq.baserpc.client.util.FastBehaviorSubject;
 
 @Slf4j
 class BiDiStream<InT, OutT> implements IBiDiStream<InT, OutT> {
-    private final String tenantId;
     private final String serverId;
     private final ClientCallStreamObserver<InT> callStreamObserver;
     private final Subject<OutT> outSubject = PublishSubject.create();
@@ -54,7 +53,6 @@ class BiDiStream<InT, OutT> implements IBiDiStream<InT, OutT> {
                MethodDescriptor<InT, OutT> methodDescriptor,
                Map<String, String> metadata,
                CallOptions callOptions) {
-        this.tenantId = tenantId;
         this.serverId = serverId;
         Context ctx = Context.ROOT.fork()
             .withValue(RPCContext.TENANT_ID_CTX_KEY, tenantId)

@@ -19,17 +19,16 @@
 
 package org.apache.bifromq.baserpc.client.loadbalancer;
 
-import static org.apache.bifromq.baserpc.client.loadbalancer.Constants.IN_PROC_SERVER_ATTR_KEY;
-import static org.apache.bifromq.baserpc.client.loadbalancer.Constants.SERVER_GROUP_TAG_ATTR_KEY;
-import static org.apache.bifromq.baserpc.client.loadbalancer.Constants.SERVER_ID_ATTR_KEY;
 import static com.google.common.base.Preconditions.checkNotNull;
 import static io.grpc.ConnectivityState.CONNECTING;
 import static io.grpc.ConnectivityState.IDLE;
 import static io.grpc.ConnectivityState.READY;
 import static io.grpc.ConnectivityState.SHUTDOWN;
 import static io.grpc.ConnectivityState.TRANSIENT_FAILURE;
+import static org.apache.bifromq.baserpc.client.loadbalancer.Constants.IN_PROC_SERVER_ATTR_KEY;
+import static org.apache.bifromq.baserpc.client.loadbalancer.Constants.SERVER_GROUP_TAG_ATTR_KEY;
+import static org.apache.bifromq.baserpc.client.loadbalancer.Constants.SERVER_ID_ATTR_KEY;
 
-import org.apache.bifromq.baseenv.EnvProvider;
 import com.google.common.collect.Maps;
 import io.grpc.Attributes;
 import io.grpc.ConnectivityState;
@@ -48,6 +47,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.IntStream;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.bifromq.baseenv.EnvProvider;
 
 @Slf4j
 public class TrafficDirectiveLoadBalancer extends LoadBalancer {
@@ -70,6 +70,12 @@ public class TrafficDirectiveLoadBalancer extends LoadBalancer {
         this.helper = checkNotNull(helper, "helper");
         this.updateListener = updateListener;
         this.currentPicker = new SubChannelPicker();
+    }
+
+    private static <T> Set<T> difference(Set<T> a, Set<T> b) {
+        Set<T> aCopy = new HashSet<>(a);
+        aCopy.removeAll(b);
+        return aCopy;
     }
 
     @Override
@@ -183,25 +189,11 @@ public class TrafficDirectiveLoadBalancer extends LoadBalancer {
 
             currentPicker.refresh(serverChannels);
             helper.updateBalancingState(newState, currentPicker);
-            Map<String, Boolean> allServers = currentServers;
-            ITenantRouter tenantRouter =
-                new TenantRouter(currentServers, currentTrafficDirective, currentServerGroupTags);
-            updateListener.onUpdate(new IServerSelector() {
-                @Override
-                public boolean exists(String serverId) {
-                    return allServers.containsKey(serverId);
-                }
-
-                @Override
-                public IServerGroupRouter get(String tenantId) {
-                    return tenantRouter.get(tenantId);
-                }
-
-                @Override
-                public String toString() {
-                    return allServers.toString();
-                }
-            });
+            if (newState == READY || (newState == TRANSIENT_FAILURE && currentServers.isEmpty())) {
+                // notify when channel is ready or TRANSIENT_FAILURE state and no servers available
+                updateListener.onUpdate(
+                    new TenantAwareServerSelector(currentServers, currentServerGroupTags, currentTrafficDirective));
+            }
         }
         balancingStateUpdateScheduled.set(false);
     }
@@ -274,11 +266,5 @@ public class TrafficDirectiveLoadBalancer extends LoadBalancer {
         if (state.getState() == IDLE) {
             subchannel.requestConnection();
         }
-    }
-
-    private static <T> Set<T> difference(Set<T> a, Set<T> b) {
-        Set<T> aCopy = new HashSet<>(a);
-        aCopy.removeAll(b);
-        return aCopy;
     }
 }

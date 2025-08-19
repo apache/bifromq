@@ -14,13 +14,11 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 
 package org.apache.bifromq.baserpc.server;
 
-import org.apache.bifromq.base.util.FutureTracker;
-import org.apache.bifromq.baserpc.metrics.RPCMetric;
 import io.grpc.Status;
 import io.grpc.stub.StreamObserver;
 import io.micrometer.core.instrument.Timer;
@@ -28,6 +26,8 @@ import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicBoolean;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.bifromq.base.util.FutureTracker;
+import org.apache.bifromq.baserpc.metrics.RPCMetric;
 
 @Slf4j
 abstract class AbstractResponsePipeline<RequestT, ResponseT> extends AbstractStreamObserver<RequestT, ResponseT> {
@@ -40,6 +40,7 @@ abstract class AbstractResponsePipeline<RequestT, ResponseT> extends AbstractStr
 
     protected AbstractResponsePipeline(StreamObserver<ResponseT> responseObserver) {
         super(responseObserver);
+        this.responseObserver.setOnCancelHandler(this::cleanup);
     }
 
     @Override
@@ -80,7 +81,7 @@ abstract class AbstractResponsePipeline<RequestT, ResponseT> extends AbstractStr
 
     /**
      * Handle the request and return the result via completable future, remember always throw exception asynchronously
-     * Returned future complete exceptionally will cause pipeline close
+     * Returned future complete exceptionally will cause pipeline close.
      *
      * @param tenantId the tenantId
      * @param request  the request
@@ -110,7 +111,6 @@ abstract class AbstractResponsePipeline<RequestT, ResponseT> extends AbstractStr
         return respFuture;
     }
 
-
     final void emitResponse(RequestT req, ResponseT resp) {
         if (!isClosed()) {
             log.trace("Response sent in pipeline@{}: request={}, response={}", hashCode(), req, resp);
@@ -124,7 +124,6 @@ abstract class AbstractResponsePipeline<RequestT, ResponseT> extends AbstractStr
 
     protected void afterClose() {
     }
-
 
     private void fail(Throwable throwable) {
         if (!isClosed()) {

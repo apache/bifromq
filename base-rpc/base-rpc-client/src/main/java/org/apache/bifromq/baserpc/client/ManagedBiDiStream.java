@@ -116,14 +116,14 @@ abstract class ManagedBiDiStream<InT, OutT> {
     abstract void onServiceUnavailable();
 
     private void reportNoServerAvailable() {
-        log.debug("Stream@{} no server available to target: method={}",
-            this.hashCode(), methodDescriptor.getBareMethodName());
+        log.debug("Stream@{} no server available to target: method={}, state={}",
+            this.hashCode(), methodDescriptor.getBareMethodName(), state.get());
         onNoServerAvailable();
     }
 
     private void reportServiceUnavailable() {
-        log.debug("Stream@{} service unavailable to target: method={}",
-            this.hashCode(), methodDescriptor.getBareMethodName());
+        log.debug("Stream@{} service unavailable to target: method={}, state={}",
+            this.hashCode(), methodDescriptor.getBareMethodName(), state.get());
         onServiceUnavailable();
     }
 
@@ -246,12 +246,12 @@ abstract class ManagedBiDiStream<InT, OutT> {
 
     private void gracefulRetarget() {
         if (state.compareAndSet(State.Normal, State.PendingRetarget)) {
-            log.debug("Stream@{} start graceful retarget process: method={}",
-                this.hashCode(), methodDescriptor.getBareMethodName());
+            log.debug("Stream@{} start graceful retarget process: method={}, state={}",
+                this.hashCode(), methodDescriptor.getBareMethodName(), state.get());
             if (prepareRetarget()) {
                 // if it's ready to retarget, close it and start a new one
-                log.debug("Stream@{} close current bidi-stream immediately before retargeting: method={}",
-                    this.hashCode(), methodDescriptor.getBareMethodName());
+                log.debug("Stream@{} close current bidi-stream immediately before retargeting: method={}, state={}",
+                    this.hashCode(), methodDescriptor.getBareMethodName(), state.get());
                 state.set(State.Retargeting);
                 bidiStream.get().close();
                 scheduleRetargetNow();
@@ -272,10 +272,12 @@ abstract class ManagedBiDiStream<InT, OutT> {
 
     private void scheduleRetarget(Duration delay) {
         if (retargetScheduled.compareAndSet(false, true)) {
-            log.debug("Stream@{} schedule retarget task in {}ms: method={}",
-                this.hashCode(), delay.toMillis(), methodDescriptor.getBareMethodName());
-            CompletableFuture.runAsync(() -> retarget(this.serverSelector),
-                CompletableFuture.delayedExecutor(delay.toMillis(), MILLISECONDS));
+            log.debug("Stream@{} schedule retarget task in {}ms: method={}, state={}",
+                this.hashCode(), delay.toMillis(), methodDescriptor.getBareMethodName(), state.get());
+            CompletableFuture.runAsync(() -> {
+                retargetScheduled.set(false);
+                retarget(this.serverSelector);
+            }, CompletableFuture.delayedExecutor(delay.toMillis(), MILLISECONDS));
         }
     }
 
@@ -328,7 +330,6 @@ abstract class ManagedBiDiStream<InT, OutT> {
                 }
             }
         }
-        retargetScheduled.set(false);
         if (serverSelector != this.serverSelector) {
             // server selector has been changed, schedule a retarget
             scheduleRetargetNow();
@@ -338,10 +339,11 @@ abstract class ManagedBiDiStream<InT, OutT> {
     private void target(String serverId) {
         if (state.compareAndSet(State.Init, State.Normal)
             || state.compareAndSet(State.StreamDisconnect, State.Normal)
+            || state.compareAndSet(State.PendingRetarget, State.Normal)
             || state.compareAndSet(State.NoServerAvailable, State.Normal)
             || state.compareAndSet(State.Retargeting, State.Normal)) {
-            log.debug("Stream@{} build bidi-stream to target server[{}]: method={}",
-                this.hashCode(), serverId, methodDescriptor.getBareMethodName());
+            log.debug("Stream@{} build stream to server[{}]: method={}, state={}",
+                this.hashCode(), serverId, methodDescriptor.getBareMethodName(), state.get());
             BidiStreamContext<InT, OutT> bidiStreamContext = BidiStreamContext.from(new BiDiStream<>(
                 tenantId,
                 serverId,
@@ -350,13 +352,13 @@ abstract class ManagedBiDiStream<InT, OutT> {
                 metadataSupplier.get(),
                 callOptions));
             bidiStream.set(bidiStreamContext);
-            onStreamCreated();
             bidiStreamContext.subscribe(this::onNext, this::onError, this::onCompleted);
             bidiStreamContext.onReady(ts -> onStreamReady());
+            onStreamCreated();
         }
         if (bidiStream.get().bidiStream().isReady()) {
-            log.debug("Stream@{} ready after build to server[{}]: method={}",
-                this.hashCode(), serverId, methodDescriptor.getBareMethodName());
+            log.debug("Stream@{} ready: method={}, state={}",
+                this.hashCode(), methodDescriptor.getBareMethodName(), state.get());
             onStreamReady();
         }
     }
@@ -367,8 +369,8 @@ abstract class ManagedBiDiStream<InT, OutT> {
         if (state.get() == State.PendingRetarget && canStartRetarget()) {
             // do not close the stream inline
             CompletableFuture.runAsync(() -> {
-                log.debug("Stream@{} close current bidi-stream before retargeting: method={}",
-                    this.hashCode(), methodDescriptor.getBareMethodName());
+                log.debug("Stream@{} close current stream before retargeting: method={}, state={}",
+                    this.hashCode(), methodDescriptor.getBareMethodName(), state.get());
                 state.set(State.Retargeting);
                 bidiStream.get().close();
                 scheduleRetargetNow();
@@ -377,18 +379,33 @@ abstract class ManagedBiDiStream<InT, OutT> {
     }
 
     private void onError(Throwable t) {
-        log.debug("BidiStream@{} error: method={}", this.hashCode(), methodDescriptor.getBareMethodName(), t);
-        state.compareAndSet(State.Normal, State.StreamDisconnect);
+        log.debug("Stream@{} error: method={}, state={}",
+            this.hashCode(), methodDescriptor.getBareMethodName(), state.get(), t);
+        State s = state.get();
+        if (s == State.Normal || s == State.PendingRetarget) {
+            state.compareAndSet(s, State.StreamDisconnect);
+        }
         onStreamError(t);
-        scheduleRetargetWithRandomDelay();
+        if (s == State.PendingRetarget) {
+            scheduleRetargetNow();
+        } else {
+            scheduleRetargetWithRandomDelay();
+        }
     }
 
     private void onCompleted() {
-        log.debug("BidiStream@{} complete: method={}", this.hashCode(), methodDescriptor.getBareMethodName());
+        log.debug("Stream@{} close by server: method={}, state={}",
+            this.hashCode(), methodDescriptor.getBareMethodName(), state.get());
         // server gracefully close the stream
-        state.compareAndSet(State.Normal, State.StreamDisconnect);
-        onStreamError(new CancellationException("server close the bidi-stream"));
-        scheduleRetargetWithRandomDelay();
+        State s = state.get();
+        if (s == State.Normal || s == State.PendingRetarget) {
+            state.compareAndSet(s, State.StreamDisconnect);
+        }
+        onStreamError(new CancellationException("Server shutdown"));
+        if (s == State.PendingRetarget) {
+            scheduleRetargetNow();
+        }
+        // wait for selector change to trigger retargeting
     }
 
     enum State {

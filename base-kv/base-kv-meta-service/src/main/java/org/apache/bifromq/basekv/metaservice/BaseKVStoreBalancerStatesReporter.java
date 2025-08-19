@@ -65,6 +65,11 @@ class BaseKVStoreBalancerStatesReporter implements IBaseKVStoreBalancerStatesRep
     }
 
     @Override
+    public Observable<Long> refreshSignal() {
+        return statesCRDT.refuteSignal();
+    }
+
+    @Override
     public void stop() {
         statesCRDT.removeStore(storeId).join();
         disposable.dispose();

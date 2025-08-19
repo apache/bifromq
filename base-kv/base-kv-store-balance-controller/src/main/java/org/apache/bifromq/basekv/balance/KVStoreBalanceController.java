@@ -171,6 +171,15 @@ public class KVStoreBalanceController {
                 trimRangeHistory(descriptors);
                 trigger();
             }));
+            disposables.add(statesReporter.refreshSignal()
+                .subscribe(ts -> {
+                    for (Map.Entry<String, StoreBalancerState> entry : balancers.entrySet()) {
+                        String balancerFacClassFQN = entry.getKey();
+                        StoreBalancerState balancerState = entry.getValue();
+                        statesReporter.reportBalancerState(balancerFacClassFQN,
+                            balancerState.disabled.get(), balancerState.loadRules.get());
+                    }
+                }));
         }
     }
 

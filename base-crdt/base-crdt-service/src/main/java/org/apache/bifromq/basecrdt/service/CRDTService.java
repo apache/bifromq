@@ -115,6 +115,11 @@ public class CRDTService implements ICRDTService {
         });
     }
 
+    @Override
+    public Observable<Long> refreshSignal() {
+        return agentHost.refuteSignal();
+    }
+
     private CompletableFuture<Void> stopHostingInternal(String uri) {
         return hostedCRDT.remove(uri).close();
     }

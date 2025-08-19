@@ -14,11 +14,16 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 
 package org.apache.bifromq.basecluster;
 
+import io.reactivex.rxjava3.core.Observable;
+import java.net.InetSocketAddress;
+import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.CompletableFuture;
 import org.apache.bifromq.basecluster.memberlist.HostAddressResolver;
 import org.apache.bifromq.basecluster.memberlist.IHostAddressResolver;
 import org.apache.bifromq.basecluster.memberlist.agent.IAgent;
@@ -26,11 +31,6 @@ import org.apache.bifromq.basecluster.membership.proto.HostEndpoint;
 import org.apache.bifromq.basecluster.transport.ITransport;
 import org.apache.bifromq.basecluster.transport.TCPTransport;
 import org.apache.bifromq.basecluster.transport.Transport;
-import io.reactivex.rxjava3.core.Observable;
-import java.net.InetSocketAddress;
-import java.util.Map;
-import java.util.Set;
-import java.util.concurrent.CompletableFuture;
 
 /**
  * Agent host defines the interface for hosting agents and joining the cluster.
@@ -100,6 +100,14 @@ public interface IAgentHost extends AutoCloseable {
      * @return the map of host id to the set of agent ids hosted by the host
      */
     Observable<Map<HostEndpoint, Set<String>>> landscape();
+
+    /**
+     * Emits a signal whenever the local host actively refutes a suspicion of being dead.
+     * Each emission carries the timestamp (in millis) when the refutation occurred.
+     *
+     * @return an observable stream of refutation timestamps
+     */
+    Observable<Long> refuteSignal();
 
     /**
      * Shutdown the agent host.

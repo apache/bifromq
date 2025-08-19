@@ -37,6 +37,7 @@ import io.reactivex.rxjava3.core.Observable;
 import io.reactivex.rxjava3.core.Scheduler;
 import io.reactivex.rxjava3.disposables.CompositeDisposable;
 import io.reactivex.rxjava3.subjects.BehaviorSubject;
+import io.reactivex.rxjava3.subjects.PublishSubject;
 import java.net.InetSocketAddress;
 import java.util.HashSet;
 import java.util.Iterator;
@@ -82,6 +83,7 @@ public class HostMemberList implements IHostMemberList {
     private final IHostAddressResolver addressResolver;
     private final BehaviorSubject<Map<HostEndpoint, HostMember>> membershipSubject = BehaviorSubject.createDefault(
         new ConcurrentHashMap<>());
+    private final PublishSubject<Long> refuteSubject = PublishSubject.create();
     private final Map<String, Agent> agentMap = new ConcurrentHashMap<>();
     private final IORMap hostListCRDT;
     private final CompositeDisposable disposables = new CompositeDisposable();
@@ -235,6 +237,7 @@ public class HostMemberList implements IHostMemberList {
                 .thenCompose(v -> store.stopHosting(hostListCRDT.id()))
                 .whenComplete((v, e) -> {
                     membershipSubject.onComplete();
+                    refuteSubject.onComplete();
                     metricManager.close();
                     state.set(State.QUITED);
                 });
@@ -254,6 +257,8 @@ public class HostMemberList implements IHostMemberList {
         synchronized (this) {
             local = local.toBuilder().setIncarnation(Math.max(local.getIncarnation(), atLeastIncarnation) + 1).build();
             join(local);
+            agentMap.values().forEach(Agent::refreshRegistration);
+            refuteSubject.onNext(HLC.INST.get());
         }
     }
 
@@ -305,6 +310,11 @@ public class HostMemberList implements IHostMemberList {
     @Override
     public Observable<Map<HostEndpoint, Set<String>>> landscape() {
         return membershipSubject.map(m -> Maps.transformValues(m, v -> v.getAgentMap().keySet()));
+    }
+
+    @Override
+    public Observable<Long> refuteSignal() {
+        return refuteSubject;
     }
 
     private Map<HostEndpoint, HostMember> currentMembers() {

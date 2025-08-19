@@ -32,6 +32,9 @@ import org.apache.bifromq.basekv.proto.StoreKey;
  * The interface of a BaseKV store balancer states CRDT.
  */
 public interface IBaseKVStoreBalancerStatesCRDT {
+
+    Observable<Long> refuteSignal();
+
     Observable<Set<ByteString>> aliveReplicas();
 
     Observable<Map<StoreKey, Map<String, BalancerStateSnapshot>>> currentBalancerStates();

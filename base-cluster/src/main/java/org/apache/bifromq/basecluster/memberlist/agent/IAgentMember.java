@@ -14,17 +14,17 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 
 package org.apache.bifromq.basecluster.memberlist.agent;
 
-import org.apache.bifromq.basecluster.agent.proto.AgentMemberAddr;
-import org.apache.bifromq.basecluster.agent.proto.AgentMemberMetadata;
-import org.apache.bifromq.basecluster.agent.proto.AgentMessage;
 import com.google.protobuf.ByteString;
 import io.reactivex.rxjava3.core.Observable;
 import java.util.concurrent.CompletableFuture;
+import org.apache.bifromq.basecluster.agent.proto.AgentMemberAddr;
+import org.apache.bifromq.basecluster.agent.proto.AgentMemberMetadata;
+import org.apache.bifromq.basecluster.agent.proto.AgentMessage;
 
 public interface IAgentMember {
     AgentMemberAddr address();
@@ -32,50 +32,55 @@ public interface IAgentMember {
     /**
      * Broadcast a message among the agent members.
      *
-     * @param message
-     * @param reliable
-     * @return
+     * @param message the message to be sent
+     * @param reliable if true, the message will be sent reliably, otherwise it may be dropped
+     * @return a CompletableFuture that completes when the message is sent
      */
     CompletableFuture<Void> broadcast(ByteString message, boolean reliable);
 
     /**
-     * Send a message to another member located in given endpoint
+     * Send a message to another member located in given endpoint.
      *
-     * @param targetMemberAddr
-     * @param message
-     * @param reliable
-     * @return
+     * @param targetMemberAddr the address of the target member
+     * @param message the message to be sent
+     * @param reliable if true, the message will be sent reliably, otherwise it may be dropped
+     * @return a CompletableFuture that completes when the message is sent
      */
     CompletableFuture<Void> send(AgentMemberAddr targetMemberAddr, ByteString message, boolean reliable);
 
     /**
-     * Send a message to all endpoints where target member name is registered
+     * Send a message to all endpoints where target member name is registered.
      *
-     * @param targetMemberName
-     * @param message
-     * @param reliable
-     * @return
+     * @param targetMemberName the name of the target member
+     * @param message the message to be sent
+     * @param reliable if true, the message will be sent reliably, otherwise it may be dropped
+     * @return a CompletableFuture that completes when the message is sent
      */
     CompletableFuture<Void> multicast(String targetMemberName, ByteString message, boolean reliable);
 
     /**
-     * Get current associated metadata
+     * Get current associated metadata.
      *
-     * @return
+     * @return the current metadata
      */
     AgentMemberMetadata metadata();
 
     /**
-     * Update associated metadata
+     * Update associated metadata.
      *
-     * @param value
+     * @param value the new metadata value
      */
     void metadata(ByteString value);
 
     /**
-     * An observable of incoming messages
+     * An observable of incoming messages.
      *
-     * @return
+     * @return an observable that emits AgentMessage
      */
     Observable<AgentMessage> receive();
+
+    /**
+     * Refresh the registration of the local agent member.
+     */
+    void refresh();
 }

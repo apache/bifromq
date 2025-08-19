@@ -19,6 +19,7 @@
 
 package org.apache.bifromq.basekv.metaservice;
 
+import io.reactivex.rxjava3.core.Observable;
 import java.util.concurrent.CompletableFuture;
 import org.apache.bifromq.basekv.proto.KVRangeStoreDescriptor;
 
@@ -32,6 +33,13 @@ public interface IBaseKVLandscapeReporter {
      * @param descriptor the store descriptor
      */
     CompletableFuture<Void> report(KVRangeStoreDescriptor descriptor);
+
+    /**
+     * A signal to refresh the landscape reporter's state.
+     *
+     * @return an observable that emits a timestamp when the reporter should refresh its state
+     */
+    Observable<Long> refreshSignal();
 
     /**
      * Stop the reporter.

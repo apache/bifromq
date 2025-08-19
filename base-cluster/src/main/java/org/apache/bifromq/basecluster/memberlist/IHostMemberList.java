@@ -80,4 +80,12 @@ public interface IHostMemberList {
      * @return the observable
      */
     Observable<Map<HostEndpoint, Set<String>>> landscape();
+
+    /**
+     * Emits a signal whenever the local member actively refutes a suspicion of being dead.
+     * Each emission carries the timestamp (in millis) when the refutation occurred.
+     *
+     * @return an observable stream of refutation timestamps
+     */
+    Observable<Long> refuteSignal();
 }

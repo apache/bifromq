@@ -20,6 +20,7 @@
 package org.apache.bifromq.basekv.metaservice;
 
 import com.google.protobuf.Struct;
+import io.reactivex.rxjava3.core.Observable;
 import java.util.concurrent.CompletableFuture;
 
 /**
@@ -35,6 +36,13 @@ public interface IBaseKVStoreBalancerStatesReporter {
      * @return the future of reporting
      */
     CompletableFuture<Void> reportBalancerState(String balancerFactoryClassFQN, boolean disable, Struct loadRules);
+
+    /**
+     * A signal to refresh the reporter's state.
+     *
+     * @return an observable that emits a timestamp when the reporter should refresh its state
+     */
+    Observable<Long> refreshSignal();
 
     /**
      * Stop the reporter.

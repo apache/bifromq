@@ -14,21 +14,14 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 
 package org.apache.bifromq.basecluster.memberlist.agent;
 
-import static org.apache.bifromq.basecrdt.core.api.CausalCRDTType.mvreg;
 import static java.util.Collections.emptyMap;
+import static org.apache.bifromq.basecrdt.core.api.CausalCRDTType.mvreg;
 
-import org.apache.bifromq.basecluster.agent.proto.AgentEndpoint;
-import org.apache.bifromq.basecluster.agent.proto.AgentMemberAddr;
-import org.apache.bifromq.basecluster.agent.proto.AgentMemberMetadata;
-import org.apache.bifromq.basecrdt.core.api.IORMap;
-import org.apache.bifromq.basecrdt.core.api.ORMapOperation;
-import org.apache.bifromq.basecrdt.proto.Replica;
-import org.apache.bifromq.basecrdt.store.ICRDTStore;
 import com.google.common.collect.Sets;
 import com.google.protobuf.AbstractMessageLite;
 import io.micrometer.core.instrument.Gauge;
@@ -50,13 +43,18 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.bifromq.base.util.RendezvousHash;
+import org.apache.bifromq.basecluster.agent.proto.AgentEndpoint;
+import org.apache.bifromq.basecluster.agent.proto.AgentMemberAddr;
+import org.apache.bifromq.basecluster.agent.proto.AgentMemberMetadata;
+import org.apache.bifromq.basecluster.membership.proto.HostEndpoint;
+import org.apache.bifromq.basecrdt.core.api.IORMap;
+import org.apache.bifromq.basecrdt.core.api.ORMapOperation;
+import org.apache.bifromq.basecrdt.proto.Replica;
+import org.apache.bifromq.basecrdt.store.ICRDTStore;
 
 @Slf4j
 public final class Agent implements IAgent {
-    private enum State {
-        JOINED, QUITTING, QUITED
-    }
-
     private final ReadWriteLock quitLock = new ReentrantReadWriteLock();
     private final String agentId;
     private final AgentEndpoint localEndpoint;
@@ -140,6 +138,11 @@ public final class Agent implements IAgent {
         });
     }
 
+    @Override
+    public void refreshRegistration() {
+        localMemberRegistry.values().forEach(AgentMember::refresh);
+    }
+
     public CompletableFuture<Void> quit() {
         Lock writeLock = quitLock.writeLock();
         try {
@@ -194,7 +197,8 @@ public final class Agent implements IAgent {
                     .setEndpoint(memberAddr.getEndpoint())
                     .setIncarnation(memberAddr.getIncarnation())
                     .build();
-                if (leftHosts.contains(agentEndpoint)) {
+                if (leftHosts.contains(agentEndpoint)
+                    && shouldReportFailure(newAgentEndpoints, memberAddr.getEndpoint())) {
                     agentCRDT.execute(ORMapOperation.remove(memberAddr.toByteString()).of(mvreg));
                 }
             }
@@ -203,6 +207,17 @@ public final class Agent implements IAgent {
             store.join(agentCRDT.id(),
                 currentAgentEndpoints.stream().map(AbstractMessageLite::toByteString).collect(Collectors.toSet()));
         });
+    }
+
+    private boolean shouldReportFailure(Set<AgentEndpoint> allEndpoints, HostEndpoint failedMemberEndpoint) {
+        // if local member is responsible for removing the failed member from CRDT
+        RendezvousHash<HostEndpoint, AgentEndpoint> hash = RendezvousHash.<HostEndpoint, AgentEndpoint>builder()
+            .keyFunnel((from, into) -> into.putBytes(from.getId().asReadOnlyByteBuffer()))
+            .nodeFunnel((from, into) -> into.putBytes(from.getEndpoint().getId().asReadOnlyByteBuffer()))
+            .nodes(allEndpoints)
+            .build();
+        AgentEndpoint reporter = hash.get(failedMemberEndpoint);
+        return reporter.getEndpoint().getId().equals(localEndpoint.getEndpoint().getId());
     }
 
     private void skipRunIfNotJoined(Runnable runnable) {
@@ -230,5 +245,9 @@ public final class Agent implements IAgent {
         } finally {
             readLock.unlock();
         }
+    }
+
+    private enum State {
+        JOINED, QUITTING, QUITED
     }
 }

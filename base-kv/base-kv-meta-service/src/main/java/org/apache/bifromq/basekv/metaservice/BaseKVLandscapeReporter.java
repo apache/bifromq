@@ -58,6 +58,11 @@ class BaseKVLandscapeReporter implements IBaseKVLandscapeReporter {
     }
 
     @Override
+    public Observable<Long> refreshSignal() {
+        return landscapeCRDT.refreshSignal();
+    }
+
+    @Override
     public void stop() {
         landscapeCRDT.removeDescriptor(storeId).join();
         disposable.dispose();

@@ -69,6 +69,11 @@ class BaseKVStoreBalancerStatesCRDT implements IBaseKVStoreBalancerStatesCRDT {
             .subscribe(balancerStatesSubject::onNext));
     }
 
+    @Override
+    public Observable<Long> refuteSignal() {
+        return crdtService.refreshSignal();
+    }
+
     public Observable<Set<ByteString>> aliveReplicas() {
         return crdtService.aliveReplicas(balancerStatesByStoreORMap.id().getUri())
             .map(replicas -> replicas.stream().map(Replica::getId).collect(Collectors.toSet()));

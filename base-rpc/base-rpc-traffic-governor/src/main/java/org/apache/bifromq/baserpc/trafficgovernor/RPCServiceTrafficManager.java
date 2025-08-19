@@ -14,24 +14,20 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 
 package org.apache.bifromq.baserpc.trafficgovernor;
 
-import static org.apache.bifromq.baserpc.trafficgovernor.SharedScheduler.RPC_SHARED_SCHEDULER;
 import static java.util.Collections.emptySet;
+import static org.apache.bifromq.baserpc.trafficgovernor.SharedScheduler.RPC_SHARED_SCHEDULER;
 
-import org.apache.bifromq.basecrdt.service.ICRDTService;
-import org.apache.bifromq.basehlc.HLC;
-import org.apache.bifromq.baserpc.proto.RPCServer;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Sets;
 import com.google.protobuf.ByteString;
 import io.grpc.inprocess.InProcessSocketAddress;
 import io.reactivex.rxjava3.core.Observable;
 import io.reactivex.rxjava3.disposables.CompositeDisposable;
-import io.reactivex.rxjava3.disposables.Disposable;
 import io.reactivex.rxjava3.subjects.BehaviorSubject;
 import java.net.InetSocketAddress;
 import java.util.Map;
@@ -41,6 +37,9 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.bifromq.basecrdt.service.ICRDTService;
+import org.apache.bifromq.basehlc.HLC;
+import org.apache.bifromq.baserpc.proto.RPCServer;
 
 @Slf4j
 class RPCServiceTrafficManager extends RPCServiceAnnouncer
@@ -157,41 +156,49 @@ class RPCServiceTrafficManager extends RPCServiceAnnouncer
 
         private final RPCServiceTrafficManager manager;
         private final AtomicReference<RPCServer> localServer;
-        private final Disposable disposable;
-        private final CompositeDisposable disposables;
+        private final CompositeDisposable myDisposibles = new CompositeDisposable();
+        private final CompositeDisposable allDisposibles;
 
-        private ServerRegistration(RPCServer server, RPCServiceTrafficManager announcer,
-                                   CompositeDisposable disposables) {
+        private ServerRegistration(RPCServer server,
+                                   RPCServiceTrafficManager announcer,
+                                   CompositeDisposable allDisposables) {
             this.localServer = new AtomicReference<>(server);
             this.manager = announcer;
-            this.disposables = disposables;
+            this.allDisposibles = allDisposables;
 
             // make an announcement via rpcServiceCRDT
             log.debug("Announce local server[{}]:{}", announcer.serviceUniqueName, server);
             announcer.announce(localServer.get()).join();
 
             // enforce the announcement consistent eventually
-            disposable = announcer.announcedServers()
+            myDisposibles.add(announcer.announcedServers()
                 .doOnDispose(() -> manager.revoke(localServer.get().getId()).join())
                 .subscribe(serverMap -> {
                     RPCServer localServer = this.localServer.get();
                     if (!serverMap.containsKey(localServer.getId())) {
-                        RPCServer toUpdate = localServer.toBuilder().setAnnouncedTS(HLC.INST.get()).build();
-                        log.debug("Re-announce local server: {}", toUpdate);
-                        // refresh announcement time
-                        announcer.announce(toUpdate);
+                        reannounce();
                     } else if (localServer.getAnnouncedTS() < serverMap.get(localServer.getId()).getAnnouncedTS()) {
                         localServer = serverMap.get(localServer.getId());
                         log.debug("Update local server from announcement: server={}", localServer);
                     }
-                });
-            disposables.add(disposable);
+                }));
+            myDisposibles.add(announcer.crdtService.refreshSignal()
+                .subscribe(ts -> reannounce()));
+            allDisposables.add(myDisposibles);
+        }
+
+        private void reannounce() {
+            RPCServer localServer = this.localServer.get();
+            RPCServer toUpdate = localServer.toBuilder().setAnnouncedTS(HLC.INST.get()).build();
+            log.debug("Re-announce local server: {}", toUpdate);
+            // refresh announcement time
+            manager.announce(toUpdate);
         }
 
         @Override
         public void stop() {
-            disposables.remove(disposable);
-            disposable.dispose();
+            allDisposibles.remove(myDisposibles);
+            myDisposibles.dispose();
         }
     }
 }

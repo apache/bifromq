@@ -381,7 +381,7 @@ public class AgentHostsTest extends AgentTestTemplate {
         await().until(() -> agentOnS2.membership().blockingFirst().size() == 4);
         await().until(() -> agentOnS3.membership().blockingFirst().size() == 4);
 
-        //  isolate s1 from others
+        //  isolate s2 from others
         log.info("isolate s1");
         storeMgr.isolate("s1");
         await().forever().until(() -> agentOnS1.membership().blockingFirst().size() == 2);

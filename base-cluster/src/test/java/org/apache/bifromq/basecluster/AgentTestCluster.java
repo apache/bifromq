@@ -14,17 +14,11 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 
 package org.apache.bifromq.basecluster;
 
-import org.apache.bifromq.basecluster.agent.proto.AgentMemberAddr;
-import org.apache.bifromq.basecluster.agent.proto.AgentMemberMetadata;
-import org.apache.bifromq.basecluster.memberlist.HostAddressResolver;
-import org.apache.bifromq.basecluster.memberlist.agent.IAgent;
-import org.apache.bifromq.basecluster.membership.proto.HostEndpoint;
-import org.apache.bifromq.basecluster.transport.ITransport;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
@@ -40,14 +34,15 @@ import java.util.Map;
 import java.util.Set;
 import lombok.AllArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.bifromq.basecluster.agent.proto.AgentMemberAddr;
+import org.apache.bifromq.basecluster.agent.proto.AgentMemberMetadata;
+import org.apache.bifromq.basecluster.memberlist.HostAddressResolver;
+import org.apache.bifromq.basecluster.memberlist.agent.IAgent;
+import org.apache.bifromq.basecluster.membership.proto.HostEndpoint;
+import org.apache.bifromq.basecluster.transport.ITransport;
 
 @Slf4j
 public class AgentTestCluster {
-    @AllArgsConstructor
-    private static class AgentHostMeta {
-        final AgentHostOptions options;
-    }
-
     private final MockNetwork network = new MockNetwork();
     private final Map<String, AgentHostMeta> hostMetaMap = Maps.newConcurrentMap();
     private final Map<String, HostEndpoint> hostEndpointMap = Maps.newConcurrentMap();
@@ -55,7 +50,6 @@ public class AgentTestCluster {
     private final Map<HostEndpoint, IAgentHost> hostMap = Maps.newConcurrentMap();
     private final Map<String, List<ByteString>> inflationLogs = Maps.newConcurrentMap();
     private final CompositeDisposable disposables = new CompositeDisposable();
-
     public AgentTestCluster() {
     }
 
@@ -97,7 +91,6 @@ public class AgentTestCluster {
     public void integrate(String hostId) {
         network.integrate(hostTransportMap.get(hostId));
     }
-
 
     public HostEndpoint endpoint(String hostId) {
         checkHost(hostId);
@@ -154,5 +147,10 @@ public class AgentTestCluster {
 
     private void checkHost(String hostId) {
         Preconditions.checkArgument(hostEndpointMap.containsKey(hostId));
+    }
+
+    @AllArgsConstructor
+    private static class AgentHostMeta {
+        final AgentHostOptions options;
     }
 }

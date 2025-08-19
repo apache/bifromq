@@ -14,20 +14,20 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 
 package org.apache.bifromq.basecrdt.service;
 
-import org.apache.bifromq.basecluster.IAgentHost;
-import org.apache.bifromq.basecrdt.core.api.ICRDTOperation;
-import org.apache.bifromq.basecrdt.core.api.ICausalCRDT;
-import org.apache.bifromq.basecrdt.proto.Replica;
 import com.google.protobuf.ByteString;
 import io.reactivex.rxjava3.core.Observable;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import lombok.NonNull;
+import org.apache.bifromq.basecluster.IAgentHost;
+import org.apache.bifromq.basecrdt.core.api.ICRDTOperation;
+import org.apache.bifromq.basecrdt.core.api.ICausalCRDT;
+import org.apache.bifromq.basecrdt.proto.Replica;
 
 /**
  * The CRDT service with decentralized membership management based on base-cluster.
@@ -88,6 +88,13 @@ public interface ICRDTService extends AutoCloseable {
      * @return the set of uri of alive CRDTs
      */
     Observable<Set<String>> aliveCRDTs();
+
+    /**
+     * A signal to refresh the CRDT replica hosted in the service.
+     *
+     * @return an observable that emits refresh signal
+     */
+    Observable<Long> refreshSignal();
 
     /**
      * Stop the store.

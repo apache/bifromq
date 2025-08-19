@@ -98,6 +98,8 @@ class BaseKVStoreService extends BaseKVStoreServiceGrpc.BaseKVStoreServiceImplBa
         landscapeReporter = metaService.landscapeReporter(clusterId, kvRangeStore.id());
         // sync store descriptor via crdt
         disposables.add(kvRangeStore.describe().subscribe(landscapeReporter::report));
+        disposables.add(landscapeReporter.refreshSignal()
+            .subscribe(ts -> landscapeReporter.report(kvRangeStore.describe().blockingFirst())));
         log.debug("BaseKVStore service started");
     }
 

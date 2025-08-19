@@ -14,14 +14,31 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 
 package org.apache.bifromq.basecluster;
 
-import static org.apache.bifromq.basecluster.memberlist.CRDTUtil.AGENT_HOST_MAP_URI;
 import static com.google.common.base.Preconditions.checkArgument;
+import static org.apache.bifromq.basecluster.memberlist.CRDTUtil.AGENT_HOST_MAP_URI;
 
+import com.google.common.base.Preconditions;
+import com.google.common.base.Strings;
+import com.google.protobuf.ByteString;
+import io.micrometer.core.instrument.Metrics;
+import io.micrometer.core.instrument.binder.jvm.ExecutorServiceMetrics;
+import io.reactivex.rxjava3.core.Observable;
+import io.reactivex.rxjava3.core.Scheduler;
+import io.reactivex.rxjava3.disposables.CompositeDisposable;
+import io.reactivex.rxjava3.schedulers.Schedulers;
+import java.net.InetSocketAddress;
+import java.time.Duration;
+import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ScheduledThreadPoolExecutor;
+import java.util.concurrent.atomic.AtomicReference;
+import lombok.extern.slf4j.Slf4j;
 import org.apache.bifromq.basecluster.agent.proto.AgentEndpoint;
 import org.apache.bifromq.basecluster.fd.FailureDetector;
 import org.apache.bifromq.basecluster.fd.IFailureDetector;
@@ -43,23 +60,6 @@ import org.apache.bifromq.basecluster.transport.ITransport;
 import org.apache.bifromq.basecrdt.store.ICRDTStore;
 import org.apache.bifromq.basecrdt.store.proto.CRDTStoreMessage;
 import org.apache.bifromq.baseenv.EnvProvider;
-import com.google.common.base.Preconditions;
-import com.google.common.base.Strings;
-import com.google.protobuf.ByteString;
-import io.micrometer.core.instrument.Metrics;
-import io.micrometer.core.instrument.binder.jvm.ExecutorServiceMetrics;
-import io.reactivex.rxjava3.core.Observable;
-import io.reactivex.rxjava3.core.Scheduler;
-import io.reactivex.rxjava3.disposables.CompositeDisposable;
-import io.reactivex.rxjava3.schedulers.Schedulers;
-import java.net.InetSocketAddress;
-import java.time.Duration;
-import java.util.Map;
-import java.util.Set;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ScheduledThreadPoolExecutor;
-import java.util.concurrent.atomic.AtomicReference;
-import lombok.extern.slf4j.Slf4j;
 
 @Slf4j
 final class AgentHost implements IAgentHost {
@@ -171,6 +171,11 @@ final class AgentHost implements IAgentHost {
     @Override
     public Observable<Map<HostEndpoint, Set<String>>> landscape() {
         return memberList.landscape();
+    }
+
+    @Override
+    public Observable<Long> refuteSignal() {
+        return memberList.refuteSignal();
     }
 
     @Override

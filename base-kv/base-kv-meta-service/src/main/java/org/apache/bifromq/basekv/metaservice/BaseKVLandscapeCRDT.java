@@ -64,6 +64,11 @@ class BaseKVLandscapeCRDT implements IBaseKVLandscapeCRDT {
             .subscribe(landscapeSubject::onNext));
     }
 
+    @Override
+    public Observable<Long> refreshSignal() {
+        return crdtService.refreshSignal();
+    }
+
     public Observable<Set<ByteString>> aliveReplicas() {
         return crdtService.aliveReplicas(landscapeORMap.id().getUri())
             .map(replicas -> replicas.stream().map(Replica::getId).collect(Collectors.toSet()));

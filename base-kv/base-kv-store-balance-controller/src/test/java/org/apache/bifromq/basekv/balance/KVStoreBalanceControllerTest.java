@@ -79,6 +79,7 @@ public class KVStoreBalanceControllerTest {
     private static final String LOCAL_STORE_ID = "localStoreId";
     private final PublishSubject<Map<String, BalancerStateSnapshot>> proposalSubject = PublishSubject.create();
     private final PublishSubject<Set<KVRangeStoreDescriptor>> storeDescSubject = PublishSubject.create();
+    private final PublishSubject<Long> refreshSignal = PublishSubject.create();
     @Mock
     private IBaseKVMetaService metaService;
     @Mock
@@ -103,6 +104,7 @@ public class KVStoreBalanceControllerTest {
         when(balancerFactory.newBalancer(eq(CLUSTER_ID), eq(LOCAL_STORE_ID))).thenReturn(storeBalancer);
         when(metaService.balancerStatesProposal(eq(CLUSTER_ID))).thenReturn(statesProposal);
         when(metaService.balancerStatesReporter(eq(CLUSTER_ID), eq(LOCAL_STORE_ID))).thenReturn(statesReporter);
+        when(statesReporter.refreshSignal()).thenReturn(refreshSignal);
         when(statesProposal.expectedBalancerStates()).thenReturn(proposalSubject);
         when(storeClient.describe()).thenReturn(storeDescSubject);
         executor = Executors.newScheduledThreadPool(1);
@@ -398,6 +400,18 @@ public class KVStoreBalanceControllerTest {
         awaitExecute(200);
         verify(storeBalancer, never()).update(any(Struct.class));
         verify(statesReporter, never()).reportBalancerState(anyString(), anyBoolean(), any(Struct.class));
+    }
+
+    @Test
+    public void testRefreshSignal() {
+        reset(statesReporter);
+        refreshSignal.onNext(System.currentTimeMillis());
+        verify(statesReporter, times(4))
+            .reportBalancerState(anyString(), anyBoolean(), any(Struct.class));
+        verify(statesReporter, times(1))
+            .reportBalancerState(eq(balancerFactory.getClass().getName()),
+                eq(false),
+                eq(Struct.getDefaultInstance()));
     }
 
     private Set<KVRangeStoreDescriptor> generateDescriptor(KVRangeId id, long ver) {

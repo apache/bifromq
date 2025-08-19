@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 
 package org.apache.bifromq.basecrdt.core.internal;
@@ -69,9 +69,10 @@ class InMemReplicaStateLattice implements IReplicaStateLattice {
     private final Duration historyExpire;
     private final long maxCompactionDuration;
 
-    InMemReplicaStateLattice(Replica ownerReplica, Duration historyExpire, Duration maxCompactionTime) {
+    InMemReplicaStateLattice(String storeId, Replica ownerReplica, Duration historyExpire, Duration maxCompactionTime) {
         this.ownerReplica = ownerReplica;
-        this.log = MDCLogger.getLogger(InMemReplicaStateLattice.class, "replica", print(ownerReplica));
+        this.log = MDCLogger.getLogger(InMemReplicaStateLattice.class,
+            "store", storeId, "replica", print(ownerReplica));
         this.historyExpire = historyExpire;
         this.maxCompactionDuration = maxCompactionTime.toNanos();
     }

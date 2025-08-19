@@ -19,15 +19,23 @@
 
 package org.apache.bifromq.basecrdt.core.internal;
 
+import static java.util.Collections.emptySet;
 import static org.apache.bifromq.basecrdt.core.api.CRDTURI.toURI;
 import static org.apache.bifromq.basecrdt.core.api.CausalCRDTType.mvreg;
 import static org.apache.bifromq.basecrdt.core.api.CausalCRDTType.ormap;
-import static java.util.Collections.emptySet;
 import static org.testng.Assert.assertEquals;
 import static org.testng.Assert.assertFalse;
 import static org.testng.Assert.assertNotEquals;
 import static org.testng.Assert.assertTrue;
 
+import com.google.common.collect.Lists;
+import com.google.common.collect.Sets;
+import com.google.protobuf.ByteString;
+import io.reactivex.rxjava3.disposables.Disposable;
+import java.time.Duration;
+import java.util.List;
+import java.util.concurrent.atomic.AtomicInteger;
+import lombok.extern.slf4j.Slf4j;
 import org.apache.bifromq.basecrdt.core.api.AWORSetOperation;
 import org.apache.bifromq.basecrdt.core.api.CCounterOperation;
 import org.apache.bifromq.basecrdt.core.api.CausalCRDTType;
@@ -44,14 +52,6 @@ import org.apache.bifromq.basecrdt.core.api.MVRegOperation;
 import org.apache.bifromq.basecrdt.core.api.ORMapOperation;
 import org.apache.bifromq.basecrdt.core.api.RWORSetOperation;
 import org.apache.bifromq.basecrdt.proto.Replica;
-import com.google.common.collect.Lists;
-import com.google.common.collect.Sets;
-import com.google.protobuf.ByteString;
-import io.reactivex.rxjava3.disposables.Disposable;
-import java.time.Duration;
-import java.util.List;
-import java.util.concurrent.atomic.AtomicInteger;
-import lombok.extern.slf4j.Slf4j;
 import org.testng.annotations.Test;
 
 @Slf4j
@@ -76,7 +76,7 @@ public class ORMapTest extends CRDTTest {
 
     @Test
     public void testOperation() {
-        ORMapInflater orMapInflater = new ORMapInflater(leftReplica, newStateLattice(leftReplica, 1000),
+        ORMapInflater orMapInflater = new ORMapInflater("storeId", leftReplica, newStateLattice(leftReplica, 1000),
             executor, Duration.ofMillis(100));
         IORMap ormap = orMapInflater.getCRDT();
         assertEquals(ormap.id(), leftReplica);
@@ -191,11 +191,11 @@ public class ORMapTest extends CRDTTest {
 
     @Test
     public void testJoin() {
-        ORMapInflater leftInflater = new ORMapInflater(leftReplica,
+        ORMapInflater leftInflater = new ORMapInflater("leftStore", leftReplica,
             newStateLattice(leftReplica, 1000), executor, Duration.ofMillis(100));
         IORMap leftMap = leftInflater.getCRDT();
 
-        ORMapInflater rightInflater = new ORMapInflater(rightReplica,
+        ORMapInflater rightInflater = new ORMapInflater("rightStore", rightReplica,
             newStateLattice(rightReplica, 1000), executor, Duration.ofMillis(100));
         IORMap rightMap = rightInflater.getCRDT();
 
@@ -286,11 +286,11 @@ public class ORMapTest extends CRDTTest {
 
     @Test
     public void testJoinAfterCompaction() throws InterruptedException {
-        ORMapInflater leftInflater = new ORMapInflater(leftReplica,
+        ORMapInflater leftInflater = new ORMapInflater("leftStore", leftReplica,
             newStateLattice(leftReplica, 1000), executor, Duration.ofMillis(100));
         IORMap leftMap = leftInflater.getCRDT();
 
-        ORMapInflater rightInflater = new ORMapInflater(rightReplica,
+        ORMapInflater rightInflater = new ORMapInflater("rightStore", rightReplica,
             newStateLattice(rightReplica, 100), executor, Duration.ofMillis(100));
         IORMap rightMap = rightInflater.getCRDT();
 
@@ -318,7 +318,7 @@ public class ORMapTest extends CRDTTest {
 
     @Test
     public void testSubCRDTGC() {
-        ORMapInflater orMapInflater = new ORMapInflater(leftReplica, newStateLattice(leftReplica, 1000),
+        ORMapInflater orMapInflater = new ORMapInflater("leftStore", leftReplica, newStateLattice(leftReplica, 1000),
             executor, Duration.ofMillis(100));
         IORMap orMap = orMapInflater.getCRDT();
 
@@ -344,7 +344,7 @@ public class ORMapTest extends CRDTTest {
 
     @Test
     public void testInflationSubscriptionWhenGC() {
-        ORMapInflater orMapInflater = new ORMapInflater(leftReplica, newStateLattice(leftReplica, 1000),
+        ORMapInflater orMapInflater = new ORMapInflater("leftStore", leftReplica, newStateLattice(leftReplica, 1000),
             executor, Duration.ofMillis(100));
         IORMap orMap = orMapInflater.getCRDT();
         AtomicInteger inflationCount = new AtomicInteger();

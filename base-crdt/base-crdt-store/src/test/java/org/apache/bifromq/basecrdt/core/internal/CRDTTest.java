@@ -19,8 +19,6 @@
 
 package org.apache.bifromq.basecrdt.core.internal;
 
-import org.apache.bifromq.basecrdt.proto.Replacement;
-import org.apache.bifromq.basecrdt.proto.Replica;
 import com.google.common.util.concurrent.MoreExecutors;
 import java.time.Duration;
 import java.util.Optional;
@@ -28,6 +26,8 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
+import org.apache.bifromq.basecrdt.proto.Replacement;
+import org.apache.bifromq.basecrdt.proto.Replica;
 import org.testng.annotations.AfterMethod;
 import org.testng.annotations.BeforeMethod;
 
@@ -45,7 +45,7 @@ abstract class CRDTTest {
     }
 
     protected IReplicaStateLattice newStateLattice(Replica ownerReplica, long historyDurationInMS) {
-        return new InMemReplicaStateLattice(ownerReplica,
+        return new InMemReplicaStateLattice("storeId", ownerReplica,
             Duration.ofMillis(historyDurationInMS),
             Duration.ofMillis(200));
     }

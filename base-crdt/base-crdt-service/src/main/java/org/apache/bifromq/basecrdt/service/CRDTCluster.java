@@ -73,7 +73,7 @@ class CRDTCluster<O extends ICRDTOperation, C extends ICausalCRDT<O>> {
         this.store = store;
         this.agentHost = agentHost;
         replicaId = generate(uri);
-        log = MDCLogger.getLogger(CRDTCluster.class, "replica", print(replicaId));
+        log = MDCLogger.getLogger(CRDTCluster.class, "store", store.id(), "replica", print(replicaId));
         membershipAgent = agentHost.host(replicaId.getUri());
         endpoint = AgentMemberAddr.newBuilder()
             .setName(AgentUtil.toAgentMemberName(replicaId))

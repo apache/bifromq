@@ -19,21 +19,22 @@
 
 package org.apache.bifromq.basecrdt.core.internal;
 
+import java.time.Duration;
+import java.util.concurrent.ScheduledExecutorService;
 import org.apache.bifromq.basecrdt.core.api.CausalCRDTType;
 import org.apache.bifromq.basecrdt.core.api.DWFlagOperation;
 import org.apache.bifromq.basecrdt.core.api.IDWFlag;
 import org.apache.bifromq.basecrdt.core.api.IDWFlagInflater;
 import org.apache.bifromq.basecrdt.proto.Replica;
-import java.time.Duration;
-import java.util.concurrent.ScheduledExecutorService;
 
 class DWFlagInflater extends CausalCRDTInflater<IDotSet, DWFlagOperation, IDWFlag> implements IDWFlagInflater {
-    DWFlagInflater(Replica replica,
+    DWFlagInflater(String storeId,
+                   Replica replica,
                    IReplicaStateLattice stateLattice,
                    ScheduledExecutorService executor,
                    Duration inflationInterval,
                    String... tags) {
-        super(replica, stateLattice, executor, inflationInterval, tags);
+        super(storeId, replica, stateLattice, executor, inflationInterval, tags);
     }
 
     @Override

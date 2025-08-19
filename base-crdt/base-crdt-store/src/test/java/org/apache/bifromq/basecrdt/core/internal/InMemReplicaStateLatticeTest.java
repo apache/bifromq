@@ -14,46 +14,47 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 
 package org.apache.bifromq.basecrdt.core.internal;
 
-import static org.apache.bifromq.basecrdt.core.internal.EventHistoryUtil.isRemembering;
-import static org.apache.bifromq.basecrdt.core.internal.ProtoUtils.dot;
-import static org.apache.bifromq.basecrdt.core.internal.ProtoUtils.replacement;
-import static org.apache.bifromq.basecrdt.core.internal.ProtoUtils.replacements;
-import static org.apache.bifromq.basecrdt.core.internal.ProtoUtils.singleDot;
 import static com.google.common.collect.Lists.newArrayList;
 import static com.google.common.collect.Sets.newHashSet;
 import static com.google.protobuf.ByteString.copyFromUtf8;
 import static java.util.Collections.emptyMap;
 import static java.util.Collections.singleton;
+import static org.apache.bifromq.basecrdt.core.internal.EventHistoryUtil.isRemembering;
+import static org.apache.bifromq.basecrdt.core.internal.ProtoUtils.dot;
+import static org.apache.bifromq.basecrdt.core.internal.ProtoUtils.replacement;
+import static org.apache.bifromq.basecrdt.core.internal.ProtoUtils.replacements;
+import static org.apache.bifromq.basecrdt.core.internal.ProtoUtils.singleDot;
 import static org.testng.Assert.assertEquals;
 import static org.testng.Assert.assertFalse;
 import static org.testng.Assert.assertTrue;
 
-import org.apache.bifromq.basecrdt.proto.Replacement;
-import org.apache.bifromq.basecrdt.proto.Replica;
-import org.apache.bifromq.basecrdt.proto.StateLattice;
 import com.google.common.collect.Sets;
 import com.google.protobuf.ByteString;
 import java.time.Duration;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
+import org.apache.bifromq.basecrdt.proto.Replacement;
+import org.apache.bifromq.basecrdt.proto.Replica;
+import org.apache.bifromq.basecrdt.proto.StateLattice;
 import org.testng.annotations.BeforeMethod;
 import org.testng.annotations.Test;
 
 public class InMemReplicaStateLatticeTest {
-    private InMemReplicaStateLattice testLattice;
     private final Replica ownerReplica = Replica.newBuilder().setId(copyFromUtf8("Owner")).build();
     private final ByteString replicaA = copyFromUtf8("A");
     private final ByteString replicaB = copyFromUtf8("B");
+    private InMemReplicaStateLattice testLattice;
 
     @BeforeMethod
     public void setup() {
-        testLattice = new InMemReplicaStateLattice(ownerReplica, Duration.ofMillis(1000), Duration.ofMillis(200));
+        testLattice = new InMemReplicaStateLattice("storeId", ownerReplica, Duration.ofMillis(1000),
+            Duration.ofMillis(200));
         assertFalse(testLattice.lattices().hasNext());
     }
 
@@ -495,7 +496,7 @@ public class InMemReplicaStateLatticeTest {
     }
 
     @Test
-    public void compact7() throws InterruptedException {
+    public void testCompact7() throws InterruptedException {
         Set<Replacement> states = newHashSet(
             replacement(dot(replicaA, 4, singleDot(replicaA, 4)), dot(replicaA, 3), dot(replicaA, 1)),
             replacement(dot(replicaA, 2), dot(replicaA, 1)));

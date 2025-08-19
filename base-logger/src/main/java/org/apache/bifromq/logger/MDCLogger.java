@@ -74,12 +74,20 @@ public class MDCLogger implements org.slf4j.Logger {
         if (lvl.isEmpty()) {
             return;
         }
+        Object[] evaluated = args;
+        if (args != null && args.length > 0) {
+            evaluated = new Object[args.length];
+            for (int i = 0; i < args.length; i++) {
+                Object a = args[i];
+                evaluated[i] = (a instanceof Supplier) ? ((Supplier<?>) a).get() : a;
+            }
+        }
         for (int i = 0; i < tags.length; i += 2) {
             MDC.put(tags[i], tags[i + 1]);
         }
         Map<String, String> extraCtx = extraContext();
         extraCtx.forEach(MDC::put);
-        delegate.log(marker, FQCN, lvl.get().toInt(), msg, args, t);
+        delegate.log(marker, FQCN, lvl.get().toInt(), msg, evaluated, t);
         for (int i = 0; i < tags.length; i += 2) {
             MDC.remove(tags[i]);
         }

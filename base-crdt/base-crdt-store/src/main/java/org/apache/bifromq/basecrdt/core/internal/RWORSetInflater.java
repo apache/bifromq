@@ -14,26 +14,27 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 
 package org.apache.bifromq.basecrdt.core.internal;
 
+import java.time.Duration;
+import java.util.concurrent.ScheduledExecutorService;
 import org.apache.bifromq.basecrdt.core.api.CausalCRDTType;
 import org.apache.bifromq.basecrdt.core.api.IRWORSet;
 import org.apache.bifromq.basecrdt.core.api.IRWORSetInflater;
 import org.apache.bifromq.basecrdt.core.api.RWORSetOperation;
 import org.apache.bifromq.basecrdt.proto.Replica;
-import java.time.Duration;
-import java.util.concurrent.ScheduledExecutorService;
 
 class RWORSetInflater extends CausalCRDTInflater<IDotMap, RWORSetOperation, IRWORSet> implements IRWORSetInflater {
-    RWORSetInflater(Replica replica,
+    RWORSetInflater(String storeId,
+                    Replica replica,
                     IReplicaStateLattice stateLattice,
                     ScheduledExecutorService executor,
                     Duration inflationInterval,
                     String... tags) {
-        super(replica, stateLattice, executor, inflationInterval, tags);
+        super(storeId, replica, stateLattice, executor, inflationInterval, tags);
     }
 
     @Override

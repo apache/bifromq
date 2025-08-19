@@ -14,26 +14,27 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 
 package org.apache.bifromq.basecrdt.core.internal;
 
+import java.time.Duration;
+import java.util.concurrent.ScheduledExecutorService;
 import org.apache.bifromq.basecrdt.core.api.CausalCRDTType;
 import org.apache.bifromq.basecrdt.core.api.IORMap;
 import org.apache.bifromq.basecrdt.core.api.IORMapInflater;
 import org.apache.bifromq.basecrdt.core.api.ORMapOperation;
 import org.apache.bifromq.basecrdt.proto.Replica;
-import java.time.Duration;
-import java.util.concurrent.ScheduledExecutorService;
 
 class ORMapInflater extends CausalCRDTInflater<IDotMap, ORMapOperation, IORMap> implements IORMapInflater {
-    ORMapInflater(Replica replica,
+    ORMapInflater(String storeId,
+                  Replica replica,
                   IReplicaStateLattice stateLattice,
                   ScheduledExecutorService executor,
                   Duration inflationInterval,
                   String... tags) {
-        super(replica, stateLattice, executor, inflationInterval, tags);
+        super(storeId, replica, stateLattice, executor, inflationInterval, tags);
     }
 
     @Override

@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 
 package org.apache.bifromq.basecrdt.core.internal;
@@ -25,12 +25,12 @@ import static org.testng.Assert.assertEquals;
 import static org.testng.Assert.assertFalse;
 import static org.testng.Assert.assertTrue;
 
-import org.apache.bifromq.basecrdt.core.api.IRWORSet;
-import org.apache.bifromq.basecrdt.core.api.RWORSetOperation;
-import org.apache.bifromq.basecrdt.proto.Replica;
 import com.google.common.collect.Sets;
 import com.google.protobuf.ByteString;
 import java.time.Duration;
+import org.apache.bifromq.basecrdt.core.api.IRWORSet;
+import org.apache.bifromq.basecrdt.core.api.RWORSetOperation;
+import org.apache.bifromq.basecrdt.proto.Replica;
 import org.testng.annotations.Test;
 
 public class RWORSetTest extends CRDTTest {
@@ -49,7 +49,7 @@ public class RWORSetTest extends CRDTTest {
     @Test
     public void testOperation() {
         RWORSetInflater rworSetInflater =
-            new RWORSetInflater(leftReplica, newStateLattice(leftReplica, 1000),
+            new RWORSetInflater("leftStore", leftReplica, newStateLattice(leftReplica, 1000),
                 executor, Duration.ofMillis(100));
         IRWORSet rworSet = rworSetInflater.getCRDT();
         assertEquals(rworSet.id(), leftReplica);
@@ -82,11 +82,11 @@ public class RWORSetTest extends CRDTTest {
 
     @Test
     public void testJoin() {
-        RWORSetInflater leftInflater = new RWORSetInflater(leftReplica,
+        RWORSetInflater leftInflater = new RWORSetInflater("leftStore", leftReplica,
             newStateLattice(leftReplica, 1000), executor, Duration.ofMillis(100));
         IRWORSet left = leftInflater.getCRDT();
 
-        RWORSetInflater rightInflater = new RWORSetInflater(rightReplica,
+        RWORSetInflater rightInflater = new RWORSetInflater("rightStore", rightReplica,
             newStateLattice(rightReplica, 1000), executor, Duration.ofMillis(100));
         IRWORSet right = rightInflater.getCRDT();
 

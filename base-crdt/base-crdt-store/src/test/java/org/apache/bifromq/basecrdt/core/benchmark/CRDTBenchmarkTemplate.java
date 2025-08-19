@@ -14,20 +14,20 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 
 package org.apache.bifromq.basecrdt.core.benchmark;
 
 import static com.google.protobuf.UnsafeByteOperations.unsafeWrap;
 
-import org.apache.bifromq.basecrdt.core.internal.CausalCRDTInflaterFactory;
 import com.google.protobuf.ByteString;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.time.Duration;
 import java.util.concurrent.Executors;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.bifromq.basecrdt.core.internal.CausalCRDTInflaterFactory;
 import org.openjdk.jmh.annotations.Setup;
 import org.openjdk.jmh.annotations.TearDown;
 import org.openjdk.jmh.runner.Runner;
@@ -42,7 +42,7 @@ public abstract class CRDTBenchmarkTemplate {
 
     @Setup
     public void setup() throws IOException {
-        inflaterFactory = new CausalCRDTInflaterFactory(
+        inflaterFactory = new CausalCRDTInflaterFactory("testStoreId",
             Duration.ofMillis(200), Duration.ofSeconds(20), Duration.ofMillis(200),
             Executors.newSingleThreadScheduledExecutor());
         doSetup();

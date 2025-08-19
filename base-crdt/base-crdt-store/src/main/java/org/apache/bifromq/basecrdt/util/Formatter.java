@@ -38,7 +38,7 @@ public class Formatter {
     }
 
     public static Supplier<String> toPrintable(Replica replica) {
-        return () -> replica.getUri() + "-" + BaseEncoding.base32().encode(replica.getId().toByteArray());
+        return () -> replica.getUri() + "-" + replica.hashCode();
     }
 
     public static Supplier<String> toPrintable(DeltaMessage delta) {

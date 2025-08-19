@@ -24,14 +24,14 @@ import static org.apache.bifromq.basecrdt.core.api.CausalCRDTType.cctr;
 import static org.testng.Assert.assertEquals;
 import static org.testng.Assert.assertTrue;
 
-import org.apache.bifromq.basecrdt.core.api.CCounterOperation;
-import org.apache.bifromq.basecrdt.core.api.ICCounter;
-import org.apache.bifromq.basecrdt.proto.Replacement;
-import org.apache.bifromq.basecrdt.proto.Replica;
 import com.google.protobuf.ByteString;
 import io.reactivex.rxjava3.observers.TestObserver;
 import java.time.Duration;
 import java.util.Optional;
+import org.apache.bifromq.basecrdt.core.api.CCounterOperation;
+import org.apache.bifromq.basecrdt.core.api.ICCounter;
+import org.apache.bifromq.basecrdt.proto.Replacement;
+import org.apache.bifromq.basecrdt.proto.Replica;
 import org.testng.annotations.Test;
 
 public class CCounterTest extends CRDTTest {
@@ -46,7 +46,7 @@ public class CCounterTest extends CRDTTest {
 
     @Test
     public void testOperation() {
-        CCounterInflater cctrInflater = new CCounterInflater(leftReplica,
+        CCounterInflater cctrInflater = new CCounterInflater("leftStore", leftReplica,
             newStateLattice(leftReplica, 1000), executor, Duration.ofMillis(100));
         ICCounter cctr = cctrInflater.getCRDT();
         assertEquals(cctr.id(), leftReplica);
@@ -73,11 +73,11 @@ public class CCounterTest extends CRDTTest {
 
     @Test
     public void testJoin() {
-        CCounterInflater leftInflater = new CCounterInflater(leftReplica,
+        CCounterInflater leftInflater = new CCounterInflater("leftStore", leftReplica,
             newStateLattice(leftReplica, 100000), executor, Duration.ofMillis(100));
         ICCounter left = leftInflater.getCRDT();
 
-        CCounterInflater rightInflater = new CCounterInflater(rightReplica,
+        CCounterInflater rightInflater = new CCounterInflater("rightStore", rightReplica,
             newStateLattice(rightReplica, 100000), executor, Duration.ofMillis(100));
         ICCounter right = rightInflater.getCRDT();
 
@@ -101,11 +101,11 @@ public class CCounterTest extends CRDTTest {
 
     @Test
     public void testZeroOut() {
-        CCounterInflater leftInflater = new CCounterInflater(leftReplica,
+        CCounterInflater leftInflater = new CCounterInflater("leftStore", leftReplica,
             newStateLattice(leftReplica, 100000), executor, Duration.ofMillis(100));
         ICCounter left = leftInflater.getCRDT();
 
-        CCounterInflater rightInflater = new CCounterInflater(rightReplica,
+        CCounterInflater rightInflater = new CCounterInflater("rightStore", rightReplica,
             newStateLattice(rightReplica, 100000), executor, Duration.ofMillis(100));
         ICCounter right = rightInflater.getCRDT();
 
@@ -129,11 +129,11 @@ public class CCounterTest extends CRDTTest {
 
     @Test
     public void testZeroOutInBatch() {
-        CCounterInflater leftInflater = new CCounterInflater(leftReplica,
+        CCounterInflater leftInflater = new CCounterInflater("leftStore", leftReplica,
             newStateLattice(leftReplica, 100000), executor, Duration.ofMillis(100));
         ICCounter left = leftInflater.getCRDT();
 
-        CCounterInflater rightInflater = new CCounterInflater(rightReplica,
+        CCounterInflater rightInflater = new CCounterInflater("rightStore", rightReplica,
             newStateLattice(rightReplica, 100000), executor, Duration.ofMillis(100));
         ICCounter right = rightInflater.getCRDT();
 

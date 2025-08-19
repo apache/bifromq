@@ -19,27 +19,30 @@
 
 package org.apache.bifromq.basecrdt.core.internal;
 
+import java.time.Duration;
+import java.util.concurrent.ScheduledExecutorService;
 import org.apache.bifromq.basecrdt.core.api.CRDTURI;
 import org.apache.bifromq.basecrdt.core.api.ICausalCRDTInflater;
 import org.apache.bifromq.basecrdt.proto.Replica;
-import java.time.Duration;
-import java.util.concurrent.ScheduledExecutorService;
 
 /**
  * A factory for creating {@link CausalCRDTInflater} instances.
  */
 public class CausalCRDTInflaterFactory {
+    private final String storeId;
     private final ScheduledExecutorService executor;
     private final Duration inflationInterval;
     private final Duration orHistoryExpiryTime;
     private final Duration maxCompactionTime;
     private final String[] tags;
 
-    public CausalCRDTInflaterFactory(Duration inflationInterval,
+    public CausalCRDTInflaterFactory(String storeId,
+                                     Duration inflationInterval,
                                      Duration orHistoryExpiryTime,
                                      Duration maxCompactionTime,
                                      ScheduledExecutorService executor,
                                      String... tags) {
+        this.storeId = storeId;
         this.executor = executor;
         this.inflationInterval = inflationInterval;
         this.orHistoryExpiryTime = orHistoryExpiryTime;
@@ -57,16 +60,16 @@ public class CausalCRDTInflaterFactory {
         CRDTURI.checkURI(replicaId.getUri());
 
         IReplicaStateLattice lattice =
-            new InMemReplicaStateLattice(replicaId, orHistoryExpiryTime, maxCompactionTime);
+            new InMemReplicaStateLattice(storeId, replicaId, orHistoryExpiryTime, maxCompactionTime);
 
         return switch (CRDTURI.parseType(replicaId.getUri())) {
-            case aworset -> new AWORSetInflater(replicaId, lattice, executor, inflationInterval, tags);
-            case rworset -> new RWORSetInflater(replicaId, lattice, executor, inflationInterval, tags);
-            case ormap -> new ORMapInflater(replicaId, lattice, executor, inflationInterval, tags);
-            case cctr -> new CCounterInflater(replicaId, lattice, executor, inflationInterval, tags);
-            case dwflag -> new DWFlagInflater(replicaId, lattice, executor, inflationInterval, tags);
-            case ewflag -> new EWFlagInflater(replicaId, lattice, executor, inflationInterval, tags);
-            case mvreg -> new MVRegInflater(replicaId, lattice, executor, inflationInterval, tags);
+            case aworset -> new AWORSetInflater(storeId, replicaId, lattice, executor, inflationInterval, tags);
+            case rworset -> new RWORSetInflater(storeId, replicaId, lattice, executor, inflationInterval, tags);
+            case ormap -> new ORMapInflater(storeId, replicaId, lattice, executor, inflationInterval, tags);
+            case cctr -> new CCounterInflater(storeId, replicaId, lattice, executor, inflationInterval, tags);
+            case dwflag -> new DWFlagInflater(storeId, replicaId, lattice, executor, inflationInterval, tags);
+            case ewflag -> new EWFlagInflater(storeId, replicaId, lattice, executor, inflationInterval, tags);
+            case mvreg -> new MVRegInflater(storeId, replicaId, lattice, executor, inflationInterval, tags);
         };
     }
 }

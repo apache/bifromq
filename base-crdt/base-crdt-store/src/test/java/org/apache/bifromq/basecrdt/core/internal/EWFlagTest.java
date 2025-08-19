@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 
 package org.apache.bifromq.basecrdt.core.internal;
@@ -25,13 +25,13 @@ import static org.testng.Assert.assertEquals;
 import static org.testng.Assert.assertFalse;
 import static org.testng.Assert.assertTrue;
 
-import org.apache.bifromq.basecrdt.core.api.EWFlagOperation;
-import org.apache.bifromq.basecrdt.core.api.IEWFlag;
-import org.apache.bifromq.basecrdt.proto.Replica;
 import com.google.protobuf.ByteString;
 import io.reactivex.rxjava3.observers.TestObserver;
 import java.time.Duration;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.bifromq.basecrdt.core.api.EWFlagOperation;
+import org.apache.bifromq.basecrdt.core.api.IEWFlag;
+import org.apache.bifromq.basecrdt.proto.Replica;
 import org.testng.annotations.Test;
 
 @Slf4j
@@ -47,7 +47,7 @@ public class EWFlagTest extends CRDTTest {
 
     @Test
     public void testOperation() {
-        EWFlagInflater ewFlagInflater = new EWFlagInflater(leftReplica,
+        EWFlagInflater ewFlagInflater = new EWFlagInflater("testStore", leftReplica,
             newStateLattice(leftReplica, 1000),
             executor, Duration.ofMillis(100));
         IEWFlag ewFlag = ewFlagInflater.getCRDT();
@@ -67,11 +67,11 @@ public class EWFlagTest extends CRDTTest {
 
     @Test
     public void testJoin() {
-        EWFlagInflater leftInflater = new EWFlagInflater(leftReplica,
+        EWFlagInflater leftInflater = new EWFlagInflater("lestStore", leftReplica,
             newStateLattice(leftReplica, 1000000), executor, Duration.ofMillis(100));
         IEWFlag left = leftInflater.getCRDT();
 
-        EWFlagInflater rightInflater = new EWFlagInflater(rightReplica,
+        EWFlagInflater rightInflater = new EWFlagInflater("rightStore", rightReplica,
             newStateLattice(rightReplica, 1000000), executor, Duration.ofMillis(100));
         IEWFlag right = rightInflater.getCRDT();
 

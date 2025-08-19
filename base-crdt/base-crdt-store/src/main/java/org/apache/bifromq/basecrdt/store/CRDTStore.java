@@ -72,6 +72,7 @@ class CRDTStore implements ICRDTStore {
         storeExecutor = options.storeExecutor();
         String[] tags = new String[] {"store.id", storeId};
         inflaterFactory = new CausalCRDTInflaterFactory(
+            options.id(),
             options.inflationInterval(),
             options.orHistoryExpireTime(),
             options.maxCompactionTime(),

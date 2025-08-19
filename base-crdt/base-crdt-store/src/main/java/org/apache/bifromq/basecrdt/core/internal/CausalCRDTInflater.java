@@ -73,11 +73,13 @@ abstract class CausalCRDTInflater<D extends IDotStore, O extends ICRDTOperation,
     private volatile OperationExecTask currentOp = null;
     private volatile JoinTask currentJoin = null;
 
-    CausalCRDTInflater(Replica replica, IReplicaStateLattice stateLattice,
+    CausalCRDTInflater(String storeId,
+                       Replica replica,
+                       IReplicaStateLattice stateLattice,
                        ScheduledExecutorService executor,
                        Duration inflationInterval, String... tags) {
         this.replica = replica;
-        this.log = MDCLogger.getLogger(CausalCRDTInflater.class, "replica", print(replica));
+        this.log = MDCLogger.getLogger(CausalCRDTInflater.class, "store", storeId, "replica", print(replica));
         this.replicaStateLattice = stateLattice;
         this.executor = executor;
         this.inflationInterval = inflationInterval;

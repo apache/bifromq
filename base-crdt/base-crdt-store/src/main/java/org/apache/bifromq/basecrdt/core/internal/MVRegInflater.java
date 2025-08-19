@@ -14,26 +14,27 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 
 package org.apache.bifromq.basecrdt.core.internal;
 
+import java.time.Duration;
+import java.util.concurrent.ScheduledExecutorService;
 import org.apache.bifromq.basecrdt.core.api.CausalCRDTType;
 import org.apache.bifromq.basecrdt.core.api.IMVReg;
 import org.apache.bifromq.basecrdt.core.api.IMVRegInflater;
 import org.apache.bifromq.basecrdt.core.api.MVRegOperation;
 import org.apache.bifromq.basecrdt.proto.Replica;
-import java.time.Duration;
-import java.util.concurrent.ScheduledExecutorService;
 
 class MVRegInflater extends CausalCRDTInflater<IDotFunc, MVRegOperation, IMVReg> implements IMVRegInflater {
-    MVRegInflater(Replica replica,
+    MVRegInflater(String storeId,
+                  Replica replica,
                   IReplicaStateLattice stateLattice,
                   ScheduledExecutorService executor,
                   Duration inflationInterval,
                   String... tags) {
-        super(replica, stateLattice, executor, inflationInterval, tags);
+        super(storeId, replica, stateLattice, executor, inflationInterval, tags);
     }
 
     @Override

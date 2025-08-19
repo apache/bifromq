@@ -25,12 +25,12 @@ import static org.testng.Assert.assertEquals;
 import static org.testng.Assert.assertFalse;
 import static org.testng.Assert.assertTrue;
 
-import org.apache.bifromq.basecrdt.core.api.AWORSetOperation;
-import org.apache.bifromq.basecrdt.core.api.IAWORSet;
-import org.apache.bifromq.basecrdt.proto.Replica;
 import com.google.common.collect.Sets;
 import com.google.protobuf.ByteString;
 import java.time.Duration;
+import org.apache.bifromq.basecrdt.core.api.AWORSetOperation;
+import org.apache.bifromq.basecrdt.core.api.IAWORSet;
+import org.apache.bifromq.basecrdt.proto.Replica;
 import org.testng.annotations.Test;
 
 public class AWORSetTest extends CRDTTest {
@@ -48,9 +48,9 @@ public class AWORSetTest extends CRDTTest {
 
     @Test
     public void testOperation() {
-        AWORSetInflater aworSetInflater =
-            new AWORSetInflater(leftReplica, newStateLattice(leftReplica, 1000),
-                executor, Duration.ofMillis(100));
+        AWORSetInflater aworSetInflater = new AWORSetInflater("testStore", leftReplica,
+            newStateLattice(leftReplica, 1000),
+            executor, Duration.ofMillis(100));
         IAWORSet aworSet = aworSetInflater.getCRDT();
         assertEquals(aworSet.id(), leftReplica);
 
@@ -82,11 +82,11 @@ public class AWORSetTest extends CRDTTest {
 
     @Test
     public void testJoin() {
-        AWORSetInflater leftInflater = new AWORSetInflater(leftReplica,
+        AWORSetInflater leftInflater = new AWORSetInflater("leftStore", leftReplica,
             newStateLattice(leftReplica, 1000), executor, Duration.ofMillis(100));
         IAWORSet left = leftInflater.getCRDT();
 
-        AWORSetInflater rightInflater = new AWORSetInflater(rightReplica,
+        AWORSetInflater rightInflater = new AWORSetInflater("rightStore", rightReplica,
             newStateLattice(rightReplica, 1000), executor, Duration.ofMillis(100));
         IAWORSet right = rightInflater.getCRDT();
 

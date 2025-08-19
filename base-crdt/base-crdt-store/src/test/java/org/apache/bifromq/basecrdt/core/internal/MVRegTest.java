@@ -19,19 +19,19 @@
 
 package org.apache.bifromq.basecrdt.core.internal;
 
+import static java.util.Collections.emptyIterator;
 import static org.apache.bifromq.basecrdt.core.api.CRDTURI.toURI;
 import static org.apache.bifromq.basecrdt.core.api.CausalCRDTType.mvreg;
-import static java.util.Collections.emptyIterator;
 import static org.testng.Assert.assertEquals;
 import static org.testng.Assert.assertFalse;
 
-import org.apache.bifromq.basecrdt.core.api.IMVReg;
-import org.apache.bifromq.basecrdt.core.api.MVRegOperation;
-import org.apache.bifromq.basecrdt.proto.Replica;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 import com.google.protobuf.ByteString;
 import java.time.Duration;
+import org.apache.bifromq.basecrdt.core.api.IMVReg;
+import org.apache.bifromq.basecrdt.core.api.MVRegOperation;
+import org.apache.bifromq.basecrdt.proto.Replica;
 import org.testng.annotations.Test;
 
 public class MVRegTest extends CRDTTest {
@@ -49,7 +49,7 @@ public class MVRegTest extends CRDTTest {
 
     @Test
     public void testOperation() {
-        MVRegInflater mvRegInflater = new MVRegInflater(leftReplica,
+        MVRegInflater mvRegInflater = new MVRegInflater("storeId", leftReplica,
             newStateLattice(leftReplica, 1000), executor, Duration.ofMillis(100));
         IMVReg mvReg = mvRegInflater.getCRDT();
         assertEquals(mvReg.id(), leftReplica);
@@ -67,11 +67,11 @@ public class MVRegTest extends CRDTTest {
 
     @Test
     public void testJoin() {
-        MVRegInflater leftInflater = new MVRegInflater(leftReplica, newStateLattice(leftReplica, 10000),
+        MVRegInflater leftInflater = new MVRegInflater("leftStore", leftReplica, newStateLattice(leftReplica, 10000),
             executor, Duration.ofMillis(100));
         IMVReg left = leftInflater.getCRDT();
 
-        MVRegInflater rightInflater = new MVRegInflater(rightReplica, newStateLattice(rightReplica, 10000),
+        MVRegInflater rightInflater = new MVRegInflater("rightStore", rightReplica, newStateLattice(rightReplica, 10000),
             executor, Duration.ofMillis(100));
         IMVReg right = rightInflater.getCRDT();
 
@@ -96,11 +96,11 @@ public class MVRegTest extends CRDTTest {
 
     @Test
     public void testJoin1() throws InterruptedException {
-        MVRegInflater leftInflater = new MVRegInflater(leftReplica, newStateLattice(leftReplica, 1000),
+        MVRegInflater leftInflater = new MVRegInflater("leftStore", leftReplica, newStateLattice(leftReplica, 1000),
             executor, Duration.ofMillis(100));
         IMVReg left = leftInflater.getCRDT();
 
-        MVRegInflater rightInflater = new MVRegInflater(rightReplica, newStateLattice(rightReplica, 1000),
+        MVRegInflater rightInflater = new MVRegInflater("rightStore", rightReplica, newStateLattice(rightReplica, 1000),
             executor, Duration.ofMillis(100));
         IMVReg right = rightInflater.getCRDT();
 

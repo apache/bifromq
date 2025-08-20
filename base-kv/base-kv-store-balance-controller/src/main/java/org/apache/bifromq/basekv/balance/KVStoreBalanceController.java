@@ -235,14 +235,20 @@ public class KVStoreBalanceController {
                                 balancerState.disabled.set(disable);
                                 needReport = true;
                             }
-                            Struct expectedLoadRules = expectedState.getLoadRules();
-                            if (!loadRules.equals(expectedLoadRules)
-                                && balancerState.balancer.validate(expectedLoadRules)) {
-                                loadRules = expectedLoadRules;
-                                // report the balancer state
-                                balancerState.loadRules.set(expectedLoadRules);
-                                balancerState.balancer.update(expectedLoadRules);
-                                needReport = true;
+                            Struct expectedLoadRules = loadRules.toBuilder()
+                                .mergeFrom(expectedState.getLoadRules())
+                                .build();
+                            if (!loadRules.equals(expectedLoadRules)) {
+                                if (balancerState.balancer.validate(expectedLoadRules)) {
+                                    loadRules = expectedLoadRules;
+                                    // report the balancer state
+                                    balancerState.loadRules.set(expectedLoadRules);
+                                    balancerState.balancer.update(expectedLoadRules);
+                                    needReport = true;
+                                } else {
+                                    log.warn("Balancer[{}] load rules not valid: {}",
+                                        balancerFacClassFQN, expectedLoadRules);
+                                }
                             }
                             if (needReport) {
                                 statesReporter.reportBalancerState(balancerFacClassFQN, disable, loadRules);

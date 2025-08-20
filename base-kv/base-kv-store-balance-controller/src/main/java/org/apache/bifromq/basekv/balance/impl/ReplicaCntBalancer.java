@@ -19,14 +19,11 @@
 
 package org.apache.bifromq.basekv.balance.impl;
 
-import static com.google.common.collect.Sets.difference;
-import static com.google.common.collect.Sets.union;
-
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Sets;
 import com.google.protobuf.Struct;
 import com.google.protobuf.Value;
-import java.util.Collections;
+import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -76,6 +73,17 @@ public class ReplicaCntBalancer extends RuleBasedPlacementBalancer {
         Preconditions.checkArgument(validate(defaultLoadRules), "Invalid default load rules");
     }
 
+    private ClusterConfig buildConfig(Set<String> voters, Set<String> learners) {
+        return ClusterConfig.newBuilder()
+            .addAllVoters(voters)
+            .addAllLearners(learners)
+            .build();
+    }
+
+    private void sanitize(Set<String> s, Set<String> live) {
+        s.retainAll(live);
+    }
+
     @Override
     public Struct initialLoadRules() {
         return defaultLoadRules;
@@ -116,137 +124,143 @@ public class ReplicaCntBalancer extends RuleBasedPlacementBalancer {
                                        Map<String, KVRangeStoreDescriptor> landscape,
                                        EffectiveRoute effectiveRoute,
                                        Map<Boundary, ClusterConfig> expectedRangeLayout) {
-        int expectedVoters = (int) loadRules.getFieldsMap().get(LOAD_RULE_VOTERS).getNumberValue();
-        int expectedLearners = (int) loadRules.getFieldsMap().get(LOAD_RULE_LEARNERS).getNumberValue();
-        // meeting goal one - meet the expected number of Voter replicas and learner replicas for each Range dynamically
+        final Set<String> liveStores = landscape.keySet();
+        final int expectedVoters = (int) loadRules.getFieldsMap().get(LOAD_RULE_VOTERS).getNumberValue();
+        final int expectedLearners = (int) loadRules.getFieldsMap().get(LOAD_RULE_LEARNERS).getNumberValue();
+
         boolean meetingGoal = false;
+
         for (Map.Entry<Boundary, LeaderRange> entry : effectiveRoute.leaderRanges().entrySet()) {
-            Boundary boundary = entry.getKey();
             LeaderRange leaderRange = entry.getValue();
             KVRangeDescriptor rangeDescriptor = leaderRange.descriptor();
             ClusterConfig clusterConfig = rangeDescriptor.getConfig();
-            if (meetingGoal) {
-                expectedRangeLayout.put(boundary, clusterConfig);
-                continue;
-            }
+
+            // if there is running config change process, abort generation and wait for the next round
+            // keep range config change as linear as possible
             if (clusterConfig.getNextVotersCount() > 0 || clusterConfig.getNextLearnersCount() > 0) {
-                // if there is running config change process, abort generation
-                expectedRangeLayout.put(boundary, clusterConfig);
-                meetingGoal = true;
-                continue;
+                expectedRangeLayout.clear();
+                // shortcut
+                return true;
             }
-            // voter count not meet expectation or exceeds actual store node amount
+
             Set<String> voters = new HashSet<>(clusterConfig.getVotersList());
             Set<String> learners = new HashSet<>(clusterConfig.getLearnersList());
-            if (clusterConfig.getVotersCount() != expectedVoters || clusterConfig.getVotersCount() > landscape.size()) {
-                if (clusterConfig.getVotersCount() < expectedVoters) {
-                    // add some voters from the least range count store
-                    List<String> aliveStoresSortedByRangeCountAsc = landscape.entrySet().stream()
-                        .filter(e ->
-                            !learners.contains(e.getKey()) && !voters.contains(e.getKey()))
+
+            // remove unreachable stores from voters and learners
+            sanitize(voters, liveStores);
+            sanitize(learners, liveStores);
+
+            Boundary boundary = entry.getKey();
+            int targetVoters = Math.min(expectedVoters, liveStores.size());
+            boolean needFix = voters.size() != targetVoters;
+            if (!meetingGoal && needFix) {
+                String leaderStore = leaderRange.ownerStoreDescriptor().getId();
+                if (voters.size() < targetVoters) {
+                    List<String> candidates = landscape.entrySet().stream()
+                        .filter(e -> !learners.contains(e.getKey()) && !voters.contains(e.getKey()))
                         .sorted(Comparator.comparingInt(e -> e.getValue().getRangesCount()))
                         .map(Map.Entry::getKey)
                         .toList();
-                    for (String aliveStoreId : aliveStoresSortedByRangeCountAsc) {
-                        voters.add(aliveStoreId);
-                        if (voters.size() == expectedVoters) {
+                    for (String s : candidates) {
+                        voters.add(s);
+                        if (voters.size() == targetVoters) {
                             break;
                         }
                     }
-                } else {
-                    // remove some voters from the most range count store
-                    List<String> aliveStoresSortedByRangeCountDesc = landscape.entrySet().stream()
+                } else { // voters.size() > targetVoters
+                    List<String> overloaded = landscape.entrySet().stream()
                         .sorted((a, b) -> b.getValue().getRangesCount() - a.getValue().getRangesCount())
                         .map(Map.Entry::getKey)
                         .toList();
-                    for (String aliveStoreId : aliveStoresSortedByRangeCountDesc) {
-                        if (!aliveStoreId.equals(leaderRange.ownerStoreDescriptor().getId())) {
-                            voters.remove(aliveStoreId);
+                    for (String s : overloaded) {
+                        if (!s.equals(leaderStore) && voters.contains(s)) {
+                            voters.remove(s);
+                            if (voters.size() == targetVoters) {
+                                break;
+                            }
                         }
-                        if (voters.size() == expectedVoters) {
-                            break;
+                    }
+                    if (voters.size() > targetVoters) {
+                        for (String s : new ArrayList<>(voters)) {
+                            if (!s.equals(leaderStore)) {
+                                voters.remove(s);
+                                if (voters.size() == targetVoters) {
+                                    break;
+                                }
+                            }
                         }
                     }
                 }
-                // remove unreachable voters
-                voters.removeIf(voter -> !landscape.containsKey(voter));
-                ClusterConfig newConfig = ClusterConfig.newBuilder()
-                    .mergeFrom(clusterConfig)
-                    .clearVoters()
-                    .addAllVoters(voters)
-                    .build();
-                if (!newConfig.equals(clusterConfig)) {
-                    meetingGoal = true;
-                }
-                expectedRangeLayout.put(boundary, newConfig);
+                expectedRangeLayout.put(boundary, buildConfig(voters, learners));
+                meetingGoal = true;
             } else {
-                expectedRangeLayout.put(boundary, clusterConfig);
+                expectedRangeLayout.put(boundary, buildConfig(voters, learners));
             }
         }
+
         if (meetingGoal) {
             return true;
         }
-        // voter count met the expectation, check learner count
+
         for (Map.Entry<Boundary, LeaderRange> entry : effectiveRoute.leaderRanges().entrySet()) {
-            Boundary boundary = entry.getKey();
             LeaderRange leaderRange = entry.getValue();
             KVRangeDescriptor rangeDescriptor = leaderRange.descriptor();
             ClusterConfig clusterConfig = rangeDescriptor.getConfig();
-            if (meetingGoal) {
-                expectedRangeLayout.put(boundary, clusterConfig);
-                continue;
-            }
+
             Set<String> voters = new HashSet<>(clusterConfig.getVotersList());
             Set<String> learners = new HashSet<>(clusterConfig.getLearnersList());
-            if (expectedLearners == -1
-                || clusterConfig.getLearnersCount() != expectedLearners
-                || clusterConfig.getLearnersCount() > landscape.size()) {
-                if (expectedLearners == -1) {
-                    Set<String> newLearners = new HashSet<>(landscape.keySet());
-                    newLearners.removeAll(voters);
-                    learners.addAll(newLearners);
-                } else {
-                    if (clusterConfig.getLearnersCount() < expectedLearners) {
-                        // add some learners from the least range count store
-                        List<String> aliveStoresSortedByRangeCountAsc = landscape.entrySet().stream()
-                            .sorted(Comparator.comparingInt(e -> e.getValue().getRangesCount()))
-                            .map(Map.Entry::getKey)
-                            .toList();
-                        for (String aliveStoreId : aliveStoresSortedByRangeCountAsc) {
-                            if (!voters.contains(aliveStoreId)) {
-                                learners.add(aliveStoreId);
-                            }
-                            if (learners.size() == expectedVoters) {
-                                break;
-                            }
-                        }
-                    } else {
-                        // remove some learners from the most range count store
-                        List<String> aliveStoresSortedByRangeCountDesc = landscape.entrySet().stream()
-                            .sorted((a, b) -> b.getValue().getRangesCount() - a.getValue().getRangesCount())
-                            .map(Map.Entry::getKey)
-                            .toList();
-                        for (String aliveStoreId : aliveStoresSortedByRangeCountDesc) {
-                            learners.remove(aliveStoreId);
-                            if (learners.size() == expectedLearners) {
+            sanitize(voters, liveStores);
+            sanitize(learners, liveStores);
+
+            boolean changed = false;
+
+            if (expectedLearners == -1) {
+                // learners = live - voters
+                Set<String> newLearners = new HashSet<>(liveStores);
+                newLearners.removeAll(voters);
+                if (!newLearners.equals(learners)) {
+                    learners = newLearners;
+                    changed = true;
+                }
+            } else {
+                int maxPossible = Math.max(0, liveStores.size() - voters.size());
+                int targetLearners = Math.min(expectedLearners, maxPossible);
+
+                if (learners.size() < targetLearners) {
+                    List<String> candidates = landscape.entrySet().stream()
+                        .sorted(Comparator.comparingInt(e -> e.getValue().getRangesCount()))
+                        .map(Map.Entry::getKey)
+                        .toList();
+                    for (String s : candidates) {
+                        if (!voters.contains(s) && !learners.contains(s)) {
+                            learners.add(s);
+                            if (learners.size() == targetLearners) {
                                 break;
                             }
                         }
                     }
+                    changed = true;
+                } else if (learners.size() > targetLearners) {
+                    List<String> overloaded = landscape.entrySet().stream()
+                        .sorted((a, b) -> b.getValue().getRangesCount() - a.getValue().getRangesCount())
+                        .map(Map.Entry::getKey)
+                        .toList();
+                    for (String s : overloaded) {
+                        if (learners.contains(s)) {
+                            learners.remove(s);
+                            if (learners.size() == targetLearners) {
+                                break;
+                            }
+                        }
+                    }
+                    changed = true;
                 }
-                // remove unreachable learners
-                learners.removeIf(learner -> !landscape.containsKey(learner));
-                ClusterConfig newConfig = ClusterConfig.newBuilder()
-                    .mergeFrom(clusterConfig)
-                    .clearLearners()
-                    .addAllLearners(learners)
-                    .build();
-                if (!newConfig.equals(clusterConfig)) {
-                    meetingGoal = true;
-                }
-                expectedRangeLayout.put(boundary, newConfig);
-            } else {
-                expectedRangeLayout.put(boundary, clusterConfig);
+            }
+
+            Boundary boundary = entry.getKey();
+            expectedRangeLayout.put(boundary, buildConfig(voters, learners));
+            if (!meetingGoal && changed) {
+                meetingGoal = true;
             }
         }
         return meetingGoal;
@@ -255,133 +269,148 @@ public class ReplicaCntBalancer extends RuleBasedPlacementBalancer {
     private boolean balanceVoterCount(Map<String, KVRangeStoreDescriptor> landscape,
                                       EffectiveRoute effectiveRoute,
                                       Map<Boundary, ClusterConfig> expectedRangeLayout) {
-        // goal one has met, meeting goal two - evenly distributed voter replicas across all stores
-        boolean meetingGoal = false;
+        final Set<String> liveStores = landscape.keySet();
         Map<String, Integer> storeVoterCount = new HashMap<>();
         for (Map.Entry<Boundary, LeaderRange> entry : effectiveRoute.leaderRanges().entrySet()) {
             ClusterConfig config = entry.getValue().descriptor().getConfig();
-            config.getVotersList()
+            config.getVotersList().stream()
+                .filter(liveStores::contains)
                 .forEach(storeId -> storeVoterCount.put(storeId, storeVoterCount.getOrDefault(storeId, 0) + 1));
         }
-        landscape.keySet().forEach(storeId -> {
-            if (!storeVoterCount.containsKey(storeId)) {
-                storeVoterCount.put(storeId, 0);
-            }
-        });
-        record StoreVoterCount(String storeId, int voterCount) {
-        }
+        liveStores.forEach(s -> storeVoterCount.putIfAbsent(s, 0));
 
-        SortedSet<StoreVoterCount> storeVoterCountSorted = new TreeSet<>(Comparator
-            .comparingInt(StoreVoterCount::voterCount).thenComparing(StoreVoterCount::storeId));
+        record StoreVoterCount(String storeId, int voterCount) {}
+
+        SortedSet<StoreVoterCount> storeVoterCountSorted = new TreeSet<>(
+            Comparator.comparingInt(StoreVoterCount::voterCount).thenComparing(StoreVoterCount::storeId));
         storeVoterCount.forEach(
             (storeId, voterCount) -> storeVoterCountSorted.add(new StoreVoterCount(storeId, voterCount)));
+
         double totalVoters = storeVoterCount.values().stream().mapToInt(Integer::intValue).sum();
-        double targetVotersPerStore = totalVoters / landscape.size();
+        double targetVotersPerStore = liveStores.isEmpty() ? 0 : totalVoters / liveStores.size();
         int maxVotersPerStore = (int) Math.ceil(targetVotersPerStore);
         int minVotersPerStore = (int) Math.floor(targetVotersPerStore);
 
-        int globalMax = Collections.max(storeVoterCount.values());
-        int globalMin = Collections.min(storeVoterCount.values());
+        int globalMax = storeVoterCount.values().stream().mapToInt(Integer::intValue).max().orElse(0);
+        int globalMin = storeVoterCount.values().stream().mapToInt(Integer::intValue).min().orElse(0);
         if (globalMax - globalMin <= 1) {
+            for (Map.Entry<Boundary, LeaderRange> entry : effectiveRoute.leaderRanges().entrySet()) {
+                ClusterConfig cc = entry.getValue().descriptor().getConfig();
+                Set<String> voters = new HashSet<>(cc.getVotersList());
+                Set<String> learners = new HashSet<>(cc.getLearnersList());
+                sanitize(voters, liveStores);
+                sanitize(learners, liveStores);
+                expectedRangeLayout.put(entry.getKey(), buildConfig(voters, learners));
+            }
             return false;
         }
 
+        boolean meetingGoal = false;
         for (Map.Entry<Boundary, LeaderRange> entry : effectiveRoute.leaderRanges().entrySet()) {
             Boundary boundary = entry.getKey();
-            LeaderRange leaderRange = entry.getValue();
-            KVRangeDescriptor rangeDescriptor = leaderRange.descriptor();
-            ClusterConfig clusterConfig = rangeDescriptor.getConfig();
-            if (meetingGoal) {
-                expectedRangeLayout.put(boundary, clusterConfig);
-                continue;
-            }
-            // examine in sorted order to ensure the result is deterministic
-            Set<String> learners = Sets.newHashSet(clusterConfig.getLearnersList());
-            SortedSet<String> voterSorted = Sets.newTreeSet(clusterConfig.getVotersList());
-            for (String voter : voterSorted) {
-                if (storeVoterCount.get(voter) >= maxVotersPerStore) {
-                    // voter store has overloaded voters
-                    for (StoreVoterCount underloadedStore : storeVoterCountSorted) {
-                        // move to one underloaded store which is current not in the voter list
-                        if (storeVoterCount.get(underloadedStore.storeId) <= minVotersPerStore
-                            && !voterSorted.contains(underloadedStore.storeId)
-                            && !learners.contains(underloadedStore.storeId)) {
+            LeaderRange lr = entry.getValue();
+            ClusterConfig cc = lr.descriptor().getConfig();
+
+            Set<String> learners = Sets.newHashSet(cc.getLearnersList());
+            SortedSet<String> voterSorted = Sets.newTreeSet(cc.getVotersList());
+            sanitize(learners, liveStores);
+            voterSorted.retainAll(liveStores);
+
+            for (String voter : new ArrayList<>(voterSorted)) {
+                if (storeVoterCount.getOrDefault(voter, 0) >= maxVotersPerStore) {
+                    for (StoreVoterCount under : storeVoterCountSorted) {
+                        if (storeVoterCount.getOrDefault(under.storeId, 0) <= minVotersPerStore
+                            && !voterSorted.contains(under.storeId)
+                            && !learners.contains(under.storeId)) {
+                            // move voter -> underloaded
+                            Set<String> newVoters = new HashSet<>(voterSorted);
+                            newVoters.remove(voter);
+                            newVoters.add(under.storeId);
+
+                            expectedRangeLayout.put(boundary, buildConfig(newVoters, learners));
                             meetingGoal = true;
-                            ClusterConfig newConfig = ClusterConfig.newBuilder()
-                                .addAllVoters(
-                                    difference(union(voterSorted, Set.of(underloadedStore.storeId)), Set.of(voter)))
-                                .addAllLearners(learners)
-                                .build();
-                            expectedRangeLayout.put(boundary, newConfig);
                             break;
                         }
                     }
                 }
+                if (meetingGoal) {
+                    break;
+                }
+            }
+
+            if (!meetingGoal) {
+                expectedRangeLayout.put(boundary, buildConfig(voterSorted, learners));
+            } else {
+                break;
             }
         }
+
         return meetingGoal;
     }
 
     private boolean balanceLearnerCount(Map<String, KVRangeStoreDescriptor> landscape,
                                         EffectiveRoute effectiveRoute,
                                         Map<Boundary, ClusterConfig> expectedRangeLayout) {
-        boolean meetingGoal = false;
+        final Set<String> liveStores = landscape.keySet();
+
         Map<String, Integer> storeLearnerCount = new HashMap<>();
         for (Map.Entry<Boundary, LeaderRange> entry : effectiveRoute.leaderRanges().entrySet()) {
             ClusterConfig config = entry.getValue().descriptor().getConfig();
-            config.getLearnersList()
+            config.getLearnersList().stream()
+                .filter(liveStores::contains)
                 .forEach(storeId -> storeLearnerCount.put(storeId, storeLearnerCount.getOrDefault(storeId, 0) + 1));
         }
-        landscape.keySet().forEach(storeId -> {
-            if (!storeLearnerCount.containsKey(storeId)) {
-                storeLearnerCount.put(storeId, 0);
-            }
-        });
-        record StoreLearnerCount(String storeId, int voterCount) {
-        }
+        liveStores.forEach(s -> storeLearnerCount.putIfAbsent(s, 0));
 
-        SortedSet<StoreLearnerCount> storeVoterCountSorted = new TreeSet<>(Comparator
-            .comparingInt(StoreLearnerCount::voterCount).thenComparing(StoreLearnerCount::storeId));
-        storeLearnerCount.forEach(
-            (storeId, voterCount) -> storeVoterCountSorted.add(new StoreLearnerCount(storeId, voterCount)));
+        record StoreLearnerCount(String storeId, int learnerCount) {}
+
+        SortedSet<StoreLearnerCount> storeLearnerCountSorted = new TreeSet<>(
+            Comparator.comparingInt(StoreLearnerCount::learnerCount).thenComparing(StoreLearnerCount::storeId));
+        storeLearnerCount.forEach((id, c) -> storeLearnerCountSorted.add(new StoreLearnerCount(id, c)));
 
         double totalLearners = storeLearnerCount.values().stream().mapToInt(Integer::intValue).sum();
-        double targetLearnersPerStore = totalLearners / landscape.size();
+        double targetLearnersPerStore = liveStores.isEmpty() ? 0 : totalLearners / liveStores.size();
         int maxLearnersPerStore = (int) Math.ceil(targetLearnersPerStore);
 
+        boolean meetingGoal = false;
         for (Map.Entry<Boundary, LeaderRange> entry : effectiveRoute.leaderRanges().entrySet()) {
             Boundary boundary = entry.getKey();
-            LeaderRange leaderRange = entry.getValue();
-            KVRangeDescriptor rangeDescriptor = leaderRange.descriptor();
-            ClusterConfig clusterConfig = rangeDescriptor.getConfig();
-            if (meetingGoal) {
-                expectedRangeLayout.put(boundary, clusterConfig);
-                continue;
-            }
-            // examine in sorted order to ensure the result is deterministic
-            Set<String> voters = Sets.newHashSet(clusterConfig.getVotersList());
-            SortedSet<String> learnerSorted = Sets.newTreeSet(clusterConfig.getLearnersList());
-            for (String learner : learnerSorted) {
-                if (storeLearnerCount.get(learner) > maxLearnersPerStore) {
-                    // learner store has overloaded learners
-                    for (StoreLearnerCount underloadedStore : storeVoterCountSorted) {
-                        // move to one underloaded store which is current not in the voter or learner list
-                        if (storeLearnerCount.get(underloadedStore.storeId) < maxLearnersPerStore
-                            && !voters.contains(underloadedStore.storeId)
-                            && !learnerSorted.contains(underloadedStore.storeId)) {
+            LeaderRange lr = entry.getValue();
+            ClusterConfig cc = lr.descriptor().getConfig();
+
+            Set<String> voters = Sets.newHashSet(cc.getVotersList());
+            SortedSet<String> learnerSorted = Sets.newTreeSet(cc.getLearnersList());
+            sanitize(voters, liveStores);
+            learnerSorted.retainAll(liveStores);
+
+            for (String learner : new ArrayList<>(learnerSorted)) {
+                if (storeLearnerCount.getOrDefault(learner, 0) > maxLearnersPerStore) {
+                    for (StoreLearnerCount under : storeLearnerCountSorted) {
+                        if (storeLearnerCount.getOrDefault(under.storeId, 0) < maxLearnersPerStore
+                            && !voters.contains(under.storeId)
+                            && !learnerSorted.contains(under.storeId)) {
+                            Set<String> newLearners = new HashSet<>(learnerSorted);
+                            newLearners.remove(learner);
+                            newLearners.add(under.storeId);
+
+                            expectedRangeLayout.put(boundary, buildConfig(voters, newLearners));
                             meetingGoal = true;
-                            ClusterConfig newConfig = ClusterConfig.newBuilder()
-                                .addAllVoters(voters)
-                                .addAllLearners(difference(
-                                    union(learnerSorted, Set.of(underloadedStore.storeId)), Set.of(learner)))
-                                .build();
-                            expectedRangeLayout.put(boundary, newConfig);
                             break;
                         }
                     }
                 }
+                if (meetingGoal) {
+                    break;
+                }
+            }
+
+            if (!meetingGoal) {
+                expectedRangeLayout.put(boundary, buildConfig(voters, learnerSorted));
+            } else {
+                break;
             }
         }
+
         return meetingGoal;
     }
 }

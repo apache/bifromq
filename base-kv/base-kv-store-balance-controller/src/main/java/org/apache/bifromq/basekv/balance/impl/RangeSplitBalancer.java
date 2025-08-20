@@ -26,9 +26,12 @@ import static org.apache.bifromq.basekv.utils.BoundaryUtil.startKey;
 
 import com.google.protobuf.Struct;
 import com.google.protobuf.Value;
+import java.util.Collections;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import org.apache.bifromq.basekv.proto.Boundary;
 import org.apache.bifromq.basekv.proto.KVRangeDescriptor;
 import org.apache.bifromq.basekv.proto.KVRangeStoreDescriptor;
@@ -131,6 +134,10 @@ public class RangeSplitBalancer extends RuleBasedPlacementBalancer {
             KVRangeDescriptor rangeDescriptor = leaderRange.descriptor();
             KVRangeStoreDescriptor storeDescriptor = landscape.get(leaderRange.ownerStoreDescriptor().getId());
             ClusterConfig clusterConfig = rangeDescriptor.getConfig();
+            if (containsDeadMember(clusterConfig, landscape.keySet())) {
+                // shortcut when config contains dead members
+                return Collections.emptyMap();
+            }
             Optional<SplitHint> splitHintOpt = rangeDescriptor
                 .getHintsList()
                 .stream()
@@ -169,5 +176,14 @@ public class RangeSplitBalancer extends RuleBasedPlacementBalancer {
             }
         }
         return expectedRangeLayout;
+    }
+
+    private boolean containsDeadMember(ClusterConfig clusterConfig, Set<String> live) {
+        Set<String> members = new HashSet<>();
+        members.addAll(clusterConfig.getVotersList());
+        members.addAll(clusterConfig.getLearnersList());
+        members.addAll(clusterConfig.getNextVotersList());
+        members.addAll(clusterConfig.getNextLearnersList());
+        return members.stream().anyMatch(m -> !live.contains(m));
     }
 }

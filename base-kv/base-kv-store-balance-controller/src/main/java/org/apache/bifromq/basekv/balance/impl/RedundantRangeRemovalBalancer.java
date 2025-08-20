@@ -23,11 +23,13 @@ import static org.apache.bifromq.basekv.balance.util.CommandUtil.quit;
 import static org.apache.bifromq.basekv.utils.DescriptorUtil.getEffectiveRoute;
 import static org.apache.bifromq.basekv.utils.DescriptorUtil.organizeByEpoch;
 
+import com.google.common.collect.Sets;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.NavigableMap;
+import java.util.NavigableSet;
 import java.util.Set;
 import java.util.SortedSet;
 import java.util.TreeSet;
@@ -38,6 +40,7 @@ import org.apache.bifromq.basekv.proto.Boundary;
 import org.apache.bifromq.basekv.proto.KVRangeDescriptor;
 import org.apache.bifromq.basekv.proto.KVRangeId;
 import org.apache.bifromq.basekv.proto.KVRangeStoreDescriptor;
+import org.apache.bifromq.basekv.raft.proto.ClusterConfig;
 import org.apache.bifromq.basekv.raft.proto.RaftNodeStatus;
 import org.apache.bifromq.basekv.utils.EffectiveEpoch;
 import org.apache.bifromq.basekv.utils.KVRangeIdUtil;
@@ -97,16 +100,16 @@ public class RedundantRangeRemovalBalancer extends StoreBalancer {
             return NoNeedBalance.INSTANCE;
         }
         Map.Entry<Long, Set<KVRangeStoreDescriptor>> oldestEntry = latest.firstEntry();
-        Map<KVRangeId, SortedSet<LeaderRange>> conflictingRanges = findConflictingRanges(oldestEntry.getValue());
+        Map<KVRangeId, NavigableSet<LeaderRange>> conflictingRanges = findConflictingRanges(oldestEntry.getValue());
         if (!conflictingRanges.isEmpty()) {
             // deal with id-conflict ranges
             for (KVRangeId rangeId : conflictingRanges.keySet()) {
-                SortedSet<LeaderRange> leaderRanges = conflictingRanges.get(rangeId);
+                NavigableSet<LeaderRange> leaderRanges = conflictingRanges.get(rangeId);
                 for (LeaderRange leaderRange : leaderRanges) {
                     if (!leaderRange.ownerStoreDescriptor().getId().equals(localStoreId)) {
                         return NoNeedBalance.INSTANCE;
                     }
-                    log.debug("Remove Id-Conflict range: {} in store {}",
+                    log.warn("Remove Id-Conflict range: {} in store {}",
                         KVRangeIdUtil.toString(leaderRange.descriptor().getId()),
                         leaderRange.ownerStoreDescriptor().getId());
                     return quit(localStoreId, leaderRange.descriptor());
@@ -128,7 +131,7 @@ public class RedundantRangeRemovalBalancer extends StoreBalancer {
                 Boundary boundary = rangeDescriptor.getBoundary();
                 LeaderRange leaderRange = effectiveLeaders.get(boundary);
                 if (leaderRange == null || !leaderRange.descriptor().getId().equals(rangeDescriptor.getId())) {
-                    log.debug("Remove Boundary-Conflict range: {} in store {}",
+                    log.warn("Remove Boundary-Conflict range: {} in store {}",
                         KVRangeIdUtil.toString(rangeDescriptor.getId()),
                         storeDescriptor.getId());
                     return quit(localStoreId, rangeDescriptor);
@@ -138,9 +141,10 @@ public class RedundantRangeRemovalBalancer extends StoreBalancer {
         return NoNeedBalance.INSTANCE;
     }
 
-    private Map<KVRangeId, SortedSet<LeaderRange>> findConflictingRanges(Set<KVRangeStoreDescriptor> effectiveEpoch) {
-        Map<KVRangeId, SortedSet<LeaderRange>> leaderRangesByRangeId = new HashMap<>();
-        Map<KVRangeId, SortedSet<LeaderRange>> conflictingRanges = new HashMap<>();
+    private Map<KVRangeId, NavigableSet<LeaderRange>> findConflictingRanges(
+        Set<KVRangeStoreDescriptor> effectiveEpoch) {
+        Map<KVRangeId, NavigableSet<LeaderRange>> leaderRangesByRangeId = new HashMap<>();
+        Map<KVRangeId, NavigableSet<LeaderRange>> conflictingRanges = new HashMap<>();
         for (KVRangeStoreDescriptor storeDescriptor : effectiveEpoch) {
             for (KVRangeDescriptor rangeDescriptor : storeDescriptor.getRangesList()) {
                 if (rangeDescriptor.getRole() != RaftNodeStatus.Leader) {
@@ -151,12 +155,33 @@ public class RedundantRangeRemovalBalancer extends StoreBalancer {
                     Comparator.comparing((LeaderRange lr) -> lr.ownerStoreDescriptor().getId(), String::compareTo)
                         .reversed()));
                 leaderRanges.add(new LeaderRange(rangeDescriptor, storeDescriptor));
-                if (leaderRanges.size() > 1) {
-                    // More than one leader for the same range, add to conflicting ranges
-                    conflictingRanges.put(rangeId, leaderRanges);
+            }
+        }
+        for (KVRangeId rangeId : leaderRangesByRangeId.keySet()) {
+            NavigableSet<LeaderRange> leaderRanges = leaderRangesByRangeId.get(rangeId);
+            LeaderRange firstLeaderRange = leaderRanges.first();
+            ClusterConfig firstLeaderClusterConfig = firstLeaderRange.descriptor().getConfig();
+            if (leaderRanges.size() > 1) {
+                NavigableSet<LeaderRange> restLeaderRanges = leaderRanges.tailSet(firstLeaderRange, false);
+                // check if rest leader ranges are conflicting: disjoint voter set
+                for (LeaderRange restLeaderRange : restLeaderRanges) {
+                    ClusterConfig restLeaderClusterConfig = restLeaderRange.descriptor().getConfig();
+                    if (isDisjoint(firstLeaderClusterConfig, restLeaderClusterConfig)) {
+                        // if disjoint, add to conflicting ranges
+                        conflictingRanges.put(rangeId, leaderRanges);
+                    }
                 }
             }
         }
         return conflictingRanges;
+    }
+
+    private boolean isDisjoint(ClusterConfig firstConfig, ClusterConfig secondConfig) {
+        Set<String> firstVoters = Sets.newHashSet(firstConfig.getVotersList());
+        Set<String> secondVoters = Sets.newHashSet(secondConfig.getVotersList());
+        Set<String> firstNextVoters = Sets.newHashSet(firstConfig.getNextVotersList());
+        Set<String> secondNextVoters = Sets.newHashSet(secondConfig.getNextVotersList());
+        return Collections.disjoint(firstVoters, secondVoters)
+            && Collections.disjoint(firstNextVoters, secondNextVoters);
     }
 }

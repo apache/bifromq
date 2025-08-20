@@ -464,4 +464,157 @@ public class ReplicaCntBalancerTest {
 
         assertTrue(balancer.verify(layout, allStoreDescriptors));
     }
+
+    @Test
+    public void removeDeadVoterAndBackfillEvenIfCountEqualsExpected() {
+        // live: s1, s2, s3；expected voters=3
+        // range current voters = [s1, ghost, s2]
+        KVRangeId kvRangeId = KVRangeId.newBuilder().setEpoch(1).setId(1).build();
+        KVRangeDescriptor range = KVRangeDescriptor.newBuilder()
+            .setId(kvRangeId)
+            .setRole(RaftNodeStatus.Leader)
+            .setVer(1)
+            .setBoundary(FULL_BOUNDARY)
+            .setConfig(ClusterConfig.newBuilder()
+                .addVoters("s1")
+                .addVoters("ghost")
+                .addVoters("s2")
+                .build())
+            .build();
+
+        KVRangeStoreDescriptor s1 = KVRangeStoreDescriptor.newBuilder().setId("s1").addRanges(range).build();
+        KVRangeStoreDescriptor s2 = KVRangeStoreDescriptor.newBuilder().setId("s2").build();
+        KVRangeStoreDescriptor s3 = KVRangeStoreDescriptor.newBuilder().setId("s3").build();
+
+        Set<KVRangeStoreDescriptor> stores = new HashSet<>();
+        stores.add(s1);
+        stores.add(s2);
+        stores.add(s3);
+
+        // votersPerRange=3，learnersPerRange=0
+        balancer = new ReplicaCntBalancer("testCluster", "s1", 3, 0);
+        balancer.update(stores);
+
+        BalanceResult result = balancer.balance();
+        assertSame(result.type(), BalanceResultType.BalanceNow);
+        ChangeConfigCommand cmd = (ChangeConfigCommand) ((BalanceNow<?>) result).command;
+
+        // expected：ghost removed s3 added
+        assertEquals(cmd.getKvRangeId(), kvRangeId);
+        assertTrue(cmd.getVoters().contains("s1"));
+        assertTrue(cmd.getVoters().contains("s2"));
+        assertTrue(cmd.getVoters().contains("s3"));
+        assertFalse(cmd.getVoters().contains("ghost"));
+        assertTrue(cmd.getLearners().isEmpty());
+    }
+
+    @Test
+    public void targetVotersIsCappedByLiveStores() {
+        // live: s1, s2；expected voters=3
+        // range current voters = [s1, s2, ghost]
+        KVRangeId kvRangeId = KVRangeId.newBuilder().setEpoch(1).setId(1).build();
+        KVRangeDescriptor range = KVRangeDescriptor.newBuilder()
+            .setId(kvRangeId)
+            .setRole(RaftNodeStatus.Leader)
+            .setVer(1)
+            .setBoundary(FULL_BOUNDARY)
+            .setConfig(ClusterConfig.newBuilder()
+                .addVoters("s1")
+                .addVoters("s2")
+                .addVoters("ghost")
+                .build())
+            .build();
+
+        KVRangeStoreDescriptor s1 = KVRangeStoreDescriptor.newBuilder().setId("s1").addRanges(range).build();
+        KVRangeStoreDescriptor s2 = KVRangeStoreDescriptor.newBuilder().setId("s2").build();
+
+        Set<KVRangeStoreDescriptor> stores = new HashSet<>();
+        stores.add(s1);
+        stores.add(s2);
+
+        balancer = new ReplicaCntBalancer("testCluster", "s1", 3, 0);
+        balancer.update(stores);
+
+        BalanceResult result = balancer.balance();
+        assertSame(result.type(), BalanceResultType.BalanceNow);
+        ChangeConfigCommand cmd = (ChangeConfigCommand) ((BalanceNow<?>) result).command;
+
+        // expected：voters=[s1、s2]
+        assertEquals(cmd.getKvRangeId(), kvRangeId);
+        assertTrue(cmd.getVoters().contains("s1"));
+        assertTrue(cmd.getVoters().contains("s2"));
+        assertEquals(cmd.getVoters().size(), 2);
+        assertFalse(cmd.getVoters().contains("ghost"));
+        assertTrue(cmd.getLearners().isEmpty());
+    }
+
+    @Test
+    public void abortWhenConfigChangeInProgress_nextFieldsPresent() {
+        KVRangeId kvRangeId = KVRangeId.newBuilder().setEpoch(1).setId(1).build();
+        ClusterConfig cfgWithNext = ClusterConfig.newBuilder()
+            .addVoters("localStore")
+            .addNextVoters("someone")
+            .build();
+
+        KVRangeDescriptor range = KVRangeDescriptor.newBuilder()
+            .setId(kvRangeId)
+            .setRole(RaftNodeStatus.Leader)
+            .setVer(1)
+            .setBoundary(FULL_BOUNDARY)
+            .setConfig(cfgWithNext)
+            .build();
+
+        KVRangeStoreDescriptor local = KVRangeStoreDescriptor.newBuilder()
+            .setId("localStore")
+            .addRanges(range)
+            .build();
+
+        Set<KVRangeStoreDescriptor> stores = new HashSet<>();
+        stores.add(local);
+
+        balancer = new ReplicaCntBalancer("testCluster", "localStore", 1, 0);
+        balancer.update(stores);
+
+        assertSame(balancer.balance().type(), BalanceResultType.NoNeedBalance);
+    }
+
+    @Test
+    public void learnersMinusOneUsesLiveMinusVotersAndSanitizes() {
+        // expectedLearners = -1 => learners = live - voters；
+        balancer = new ReplicaCntBalancer("testCluster", "s1", 1, -1);
+
+        KVRangeId kvRangeId = KVRangeId.newBuilder().setEpoch(1).setId(1).build();
+        KVRangeDescriptor range = KVRangeDescriptor.newBuilder()
+            .setId(kvRangeId)
+            .setRole(RaftNodeStatus.Leader)
+            .setVer(1)
+            .setBoundary(FULL_BOUNDARY)
+            .setConfig(ClusterConfig.newBuilder()
+                .addVoters("s1")
+                .addLearners("ghostLearner")
+                .build())
+            .build();
+
+        KVRangeStoreDescriptor s1 = KVRangeStoreDescriptor.newBuilder().setId("s1").addRanges(range).build();
+        KVRangeStoreDescriptor s2 = KVRangeStoreDescriptor.newBuilder().setId("s2").build();
+        KVRangeStoreDescriptor s3 = KVRangeStoreDescriptor.newBuilder().setId("s3").build();
+
+        Set<KVRangeStoreDescriptor> stores = new HashSet<>();
+        stores.add(s1);
+        stores.add(s2);
+        stores.add(s3);
+
+        balancer.update(stores);
+
+        BalanceResult result = balancer.balance();
+        assertSame(result.type(), BalanceResultType.BalanceNow);
+        ChangeConfigCommand cmd = (ChangeConfigCommand) ((BalanceNow<?>) result).command;
+
+        // expected：learners = live - voters = {s2, s3}；ghostLearner removed
+        assertTrue(cmd.getVoters().contains("s1"));
+        assertFalse(cmd.getLearners().contains("ghostLearner"));
+        assertTrue(cmd.getLearners().contains("s2"));
+        assertTrue(cmd.getLearners().contains("s3"));
+        assertEquals(cmd.getLearners().size(), 2);
+    }
 }

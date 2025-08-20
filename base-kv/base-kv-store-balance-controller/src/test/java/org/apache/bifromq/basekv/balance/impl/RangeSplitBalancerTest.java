@@ -163,4 +163,176 @@ public class RangeSplitBalancerTest {
             .build()));
         assertEquals(balancer.balance().type(), BalanceResultType.NoNeedBalance);
     }
+
+    @Test
+    public void skipWhenConfigHasDeadVoter() {
+        RangeSplitBalancer balancer = new RangeSplitBalancer(clusterId, "store1", HintType, 30, 0.8, 30, 30_000);
+
+        KVRangeDescriptor rd = rangeDescriptorBuilder
+            .setConfig(ClusterConfig.newBuilder()
+                .addVoters("store1")
+                .addVoters("deadStore")
+                .build())
+            .addHints(SplitHint.newBuilder()
+                .setType(HintType)
+                .putLoad("ioDensity", 40)
+                .putLoad("ioLatencyNanos", 100)
+                .setSplitKey(ByteString.copyFromUtf8("a"))
+                .build())
+            .build();
+
+        KVRangeStoreDescriptor sd = storeDescriptorBuilder
+            .clearRanges()
+            .addRanges(rd)
+            .putStatistics("cpu.usage", 0.7)
+            .build();
+
+        balancer.update(Set.of(sd));
+
+        assertEquals(balancer.balance().type(), BalanceResultType.NoNeedBalance);
+    }
+
+    @Test
+    public void skipWhenConfigHasDeadLearner() {
+        RangeSplitBalancer balancer = new RangeSplitBalancer(clusterId, "store1", HintType, 30, 0.8, 30, 30_000);
+
+        KVRangeDescriptor rd = rangeDescriptorBuilder
+            .setConfig(ClusterConfig.newBuilder()
+                .addVoters("store1")
+                .addLearners("ghost")
+                .build())
+            .addHints(SplitHint.newBuilder()
+                .setType(HintType)
+                .putLoad("ioDensity", 40)
+                .putLoad("ioLatencyNanos", 100)
+                .setSplitKey(ByteString.copyFromUtf8("a"))
+                .build())
+            .build();
+
+        KVRangeStoreDescriptor sd = storeDescriptorBuilder
+            .clearRanges()
+            .addRanges(rd)
+            .putStatistics("cpu.usage", 0.7)
+            .build();
+
+        balancer.update(Set.of(sd));
+        assertEquals(balancer.balance().type(), BalanceResultType.NoNeedBalance);
+    }
+
+    @Test
+    public void skipWhenConfigHasDeadNextMembers() {
+        RangeSplitBalancer balancer = new RangeSplitBalancer(clusterId, "store1", HintType, 30, 0.8, 30, 30_000);
+
+        KVRangeDescriptor rd = rangeDescriptorBuilder
+            .setConfig(ClusterConfig.newBuilder()
+                .addVoters("store1")
+                .addNextVoters("deadV")
+                .addNextLearners("deadL")
+                .build())
+            .addHints(SplitHint.newBuilder()
+                .setType(HintType)
+                .putLoad("ioDensity", 40)
+                .putLoad("ioLatencyNanos", 100)
+                .setSplitKey(ByteString.copyFromUtf8("a"))
+                .build())
+            .build();
+
+        KVRangeStoreDescriptor sd = storeDescriptorBuilder
+            .clearRanges()
+            .addRanges(rd)
+            .putStatistics("cpu.usage", 0.7)
+            .build();
+
+        balancer.update(Set.of(sd));
+        assertEquals(balancer.balance().type(), BalanceResultType.NoNeedBalance);
+    }
+
+    @Test
+    public void skipWhenOngoingConfigChange() {
+        RangeSplitBalancer balancer = new RangeSplitBalancer(clusterId, "store1", HintType, 30, 0.8, 30, 30_000);
+
+        KVRangeDescriptor rd = rangeDescriptorBuilder
+            .setConfig(ClusterConfig.newBuilder()
+                .addVoters("store1")
+                .addNextVoters("store1")
+                .build())
+            .addHints(SplitHint.newBuilder()
+                .setType(HintType)
+                .putLoad("ioDensity", 40)
+                .putLoad("ioLatencyNanos", 100)
+                .setSplitKey(ByteString.copyFromUtf8("a"))
+                .build())
+            .build();
+
+        KVRangeStoreDescriptor sd = storeDescriptorBuilder
+            .clearRanges()
+            .addRanges(rd)
+            .putStatistics("cpu.usage", 0.7)
+            .build();
+
+        balancer.update(Set.of(sd));
+        assertEquals(balancer.balance().type(), BalanceResultType.NoNeedBalance);
+    }
+
+    @Test
+    public void skipWhenSplitKeyEqualsStartOrOutOfRange() {
+        RangeSplitBalancer balancer = new RangeSplitBalancer(clusterId, "store1", HintType, 30, 0.8, 30, 30_000);
+
+        KVRangeDescriptor rd = rangeDescriptorBuilder
+            .setBoundary(org.apache.bifromq.basekv.proto.Boundary.newBuilder()
+                .setStartKey(ByteString.copyFromUtf8("a"))
+                .setEndKey(ByteString.copyFromUtf8("z"))
+                .build())
+            .setConfig(ClusterConfig.newBuilder().addVoters("store1").build())
+            .addHints(SplitHint.newBuilder()
+                .setType(HintType)
+                .putLoad("ioDensity", 40)
+                .putLoad("ioLatencyNanos", 100)
+                .setSplitKey(ByteString.copyFromUtf8("a"))
+                .build())
+            .build();
+
+        KVRangeStoreDescriptor sd = storeDescriptorBuilder
+            .clearRanges()
+            .addRanges(rd)
+            .putStatistics("cpu.usage", 0.7)
+            .build();
+
+        balancer.update(Set.of(sd));
+        assertEquals(balancer.balance().type(), BalanceResultType.NoNeedBalance);
+
+        KVRangeDescriptor rd2 = rd.toBuilder().clearHints()
+            .addHints(SplitHint.newBuilder()
+                .setType(HintType)
+                .putLoad("ioDensity", 40)
+                .putLoad("ioLatencyNanos", 100)
+                .setSplitKey(ByteString.copyFromUtf8("z"))
+                .build())
+            .build();
+        KVRangeStoreDescriptor sd2 = sd.toBuilder().clearRanges().addRanges(rd2).build();
+        balancer.update(Set.of(sd2));
+        assertEquals(balancer.balance().type(), BalanceResultType.NoNeedBalance);
+    }
+
+    @Test
+    public void stopSplitWhenSplitKeyNotProvided() {
+        RangeSplitBalancer balancer = new RangeSplitBalancer(clusterId, "store1", HintType, 30, 0.8, 30, 30_000);
+
+        KVRangeDescriptor rd = rangeDescriptorBuilder
+            .addHints(SplitHint.newBuilder()
+                .setType(HintType)
+                .putLoad("ioDensity", 40)
+                .putLoad("ioLatencyNanos", 100)
+                .build())
+            .build();
+
+        KVRangeStoreDescriptor sd = storeDescriptorBuilder
+            .clearRanges()
+            .addRanges(rd)
+            .putStatistics("cpu.usage", 0.7)
+            .build();
+
+        balancer.update(Set.of(sd));
+        assertEquals(balancer.balance().type(), BalanceResultType.NoNeedBalance);
+    }
 }

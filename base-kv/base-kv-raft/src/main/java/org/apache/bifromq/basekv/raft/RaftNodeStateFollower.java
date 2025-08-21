@@ -14,11 +14,21 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 
 package org.apache.bifromq.basekv.raft;
 
+import com.google.protobuf.ByteString;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.Iterator;
+import java.util.LinkedHashMap;
+import java.util.Map;
+import java.util.Optional;
+import java.util.Set;
+import java.util.TreeMap;
+import java.util.concurrent.CompletableFuture;
 import org.apache.bifromq.basekv.raft.exception.ClusterConfigChangeException;
 import org.apache.bifromq.basekv.raft.exception.DropProposalException;
 import org.apache.bifromq.basekv.raft.exception.LeaderTransferException;
@@ -39,16 +49,6 @@ import org.apache.bifromq.basekv.raft.proto.RequestReadIndexReply;
 import org.apache.bifromq.basekv.raft.proto.RequestVote;
 import org.apache.bifromq.basekv.raft.proto.Snapshot;
 import org.apache.bifromq.basekv.raft.proto.Voting;
-import com.google.protobuf.ByteString;
-import java.util.HashMap;
-import java.util.HashSet;
-import java.util.Iterator;
-import java.util.LinkedHashMap;
-import java.util.Map;
-import java.util.Optional;
-import java.util.Set;
-import java.util.TreeMap;
-import java.util.concurrent.CompletableFuture;
 
 class RaftNodeStateFollower extends RaftNodeState {
     private final TreeMap<Long, StabilizingTask> stabilizingIndexes = new TreeMap<>(Long::compareTo);
@@ -387,7 +387,7 @@ class RaftNodeStateFollower extends RaftNodeState {
     void onSnapshotRestored(ByteString requested, ByteString installed, Throwable ex, CompletableFuture<Void> onDone) {
         if (currentISSRequest == null) {
             log.debug("Snapshot installation request not found");
-            onDone.completeExceptionally(new SnapshotException("No snapshot installation request"));
+            onDone.completeExceptionally(SnapshotException.noSnapshot());
             return;
         }
         InstallSnapshot iss = currentISSRequest;
@@ -398,7 +398,7 @@ class RaftNodeStateFollower extends RaftNodeState {
                 onDone.completeExceptionally(ex);
             } else {
                 log.debug("Obsolete snapshot installation");
-                onDone.completeExceptionally(new SnapshotException("Obsolete snapshot installed by FSM"));
+                onDone.completeExceptionally(SnapshotException.obsolete());
             }
             return;
         }

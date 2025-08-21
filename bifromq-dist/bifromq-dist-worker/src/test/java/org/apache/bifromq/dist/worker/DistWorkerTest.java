@@ -235,10 +235,11 @@ public abstract class DistWorkerTest {
             .subBrokerManager(receiverManager)
             .settingProvider(settingProvider)
             .inlineFanoutThreshold(1)
+            .bootstrapDelay(Duration.ofSeconds(1))
             .build();
         rpcServer = rpcServerBuilder.build();
         rpcServer.start();
-        await().until(() -> BoundaryUtil.isValidSplitSet(storeClient.latestEffectiveRouter().keySet()));
+        await().forever().until(() -> BoundaryUtil.isValidSplitSet(storeClient.latestEffectiveRouter().keySet()));
         log.info("Setup finished, and start testing");
     }
 

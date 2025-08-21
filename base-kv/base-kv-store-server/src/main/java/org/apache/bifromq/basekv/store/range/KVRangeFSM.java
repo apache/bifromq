@@ -758,9 +758,7 @@ public class KVRangeFSM implements IKVRangeFSM {
                             .setType(Normal)
                             .setTaskId(taskId)
                             .build());
-                        return () -> compactWAL().thenRun(() -> {
-                            finishCommand(taskId);
-                        });
+                        return () -> compactWAL().thenRun(() -> finishCommand(taskId));
                     }
                 } else {
                     // request config change failed, the config entry is appended due to leader reelection
@@ -833,8 +831,8 @@ public class KVRangeFSM implements IKVRangeFSM {
                 }
             }
             default -> {
-                // skip internal config change triggered by leadership change
-                return this::compactWAL;
+                // skip internal config change triggered by leadership change, no need to compact WAL
+                return () -> CompletableFuture.completedFuture(null);
             }
         }
     }
@@ -877,11 +875,6 @@ public class KVRangeFSM implements IKVRangeFSM {
                 // make a checkpoint if needed
                 CompletableFuture<Void> compactWALFuture = CompletableFuture.completedFuture(null);
                 if (wal.latestSnapshot().getLastAppliedIndex() < logIndex - 1) {
-                    // cancel all on-going dump sessions
-                    dumpSessions.forEach((sessionId, session) -> {
-                        session.cancel();
-                        dumpSessions.remove(sessionId, session);
-                    });
                     compactWALFuture = compactWAL();
                 }
                 compactWALFuture.whenCompleteAsync((v, e) -> {
@@ -1513,7 +1506,6 @@ public class KVRangeFSM implements IKVRangeFSM {
             return restorer.restoreFrom(leader, snapshot)
                 .handle((result, ex) -> {
                     if (ex != null) {
-                        log.warn("Restored from snapshot error: \n{}", snapshot, ex);
                         return onInstalled.call(null, ex);
                     } else {
                         return onInstalled.call(kvRange.checkpoint(), null);
@@ -1522,10 +1514,9 @@ public class KVRangeFSM implements IKVRangeFSM {
                 .thenCompose(f -> f)
                 .whenCompleteAsync(unwrap((v, e) -> {
                     if (e != null) {
-                        if (e instanceof SnapshotException) {
-                            log.error("Failed to apply snapshot to WAL \n{}", snapshot, e);
-                            // WAL and FSM are inconsistent, need to quit and recreate again
-                            quitSignal.complete(null);
+                        if (e instanceof SnapshotException.ObsoleteSnapshotException) {
+                            log.debug("Obsolete snapshot, reset kvRange to latest snapshot: \n{}", snapshot);
+                            kvRange.toReseter(wal.latestSnapshot()).done();
                         }
                     } else {
                         linearizer.afterLogApplied(snapshot.getLastAppliedIndex());
@@ -1582,6 +1573,11 @@ public class KVRangeFSM implements IKVRangeFSM {
     }
 
     private CompletableFuture<Void> compactWAL() {
+        // cancel all on-going dump sessions
+        dumpSessions.forEach((sessionId, session) -> {
+            session.cancel();
+            dumpSessions.remove(sessionId, session);
+        });
         return mgmtTaskRunner.add(this::doCompactWAL);
     }
 

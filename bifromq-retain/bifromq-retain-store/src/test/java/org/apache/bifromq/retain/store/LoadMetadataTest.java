@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 
 package org.apache.bifromq.retain.store;
@@ -22,9 +22,9 @@ package org.apache.bifromq.retain.store;
 import static org.awaitility.Awaitility.await;
 import static org.testng.Assert.assertNotSame;
 
-import org.apache.bifromq.basekv.utils.BoundaryUtil;
 import io.micrometer.core.instrument.Gauge;
 import java.time.Duration;
+import org.apache.bifromq.basekv.utils.BoundaryUtil;
 import org.testng.annotations.BeforeMethod;
 import org.testng.annotations.Test;
 
@@ -47,7 +47,7 @@ public class LoadMetadataTest extends RetainStoreTest {
         Gauge retainCountGauge = getRetainCountGauge(tenantId);
 
         restartStoreServer();
-        await().until(() -> BoundaryUtil.isValidSplitSet(storeClient.latestEffectiveRouter().keySet()));
+        await().forever().until(() -> BoundaryUtil.isValidSplitSet(storeClient.latestEffectiveRouter().keySet()));
 
         Gauge newSpaceUsageGauge = getSpaceUsageGauge(tenantId);
         Gauge newRetainCountGauge = getRetainCountGauge(tenantId);

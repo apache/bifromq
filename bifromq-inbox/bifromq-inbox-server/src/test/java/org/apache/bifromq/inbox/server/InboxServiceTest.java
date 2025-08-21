@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 
 package org.apache.bifromq.inbox.server;
@@ -26,15 +26,6 @@ import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.when;
 
-import org.apache.bifromq.baserpc.client.IRPCClient;
-import org.apache.bifromq.baserpc.server.IRPCServer;
-import org.apache.bifromq.baserpc.server.RPCServerBuilder;
-import org.apache.bifromq.baserpc.trafficgovernor.IRPCServiceTrafficService;
-import org.apache.bifromq.plugin.eventcollector.IEventCollector;
-import org.apache.bifromq.plugin.settingprovider.ISettingProvider;
-import org.apache.bifromq.plugin.settingprovider.Setting;
-import org.apache.bifromq.retain.client.IRetainClient;
-import org.apache.bifromq.plugin.resourcethrottler.IResourceThrottler;
 import java.lang.reflect.Method;
 import java.time.Duration;
 import java.util.concurrent.CompletableFuture;
@@ -51,11 +42,20 @@ import org.apache.bifromq.basekv.localengine.memory.InMemKVEngineConfigurator;
 import org.apache.bifromq.basekv.metaservice.IBaseKVMetaService;
 import org.apache.bifromq.basekv.store.option.KVRangeStoreOptions;
 import org.apache.bifromq.basekv.utils.BoundaryUtil;
+import org.apache.bifromq.baserpc.client.IRPCClient;
+import org.apache.bifromq.baserpc.server.IRPCServer;
+import org.apache.bifromq.baserpc.server.RPCServerBuilder;
+import org.apache.bifromq.baserpc.trafficgovernor.IRPCServiceTrafficService;
 import org.apache.bifromq.dist.client.IDistClient;
 import org.apache.bifromq.dist.client.MatchResult;
 import org.apache.bifromq.dist.client.UnmatchResult;
 import org.apache.bifromq.inbox.client.IInboxClient;
 import org.apache.bifromq.inbox.store.IInboxStore;
+import org.apache.bifromq.plugin.eventcollector.IEventCollector;
+import org.apache.bifromq.plugin.resourcethrottler.IResourceThrottler;
+import org.apache.bifromq.plugin.settingprovider.ISettingProvider;
+import org.apache.bifromq.plugin.settingprovider.Setting;
+import org.apache.bifromq.retain.client.IRetainClient;
 import org.apache.bifromq.sessiondict.client.ISessionDictClient;
 import org.mockito.Mock;
 import org.mockito.MockitoAnnotations;
@@ -144,6 +144,7 @@ public abstract class InboxServiceTest {
             .tickerThreads(tickerThreads)
             .bgTaskExecutor(bgTaskExecutor)
             .detachTimeout(Duration.ofSeconds(2))
+            .bootstrapDelay(Duration.ofSeconds(1))
             .build();
         inboxServer = IInboxServer.builder()
             .rpcServerBuilder(rpcServerBuilder)
@@ -153,7 +154,7 @@ public abstract class InboxServiceTest {
             .build();
         rpcServer = rpcServerBuilder.build();
         rpcServer.start();
-        await().until(() -> BoundaryUtil.isValidSplitSet(inboxStoreClient.latestEffectiveRouter().keySet()));
+        await().forever().until(() -> BoundaryUtil.isValidSplitSet(inboxStoreClient.latestEffectiveRouter().keySet()));
         inboxClient.connState().filter(s -> s == IRPCClient.ConnState.READY).blockingFirst();
         log.info("Setup finished, and start testing");
     }

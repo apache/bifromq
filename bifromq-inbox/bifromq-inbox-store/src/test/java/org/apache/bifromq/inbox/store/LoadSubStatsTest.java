@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 
 package org.apache.bifromq.inbox.store;
@@ -73,7 +73,7 @@ public class LoadSubStatsTest extends InboxStoreTest {
 
         restartStoreServer();
 
-        await().until(() -> BoundaryUtil.isValidSplitSet(storeClient.latestEffectiveRouter().keySet()));
+        await().forever().until(() -> BoundaryUtil.isValidSplitSet(storeClient.latestEffectiveRouter().keySet()));
         Gauge newSubCountGauge = getSubCountGauge(tenantId);
         Gauge newPSessionGauge = getPSessionGauge(tenantId);
         Gauge newPSessionSpaceGauge = getPSessionSpaceGauge(tenantId);

@@ -33,15 +33,6 @@ import static org.mockito.Mockito.when;
 import static org.testng.Assert.assertEquals;
 import static org.testng.Assert.assertTrue;
 
-import org.apache.bifromq.baserpc.client.IConnectable;
-import org.apache.bifromq.baserpc.server.IRPCServer;
-import org.apache.bifromq.baserpc.server.RPCServerBuilder;
-import org.apache.bifromq.baserpc.trafficgovernor.IRPCServiceTrafficService;
-import org.apache.bifromq.plugin.eventcollector.IEventCollector;
-import org.apache.bifromq.plugin.settingprovider.ISettingProvider;
-import org.apache.bifromq.plugin.settingprovider.Setting;
-import org.apache.bifromq.retain.client.IRetainClient;
-import org.apache.bifromq.plugin.resourcethrottler.IResourceThrottler;
 import com.google.protobuf.ByteString;
 import io.micrometer.core.instrument.Gauge;
 import io.micrometer.core.instrument.Meter;
@@ -87,6 +78,10 @@ import org.apache.bifromq.basekv.store.proto.ROCoProcInput;
 import org.apache.bifromq.basekv.store.proto.RWCoProcInput;
 import org.apache.bifromq.basekv.store.proto.ReplyCode;
 import org.apache.bifromq.basekv.utils.BoundaryUtil;
+import org.apache.bifromq.baserpc.client.IConnectable;
+import org.apache.bifromq.baserpc.server.IRPCServer;
+import org.apache.bifromq.baserpc.server.RPCServerBuilder;
+import org.apache.bifromq.baserpc.trafficgovernor.IRPCServiceTrafficService;
 import org.apache.bifromq.dist.client.IDistClient;
 import org.apache.bifromq.inbox.client.IInboxClient;
 import org.apache.bifromq.inbox.storage.proto.BatchAttachRequest;
@@ -117,6 +112,11 @@ import org.apache.bifromq.inbox.storage.proto.InsertRequest;
 import org.apache.bifromq.inbox.storage.proto.InsertResult;
 import org.apache.bifromq.inbox.storage.proto.Replica;
 import org.apache.bifromq.metrics.TenantMetric;
+import org.apache.bifromq.plugin.eventcollector.IEventCollector;
+import org.apache.bifromq.plugin.resourcethrottler.IResourceThrottler;
+import org.apache.bifromq.plugin.settingprovider.ISettingProvider;
+import org.apache.bifromq.plugin.settingprovider.Setting;
+import org.apache.bifromq.retain.client.IRetainClient;
 import org.apache.bifromq.sessiondict.client.ISessionDictClient;
 import org.apache.bifromq.type.ClientInfo;
 import org.apache.bifromq.type.Message;
@@ -208,7 +208,7 @@ abstract class InboxStoreTest {
         rpcServer.start();
 
         storeClient.connState().filter(connState -> connState == IConnectable.ConnState.READY).blockingFirst();
-        await().until(() -> BoundaryUtil.isValidSplitSet(storeClient.latestEffectiveRouter().keySet()));
+        await().forever().until(() -> BoundaryUtil.isValidSplitSet(storeClient.latestEffectiveRouter().keySet()));
 
         log.info("Setup finished, and start testing");
     }
@@ -232,6 +232,7 @@ abstract class InboxStoreTest {
             .bgTaskExecutor(bgTaskExecutor)
             .detachTimeout(Duration.ofSeconds(1))
             .gcInterval(Duration.ofSeconds(1))
+            .bootstrapDelay(Duration.ofSeconds(1))
             .build();
         rpcServer = rpcServerBuilder.build();
     }

@@ -184,6 +184,7 @@ public abstract class MQTTTest {
             .resourceThrottler(resourceThrottler)
             .tickerThreads(tickerThreads)
             .bgTaskExecutor(bgTaskExecutor)
+            .bootstrapDelay(Duration.ofSeconds(1))
             .storeOptions(new KVRangeStoreOptions()
                 .setDataEngineConfigurator(new InMemKVEngineConfigurator())
                 .setWalEngineConfigurator(new InMemKVEngineConfigurator()))
@@ -214,6 +215,7 @@ public abstract class MQTTTest {
             .retainStoreClient(retainStoreKVStoreClient)
             .tickerThreads(tickerThreads)
             .bgTaskExecutor(bgTaskExecutor)
+            .bootstrapDelay(Duration.ofSeconds(1))
             .storeOptions(new KVRangeStoreOptions()
                 .setDataEngineConfigurator(new InMemKVEngineConfigurator())
                 .setWalEngineConfigurator(new InMemKVEngineConfigurator()))
@@ -243,6 +245,7 @@ public abstract class MQTTTest {
             .distWorkerClient(distWorkerStoreClient)
             .tickerThreads(tickerThreads)
             .bgTaskExecutor(bgTaskExecutor)
+            .bootstrapDelay(Duration.ofSeconds(1))
             .storeOptions(new KVRangeStoreOptions()
                 .setDataEngineConfigurator(new InMemKVEngineConfigurator())
                 .setWalEngineConfigurator(new InMemKVEngineConfigurator()))
@@ -299,9 +302,9 @@ public abstract class MQTTTest {
             .filter(state -> state == IRPCClient.ConnState.READY)
             .firstElement()
             .blockingSubscribe();
-        await().until(() -> BoundaryUtil.isValidSplitSet(distWorkerStoreClient.latestEffectiveRouter().keySet()));
-        await().until(() -> BoundaryUtil.isValidSplitSet(inboxStoreKVStoreClient.latestEffectiveRouter().keySet()));
-        await().until(() -> BoundaryUtil.isValidSplitSet(retainStoreKVStoreClient.latestEffectiveRouter().keySet()));
+        await().forever().until(() -> BoundaryUtil.isValidSplitSet(distWorkerStoreClient.latestEffectiveRouter().keySet()));
+        await().forever().until(() -> BoundaryUtil.isValidSplitSet(inboxStoreKVStoreClient.latestEffectiveRouter().keySet()));
+        await().forever().until(() -> BoundaryUtil.isValidSplitSet(retainStoreKVStoreClient.latestEffectiveRouter().keySet()));
         lenient().when(settingProvider.provide(any(), anyString()))
             .thenAnswer(invocation -> {
                 Setting setting = invocation.getArgument(0);

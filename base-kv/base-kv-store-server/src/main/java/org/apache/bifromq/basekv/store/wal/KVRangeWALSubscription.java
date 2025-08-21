@@ -72,8 +72,7 @@ class KVRangeWALSubscription implements IKVRangeWALSubscription {
                 applyRunner.add(restore(task))
                     .handle((snap, e) -> fetchRunner.add(() -> {
                         if (e != null) {
-                            log.error(
-                                "Failed to install snapshot\n{}", snap);
+                            log.error("Failed to restore from snapshot\n{}", task.snapshot, e);
                             return;
                         }
                         log.debug("Snapshot installed\n{}", snap);

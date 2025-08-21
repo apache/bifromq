@@ -135,6 +135,7 @@ public abstract class DistServiceTest {
             .storeOptions(kvRangeStoreOptions)
             .subBrokerManager(subBrokerMgr)
             .settingProvider(settingProvider)
+            .bootstrapDelay(Duration.ofSeconds(1))
             .build();
         distServer = IDistServer.builder()
             .rpcServerBuilder(rpcServerBuilder)
@@ -145,7 +146,7 @@ public abstract class DistServiceTest {
 
         rpcServer = rpcServerBuilder.build();
         rpcServer.start();
-        await().until(() -> BoundaryUtil.isValidSplitSet(workerClient.latestEffectiveRouter().keySet()));
+        await().forever().until(() -> BoundaryUtil.isValidSplitSet(workerClient.latestEffectiveRouter().keySet()));
         distClient.connState().filter(s -> s == IRPCClient.ConnState.READY).blockingFirst();
         log.info("Setup finished, and start testing");
     }

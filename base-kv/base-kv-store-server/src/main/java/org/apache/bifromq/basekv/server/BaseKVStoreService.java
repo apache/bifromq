@@ -20,7 +20,6 @@
 package org.apache.bifromq.basekv.server;
 
 import static org.apache.bifromq.base.util.CompletableFutureUtil.unwrap;
-import static org.apache.bifromq.basekv.utils.BoundaryUtil.FULL_BOUNDARY;
 import static org.apache.bifromq.baserpc.server.UnaryResponse.response;
 
 import com.google.common.collect.Sets;
@@ -94,7 +93,6 @@ class BaseKVStoreService extends BaseKVStoreServiceGrpc.BaseKVStoreServiceImplBa
     public void start() {
         log.debug("Starting BaseKVStore service");
         kvRangeStore.start(new AgentHostStoreMessenger(agentHost, clusterId, kvRangeStore.id()));
-        kvRangeStore.bootstrap(KVRangeIdUtil.generate(), FULL_BOUNDARY);
         landscapeReporter = metaService.landscapeReporter(clusterId, kvRangeStore.id());
         // sync store descriptor via crdt
         disposables.add(kvRangeStore.describe().subscribe(landscapeReporter::report));

@@ -128,6 +128,18 @@ public class ReplicaCntBalancer extends RuleBasedPlacementBalancer {
         final int expectedVoters = (int) loadRules.getFieldsMap().get(LOAD_RULE_VOTERS).getNumberValue();
         final int expectedLearners = (int) loadRules.getFieldsMap().get(LOAD_RULE_LEARNERS).getNumberValue();
 
+        if (liveStores.size() < expectedVoters) {
+            for (Map.Entry<Boundary, LeaderRange> e : effectiveRoute.leaderRanges().entrySet()) {
+                ClusterConfig cc = e.getValue().descriptor().getConfig();
+                for (String v : cc.getVotersList()) {
+                    if (!liveStores.contains(v)) {
+                        // shortcut for rolling restart
+                        return true;
+                    }
+                }
+            }
+        }
+
         boolean meetingGoal = false;
 
         for (Map.Entry<Boundary, LeaderRange> entry : effectiveRoute.leaderRanges().entrySet()) {
@@ -143,8 +155,8 @@ public class ReplicaCntBalancer extends RuleBasedPlacementBalancer {
                 return true;
             }
 
-            Set<String> voters = new HashSet<>(clusterConfig.getVotersList());
-            Set<String> learners = new HashSet<>(clusterConfig.getLearnersList());
+            final Set<String> voters = new HashSet<>(clusterConfig.getVotersList());
+            final Set<String> learners = new HashSet<>(clusterConfig.getLearnersList());
 
             // remove unreachable stores from voters and learners
             sanitize(voters, liveStores);
@@ -156,6 +168,41 @@ public class ReplicaCntBalancer extends RuleBasedPlacementBalancer {
             if (!meetingGoal && needFix) {
                 String leaderStore = leaderRange.ownerStoreDescriptor().getId();
                 if (voters.size() < targetVoters) {
+                    if (!learners.isEmpty()) {
+                        List<String> learnerCandidates = landscape.entrySet().stream()
+                            .filter(e -> learners.contains(e.getKey()))
+                            .sorted(Comparator.comparingInt(e -> e.getValue().getRangesCount()))
+                            .map(Map.Entry::getKey)
+                            .toList();
+                        for (String s : learnerCandidates) {
+                            learners.remove(s);   // promote learner -> voter
+                            voters.add(s);
+                            if (voters.size() == targetVoters) {
+                                break;
+                            }
+                        }
+                    }
+
+                    if (voters.size() < targetVoters) {
+                        List<String> freeCandidates = landscape.entrySet().stream()
+                            .filter(e -> !learners.contains(e.getKey()) && !voters.contains(e.getKey()))
+                            .sorted(Comparator.comparingInt(e -> e.getValue().getRangesCount()))
+                            .map(Map.Entry::getKey)
+                            .toList();
+                        for (String s : freeCandidates) {
+                            voters.add(s);
+                            if (voters.size() == targetVoters) {
+                                break;
+                            }
+                        }
+                    }
+
+                    if (expectedLearners == -1) {
+                        Set<String> newLearners = new HashSet<>(liveStores);
+                        newLearners.removeAll(voters);
+                        learners.clear();
+                        learners.addAll(newLearners);
+                    }
                     List<String> candidates = landscape.entrySet().stream()
                         .filter(e -> !learners.contains(e.getKey()) && !voters.contains(e.getKey()))
                         .sorted(Comparator.comparingInt(e -> e.getValue().getRangesCount()))

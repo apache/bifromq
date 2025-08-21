@@ -22,7 +22,14 @@ package org.apache.bifromq.basekv.balance.impl;
 import static org.apache.bifromq.basekv.utils.BoundaryUtil.FULL_BOUNDARY;
 import static org.apache.bifromq.basekv.utils.DescriptorUtil.getEffectiveEpoch;
 
+import java.time.Duration;
+import java.util.Optional;
+import java.util.Set;
+import java.util.concurrent.ThreadLocalRandom;
+import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Supplier;
 import org.apache.bifromq.basehlc.HLC;
+import org.apache.bifromq.basekv.balance.AwaitBalance;
 import org.apache.bifromq.basekv.balance.BalanceNow;
 import org.apache.bifromq.basekv.balance.BalanceResult;
 import org.apache.bifromq.basekv.balance.NoNeedBalance;
@@ -33,12 +40,6 @@ import org.apache.bifromq.basekv.proto.KVRangeId;
 import org.apache.bifromq.basekv.proto.KVRangeStoreDescriptor;
 import org.apache.bifromq.basekv.utils.EffectiveEpoch;
 import org.apache.bifromq.basekv.utils.KVRangeIdUtil;
-import java.time.Duration;
-import java.util.Optional;
-import java.util.Set;
-import java.util.concurrent.ThreadLocalRandom;
-import java.util.concurrent.atomic.AtomicReference;
-import java.util.function.Supplier;
 
 /**
  * RangeBootstrapBalancer is a specialized StoreBalancer designed to handle the bootstrap process of creating the
@@ -49,6 +50,7 @@ public class RangeBootstrapBalancer extends StoreBalancer {
     private final Supplier<Long> millisSource;
     private final long suspicionDurationMillis;
     private final AtomicReference<BootstrapTrigger> bootstrapTrigger = new AtomicReference<>();
+
     /**
      * Constructor of StoreBalancer.
      *
@@ -104,13 +106,18 @@ public class RangeBootstrapBalancer extends StoreBalancer {
     @Override
     public BalanceResult balance() {
         BootstrapTrigger current = bootstrapTrigger.get();
-        if (current != null && millisSource.get() > current.triggerTime) {
-            bootstrapTrigger.set(null);
-            return BalanceNow.of(BootstrapCommand.builder()
-                .toStore(localStoreId)
-                .kvRangeId(current.id)
-                .boundary(current.boundary)
-                .build());
+        if (current != null) {
+            long nowMillis = millisSource.get();
+            if (nowMillis > current.triggerTime) {
+                bootstrapTrigger.set(null);
+                return BalanceNow.of(BootstrapCommand.builder()
+                    .toStore(localStoreId)
+                    .kvRangeId(current.id)
+                    .boundary(current.boundary)
+                    .build());
+            } else {
+                return AwaitBalance.of(Duration.ofMillis(current.triggerTime - nowMillis));
+            }
         }
         return NoNeedBalance.INSTANCE;
     }

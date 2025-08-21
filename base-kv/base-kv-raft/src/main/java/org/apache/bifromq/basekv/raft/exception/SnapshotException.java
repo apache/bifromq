@@ -14,17 +14,47 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 
 package org.apache.bifromq.basekv.raft.exception;
 
+/**
+ * Exception thrown during snapshot operations in the Raft protocol.
+ * This exception can indicate that a snapshot is obsolete or has other issues.
+ */
 public class SnapshotException extends RuntimeException {
-    public SnapshotException(String message) {
+    private SnapshotException(String message) {
         super(message);
     }
 
-    public SnapshotException(Throwable e) {
+    private SnapshotException(Throwable e) {
         super(e);
+    }
+
+    public static ObsoleteSnapshotException obsolete() {
+        return new ObsoleteSnapshotException();
+    }
+
+    public static NoSnapshotException noSnapshot() {
+        return new NoSnapshotException();
+    }
+
+    /**
+     * Exception indicating that no snapshot is available for installation.
+     */
+    public static class NoSnapshotException extends SnapshotException {
+        private NoSnapshotException() {
+            super("No snapshot available");
+        }
+    }
+
+    /**
+     * Exception indicating that the snapshot is obsolete by a newer snapshot during installation.
+     */
+    public static class ObsoleteSnapshotException extends SnapshotException {
+        private ObsoleteSnapshotException() {
+            super("The installed snapshot has been obsoleted by a newer snapshot");
+        }
     }
 }

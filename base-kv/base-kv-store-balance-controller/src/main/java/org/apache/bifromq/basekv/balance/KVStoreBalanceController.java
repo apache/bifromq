@@ -217,6 +217,9 @@ public class KVStoreBalanceController {
         Set<KVRangeStoreDescriptor> landscape = this.landscape;
         if (landscape == null || landscape.isEmpty()) {
             scheduling.set(false);
+            if (this.landscape != landscape) {
+                trigger();
+            }
             return;
         }
         for (Map.Entry<String, StoreBalancerState> entry : balancers.entrySet()) {
@@ -283,7 +286,7 @@ public class KVStoreBalanceController {
     private void balance(final Map<String, BalancerStateSnapshot> expected,
                          final Set<KVRangeStoreDescriptor> landscape) {
         metricsManager.scheduleCount.increment();
-        Duration delay = Duration.ZERO;
+        Duration delay = null;
         for (Map.Entry<String, StoreBalancerState> entry : balancers.entrySet()) {
             String balancerFactoryName = entry.getKey();
             StoreBalancerState fromBalancerState = entry.getValue();
@@ -332,7 +335,7 @@ public class KVStoreBalanceController {
                     }
                     case AwaitBalance -> {
                         Duration await = ((AwaitBalance) result).await;
-                        delay = await.toNanos() > delay.toNanos() ? await : delay;
+                        delay = delay != null ? (await.toNanos() < delay.toNanos() ? await : delay) : await;
                     }
                     default -> {
                         // do nothing
@@ -346,7 +349,7 @@ public class KVStoreBalanceController {
         scheduling.set(false);
         if (this.landscape != landscape || this.expectedBalancerStates != expected) {
             trigger();
-        } else if (!delay.isZero()) {
+        } else if (delay != null) {
             // if some balancers are in the progress of generating balance command, wait for a while
             scheduleRetry(expected, landscape, delay);
         }

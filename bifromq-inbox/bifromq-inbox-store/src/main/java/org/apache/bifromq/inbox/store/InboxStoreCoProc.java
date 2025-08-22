@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 
 package org.apache.bifromq.inbox.store;
@@ -116,6 +116,7 @@ import org.apache.bifromq.inbox.storage.proto.InboxVersion;
 import org.apache.bifromq.inbox.storage.proto.InsertRequest;
 import org.apache.bifromq.inbox.storage.proto.InsertResult;
 import org.apache.bifromq.inbox.storage.proto.LWT;
+import org.apache.bifromq.inbox.storage.proto.MatchedRoute;
 import org.apache.bifromq.inbox.storage.proto.SubMessagePack;
 import org.apache.bifromq.inbox.store.delay.DelayTaskRunner;
 import org.apache.bifromq.inbox.store.delay.ExpireInboxTask;
@@ -966,38 +967,47 @@ final class InboxStoreCoProc implements IKVRangeCoProc {
             List<SubMessage> bufferMsgList = new ArrayList<>();
             Set<InsertResult.SubStatus> insertResults = new HashSet<>();
             for (SubMessagePack messagePack : params.getMessagePackList()) {
-                Map<String, Long> matchedTopicFilters = messagePack.getMatchedTopicFiltersMap();
                 Map<String, TopicFilterOption> qos0TopicFilters = new HashMap<>();
                 Map<String, TopicFilterOption> qos1TopicFilters = new HashMap<>();
                 Map<String, TopicFilterOption> qos2TopicFilters = new HashMap<>();
                 TopicMessagePack topicMsgPack = messagePack.getMessages();
-                for (String matchedTopicFilter : matchedTopicFilters.keySet()) {
-                    long matchedIncarnation = matchedTopicFilters.get(matchedTopicFilter);
-                    TopicFilterOption tfOption = metadata.getTopicFiltersMap().get(matchedTopicFilter);
+                for (MatchedRoute matchedRoute : messagePack.getMatchedRouteList()) {
+                    long matchedIncarnation = matchedRoute.getIncarnation();
+                    TopicFilterOption tfOption = metadata.getTopicFiltersMap().get(matchedRoute.getTopicFilter());
                     if (tfOption == null) {
-                        insertResults.add(
-                            InsertResult.SubStatus.newBuilder().setTopicFilter(matchedTopicFilter)
-                                .setIncarnation(matchedIncarnation).setRejected(true).build());
+                        insertResults.add(InsertResult.SubStatus.newBuilder()
+                            .setMatchedRoute(matchedRoute)
+                            .setRejected(true)
+                            .build());
                     } else {
                         if (tfOption.getIncarnation() > matchedIncarnation) {
                             // messages from old sub incarnation
                             log.debug("Receive message from previous subscription: topicFilter={}, inc={}, prevInc={}",
-                                matchedTopicFilter, tfOption.getIncarnation(), matchedIncarnation);
+                                matchedRoute, tfOption.getIncarnation(), matchedIncarnation);
+                            insertResults.add(InsertResult.SubStatus.newBuilder()
+                                .setMatchedRoute(matchedRoute)
+                                .setRejected(true)
+                                .build());
+                        } else {
+                            // messages from current incarnation
+                            insertResults.add(InsertResult.SubStatus.newBuilder()
+                                .setMatchedRoute(matchedRoute)
+                                .setRejected(false)
+                                .build());
                         }
                         switch (tfOption.getQos()) {
-                            case AT_MOST_ONCE -> qos0TopicFilters.put(matchedTopicFilter, tfOption);
-                            case AT_LEAST_ONCE -> qos1TopicFilters.put(matchedTopicFilter, tfOption);
-                            case EXACTLY_ONCE -> qos2TopicFilters.put(matchedTopicFilter, tfOption);
+                            case AT_MOST_ONCE -> qos0TopicFilters.put(matchedRoute.getTopicFilter(), tfOption);
+                            case AT_LEAST_ONCE -> qos1TopicFilters.put(matchedRoute.getTopicFilter(), tfOption);
+                            case EXACTLY_ONCE -> qos2TopicFilters.put(matchedRoute.getTopicFilter(), tfOption);
                             default -> {
                                 // never happens
                             }
                         }
-                        insertResults.add(InsertResult.SubStatus.newBuilder()
-                            .setTopicFilter(matchedTopicFilter)
-                            .setIncarnation(matchedIncarnation)
-                            .setRejected(false)
-                            .build());
                     }
+                }
+                if (qos0TopicFilters.isEmpty() && qos1TopicFilters.isEmpty() && qos2TopicFilters.isEmpty()) {
+                    // no matched topic filter, skip this message pack
+                    continue;
                 }
                 String topic = topicMsgPack.getTopic();
                 for (TopicMessagePack.PublisherPack publisherPack : topicMsgPack.getMessageList()) {

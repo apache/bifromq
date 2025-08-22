@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 
 package org.apache.bifromq.inbox.server;
@@ -25,16 +25,17 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.when;
 import static org.testng.Assert.assertEquals;
 
+import java.util.concurrent.CompletableFuture;
+import lombok.SneakyThrows;
 import org.apache.bifromq.inbox.rpc.proto.SendReply;
 import org.apache.bifromq.inbox.rpc.proto.SendRequest;
 import org.apache.bifromq.inbox.server.scheduler.IInboxInsertScheduler;
 import org.apache.bifromq.inbox.storage.proto.InsertRequest;
 import org.apache.bifromq.inbox.storage.proto.InsertResult;
+import org.apache.bifromq.inbox.storage.proto.MatchedRoute;
 import org.apache.bifromq.plugin.subbroker.DeliveryReply;
 import org.apache.bifromq.plugin.subbroker.DeliveryResult;
 import org.apache.bifromq.plugin.subbroker.DeliveryResults;
-import java.util.concurrent.CompletableFuture;
-import lombok.SneakyThrows;
 import org.mockito.Mock;
 import org.mockito.MockitoAnnotations;
 import org.testng.annotations.AfterMethod;
@@ -86,8 +87,10 @@ public class InboxWriterTest {
                 InsertResult.newBuilder()
                     .addResult(InsertResult.SubStatus.newBuilder()
                         .setRejected(true)
-                        .setIncarnation(1L)
-                        .setTopicFilter("/foo/+")
+                        .setMatchedRoute(MatchedRoute.newBuilder()
+                            .setIncarnation(1L)
+                            .setTopicFilter("/foo/+")
+                            .build())
                         .build())
                     .setCode(InsertResult.Code.OK)
                     .build()));
@@ -103,8 +106,10 @@ public class InboxWriterTest {
                 .setCode(InsertResult.Code.OK)
                 .addResult(InsertResult.SubStatus.newBuilder()
                     .setRejected(false)
-                    .setTopicFilter("/foo/+")
-                    .setIncarnation(1L)
+                    .setMatchedRoute(MatchedRoute.newBuilder()
+                        .setTopicFilter("/foo/+")
+                        .setIncarnation(1L)
+                        .build())
                     .build())
                 .build()));
         SendRequest request = sendRequest();

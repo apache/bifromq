@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 
 package org.apache.bifromq.inbox.store;
@@ -39,6 +39,7 @@ import org.apache.bifromq.inbox.storage.proto.InboxMessage;
 import org.apache.bifromq.inbox.storage.proto.InboxVersion;
 import org.apache.bifromq.inbox.storage.proto.InsertRequest;
 import org.apache.bifromq.inbox.storage.proto.InsertResult;
+import org.apache.bifromq.inbox.storage.proto.MatchedRoute;
 import org.apache.bifromq.inbox.storage.proto.SubMessagePack;
 import org.apache.bifromq.plugin.eventcollector.inboxservice.Overflowed;
 import org.apache.bifromq.type.ClientInfo;
@@ -61,7 +62,10 @@ public class InboxInsertTest extends InboxStoreTest {
             .setInboxId(inboxId)
             .setIncarnation(incarnation)
             .addMessagePack(SubMessagePack.newBuilder()
-                .putMatchedTopicFilters(topicFilter, 1L)
+                .addMatchedRoute(MatchedRoute.newBuilder()
+                    .setTopicFilter(topicFilter)
+                    .setIncarnation(1L)
+                    .build())
                 .setMessages(TopicMessagePack.newBuilder()
                     .setTopic(topicFilter)
                     .addMessage(message(AT_MOST_ONCE, "hello"))
@@ -84,6 +88,147 @@ public class InboxInsertTest extends InboxStoreTest {
             .setNow(now)
             .build()).get(0);
         assertEquals(commitCode, BatchCommitReply.Code.NO_INBOX);
+    }
+
+
+    @Test(groups = "integration")
+    public void insertWithUnmatchedTopicFilterRejected() {
+        long now = 0;
+        String tenantId = "tenantId-" + System.nanoTime();
+        String inboxId = "inboxId-" + System.nanoTime();
+        long incarnation = System.nanoTime();
+        // do not create any subscription, so all matched topic filters will be unmatched
+        ClientInfo client = ClientInfo.newBuilder().setTenantId(tenantId).build();
+        BatchAttachRequest.Params attachParams = BatchAttachRequest.Params.newBuilder()
+            .setInboxId(inboxId)
+            .setIncarnation(incarnation)
+            .setExpirySeconds(2)
+            .setLimit(10)
+            .setClient(client)
+            .setNow(now)
+            .build();
+        requestAttach(attachParams).get(0);
+
+        String unmatchedTF = "/not/subscribed";
+        TopicMessagePack.PublisherPack msg = message(QoS.AT_MOST_ONCE, "hello-unmatched");
+
+        InsertResult insertResult = requestInsert(InsertRequest.newBuilder()
+            .setTenantId(tenantId)
+            .setInboxId(inboxId)
+            .setIncarnation(incarnation)
+            .addMessagePack(SubMessagePack.newBuilder()
+                .addMatchedRoute(MatchedRoute.newBuilder()
+                    .setTopicFilter(unmatchedTF)
+                    .setIncarnation(1L)
+                    .build())
+                .setMessages(TopicMessagePack.newBuilder()
+                    .setTopic(unmatchedTF)
+                    .addMessage(msg)
+                    .build())
+                .build())
+            .build()).get(0);
+
+        // insert is ignored because no subscription matches the topic filter
+        assertEquals(insertResult.getCode(), InsertResult.Code.OK);
+        assertEquals(insertResult.getResultCount(), 1);
+        assertEquals(insertResult.getResult(0).getMatchedRoute().getTopicFilter(), unmatchedTF);
+        assertEquals(insertResult.getResult(0).getMatchedRoute().getIncarnation(), 1L);
+        assertTrue(insertResult.getResult(0).getRejected());
+
+        // no messages should be fetched
+        Fetched fetched = requestFetch(BatchFetchRequest.Params.newBuilder()
+            .setTenantId(tenantId)
+            .setInboxId(inboxId)
+            .setIncarnation(incarnation)
+            .setMaxFetch(10)
+            .build()).get(0);
+        assertEquals(fetched.getQos0MsgCount(), 0);
+        assertEquals(fetched.getSendBufferMsgCount(), 0);
+    }
+
+    @Test(groups = "integration")
+    public void insertWithOldAndCurrentIncarnationMixed() {
+        long now = 0;
+        String tenantId = "tenantId-" + System.nanoTime();
+        String inboxId = "inboxId-" + System.nanoTime();
+        long incarnation = System.nanoTime();
+        String topicFilter = "/a/b/c";
+
+        ClientInfo client = ClientInfo.newBuilder().setTenantId(tenantId).build();
+        InboxVersion inboxVersion = requestAttach(BatchAttachRequest.Params.newBuilder()
+            .setInboxId(inboxId)
+            .setIncarnation(incarnation)
+            .setExpirySeconds(2)
+            .setLimit(10)
+            .setClient(client)
+            .setNow(now)
+            .build()).get(0);
+
+        requestSub(BatchSubRequest.Params.newBuilder()
+            .setTenantId(tenantId)
+            .setInboxId(inboxId)
+            .setVersion(inboxVersion)
+            .setTopicFilter(topicFilter)
+            .setOption(TopicFilterOption.newBuilder()
+                .setIncarnation(1L)
+                .setQos(QoS.AT_MOST_ONCE)
+                .build())
+            .setMaxTopicFilters(100)
+            .setNow(now)
+            .build());
+
+        TopicMessagePack.PublisherPack msg1 = message(QoS.AT_MOST_ONCE, "keep-me-1");
+        TopicMessagePack.PublisherPack msg2 = message(QoS.AT_MOST_ONCE, "keep-me-2");
+
+        // same topicFilter, same package with 2 matched: one old (0), one current (1)
+        InsertResult insertResult = requestInsert(InsertRequest.newBuilder()
+            .setTenantId(tenantId)
+            .setInboxId(inboxId)
+            .setIncarnation(incarnation)
+            .addMessagePack(SubMessagePack.newBuilder()
+                .addMatchedRoute(MatchedRoute.newBuilder()
+                    .setTopicFilter(topicFilter)
+                    .setIncarnation(0L) // old -> rejected=true
+                    .build())
+                .addMatchedRoute(MatchedRoute.newBuilder()
+                    .setTopicFilter(topicFilter)
+                    .setIncarnation(1L) // matched -> rejected=false
+                    .build())
+                .setMessages(TopicMessagePack.newBuilder()
+                    .setTopic(topicFilter)
+                    .addMessage(msg1)
+                    .addMessage(msg2)
+                    .build())
+                .build())
+            .build()).get(0);
+
+        assertEquals(insertResult.getCode(), InsertResult.Code.OK);
+        boolean oldRejected = false;
+        boolean currAccepted = false;
+        for (InsertResult.SubStatus s : insertResult.getResultList()) {
+            if (s.getMatchedRoute().getTopicFilter().equals(topicFilter)
+                && s.getMatchedRoute().getIncarnation() == 0L) {
+                assertTrue(s.getRejected());
+                oldRejected = true;
+            }
+            if (s.getMatchedRoute().getTopicFilter().equals(topicFilter)
+                && s.getMatchedRoute().getIncarnation() == 1L) {
+                assertFalse(s.getRejected());
+                currAccepted = true;
+            }
+        }
+        assertTrue(oldRejected && currAccepted);
+
+        Fetched fetched = requestFetch(BatchFetchRequest.Params.newBuilder()
+            .setTenantId(tenantId)
+            .setInboxId(inboxId)
+            .setIncarnation(incarnation)
+            .setMaxFetch(10)
+            .build()).get(0);
+
+        assertEquals(fetched.getQos0MsgCount(), 2);
+        assertEquals(fetched.getQos0Msg(0).getMsg().getMessage(), msg1.getMessage(0));
+        assertEquals(fetched.getQos0Msg(1).getMsg().getMessage(), msg2.getMessage(0));
     }
 
     protected void fetchWithoutStartAfter(QoS qos) {
@@ -120,7 +265,10 @@ public class InboxInsertTest extends InboxStoreTest {
             .setInboxId(inboxId)
             .setIncarnation(incarnation)
             .addMessagePack(SubMessagePack.newBuilder()
-                .putMatchedTopicFilters(topicFilter, 1L)
+                .addMatchedRoute(MatchedRoute.newBuilder()
+                    .setTopicFilter(topicFilter)
+                    .setIncarnation(1L)
+                    .build())
                 .setMessages(TopicMessagePack.newBuilder()
                     .setTopic(topicFilter)
                     .addMessage(msg1)
@@ -129,8 +277,8 @@ public class InboxInsertTest extends InboxStoreTest {
                 .build())
             .build()).get(0);
         assertEquals(insertResult.getCode(), InsertResult.Code.OK);
-        assertEquals(insertResult.getResult(0).getTopicFilter(), topicFilter);
-        assertEquals(insertResult.getResult(0).getIncarnation(), 1L);
+        assertEquals(insertResult.getResult(0).getMatchedRoute().getTopicFilter(), topicFilter);
+        assertEquals(insertResult.getResult(0).getMatchedRoute().getIncarnation(), 1L);
 
         Fetched fetched = requestFetch(
             BatchFetchRequest.Params.newBuilder()
@@ -190,7 +338,10 @@ public class InboxInsertTest extends InboxStoreTest {
             .setInboxId(inboxId)
             .setIncarnation(incarnation)
             .addMessagePack(SubMessagePack.newBuilder()
-                .putMatchedTopicFilters(topicFilter, 1L)
+                .addMatchedRoute(MatchedRoute.newBuilder()
+                    .setTopicFilter(topicFilter)
+                    .setIncarnation(1L)
+                    .build())
                 .setMessages(TopicMessagePack.newBuilder()
                     .setTopic(topicFilter)
                     .addMessage(msg1)
@@ -199,8 +350,8 @@ public class InboxInsertTest extends InboxStoreTest {
                 .build())
             .build()).get(0);
         assertEquals(insertResult.getCode(), InsertResult.Code.OK);
-        assertEquals(insertResult.getResult(0).getTopicFilter(), topicFilter);
-        assertEquals(insertResult.getResult(0).getIncarnation(), 1L);
+        assertEquals(insertResult.getResult(0).getMatchedRoute().getTopicFilter(), topicFilter);
+        assertEquals(insertResult.getResult(0).getMatchedRoute().getIncarnation(), 1L);
 
         Fetched fetched = requestFetch(BatchFetchRequest.Params.newBuilder()
             .setTenantId(tenantId)
@@ -270,7 +421,10 @@ public class InboxInsertTest extends InboxStoreTest {
             .setInboxId(inboxId)
             .setIncarnation(incarnation)
             .addMessagePack(SubMessagePack.newBuilder()
-                .putMatchedTopicFilters(topicFilter, 0L)
+                .addMatchedRoute(MatchedRoute.newBuilder()
+                    .setTopicFilter(topicFilter)
+                    .setIncarnation(0L)
+                    .build())
                 .setMessages(TopicMessagePack.newBuilder()
                     .setTopic(topicFilter)
                     .addMessage(msg1)
@@ -284,7 +438,10 @@ public class InboxInsertTest extends InboxStoreTest {
             .setInboxId(inboxId)
             .setIncarnation(incarnation)
             .addMessagePack(SubMessagePack.newBuilder()
-                .putMatchedTopicFilters(topicFilter, 0L)
+                .addMatchedRoute(MatchedRoute.newBuilder()
+                    .setTopicFilter(topicFilter)
+                    .setIncarnation(0L)
+                    .build())
                 .setMessages(TopicMessagePack.newBuilder()
                     .setTopic(topicFilter)
                     .addMessage(msg4)
@@ -386,7 +543,10 @@ public class InboxInsertTest extends InboxStoreTest {
             .setInboxId(inboxId)
             .setIncarnation(incarnation)
             .addMessagePack(SubMessagePack.newBuilder()
-                .putMatchedTopicFilters(topicFilter, 0L)
+                .addMatchedRoute(MatchedRoute.newBuilder()
+                    .setTopicFilter(topicFilter)
+                    .setIncarnation(0L)
+                    .build())
                 .setMessages(TopicMessagePack.newBuilder()
                     .setTopic(topicFilter)
                     .addMessage(msg1)
@@ -504,7 +664,10 @@ public class InboxInsertTest extends InboxStoreTest {
             .setInboxId(inboxId)
             .setIncarnation(incarnation)
             .addMessagePack(SubMessagePack.newBuilder()
-                .putMatchedTopicFilters(topicFilter, 0L)
+                .addMatchedRoute(MatchedRoute.newBuilder()
+                    .setTopicFilter(topicFilter)
+                    .setIncarnation(0L)
+                    .build())
                 .setMessages(TopicMessagePack.newBuilder()
                     .setTopic(topicFilter)
                     .addMessage(msg1)
@@ -518,7 +681,10 @@ public class InboxInsertTest extends InboxStoreTest {
             .setInboxId(inboxId)
             .setIncarnation(incarnation)
             .addMessagePack(SubMessagePack.newBuilder()
-                .putMatchedTopicFilters(topicFilter, 0L)
+                .addMatchedRoute(MatchedRoute.newBuilder()
+                    .setTopicFilter(topicFilter)
+                    .setIncarnation(0L)
+                    .build())
                 .setMessages(TopicMessagePack.newBuilder()
                     .setTopic(topicFilter)
                     .addMessage(msg4)
@@ -587,7 +753,10 @@ public class InboxInsertTest extends InboxStoreTest {
             .setInboxId(inboxId)
             .setIncarnation(incarnation)
             .addMessagePack(SubMessagePack.newBuilder()
-                .putMatchedTopicFilters(topicFilter, 0L)
+                .addMatchedRoute(MatchedRoute.newBuilder()
+                    .setTopicFilter(topicFilter)
+                    .setIncarnation(0L)
+                    .build())
                 .setMessages(TopicMessagePack.newBuilder()
                     .setTopic(topicFilter)
                     .addMessage(msg0)
@@ -599,7 +768,10 @@ public class InboxInsertTest extends InboxStoreTest {
             .setInboxId(inboxId)
             .setIncarnation(incarnation)
             .addMessagePack(SubMessagePack.newBuilder()
-                .putMatchedTopicFilters(topicFilter, 0L)
+                .addMatchedRoute(MatchedRoute.newBuilder()
+                    .setTopicFilter(topicFilter)
+                    .setIncarnation(0L)
+                    .build())
                 .setMessages(TopicMessagePack.newBuilder()
                     .setTopic(topicFilter)
                     .addMessage(msg1)
@@ -611,7 +783,10 @@ public class InboxInsertTest extends InboxStoreTest {
             .setInboxId(inboxId)
             .setIncarnation(incarnation)
             .addMessagePack(SubMessagePack.newBuilder()
-                .putMatchedTopicFilters(topicFilter, 0L)
+                .addMatchedRoute(MatchedRoute.newBuilder()
+                    .setTopicFilter(topicFilter)
+                    .setIncarnation(0L)
+                    .build())
                 .setMessages(TopicMessagePack.newBuilder()
                     .setTopic(topicFilter)
                     .addMessage(msg2)
@@ -646,7 +821,10 @@ public class InboxInsertTest extends InboxStoreTest {
             .setInboxId(inboxId)
             .setIncarnation(incarnation)
             .addMessagePack(SubMessagePack.newBuilder()
-                .putMatchedTopicFilters(topicFilter, 0L)
+                .addMatchedRoute(MatchedRoute.newBuilder()
+                    .setTopicFilter(topicFilter)
+                    .setIncarnation(0L)
+                    .build())
                 .setMessages(TopicMessagePack.newBuilder()
                     .setTopic(topicFilter)
                     .addMessage(msg0)
@@ -715,7 +893,10 @@ public class InboxInsertTest extends InboxStoreTest {
             .setInboxId(inboxId)
             .setIncarnation(incarnation)
             .addMessagePack(SubMessagePack.newBuilder()
-                .putMatchedTopicFilters(topicFilter, 0L)
+                .addMatchedRoute(MatchedRoute.newBuilder()
+                    .setTopicFilter(topicFilter)
+                    .setIncarnation(0L)
+                    .build())
                 .setMessages(TopicMessagePack.newBuilder()
                     .setTopic(topicFilter)
                     .addMessage(msg0)
@@ -727,7 +908,10 @@ public class InboxInsertTest extends InboxStoreTest {
             .setInboxId(inboxId)
             .setIncarnation(incarnation)
             .addMessagePack(SubMessagePack.newBuilder()
-                .putMatchedTopicFilters(topicFilter, 0L)
+                .addMatchedRoute(MatchedRoute.newBuilder()
+                    .setTopicFilter(topicFilter)
+                    .setIncarnation(0L)
+                    .build())
                 .setMessages(TopicMessagePack.newBuilder()
                     .setTopic(topicFilter)
                     .addMessage(msg1)
@@ -755,7 +939,10 @@ public class InboxInsertTest extends InboxStoreTest {
             .setInboxId(inboxId)
             .setIncarnation(incarnation)
             .addMessagePack(SubMessagePack.newBuilder()
-                .putMatchedTopicFilters(topicFilter, 0L)
+                .addMatchedRoute(MatchedRoute.newBuilder()
+                    .setTopicFilter(topicFilter)
+                    .setIncarnation(0L)
+                    .build())
                 .setMessages(TopicMessagePack.newBuilder()
                     .setTopic(topicFilter)
                     .addMessage(msg0)
@@ -824,7 +1011,10 @@ public class InboxInsertTest extends InboxStoreTest {
             .setInboxId(inboxId)
             .setIncarnation(incarnation)
             .addMessagePack(SubMessagePack.newBuilder()
-                .putMatchedTopicFilters(topicFilter, 0L)
+                .addMatchedRoute(MatchedRoute.newBuilder()
+                    .setTopicFilter(topicFilter)
+                    .setIncarnation(0L)
+                    .build())
                 .setMessages(TopicMessagePack.newBuilder()
                     .setTopic(topicFilter)
                     .addMessage(msg0)

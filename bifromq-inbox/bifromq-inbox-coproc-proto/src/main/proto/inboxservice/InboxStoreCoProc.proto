@@ -196,9 +196,13 @@ message BatchFetchReply{
   repeated Fetched result = 1;
 }
 
+message MatchedRoute{
+  string topicFilter = 1; // the matched topic filter
+  uint64 incarnation = 2; // route incarnation
+}
 // insert won't change version & lastActive timestamp
 message SubMessagePack{
-  map<string, uint64> matchedTopicFilters = 1; // key: topicFilter, value: route incarnation
+  repeated MatchedRoute matchedRoute = 1;
   commontype.TopicMessagePack messages = 2;
 }
 
@@ -219,9 +223,8 @@ message InsertResult{
     NO_INBOX = 1;
   }
   message SubStatus{
-    string topicFilter = 1;
-    uint64 incarnation = 2;
-    bool rejected = 3;
+    MatchedRoute matchedRoute = 1;
+    bool rejected = 2; // true if the route is outdated
   }
   Code code = 1;
   repeated SubStatus result = 2;

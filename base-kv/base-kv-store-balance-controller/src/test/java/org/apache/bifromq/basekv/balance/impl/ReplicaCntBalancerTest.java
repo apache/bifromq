@@ -795,4 +795,120 @@ public class ReplicaCntBalancerTest {
         assertEquals(cmd.getVoters(), Set.of("s1", "s2", "s3"));
         assertTrue(cmd.getLearners().isEmpty());
     }
+
+    @Test
+    public void balanceVoterCountPrefersZeroCountStoreFirst() {
+        KVRangeId r1 = KVRangeId.newBuilder().setEpoch(1).setId(1).build();
+        KVRangeId r2 = KVRangeId.newBuilder().setEpoch(1).setId(2).build();
+        KVRangeId r3 = KVRangeId.newBuilder().setEpoch(1).setId(3).build();
+        KVRangeDescriptor d1 = KVRangeDescriptor.newBuilder()
+            .setId(r1)
+            .setVer(1)
+            .setRole(RaftNodeStatus.Leader)
+            .setBoundary(Boundary.newBuilder().setEndKey(ByteString.copyFromUtf8("m")).build())
+            .setConfig(ClusterConfig.newBuilder().addVoters("sA").build())
+            .build();
+        KVRangeDescriptor d2 = KVRangeDescriptor.newBuilder()
+            .setId(r2)
+            .setVer(1)
+            .setRole(RaftNodeStatus.Leader)
+            .setBoundary(Boundary.newBuilder()
+                .setStartKey(ByteString.copyFromUtf8("m"))
+                .setEndKey(ByteString.copyFromUtf8("z"))
+                .build())
+            .setConfig(ClusterConfig.newBuilder().addVoters("sA").build())
+            .build();
+
+        KVRangeStoreDescriptor sA = KVRangeStoreDescriptor.newBuilder().setId("sA").addRanges(d1).addRanges(d2).build();
+        KVRangeStoreDescriptor sB = KVRangeStoreDescriptor.newBuilder().setId("sB")
+            .addRanges(KVRangeDescriptor.newBuilder()
+                .setId(r3)
+                .setVer(1).setRole(RaftNodeStatus.Leader)
+                .setBoundary(Boundary.newBuilder()
+                    .setStartKey(ByteString.copyFromUtf8("z"))
+                    .build())
+                .setConfig(ClusterConfig.newBuilder().addVoters("sB").build())
+                .build())
+            .build();
+        KVRangeStoreDescriptor sC = KVRangeStoreDescriptor.newBuilder().setId("sC").build();
+
+        balancer = new ReplicaCntBalancer("testCluster", "sA", 1, 0);
+        balancer.update(Set.of(sA, sB, sC));
+
+        BalanceResult result = balancer.balance();
+        assertSame(result.type(), BalanceResultType.BalanceNow);
+        ChangeConfigCommand cmd = (ChangeConfigCommand) ((BalanceNow<?>) result).command;
+
+        assertTrue(cmd.getVoters().contains("sC"));
+        assertFalse(cmd.getVoters().contains("sA"));
+    }
+
+    @Test
+    public void balanceVoterCountDoesOnlyOneChangePerRound() {
+        KVRangeId r1 = KVRangeId.newBuilder().setEpoch(1).setId(1).build();
+        KVRangeId r2 = KVRangeId.newBuilder().setEpoch(1).setId(2).build();
+        KVRangeDescriptor d1 = KVRangeDescriptor.newBuilder()
+            .setId(r1)
+            .setVer(1)
+            .setRole(RaftNodeStatus.Leader)
+            .setBoundary(Boundary.newBuilder().setEndKey(ByteString.copyFromUtf8("m")).build())
+            .setConfig(ClusterConfig.newBuilder().addVoters("sA").build())
+            .build();
+        KVRangeDescriptor d2 = KVRangeDescriptor.newBuilder()
+            .setId(r2)
+            .setVer(1)
+            .setRole(RaftNodeStatus.Leader)
+            .setBoundary(Boundary.newBuilder().setStartKey(ByteString.copyFromUtf8("m")).build())
+            .setConfig(ClusterConfig.newBuilder().addVoters("sA").build())
+            .build();
+
+        KVRangeStoreDescriptor sA = KVRangeStoreDescriptor.newBuilder().setId("sA").addRanges(d1).addRanges(d2).build();
+        KVRangeStoreDescriptor sB = KVRangeStoreDescriptor.newBuilder().setId("sB").build();
+        KVRangeStoreDescriptor sC = KVRangeStoreDescriptor.newBuilder().setId("sC").build();
+
+        balancer = new ReplicaCntBalancer("testCluster", "sA", 1, 0);
+        balancer.update(Set.of(sA, sB, sC));
+
+        BalanceResult result = balancer.balance();
+        assertSame(result.type(), BalanceResultType.BalanceNow);
+        ChangeConfigCommand cmd = (ChangeConfigCommand) ((BalanceNow<?>) result).command;
+        assertTrue(cmd.getKvRangeId().equals(r1) || cmd.getKvRangeId().equals(r2));
+    }
+
+    @Test
+    public void balanceVoterCountSkipsTargetsAlreadyInVotersOrLearners() {
+        KVRangeId r1 = KVRangeId.newBuilder().setEpoch(1).setId(1).build();
+        KVRangeDescriptor d1 = KVRangeDescriptor.newBuilder()
+            .setId(r1).setVer(1).setRole(RaftNodeStatus.Leader)
+            .setBoundary(Boundary.newBuilder().setEndKey(ByteString.copyFromUtf8("z")).build())
+            .setConfig(ClusterConfig.newBuilder()
+                .addVoters("sA")
+                .addLearners("sB")
+                .build())
+            .build();
+
+        KVRangeDescriptor d2 = KVRangeDescriptor.newBuilder()
+            .setId(KVRangeId.newBuilder().setEpoch(1).setId(2).build())
+            .setVer(1).setRole(RaftNodeStatus.Leader)
+            .setBoundary(Boundary.newBuilder().setStartKey(ByteString.copyFromUtf8("z")).build())
+            .setConfig(ClusterConfig.newBuilder()
+                .addVoters("sA")
+                .addLearners("sB")
+                .build())
+            .build();
+
+        KVRangeStoreDescriptor sA = KVRangeStoreDescriptor.newBuilder().setId("sA").addRanges(d1).addRanges(d2).build();
+        KVRangeStoreDescriptor sB = KVRangeStoreDescriptor.newBuilder().setId("sB").build();
+        KVRangeStoreDescriptor sC = KVRangeStoreDescriptor.newBuilder().setId("sC").build();
+
+        balancer = new ReplicaCntBalancer("testCluster", "sA", 1, 1);
+        balancer.update(Set.of(sA, sB, sC));
+
+        BalanceResult result = balancer.balance();
+        assertSame(result.type(), BalanceResultType.BalanceNow);
+        ChangeConfigCommand cmd = (ChangeConfigCommand) ((BalanceNow<?>) result).command;
+
+        assertTrue(cmd.getVoters().contains("sC"));
+        assertFalse(cmd.getVoters().contains("sB"));
+    }
 }

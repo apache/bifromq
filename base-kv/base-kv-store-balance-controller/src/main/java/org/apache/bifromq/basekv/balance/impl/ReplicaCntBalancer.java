@@ -335,20 +335,11 @@ public class ReplicaCntBalancer extends RuleBasedPlacementBalancer {
 
         double totalVoters = storeVoterCount.values().stream().mapToInt(Integer::intValue).sum();
         double targetVotersPerStore = liveStores.isEmpty() ? 0 : totalVoters / liveStores.size();
-        int maxVotersPerStore = (int) Math.ceil(targetVotersPerStore);
         int minVotersPerStore = (int) Math.floor(targetVotersPerStore);
 
         int globalMax = storeVoterCount.values().stream().mapToInt(Integer::intValue).max().orElse(0);
         int globalMin = storeVoterCount.values().stream().mapToInt(Integer::intValue).min().orElse(0);
         if (globalMax - globalMin <= 1) {
-            for (Map.Entry<Boundary, LeaderRange> entry : effectiveRoute.leaderRanges().entrySet()) {
-                ClusterConfig cc = entry.getValue().descriptor().getConfig();
-                Set<String> voters = new HashSet<>(cc.getVotersList());
-                Set<String> learners = new HashSet<>(cc.getLearnersList());
-                sanitize(voters, liveStores);
-                sanitize(learners, liveStores);
-                expectedRangeLayout.put(entry.getKey(), buildConfig(voters, learners));
-            }
             return false;
         }
 
@@ -363,41 +354,43 @@ public class ReplicaCntBalancer extends RuleBasedPlacementBalancer {
             sanitize(learners, liveStores);
             voterSorted.retainAll(liveStores);
 
-            for (String voter : new ArrayList<>(voterSorted)) {
-                if (storeVoterCount.getOrDefault(voter, 0) >= maxVotersPerStore) {
-                    for (StoreVoterCount under : storeVoterCountSorted) {
-                        if (storeVoterCount.getOrDefault(under.storeId, 0) <= minVotersPerStore
-                            && !voterSorted.contains(under.storeId)
-                            && !learners.contains(under.storeId)) {
-                            // move voter -> underloaded
-                            Set<String> newVoters = new HashSet<>(voterSorted);
-                            newVoters.remove(voter);
-                            newVoters.add(under.storeId);
+            if (!meetingGoal) {
+                meet:
+                for (String voter : new ArrayList<>(voterSorted)) {
+                    int voters = storeVoterCount.getOrDefault(voter, 0);
+                    if (voters == globalMax) {
+                        for (StoreVoterCount under : storeVoterCountSorted) {
+                            if (storeVoterCount.getOrDefault(under.storeId, 0) <= minVotersPerStore
+                                && !voterSorted.contains(under.storeId)
+                                && !learners.contains(under.storeId)) {
+                                // move voter -> underloaded
+                                Set<String> newVoters = new HashSet<>(voterSorted);
+                                newVoters.remove(voter);
+                                newVoters.add(under.storeId);
 
-                            expectedRangeLayout.put(boundary, buildConfig(newVoters, learners));
-                            meetingGoal = true;
-                            break;
+                                expectedRangeLayout.put(boundary, buildConfig(newVoters, learners));
+                                meetingGoal = true;
+                                break meet;
+                            }
                         }
                     }
                 }
-                if (meetingGoal) {
-                    break;
+                if (!meetingGoal) {
+                    expectedRangeLayout.put(boundary, buildConfig(voterSorted, learners));
                 }
-            }
-
-            if (!meetingGoal) {
-                expectedRangeLayout.put(boundary, buildConfig(voterSorted, learners));
             } else {
-                break;
+                expectedRangeLayout.put(boundary, buildConfig(voterSorted, learners));
             }
         }
-
+        if (!meetingGoal) {
+            expectedRangeLayout.clear();
+        }
         return meetingGoal;
     }
 
-    private boolean balanceLearnerCount(Map<String, KVRangeStoreDescriptor> landscape,
-                                        EffectiveRoute effectiveRoute,
-                                        Map<Boundary, ClusterConfig> expectedRangeLayout) {
+    private void balanceLearnerCount(Map<String, KVRangeStoreDescriptor> landscape,
+                                     EffectiveRoute effectiveRoute,
+                                     Map<Boundary, ClusterConfig> expectedRangeLayout) {
         final Set<String> liveStores = landscape.keySet();
 
         Map<String, Integer> storeLearnerCount = new HashMap<>();
@@ -417,7 +410,13 @@ public class ReplicaCntBalancer extends RuleBasedPlacementBalancer {
 
         double totalLearners = storeLearnerCount.values().stream().mapToInt(Integer::intValue).sum();
         double targetLearnersPerStore = liveStores.isEmpty() ? 0 : totalLearners / liveStores.size();
-        int maxLearnersPerStore = (int) Math.ceil(targetLearnersPerStore);
+        int minLearnersPerStore = (int) Math.floor(targetLearnersPerStore);
+
+        int globalMax = storeLearnerCount.values().stream().mapToInt(Integer::intValue).max().orElse(0);
+        int globalMin = storeLearnerCount.values().stream().mapToInt(Integer::intValue).min().orElse(0);
+        if (globalMax - globalMin <= 1) {
+            return;
+        }
 
         boolean meetingGoal = false;
         for (Map.Entry<Boundary, LeaderRange> entry : effectiveRoute.leaderRanges().entrySet()) {
@@ -430,34 +429,35 @@ public class ReplicaCntBalancer extends RuleBasedPlacementBalancer {
             sanitize(voters, liveStores);
             learnerSorted.retainAll(liveStores);
 
-            for (String learner : new ArrayList<>(learnerSorted)) {
-                if (storeLearnerCount.getOrDefault(learner, 0) > maxLearnersPerStore) {
-                    for (StoreLearnerCount under : storeLearnerCountSorted) {
-                        if (storeLearnerCount.getOrDefault(under.storeId, 0) < maxLearnersPerStore
-                            && !voters.contains(under.storeId)
-                            && !learnerSorted.contains(under.storeId)) {
-                            Set<String> newLearners = new HashSet<>(learnerSorted);
-                            newLearners.remove(learner);
-                            newLearners.add(under.storeId);
+            if (!meetingGoal) {
+                meet:
+                for (String learner : new ArrayList<>(learnerSorted)) {
+                    int learners = storeLearnerCount.getOrDefault(learner, 0);
+                    if (learners == globalMax) {
+                        for (StoreLearnerCount under : storeLearnerCountSorted) {
+                            if (storeLearnerCount.getOrDefault(under.storeId, 0) < minLearnersPerStore
+                                && !voters.contains(under.storeId)
+                                && !learnerSorted.contains(under.storeId)) {
+                                Set<String> newLearners = new HashSet<>(learnerSorted);
+                                newLearners.remove(learner);
+                                newLearners.add(under.storeId);
 
-                            expectedRangeLayout.put(boundary, buildConfig(voters, newLearners));
-                            meetingGoal = true;
-                            break;
+                                expectedRangeLayout.put(boundary, buildConfig(voters, newLearners));
+                                meetingGoal = true;
+                                break meet;
+                            }
                         }
                     }
                 }
-                if (meetingGoal) {
-                    break;
+                if (!meetingGoal) {
+                    expectedRangeLayout.put(boundary, buildConfig(voters, learnerSorted));
                 }
-            }
-
-            if (!meetingGoal) {
-                expectedRangeLayout.put(boundary, buildConfig(voters, learnerSorted));
             } else {
-                break;
+                expectedRangeLayout.put(boundary, buildConfig(voters, learnerSorted));
             }
         }
-
-        return meetingGoal;
+        if (!meetingGoal) {
+            expectedRangeLayout.clear();
+        }
     }
 }

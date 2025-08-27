@@ -65,6 +65,9 @@ final class AntiEntropy {
     private long currentNeighborVer;
     private long currentInflationTs;
     private DeltaMessage currentDelta = null;
+    // track if the last sent delta contains replacements (i.e., real diff),
+    // so that after ACK we can proactively continue to drain remaining deltas
+    private boolean lastSentHasReplacement = false;
 
     AntiEntropy(String storeId,
                 ByteString localAddr,
@@ -110,31 +113,51 @@ final class AntiEntropy {
     }
 
     void handleAck(AckMessage ack) {
-        if (canceled.get() || !running.get()) {
+        if (canceled.get()) {
             return;
         }
         synchronized (this) {
-            if (!running.get() || currentDelta == null) {
+            // Case 1: Matched ACK for in-flight delta
+            if (running.get() && currentDelta != null && ack.getSeqNo() == currentDelta.getSeqNo()) {
+                // currentDelta has been ack'ed
+                currentDelta = null;
+                if (resendTask != null) {
+                    resendTask.cancel(false);
+                }
+                // reset resend counter after a successful ack to avoid inflated backoff
+                resendCount = 0;
+                if (ack.getVer() > neighborVer) {
+                    // got newer neighbor's history
+                    neighborVer = ack.getVer();
+                    neighborLatticeIndex = to(ack.getLatticeEventsList());
+                    neighborHistoryIndex = to(ack.getHistoryEventsList());
+                }
+                running.set(false);
+                // Proactively continue if:
+                // - probe success (currentNeighborVer==0), or
+                // - local inflation happened, or
+                // - neighbor's version advanced since we computed delta, or
+                // - we just sent a batch of replacements and may have more to drain
+                if (currentNeighborVer == 0
+                    || lastInflationTs != currentInflationTs
+                    || ack.getVer() > currentNeighborVer
+                    || lastSentHasReplacement) {
+                    scheduleRun();
+                }
+                // clear the flag after scheduling decision
+                lastSentHasReplacement = false;
                 return;
             }
-            if (ack.getSeqNo() != currentDelta.getSeqNo()) {
-                return;
-            }
-            // currentDelta has been ack'ed
-            currentDelta = null;
-            if (resendTask != null) {
-                resendTask.cancel(false);
-            }
+
+            // Case 2: Late or unmatched ACK. Use it to advance neighbor index if it's newer.
             if (ack.getVer() > neighborVer) {
-                // got newer neighbor's history
                 neighborVer = ack.getVer();
                 neighborLatticeIndex = to(ack.getLatticeEventsList());
                 neighborHistoryIndex = to(ack.getHistoryEventsList());
-            }
-            running.set(false);
-            // if there are new inflation happened or probe success, restart the task
-            if (currentNeighborVer == 0 || lastInflationTs != currentInflationTs) {
-                scheduleRun();
+                // try schedule a run if we are not currently running
+                if (!running.get()) {
+                    scheduleRun();
+                }
             }
         }
     }
@@ -180,6 +203,8 @@ final class AntiEntropy {
                     .addAllHistoryEvents(to(crdtInflater.historyEvents()))
                     .setVer(HLC.INST.get())
                     .build();
+                lastSentHasReplacement = false;
+                deltaMsgBytesCounter.increment(currentDelta.getSerializedSize());
                 send(currentDelta);
             } else {
                 // Calculate delta
@@ -200,6 +225,7 @@ final class AntiEntropy {
                                     .addAllHistoryEvents(to(crdtInflater.historyEvents()))
                                     .setVer(HLC.INST.get())
                                     .build();
+                                lastSentHasReplacement = true;
                                 send(currentDelta);
                             } else {
                                 currentDelta = null;

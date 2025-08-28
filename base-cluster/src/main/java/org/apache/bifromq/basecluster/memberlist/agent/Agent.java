@@ -31,7 +31,6 @@ import io.reactivex.rxjava3.core.Scheduler;
 import io.reactivex.rxjava3.disposables.CompositeDisposable;
 import io.reactivex.rxjava3.subjects.BehaviorSubject;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
@@ -68,7 +67,6 @@ public final class Agent implements IAgent {
         BehaviorSubject.createDefault(emptyMap());
     private final CompositeDisposable disposables = new CompositeDisposable();
     private final Gauge memberNumGauge;
-    private volatile Set<AgentEndpoint> currentAgentEndpoints = new HashSet<>();
 
     public Agent(String agentId,
                  AgentEndpoint endpoint,
@@ -187,37 +185,35 @@ public final class Agent implements IAgent {
 
     private void handleAgentEndpointsUpdate(Set<AgentEndpoint> agentEndpoints) {
         skipRunIfNotJoined(() -> {
-            Set<AgentEndpoint> newAgentEndpoints = Sets.newHashSet(agentEndpoints);
-            newAgentEndpoints.add(localEndpoint);
-            Set<AgentEndpoint> leftHosts = Sets.difference(currentAgentEndpoints, newAgentEndpoints);
-            // drop members on left hosts
+            Set<AgentEndpoint> aliveAgentEndpoints = Sets.newHashSet(agentEndpoints);
+            aliveAgentEndpoints.add(localEndpoint);
+            // compute alive endpoints from host member list (clean source of truth)
+            Set<HostEndpoint> aliveAgentHostEndpoints = aliveAgentEndpoints.stream()
+                .map(AgentEndpoint::getEndpoint)
+                .collect(Collectors.toSet());
+            // drop members in CRDT that are not present in alive host endpoints
             Map<AgentMemberAddr, AgentMemberMetadata> agentMemberMap = CRDTUtil.toAgentMemberMap(agentCRDT);
             for (AgentMemberAddr memberAddr : agentMemberMap.keySet()) {
-                AgentEndpoint agentEndpoint = AgentEndpoint.newBuilder()
-                    .setEndpoint(memberAddr.getEndpoint())
-                    .setIncarnation(memberAddr.getIncarnation())
-                    .build();
-                if (leftHosts.contains(agentEndpoint)
-                    && shouldReportFailure(newAgentEndpoints, memberAddr.getEndpoint())) {
+                if (!aliveAgentHostEndpoints.contains(memberAddr.getEndpoint())
+                    && shouldClean(aliveAgentEndpoints, memberAddr.getEndpoint())) {
                     agentCRDT.execute(ORMapOperation.remove(memberAddr.toByteString()).of(mvreg));
                 }
             }
             // update landscape
-            currentAgentEndpoints = newAgentEndpoints;
             store.join(agentCRDT.id(),
-                currentAgentEndpoints.stream().map(AbstractMessageLite::toByteString).collect(Collectors.toSet()));
+                aliveAgentEndpoints.stream().map(AbstractMessageLite::toByteString).collect(Collectors.toSet()));
         });
     }
 
-    private boolean shouldReportFailure(Set<AgentEndpoint> allEndpoints, HostEndpoint failedMemberEndpoint) {
+    private boolean shouldClean(Set<AgentEndpoint> allEndpoints, HostEndpoint failedMemberEndpoint) {
         // if local member is responsible for removing the failed member from CRDT
         RendezvousHash<HostEndpoint, AgentEndpoint> hash = RendezvousHash.<HostEndpoint, AgentEndpoint>builder()
             .keyFunnel((from, into) -> into.putBytes(from.getId().asReadOnlyByteBuffer()))
             .nodeFunnel((from, into) -> into.putBytes(from.getEndpoint().getId().asReadOnlyByteBuffer()))
             .nodes(allEndpoints)
             .build();
-        AgentEndpoint reporter = hash.get(failedMemberEndpoint);
-        return reporter.getEndpoint().getId().equals(localEndpoint.getEndpoint().getId());
+        AgentEndpoint cleaner = hash.get(failedMemberEndpoint);
+        return cleaner.getEndpoint().getId().equals(localEndpoint.getEndpoint().getId());
     }
 
     private void skipRunIfNotJoined(Runnable runnable) {

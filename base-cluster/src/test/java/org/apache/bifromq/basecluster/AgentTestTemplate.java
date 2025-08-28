@@ -14,17 +14,17 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 
 package org.apache.bifromq.basecluster;
 
-import org.apache.bifromq.basecluster.annotation.StoreCfg;
-import org.apache.bifromq.basecluster.annotation.StoreCfgs;
-import org.apache.bifromq.basecrdt.store.CRDTStoreOptions;
 import java.lang.reflect.Method;
 import java.time.Duration;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.bifromq.basecluster.annotation.StoreCfg;
+import org.apache.bifromq.basecluster.annotation.StoreCfgs;
+import org.apache.bifromq.basecrdt.store.CRDTStoreOptions;
 import org.testng.annotations.AfterMethod;
 import org.testng.annotations.BeforeMethod;
 
@@ -42,14 +42,16 @@ public abstract class AgentTestTemplate {
         if (storeMgr != null) {
             if (storeCfgs != null) {
                 for (StoreCfg cfg : storeCfgs.stores()) {
-                    storeMgr.newHost(cfg.id(), build(cfg));
+                    storeMgr.registerHost(cfg.id(), build(cfg));
+                    storeMgr.startHost(cfg.id());
                     if (cfg.isSeed()) {
                         seedStoreId = cfg.id();
                     }
                 }
             }
             if (storeCfg != null) {
-                storeMgr.newHost(storeCfg.id(), build(storeCfg));
+                storeMgr.registerHost(storeCfg.id(), build(storeCfg));
+                storeMgr.startHost(storeCfg.id());
             }
             if (seedStoreId != null && storeCfgs != null) {
                 for (StoreCfg cfg : storeCfgs.stores()) {

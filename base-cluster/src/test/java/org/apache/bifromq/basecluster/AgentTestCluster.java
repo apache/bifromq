@@ -49,15 +49,16 @@ public class AgentTestCluster {
     private final Map<String, ITransport> hostTransportMap = Maps.newConcurrentMap();
     private final Map<HostEndpoint, IAgentHost> hostMap = Maps.newConcurrentMap();
     private final Map<String, List<ByteString>> inflationLogs = Maps.newConcurrentMap();
+    private final Map<String, HostEndpoint> crashedHostEndpointMap = Maps.newConcurrentMap();
+    private final Map<String, ITransport> crashedHostTransportMap = Maps.newConcurrentMap();
+    private final Map<HostEndpoint, IAgentHost> crashedHostMap = Maps.newConcurrentMap();
     private final CompositeDisposable disposables = new CompositeDisposable();
+
     public AgentTestCluster() {
     }
 
-    public String newHost(String hostId, AgentHostOptions options) {
-        hostMetaMap.computeIfAbsent(hostId, k -> {
-            loadStore(hostId, options);
-            return new AgentHostMeta(options);
-        });
+    public String registerHost(String hostId, AgentHostOptions options) {
+        hostMetaMap.computeIfAbsent(hostId, k -> new AgentHostMeta(options));
         return hostId;
     }
 
@@ -86,6 +87,20 @@ public class AgentTestCluster {
     public void isolate(String hostId) {
         checkHost(hostId);
         network.isolate(hostTransportMap.get(hostId));
+    }
+
+    public void crash(String hostId) {
+        checkHost(hostId);
+        network.isolate(hostTransportMap.get(hostId));
+        inflationLogs.remove(hostId);
+
+        HostEndpoint crashedEndpoint = hostEndpointMap.remove(hostId);
+        crashedHostEndpointMap.put(hostId, crashedEndpoint);
+
+        IAgentHost crashedAgentHost = hostMap.remove(crashedEndpoint);
+        crashedHostMap.put(crashedEndpoint, crashedAgentHost);
+        ITransport transport = hostTransportMap.remove(hostId);
+        crashedHostTransportMap.put(hostId, transport);
     }
 
     public void integrate(String hostId) {
@@ -138,6 +153,8 @@ public class AgentTestCluster {
     public void shutdown() {
         disposables.dispose();
         hostEndpointMap.keySet().forEach(this::stopHost);
+        crashedHostTransportMap.keySet().forEach(hostId ->
+            crashedHostMap.remove(crashedHostEndpointMap.get(hostId)).close());
     }
 
     public IAgentHost getHost(String hostId) {

@@ -395,4 +395,42 @@ public class AgentHostsTest extends AgentTestTemplate {
         await().forever().until(() -> agentOnS2.membership().blockingFirst().size() == 4);
         await().forever().until(() -> agentOnS3.membership().blockingFirst().size() == 4);
     }
+
+    @StoreCfgs(stores = {
+        @StoreCfg(id = "s1", isSeed = true),
+        @StoreCfg(id = "s2"),
+    })
+    @Test
+    public void testCleanStaleAgentMembersAfterHostRestartWithNewEndpoint() {
+        // ensure cluster up
+        await().until(() -> storeMgr.membership("s1").size() == 2);
+        await().until(() -> storeMgr.membership("s2").size() == 2);
+
+        // host same agent on both hosts so CRDT survives while s1 restarts
+        IAgent agentOnS1 = storeMgr.hostAgent("s1", "agentX");
+        IAgent agentOnS2 = storeMgr.hostAgent("s2", "agentX");
+
+        // register a member only on s1 to create a CRDT entry bound to s1's endpoint
+        IAgentMember s1Member = agentOnS1.register("nodeOnS1");
+        s1Member.metadata(copyFromUtf8("payload"));
+
+        // both sides should observe exactly 1 member
+        await().until(() -> agentOnS1.membership().blockingFirst().size() == 1);
+        await().until(() -> agentOnS2.membership().blockingFirst().size() == 1);
+
+        storeMgr.crash("s1");
+        // s2 should eventually only see itself
+        await().forever().until(() -> storeMgr.membership("s2").size() == 1);
+
+        // start a new s1 instance with a new endpoint (old isolated one still exists but unreachable)
+        storeMgr.startHost("s1");
+        // rejoin cluster
+        storeMgr.join("s1", "s2");
+        // re-host the agent on s1 (no members registered now)
+        IAgent newAgentOnS1 = storeMgr.hostAgent("s1", "agentX");
+
+        // eventually, the stale member from old s1 endpoint should be cleaned from CRDT
+        await().until(() -> newAgentOnS1.membership().blockingFirst().isEmpty());
+        await().until(() -> agentOnS2.membership().blockingFirst().isEmpty());
+    }
 }

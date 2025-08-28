@@ -60,6 +60,13 @@ if not exist "%LOG_DIR%" (
     mkdir "%LOG_DIR%"
 )
 
+rem Heap dump directory to use
+if "" == "%HEAP_DUMP_DIR%" set HEAP_DUMP_DIR=%LOG_DIR%
+rem create heap dump directory
+if not exist "%HEAP_DUMP_DIR%" (
+    mkdir "%HEAP_DUMP_DIR%"
+)
+
 rem data directory to use
 if "" == "%DATA_DIR%" set DATA_DIR=%BASE_DIR%\data
 rem create data directory
@@ -131,7 +138,7 @@ if "" == "%JVM_GC_OPTS%" (
                         '-XX:+UseZGC' ^
                         '-XX:ZAllocationSpikeTolerance=5' ^
                         '-XX:+HeapDumpOnOutOfMemoryError' ^
-                        '-XX:HeapDumpPath="%LOG_DIR%"' ^
+                        '-XX:HeapDumpPath=%HEAP_DUMP_DIR%' ^
                         '-Xlog:async' ^
                         '-Xlog:gc:file="%LOG_DIR%\gc.log:time,tid,tags:filecount=5,filesize=50m"'
 )

@@ -64,6 +64,12 @@ if [ "x$LOG_DIR" = "x" ]; then
 fi
 mkdir -p "$LOG_DIR"
 
+# Heap dump directory to use, default is log directory
+if [ "x$HEAP_DUMP_DIR" = "x" ]; then
+  HEAP_DUMP_DIR="$LOG_DIR"
+fi
+mkdir -p "$HEAP_DUMP_DIR"
+
 # Data directory to use
 if [ "x$DATA_DIR" = "x" ]; then
   DATA_DIR="$BASE_DIR/data"
@@ -156,7 +162,7 @@ if [ -z "$JVM_GC_OPTS" ]; then
   -Xlog:gc:file='${LOG_DIR}/gc-%t.log:time,tid,tags:filecount=5,filesize=50m' \
   -XX:+CrashOnOutOfMemoryError \
   -XX:+HeapDumpOnOutOfMemoryError \
-  -XX:HeapDumpPath='${LOG_DIR}' \
+  -XX:HeapDumpPath=${HEAP_DUMP_DIR} \
 "
 fi
 

@@ -40,7 +40,8 @@ public abstract class StoreBalancer {
      * @param localStoreId the id of the store which the balancer is responsible for
      */
     public StoreBalancer(String clusterId, String localStoreId) {
-        this.log = MDCLogger.getLogger("balancer.logger", "clusterId", clusterId, "storeId", localStoreId);
+        this.log = MDCLogger.getLogger("balancer.logger",
+            "clusterId", clusterId, "storeId", localStoreId, "balancer", this.getClass().getSimpleName());
         this.clusterId = clusterId;
         this.localStoreId = localStoreId;
     }

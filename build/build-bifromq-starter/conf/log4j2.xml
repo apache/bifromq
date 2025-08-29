@@ -41,7 +41,7 @@
             %d{yyyy-MM-dd HH:mm:ss.SSS} %5p [%t] --- [%F:%L] %m - [id=%X{id},term=%X{term},state=%X{state},leader=%X{leader},f=%X{first},l=%X{last}],c=%X{commit},cfg=%X{config}]%n
         ]]></Property>
         <Property name="balancerLogPattern"><![CDATA[
-            %d{yyyy-MM-dd HH:mm:ss.SSS} %5p --- %m%n
+            %d{yyyy-MM-dd HH:mm:ss.SSS} %5p --- [%X{balancer}] %m%n
         ]]></Property>
     </Properties>
 

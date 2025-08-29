@@ -406,7 +406,7 @@ public class KVStoreBalanceControllerTest {
     public void testRefreshSignal() {
         reset(statesReporter);
         refreshSignal.onNext(System.currentTimeMillis());
-        verify(statesReporter, times(4))
+        verify(statesReporter, times(1))
             .reportBalancerState(anyString(), anyBoolean(), any(Struct.class));
         verify(statesReporter, times(1))
             .reportBalancerState(eq(balancerFactory.getClass().getName()),

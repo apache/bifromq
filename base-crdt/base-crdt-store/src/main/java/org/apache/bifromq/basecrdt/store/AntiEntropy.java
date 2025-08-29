@@ -204,7 +204,6 @@ final class AntiEntropy {
                     .setVer(HLC.INST.get())
                     .build();
                 lastSentHasReplacement = false;
-                deltaMsgBytesCounter.increment(currentDelta.getSerializedSize());
                 send(currentDelta);
             } else {
                 // Calculate delta
@@ -245,7 +244,7 @@ final class AntiEntropy {
     private void send(DeltaMessage deltaMessage) {
         log.trace("Local[{}] send delta to neighbor[{}]:\n{}",
             toPrintable(localAddr), toPrintable(neighborAddr), toPrintable(deltaMessage));
-        neighborMessageSubject.onNext(new NeighborMessage(deltaMessage, neighborAddr));
+        emit(deltaMessage);
         // Schedule timer task for resend
         scheduleResend(deltaMessage);
     }
@@ -265,9 +264,7 @@ final class AntiEntropy {
             if (currentDelta == toResend) {
                 log.trace("Local[{}] resend delta to neighbor[{}]:\n{}",
                     toPrintable(localAddr), toPrintable(neighborAddr), toPrintable(toResend));
-                deltaMsgCounter.increment();
-                deltaMsgBytesCounter.increment(currentDelta.getSerializedSize());
-                neighborMessageSubject.onNext(new NeighborMessage(currentDelta, neighborAddr));
+                emit(currentDelta);
                 if (resendCount++ < 10) {
                     scheduleResend(toResend);
                 } else {
@@ -287,5 +284,11 @@ final class AntiEntropy {
 
     private long resendDelay() {
         return ThreadLocalRandom.current().nextLong(500, 2000) * (resendCount + 1);
+    }
+
+    private void emit(DeltaMessage delta) {
+        deltaMsgCounter.increment();
+        deltaMsgBytesCounter.increment(delta.getSerializedSize());
+        neighborMessageSubject.onNext(new NeighborMessage(delta, neighborAddr));
     }
 }

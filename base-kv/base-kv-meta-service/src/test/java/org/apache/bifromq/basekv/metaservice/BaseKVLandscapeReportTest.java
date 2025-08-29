@@ -21,9 +21,7 @@ package org.apache.bifromq.basekv.metaservice;
 
 import static org.awaitility.Awaitility.await;
 import static org.testng.Assert.assertEquals;
-import static org.testng.Assert.assertTrue;
 
-import java.util.Collections;
 import java.util.Map;
 import org.apache.bifromq.basecluster.AgentHostOptions;
 import org.apache.bifromq.basecluster.IAgentHost;
@@ -80,7 +78,6 @@ public class BaseKVLandscapeReportTest {
         await().until(() -> observer.getStoreDescriptor(descriptor.getId()).isPresent());
 
         reporter.stop();
-        assertEquals(Collections.emptyMap(), observer.landscape().blockingFirst());
-        assertTrue(observer.getStoreDescriptor(descriptor.getId()).isEmpty());
+        await().until(() -> observer.landscape().blockingFirst().isEmpty());
     }
 }

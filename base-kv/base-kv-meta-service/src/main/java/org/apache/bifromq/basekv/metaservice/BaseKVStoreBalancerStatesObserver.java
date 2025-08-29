@@ -27,13 +27,17 @@ import io.reactivex.rxjava3.subjects.BehaviorSubject;
 import java.util.HashMap;
 import java.util.Map;
 import org.apache.bifromq.basekv.proto.BalancerStateSnapshot;
+import org.apache.bifromq.logger.MDCLogger;
+import org.slf4j.Logger;
 
 class BaseKVStoreBalancerStatesObserver implements IBaseKVStoreBalancerStatesObserver {
+    private final Logger log;
     private final BehaviorSubject<Map<String, Map<String, BalancerStateSnapshot>>> currentBalancerStatesSubject =
         BehaviorSubject.createDefault(emptyMap());
     private final CompositeDisposable disposable = new CompositeDisposable();
 
     BaseKVStoreBalancerStatesObserver(IBaseKVStoreBalancerStatesCRDT statesCRDT) {
+        this.log = MDCLogger.getLogger(BaseKVStoreBalancerStatesObserver.class, "clusterId", statesCRDT.clusterId());
         disposable.add(statesCRDT.currentBalancerStates()
             .observeOn(IBaseKVMetaService.SHARED_SCHEDULER)
             .map(statesMap -> {
@@ -49,6 +53,7 @@ class BaseKVStoreBalancerStatesObserver implements IBaseKVStoreBalancerStatesObs
                         }
                         return balancerStates;
                     }));
+                log.debug("Current balancer states changed: {}", currentStates);
                 return currentStates;
             })
             .subscribe(currentBalancerStatesSubject::onNext));

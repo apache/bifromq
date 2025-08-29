@@ -24,11 +24,15 @@ import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import org.apache.bifromq.basehlc.HLC;
 import org.apache.bifromq.basekv.proto.BalancerStateSnapshot;
+import org.apache.bifromq.logger.MDCLogger;
+import org.slf4j.Logger;
 
 class BaseKVStoreBalancerStatesProposer implements IBaseKVStoreBalancerStatesProposer {
+    private final Logger log;
     private final IBaseKVStoreBalancerStatesProposalCRDT proposalCRDT;
 
     BaseKVStoreBalancerStatesProposer(IBaseKVStoreBalancerStatesProposalCRDT proposalCRDT) {
+        this.log = MDCLogger.getLogger(BaseKVStoreBalancerStatesProposer.class, "clusterId", proposalCRDT.clusterId());
         this.proposalCRDT = proposalCRDT;
     }
 
@@ -76,6 +80,7 @@ class BaseKVStoreBalancerStatesProposer implements IBaseKVStoreBalancerStatesPro
 
     private CompletableFuture<ProposalResult> proposeBalancerState(String balancerFactoryClass,
                                                                    BalancerStateSnapshot state) {
+        log.debug("Propose balancer state: balancerClass={}, state={}", balancerFactoryClass, state);
         CompletableFuture<ProposalResult> resultFuture = new CompletableFuture<>();
         long now = state.getHlc();
         proposalCRDT.expectedBalancerStates()

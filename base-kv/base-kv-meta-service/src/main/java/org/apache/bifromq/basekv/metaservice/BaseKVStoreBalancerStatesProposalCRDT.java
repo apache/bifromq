@@ -36,7 +36,6 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
-import lombok.extern.slf4j.Slf4j;
 import org.apache.bifromq.basecrdt.core.api.CausalCRDTType;
 import org.apache.bifromq.basecrdt.core.api.IMVReg;
 import org.apache.bifromq.basecrdt.core.api.IORMap;
@@ -45,9 +44,12 @@ import org.apache.bifromq.basecrdt.core.api.ORMapOperation;
 import org.apache.bifromq.basecrdt.service.ICRDTService;
 import org.apache.bifromq.basehlc.HLC;
 import org.apache.bifromq.basekv.proto.BalancerStateSnapshot;
+import org.apache.bifromq.logger.MDCLogger;
+import org.slf4j.Logger;
 
-@Slf4j
 class BaseKVStoreBalancerStatesProposalCRDT implements IBaseKVStoreBalancerStatesProposalCRDT {
+    private final String clusterId;
+    private final Logger log;
     private final ICRDTService crdtService;
     // key: balancerClassFQN, value: BalancerState
     private final IORMap expectedBalancerStatesORMap;
@@ -56,12 +58,19 @@ class BaseKVStoreBalancerStatesProposalCRDT implements IBaseKVStoreBalancerState
     private final CompositeDisposable disposable = new CompositeDisposable();
 
     BaseKVStoreBalancerStatesProposalCRDT(String clusterId, ICRDTService crdtService) {
+        this.clusterId = clusterId;
+        this.log = MDCLogger.getLogger(BaseKVStoreBalancerStatesProposalCRDT.class, "clusterId", clusterId);
         this.crdtService = crdtService;
         this.expectedBalancerStatesORMap = crdtService.host(toBalancerStateProposalURI(clusterId));
         disposable.add(expectedBalancerStatesORMap.inflation()
             .observeOn(IBaseKVMetaService.SHARED_SCHEDULER)
             .map(this::buildExpectedBalancerStateSnapshots)
             .subscribe(expectedBalancerStatesSubject::onNext));
+    }
+
+    @Override
+    public String clusterId() {
+        return clusterId;
     }
 
     public Observable<Map<String, BalancerStateSnapshot>> expectedBalancerStates() {
@@ -115,6 +124,7 @@ class BaseKVStoreBalancerStatesProposalCRDT implements IBaseKVStoreBalancerState
             balancerStateOpt.ifPresent(stateSnapshot -> balancerStatesMap.put(balancerClassFQN,
                 stateSnapshot));
         });
+        log.debug("Expected balancer states changed: {}", balancerStatesMap);
         return balancerStatesMap;
     }
 

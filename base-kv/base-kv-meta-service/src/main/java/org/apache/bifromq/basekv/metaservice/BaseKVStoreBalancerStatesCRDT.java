@@ -39,7 +39,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.stream.Collectors;
-import lombok.extern.slf4j.Slf4j;
+import org.apache.bifromq.base.util.RendezvousHash;
 import org.apache.bifromq.basecrdt.core.api.CausalCRDTType;
 import org.apache.bifromq.basecrdt.core.api.IMVReg;
 import org.apache.bifromq.basecrdt.core.api.IORMap;
@@ -50,9 +50,12 @@ import org.apache.bifromq.basecrdt.service.ICRDTService;
 import org.apache.bifromq.basehlc.HLC;
 import org.apache.bifromq.basekv.proto.BalancerStateSnapshot;
 import org.apache.bifromq.basekv.proto.StoreKey;
+import org.apache.bifromq.logger.MDCLogger;
+import org.slf4j.Logger;
 
-@Slf4j
 class BaseKVStoreBalancerStatesCRDT implements IBaseKVStoreBalancerStatesCRDT {
+    private final String clusterId;
+    private final Logger log;
     private final ICRDTService crdtService;
     // key: storeId, value: Map of balancerClassFQN -> BalancerState
     private final IORMap balancerStatesByStoreORMap;
@@ -61,12 +64,25 @@ class BaseKVStoreBalancerStatesCRDT implements IBaseKVStoreBalancerStatesCRDT {
     private final CompositeDisposable disposable = new CompositeDisposable();
 
     BaseKVStoreBalancerStatesCRDT(String clusterId, ICRDTService crdtService) {
+        this.clusterId = clusterId;
+        this.log = MDCLogger.getLogger(BaseKVStoreBalancerStatesCRDT.class, "clusterId", clusterId);
         this.crdtService = crdtService;
         this.balancerStatesByStoreORMap = crdtService.host(toBalancerStateURI(clusterId));
         disposable.add(balancerStatesByStoreORMap.inflation()
             .observeOn(IBaseKVMetaService.SHARED_SCHEDULER)
             .map(this::buildBalancerStateSnapshots)
             .subscribe(balancerStatesSubject::onNext));
+        disposable.add(Observable.combineLatest(
+                this.currentBalancerStates(),
+                this.aliveReplicas(),
+                (StateSnapshotsAndReplicas::new))
+            .observeOn(IBaseKVMetaService.SHARED_SCHEDULER)
+            .subscribe(this::houseKeep));
+    }
+
+    @Override
+    public String clusterId() {
+        return clusterId;
     }
 
     @Override
@@ -160,5 +176,32 @@ class BaseKVStoreBalancerStatesCRDT implements IBaseKVStoreBalancerStatesCRDT {
                             .put(balancerClassFQN, state));
                 }));
         return currentBalancerStates;
+    }
+
+    private void houseKeep(StateSnapshotsAndReplicas stateSnapshotsAndReplicas) {
+        Map<StoreKey, Map<String, BalancerStateSnapshot>> observed = stateSnapshotsAndReplicas.observed;
+        Set<ByteString> aliveReplicas = stateSnapshotsAndReplicas.replicaIds;
+        for (StoreKey storeKey : observed.keySet()) {
+            if (!aliveReplicas.contains(storeKey.getReplicaId())
+                && shouldClean(aliveReplicas, storeKey.getReplicaId())) {
+                log.debug("store[{}] is not alive, remove its balancer states", storeKey.getStoreId());
+                this.removeStore(storeKey);
+            }
+        }
+    }
+
+    private boolean shouldClean(Set<ByteString> aliveReplicas, ByteString failedReplicas) {
+        // Choose cleaner deterministically from the identical aliveReplicas set across nodes.
+        RendezvousHash<ByteString, ByteString> hash = RendezvousHash.<ByteString, ByteString>builder()
+            .keyFunnel((from, into) -> into.putBytes(from.asReadOnlyByteBuffer()))
+            .nodeFunnel((from, into) -> into.putBytes(from.asReadOnlyByteBuffer()))
+            .nodes(aliveReplicas)
+            .build();
+        ByteString cleaner = hash.get(failedReplicas);
+        return cleaner != null && cleaner.equals(balancerStatesByStoreORMap.id().getId());
+    }
+
+    private record StateSnapshotsAndReplicas(Map<StoreKey, Map<String, BalancerStateSnapshot>> observed,
+                                             Set<ByteString> replicaIds) {
     }
 }

@@ -26,13 +26,17 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
 import org.apache.bifromq.basekv.proto.KVRangeStoreDescriptor;
+import org.apache.bifromq.logger.MDCLogger;
+import org.slf4j.Logger;
 
 class BaseKVLandscapeObserver implements IBaseKVLandscapeObserver {
+    private final Logger log;
     private final BehaviorSubject<Map<String, KVRangeStoreDescriptor>> landscapeSubject =
         BehaviorSubject.create();
     private final CompositeDisposable disposable = new CompositeDisposable();
 
     BaseKVLandscapeObserver(IBaseKVLandscapeCRDT landscapeCRDT) {
+        this.log = MDCLogger.getLogger(BaseKVLandscapeObserver.class, "clusterId", landscapeCRDT.clusterId());
         disposable.add(landscapeCRDT.landscape()
             .map(descriptorMap -> {
                 Map<String, KVRangeStoreDescriptor> descriptorMapByStoreId = new HashMap<>();
@@ -42,6 +46,7 @@ class BaseKVLandscapeObserver implements IBaseKVLandscapeObserver {
                     }
                     return v.getHlc() > value.getHlc() ? v : value;
                 }));
+                log.debug("Landscape changed: {}", descriptorMapByStoreId);
                 return descriptorMapByStoreId;
             })
             .subscribe(landscapeSubject::onNext));

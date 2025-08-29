@@ -19,34 +19,32 @@
 
 package org.apache.bifromq.basekv.metaservice;
 
-import com.google.protobuf.ByteString;
 import com.google.protobuf.Struct;
 import io.reactivex.rxjava3.core.Observable;
 import io.reactivex.rxjava3.disposables.CompositeDisposable;
 import java.util.Map;
-import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
-import lombok.extern.slf4j.Slf4j;
 import org.apache.bifromq.basekv.proto.BalancerStateSnapshot;
 import org.apache.bifromq.basekv.proto.StoreKey;
+import org.apache.bifromq.logger.MDCLogger;
+import org.slf4j.Logger;
 
-@Slf4j
 class BaseKVStoreBalancerStatesReporter implements IBaseKVStoreBalancerStatesReporter {
+    private final Logger log;
     private final String storeId;
     private final IBaseKVStoreBalancerStatesCRDT statesCRDT;
     private final CompositeDisposable disposable = new CompositeDisposable();
     private final Map<String, BalancerState> latestState = new ConcurrentHashMap<>();
 
     BaseKVStoreBalancerStatesReporter(String storeId, IBaseKVStoreBalancerStatesCRDT statesCRDT) {
+        this.log = MDCLogger.getLogger(BaseKVStoreBalancerStatesReporter.class, "clusterId", statesCRDT.clusterId(),
+            "storeId", storeId);
         this.storeId = storeId;
         this.statesCRDT = statesCRDT;
-        disposable.add(Observable.combineLatest(
-                statesCRDT.currentBalancerStates(),
-                statesCRDT.aliveReplicas(),
-                (StateSnapshotsAndReplicas::new))
+        disposable.add(statesCRDT.currentBalancerStates()
             .observeOn(IBaseKVMetaService.SHARED_SCHEDULER)
-            .subscribe(this::houseKeep));
+            .subscribe(this::afterInflation));
     }
 
     @Override
@@ -75,24 +73,13 @@ class BaseKVStoreBalancerStatesReporter implements IBaseKVStoreBalancerStatesRep
         disposable.dispose();
     }
 
-    private void houseKeep(StateSnapshotsAndReplicas stateSnapshotsAndReplicas) {
-        Map<StoreKey, Map<String, BalancerStateSnapshot>> observed = stateSnapshotsAndReplicas.observed;
-        Set<ByteString> aliveReplicas = stateSnapshotsAndReplicas.replicaIds;
-        for (StoreKey storeKey : observed.keySet()) {
-            if (!aliveReplicas.contains(storeKey.getReplicaId())) {
-                log.debug("store[{}] is not alive, remove its balancer states", storeKey.getStoreId());
-                statesCRDT.removeStore(storeKey);
-            }
-        }
+    private void afterInflation(Map<StoreKey, Map<String, BalancerStateSnapshot>> observed) {
         if (!observed.containsKey(statesCRDT.toDescriptorKey(storeId))) {
+            log.debug("Rectify missing store balancer states");
             latestState.forEach((balancerClassFQN, balancerState) ->
                 statesCRDT.setStoreBalancerState(storeId, balancerClassFQN,
                     balancerState.enable(), balancerState.loadRules()));
         }
-    }
-
-    private record StateSnapshotsAndReplicas(Map<StoreKey, Map<String, BalancerStateSnapshot>> observed,
-                                             Set<ByteString> replicaIds) {
     }
 
     private record BalancerState(boolean enable, Struct loadRules) {

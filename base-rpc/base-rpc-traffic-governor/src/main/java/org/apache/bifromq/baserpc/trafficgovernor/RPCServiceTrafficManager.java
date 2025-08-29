@@ -37,6 +37,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.bifromq.base.util.RendezvousHash;
 import org.apache.bifromq.basecrdt.service.ICRDTService;
 import org.apache.bifromq.basehlc.HLC;
 import org.apache.bifromq.baserpc.proto.RPCServer;
@@ -130,14 +131,26 @@ class RPCServiceTrafficManager extends RPCServiceAnnouncer
         for (RPCServer server : announcedServers.values()) {
             if (aliveAnnouncers.contains(server.getAnnouncerId())) {
                 aliveServers.add(build(server));
-            } else {
-                // this is a side effect: revoke the announcement made by dead announcer
+            } else if (shouldClean(aliveAnnouncers, server.getAnnouncerId())) {
+                // revoke the announcement made by dead announcer
                 log.debug("Remove not alive server announcement: {}", server.getId());
                 revoke(server.getId());
             }
         }
         return aliveServers;
     }
+
+    private boolean shouldClean(Set<ByteString> aliveAnnouncers, ByteString failedAnnouncer) {
+        aliveAnnouncers.add(id());
+        RendezvousHash<ByteString, ByteString> hash = RendezvousHash.<ByteString, ByteString>builder()
+            .keyFunnel((from, into) -> into.putBytes(from.asReadOnlyByteBuffer()))
+            .nodeFunnel((from, into) -> into.putBytes(from.asReadOnlyByteBuffer()))
+            .nodes(aliveAnnouncers)
+            .build();
+        ByteString cleaner = hash.get(failedAnnouncer);
+        return cleaner.equals(id());
+    }
+
 
     private ServerEndpoint build(RPCServer server) {
         return new ServerEndpoint(server.getAgentHostId(),

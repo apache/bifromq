@@ -30,6 +30,7 @@ import org.apache.bifromq.basekv.proto.BalancerStateSnapshot;
  * The interface of a BaseKV store balancer states CRDT.
  */
 public interface IBaseKVStoreBalancerStatesProposalCRDT {
+    String clusterId();
 
     Observable<Map<String, BalancerStateSnapshot>> expectedBalancerStates();
 

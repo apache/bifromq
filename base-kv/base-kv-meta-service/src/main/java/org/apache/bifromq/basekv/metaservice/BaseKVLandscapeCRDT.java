@@ -37,7 +37,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.stream.Collectors;
-import lombok.extern.slf4j.Slf4j;
+import org.apache.bifromq.base.util.RendezvousHash;
 import org.apache.bifromq.basecrdt.core.api.CausalCRDTType;
 import org.apache.bifromq.basecrdt.core.api.IMVReg;
 import org.apache.bifromq.basecrdt.core.api.IORMap;
@@ -47,21 +47,34 @@ import org.apache.bifromq.basecrdt.proto.Replica;
 import org.apache.bifromq.basecrdt.service.ICRDTService;
 import org.apache.bifromq.basekv.proto.KVRangeStoreDescriptor;
 import org.apache.bifromq.basekv.proto.StoreKey;
+import org.apache.bifromq.logger.MDCLogger;
+import org.slf4j.Logger;
 
-@Slf4j
 class BaseKVLandscapeCRDT implements IBaseKVLandscapeCRDT {
+    private final String clusterId;
+    private final Logger log;
     private final ICRDTService crdtService;
     private final IORMap landscapeORMap;
     private final BehaviorSubject<Map<StoreKey, KVRangeStoreDescriptor>> landscapeSubject = BehaviorSubject.create();
     private final CompositeDisposable disposable = new CompositeDisposable();
 
     BaseKVLandscapeCRDT(String clusterId, ICRDTService crdtService) {
+        this.clusterId = clusterId;
+        this.log = MDCLogger.getLogger(BaseKVLandscapeCRDT.class, "clusterId", clusterId);
         this.crdtService = crdtService;
         this.landscapeORMap = crdtService.host(toLandscapeURI(clusterId));
         disposable.add(landscapeORMap.inflation()
             .observeOn(IBaseKVMetaService.SHARED_SCHEDULER)
             .map(this::buildLandscape)
             .subscribe(landscapeSubject::onNext));
+        disposable.add(Observable.combineLatest(landscape(), aliveReplicas(), (StoreDescriptorAndReplicas::new))
+            .observeOn(IBaseKVMetaService.SHARED_SCHEDULER)
+            .subscribe(this::houseKeep));
+    }
+
+    @Override
+    public String clusterId() {
+        return clusterId;
     }
 
     @Override
@@ -128,5 +141,32 @@ class BaseKVLandscapeCRDT implements IBaseKVLandscapeCRDT {
         }), Objects::nonNull));
         l.sort((a, b) -> Long.compareUnsigned(b.getHlc(), a.getHlc()));
         return Optional.ofNullable(l.isEmpty() ? null : l.get(0));
+    }
+
+    private void houseKeep(StoreDescriptorAndReplicas storeDescriptorAndReplicas) {
+        Map<StoreKey, KVRangeStoreDescriptor> storedDescriptors = storeDescriptorAndReplicas.descriptorMap;
+        Set<ByteString> aliveReplicas = storeDescriptorAndReplicas.replicaIds;
+        for (StoreKey storeKey : storedDescriptors.keySet()) {
+            if (!aliveReplicas.contains(storeKey.getReplicaId())
+                && shouldClean(aliveReplicas, storeKey.getReplicaId())) {
+                log.debug("store[{}] is not alive, remove its descriptor", storeKey.getStoreId());
+                removeDescriptor(storeKey);
+            }
+        }
+    }
+
+    private boolean shouldClean(Set<ByteString> aliveReplicas, ByteString failedReplicas) {
+        // Choose cleaner deterministically from the identical aliveReplicas set across nodes.
+        RendezvousHash<ByteString, ByteString> hash = RendezvousHash.<ByteString, ByteString>builder()
+            .keyFunnel((from, into) -> into.putBytes(from.asReadOnlyByteBuffer()))
+            .nodeFunnel((from, into) -> into.putBytes(from.asReadOnlyByteBuffer()))
+            .nodes(aliveReplicas)
+            .build();
+        ByteString cleaner = hash.get(failedReplicas);
+        return cleaner != null && cleaner.equals(landscapeORMap.id().getId());
+    }
+
+    private record StoreDescriptorAndReplicas(Map<StoreKey, KVRangeStoreDescriptor> descriptorMap,
+                                              Set<ByteString> replicaIds) {
     }
 }

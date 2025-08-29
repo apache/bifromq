@@ -33,11 +33,18 @@ import org.apache.bifromq.basekv.proto.StoreKey;
  */
 public interface IBaseKVLandscapeCRDT {
     /**
+     * The id of base-kv cluster.
+     * @return the cluster id
+     */
+    String clusterId();
+
+    /**
      * A signal to refresh the landscape CRDT.
      *
      * @return the observable of the signal
      */
     Observable<Long> refreshSignal();
+
     /**
      * Get the observable of alive replicas of landscape CRDT.
      *

@@ -100,6 +100,9 @@ public class RangeBootstrapBalancer extends StoreBalancer {
                     KVRangeIdUtil.toString(rangeId));
                 bootstrapTrigger.set(new BootstrapTrigger(rangeId, FULL_BOUNDARY, randomSuspicionTimeout()));
             }
+        } else if (bootstrapTrigger.get() != null) {
+            log.debug("Effective epoch found: {}, cancel any pending bootstrap", effectiveEpoch.get().epoch());
+            bootstrapTrigger.set(null);
         }
     }
 

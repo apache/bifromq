@@ -22,6 +22,7 @@ package org.apache.bifromq.basekv.balance.command;
 import lombok.Getter;
 import lombok.Setter;
 import lombok.experimental.SuperBuilder;
+import org.apache.bifromq.basekv.utils.KVRangeIdUtil;
 
 @Getter
 @Setter
@@ -35,6 +36,7 @@ public class RecoveryCommand extends BalanceCommand {
 
     @Override
     public String toString() {
-        return String.format("RecoveryCommand{toStore=%s}", getToStore());
+        return String.format("RecoveryCommand{toStore=%s, kvRangeId=%s}",
+            getToStore(), KVRangeIdUtil.toString(getKvRangeId()));
     }
 }

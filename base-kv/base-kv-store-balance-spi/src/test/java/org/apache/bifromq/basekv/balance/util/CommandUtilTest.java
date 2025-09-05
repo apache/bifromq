@@ -19,17 +19,19 @@
 
 package org.apache.bifromq.basekv.balance.util;
 
+import static com.google.protobuf.ByteString.copyFromUtf8;
 import static org.apache.bifromq.basekv.balance.util.CommandUtil.diffBy;
 import static org.apache.bifromq.basekv.utils.BoundaryUtil.toBoundary;
-import static com.google.protobuf.ByteString.copyFromUtf8;
 import static org.testng.Assert.assertEquals;
 import static org.testng.Assert.assertNotNull;
 import static org.testng.Assert.assertNull;
 import static org.testng.Assert.assertTrue;
 
-import org.apache.bifromq.basekv.balance.BalanceNow;
-import org.apache.bifromq.basekv.balance.BalanceResult;
-import org.apache.bifromq.basekv.balance.BalanceResultType;
+import com.google.protobuf.ByteString;
+import java.util.Collections;
+import java.util.NavigableMap;
+import java.util.Set;
+import java.util.TreeMap;
 import org.apache.bifromq.basekv.balance.command.BalanceCommand;
 import org.apache.bifromq.basekv.balance.command.BootstrapCommand;
 import org.apache.bifromq.basekv.balance.command.ChangeConfigCommand;
@@ -44,11 +46,6 @@ import org.apache.bifromq.basekv.utils.BoundaryUtil;
 import org.apache.bifromq.basekv.utils.EffectiveRoute;
 import org.apache.bifromq.basekv.utils.KVRangeIdUtil;
 import org.apache.bifromq.basekv.utils.LeaderRange;
-import com.google.protobuf.ByteString;
-import java.util.Collections;
-import java.util.NavigableMap;
-import java.util.Set;
-import java.util.TreeMap;
 import org.testng.annotations.Test;
 
 public class CommandUtilTest {
@@ -65,10 +62,9 @@ public class CommandUtilTest {
                 .build())
             .build();
 
-        BalanceResult result = CommandUtil.quit(localStoreId, kvRangeDescriptor);
+        BalanceCommand result = CommandUtil.quit(localStoreId, kvRangeDescriptor);
 
-        assertEquals(result.type(), BalanceResultType.BalanceNow);
-        ChangeConfigCommand command = (ChangeConfigCommand) ((BalanceNow<?>) result).command;
+        ChangeConfigCommand command = (ChangeConfigCommand) result;
 
         assertEquals(command.getToStore(), localStoreId);
         assertEquals(command.getKvRangeId(), kvRangeId);
@@ -89,10 +85,9 @@ public class CommandUtilTest {
                 .build())
             .build();
 
-        BalanceResult result = CommandUtil.quit(localStoreId, kvRangeDescriptor);
+        BalanceCommand result = CommandUtil.quit(localStoreId, kvRangeDescriptor);
 
-        assertEquals(result.type(), BalanceResultType.BalanceNow);
-        ChangeConfigCommand command = (ChangeConfigCommand) ((BalanceNow<?>) result).command;
+        ChangeConfigCommand command = (ChangeConfigCommand) result;
 
         assertEquals(command.getToStore(), localStoreId);
         assertEquals(command.getKvRangeId(), kvRangeId);
@@ -112,10 +107,9 @@ public class CommandUtilTest {
                 .build())
             .build();
 
-        BalanceResult result = CommandUtil.quit(localStoreId, kvRangeDescriptor);
+        BalanceCommand result = CommandUtil.quit(localStoreId, kvRangeDescriptor);
 
-        assertEquals(result.type(), BalanceResultType.BalanceNow);
-        ChangeConfigCommand command = (ChangeConfigCommand) ((BalanceNow<?>) result).command;
+        ChangeConfigCommand command = (ChangeConfigCommand) result;
 
         assertEquals(command.getToStore(), localStoreId);
         assertEquals(command.getKvRangeId(), kvRangeId);

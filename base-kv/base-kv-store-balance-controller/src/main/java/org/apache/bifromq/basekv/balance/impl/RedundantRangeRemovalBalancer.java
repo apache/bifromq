@@ -24,6 +24,7 @@ import static org.apache.bifromq.basekv.utils.DescriptorUtil.getEffectiveRoute;
 import static org.apache.bifromq.basekv.utils.DescriptorUtil.organizeByEpoch;
 
 import com.google.common.collect.Sets;
+import java.time.Duration;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
@@ -33,9 +34,15 @@ import java.util.NavigableSet;
 import java.util.Set;
 import java.util.SortedSet;
 import java.util.TreeSet;
+import java.util.concurrent.ThreadLocalRandom;
+import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Supplier;
+import org.apache.bifromq.basekv.balance.AwaitBalance;
+import org.apache.bifromq.basekv.balance.BalanceNow;
 import org.apache.bifromq.basekv.balance.BalanceResult;
 import org.apache.bifromq.basekv.balance.NoNeedBalance;
 import org.apache.bifromq.basekv.balance.StoreBalancer;
+import org.apache.bifromq.basekv.balance.command.BalanceCommand;
 import org.apache.bifromq.basekv.proto.Boundary;
 import org.apache.bifromq.basekv.proto.KVRangeDescriptor;
 import org.apache.bifromq.basekv.proto.KVRangeId;
@@ -58,7 +65,9 @@ import org.apache.bifromq.basekv.utils.LeaderRange;
  * caution.</p>
  */
 public class RedundantRangeRemovalBalancer extends StoreBalancer {
-    private volatile NavigableMap<Long, Set<KVRangeStoreDescriptor>> latest = Collections.emptyNavigableMap();
+    private final Supplier<Long> millisSource;
+    private final long suspicionDurationMillis;
+    private final AtomicReference<PendingQuitCommand> pendingQuitCommand = new AtomicReference<>();
 
     /**
      * Constructor of StoreBalancer.
@@ -66,23 +75,60 @@ public class RedundantRangeRemovalBalancer extends StoreBalancer {
      * @param clusterId    the id of the BaseKV cluster which the store belongs to
      * @param localStoreId the id of the store which the balancer is responsible for
      */
-    public RedundantRangeRemovalBalancer(String clusterId, String localStoreId) {
+    public RedundantRangeRemovalBalancer(String clusterId,
+                                         String localStoreId,
+                                         Duration suspicionDuration,
+                                         Supplier<Long> millisSource) {
         super(clusterId, localStoreId);
+        this.suspicionDurationMillis = suspicionDuration.toMillis();
+        this.millisSource = millisSource;
     }
 
     @Override
     public void update(Set<KVRangeStoreDescriptor> landscape) {
-        latest = organizeByEpoch(landscape);
+        NavigableMap<Long, Set<KVRangeStoreDescriptor>> landscapeByEpoch = organizeByEpoch(landscape);
+        if (landscapeByEpoch.isEmpty()) {
+            pendingQuitCommand.set(null);
+            return;
+        }
+        boolean scheduled = cleanupRedundantEpoch(landscapeByEpoch);
+        if (scheduled) {
+            return;
+        }
+        Map.Entry<Long, Set<KVRangeStoreDescriptor>> oldestEntry = landscapeByEpoch.firstEntry();
+        EffectiveEpoch effectiveEpoch = new EffectiveEpoch(oldestEntry.getKey(), oldestEntry.getValue());
+        scheduled = cleanupIdConflictRange(effectiveEpoch);
+        if (scheduled) {
+            return;
+        }
+        scheduled = cleanupBoundaryConflictRange(effectiveEpoch);
+        if (!scheduled) {
+            if (pendingQuitCommand.get() != null) {
+                log.debug("No redundant range found, clear pending quit command");
+                pendingQuitCommand.set(null);
+            }
+        }
     }
 
     @Override
     public BalanceResult balance() {
-        if (latest.isEmpty()) {
-            return NoNeedBalance.INSTANCE;
+        PendingQuitCommand current = pendingQuitCommand.get();
+        if (current != null) {
+            long nowMillis = millisSource.get();
+            if (nowMillis > current.triggerTime) {
+                pendingQuitCommand.set(null);
+                return BalanceNow.of(current.quitCmd);
+            } else {
+                return AwaitBalance.of(Duration.ofMillis(current.triggerTime - nowMillis));
+            }
         }
-        if (latest.size() > 1) {
+        return NoNeedBalance.INSTANCE;
+    }
+
+    private boolean cleanupRedundantEpoch(NavigableMap<Long, Set<KVRangeStoreDescriptor>> landscapeByEpoch) {
+        if (landscapeByEpoch.size() > 1) {
             // deal with epoch-conflict ranges
-            Set<KVRangeStoreDescriptor> storeDescriptors = latest.lastEntry().getValue();
+            Set<KVRangeStoreDescriptor> storeDescriptors = landscapeByEpoch.lastEntry().getValue();
             for (KVRangeStoreDescriptor storeDescriptor : storeDescriptors) {
                 if (!storeDescriptor.getId().equals(localStoreId)) {
                     continue;
@@ -91,34 +137,42 @@ public class RedundantRangeRemovalBalancer extends StoreBalancer {
                     if (rangeDescriptor.getRole() != RaftNodeStatus.Leader) {
                         continue;
                     }
-                    log.debug("Remove Epoch-Conflict range: {} in store {}",
-                        KVRangeIdUtil.toString(rangeDescriptor.getId()),
-                        storeDescriptor.getId());
-                    return quit(localStoreId, rangeDescriptor);
+                    log.debug("Schedule command to remove epoch-conflict range: id={}, boundary={}",
+                        KVRangeIdUtil.toString(rangeDescriptor.getId()), rangeDescriptor.getBoundary());
+                    pendingQuitCommand.set(
+                        new PendingQuitCommand(quit(localStoreId, rangeDescriptor), randomSuspicionTimeout()));
+                    return true;
                 }
             }
-            return NoNeedBalance.INSTANCE;
         }
-        Map.Entry<Long, Set<KVRangeStoreDescriptor>> oldestEntry = latest.firstEntry();
-        Map<KVRangeId, NavigableSet<LeaderRange>> conflictingRanges = findConflictingRanges(oldestEntry.getValue());
+        return false;
+    }
+
+    private boolean cleanupIdConflictRange(EffectiveEpoch effectiveEpoch) {
+        Map<KVRangeId, NavigableSet<LeaderRange>> conflictingRanges =
+            findConflictingRanges(effectiveEpoch.storeDescriptors());
         if (!conflictingRanges.isEmpty()) {
             // deal with id-conflict ranges
             for (KVRangeId rangeId : conflictingRanges.keySet()) {
                 NavigableSet<LeaderRange> leaderRanges = conflictingRanges.get(rangeId);
                 for (LeaderRange leaderRange : leaderRanges) {
                     if (!leaderRange.ownerStoreDescriptor().getId().equals(localStoreId)) {
-                        return NoNeedBalance.INSTANCE;
+                        return false;
                     }
-                    log.warn("Remove Id-Conflict range: {} in store {}",
+                    log.warn("Schedule command to remove id-conflict range: id={}, boundary={}",
                         KVRangeIdUtil.toString(leaderRange.descriptor().getId()),
-                        leaderRange.ownerStoreDescriptor().getId());
-                    return quit(localStoreId, leaderRange.descriptor());
+                        leaderRange.descriptor().getBoundary());
+                    pendingQuitCommand.set(
+                        new PendingQuitCommand(quit(localStoreId, leaderRange.descriptor()), randomSuspicionTimeout()));
+                    return true;
                 }
             }
-            return NoNeedBalance.INSTANCE;
         }
+        return false;
+    }
+
+    private boolean cleanupBoundaryConflictRange(EffectiveEpoch effectiveEpoch) {
         // deal with boundary-conflict ranges
-        EffectiveEpoch effectiveEpoch = new EffectiveEpoch(oldestEntry.getKey(), oldestEntry.getValue());
         NavigableMap<Boundary, LeaderRange> effectiveLeaders = getEffectiveRoute(effectiveEpoch).leaderRanges();
         for (KVRangeStoreDescriptor storeDescriptor : effectiveEpoch.storeDescriptors()) {
             if (!storeDescriptor.getId().equals(localStoreId)) {
@@ -131,14 +185,15 @@ public class RedundantRangeRemovalBalancer extends StoreBalancer {
                 Boundary boundary = rangeDescriptor.getBoundary();
                 LeaderRange leaderRange = effectiveLeaders.get(boundary);
                 if (leaderRange == null || !leaderRange.descriptor().getId().equals(rangeDescriptor.getId())) {
-                    log.warn("Remove Boundary-Conflict range: {} in store {}",
-                        KVRangeIdUtil.toString(rangeDescriptor.getId()),
-                        storeDescriptor.getId());
-                    return quit(localStoreId, rangeDescriptor);
+                    log.warn("Schedule command to remove boundary-conflict range: id={}, boundary={}",
+                        KVRangeIdUtil.toString(rangeDescriptor.getId()), rangeDescriptor.getBoundary());
+                    pendingQuitCommand.set(
+                        new PendingQuitCommand(quit(localStoreId, rangeDescriptor), randomSuspicionTimeout()));
+                    return true;
                 }
             }
         }
-        return NoNeedBalance.INSTANCE;
+        return false;
     }
 
     private Map<KVRangeId, NavigableSet<LeaderRange>> findConflictingRanges(
@@ -183,5 +238,14 @@ public class RedundantRangeRemovalBalancer extends StoreBalancer {
         Set<String> secondNextVoters = Sets.newHashSet(secondConfig.getNextVotersList());
         return Collections.disjoint(firstVoters, secondVoters)
             && Collections.disjoint(firstNextVoters, secondNextVoters);
+    }
+
+    private long randomSuspicionTimeout() {
+        return millisSource.get()
+            + ThreadLocalRandom.current().nextLong(suspicionDurationMillis, suspicionDurationMillis * 2);
+    }
+
+    private record PendingQuitCommand(BalanceCommand quitCmd, long triggerTime) {
+
     }
 }

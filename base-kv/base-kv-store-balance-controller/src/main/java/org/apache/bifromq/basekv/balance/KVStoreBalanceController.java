@@ -121,7 +121,7 @@ public class KVStoreBalanceController {
         this.customBalancerFactories = Lists.newArrayList(factories);
         this.builtinBalancerFactories = Lists.newArrayList(
             new RangeBootstrapBalancerFactory(bootstrapDelay),
-            new RedundantRangeRemovalBalancerFactory(),
+            new RedundantRangeRemovalBalancerFactory(zombieProbeDelay),
             new UnreachableReplicaRemovalBalancerFactory(zombieProbeDelay));
         this.statesProposal = metaService.balancerStatesProposal(storeClient.clusterId());
         this.balancers = new HashMap<>();
@@ -181,6 +181,7 @@ public class KVStoreBalanceController {
                         String balancerFacClassFQN = entry.getKey();
                         StoreBalancerState balancerState = entry.getValue();
                         if (!balancerState.isBuiltin) {
+                            log.debug("Report balancer state for {}", balancerFacClassFQN);
                             statesReporter.reportBalancerState(balancerFacClassFQN,
                                 balancerState.disabled.get(), balancerState.loadRules.get());
                         }
@@ -214,6 +215,10 @@ public class KVStoreBalanceController {
     private void trigger() {
         if (state.get() == State.Started && scheduling.compareAndSet(false, true)) {
             long jitter = ThreadLocalRandom.current().nextLong(0, retryDelay.toMillis());
+            if (task != null && !task.isDone()) {
+                log.trace("Cancel scheduled balance task");
+                task.cancel(true);
+            }
             task = executor.schedule(this::updateAndBalance, jitter, TimeUnit.MILLISECONDS);
         }
     }
@@ -279,9 +284,11 @@ public class KVStoreBalanceController {
     private void scheduleRetry(Map<String, BalancerStateSnapshot> expected,
                                Set<KVRangeStoreDescriptor> landscape,
                                Duration delay) {
+        log.debug("Retry balance after {}s", delay.toSeconds());
         task = executor.schedule(() -> {
             if (!Objects.equals(expected, this.expectedBalancerStates) || landscape != this.landscape) {
                 // retry is preemptive
+                log.trace("Balance retry is preempted");
                 return;
             }
             if (scheduling.compareAndSet(false, true)) {
@@ -295,7 +302,6 @@ public class KVStoreBalanceController {
         metricsManager.scheduleCount.increment();
         Duration delay = null;
         for (Map.Entry<String, StoreBalancerState> entry : balancers.entrySet()) {
-            String balancerFactoryName = entry.getKey();
             StoreBalancerState fromBalancerState = entry.getValue();
             StoreBalancer fromBalancer = fromBalancerState.balancer;
             String balancerName = fromBalancer.getClass().getSimpleName();

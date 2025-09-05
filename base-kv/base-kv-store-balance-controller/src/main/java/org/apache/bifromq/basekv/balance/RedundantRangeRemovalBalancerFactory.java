@@ -19,14 +19,22 @@
 
 package org.apache.bifromq.basekv.balance;
 
+import java.time.Duration;
+import org.apache.bifromq.basehlc.HLC;
 import org.apache.bifromq.basekv.balance.impl.RedundantRangeRemovalBalancer;
 
 /**
  * Builtin balancer for redundant range removal.
  */
 class RedundantRangeRemovalBalancerFactory implements IStoreBalancerFactory {
+    private final Duration delay;
+
+    RedundantRangeRemovalBalancerFactory(Duration delay) {
+        this.delay = delay;
+    }
+
     @Override
     public StoreBalancer newBalancer(String clusterId, String localStoreId) {
-        return new RedundantRangeRemovalBalancer(clusterId, localStoreId);
+        return new RedundantRangeRemovalBalancer(clusterId, localStoreId, delay, HLC.INST::getPhysical);
     }
 }

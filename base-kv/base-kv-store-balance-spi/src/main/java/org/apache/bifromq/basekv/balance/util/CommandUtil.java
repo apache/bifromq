@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 
 package org.apache.bifromq.basekv.balance.util;
@@ -23,8 +23,14 @@ import static org.apache.bifromq.basekv.utils.BoundaryUtil.inRange;
 import static org.apache.bifromq.basekv.utils.BoundaryUtil.startKey;
 import static org.apache.bifromq.basekv.utils.BoundaryUtil.toBoundary;
 
-import org.apache.bifromq.basekv.balance.BalanceNow;
-import org.apache.bifromq.basekv.balance.BalanceResult;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.HashSet;
+import java.util.Iterator;
+import java.util.List;
+import java.util.NavigableMap;
+import java.util.Set;
 import org.apache.bifromq.basekv.balance.command.BalanceCommand;
 import org.apache.bifromq.basekv.balance.command.BootstrapCommand;
 import org.apache.bifromq.basekv.balance.command.ChangeConfigCommand;
@@ -37,14 +43,6 @@ import org.apache.bifromq.basekv.utils.BoundaryUtil;
 import org.apache.bifromq.basekv.utils.EffectiveRoute;
 import org.apache.bifromq.basekv.utils.KVRangeIdUtil;
 import org.apache.bifromq.basekv.utils.LeaderRange;
-import java.util.ArrayList;
-import java.util.Collection;
-import java.util.Collections;
-import java.util.HashSet;
-import java.util.Iterator;
-import java.util.List;
-import java.util.NavigableMap;
-import java.util.Set;
 
 /**
  * Utility class for generating balance commands.
@@ -57,24 +55,24 @@ public class CommandUtil {
      * @param rangeDescriptor the range descriptor of the range which the balancer is responsible for
      * @return the generated ChangeConfigCommand
      */
-    public static BalanceResult quit(String localStoreId, KVRangeDescriptor rangeDescriptor) {
+    public static BalanceCommand quit(String localStoreId, KVRangeDescriptor rangeDescriptor) {
         ClusterConfig config = rangeDescriptor.getConfig();
         if (config.getVotersCount() > 1 || config.getLearnersCount() > 0) {
-            return BalanceNow.of(ChangeConfigCommand.builder()
+            return ChangeConfigCommand.builder()
                 .toStore(localStoreId)
                 .kvRangeId(rangeDescriptor.getId())
                 .expectedVer(rangeDescriptor.getVer())
                 .voters(Set.of(localStoreId))
                 .learners(Collections.emptySet())
-                .build());
+                .build();
         } else {
-            return BalanceNow.of(ChangeConfigCommand.builder()
+            return ChangeConfigCommand.builder()
                 .toStore(localStoreId)
                 .kvRangeId(rangeDescriptor.getId())
                 .expectedVer(rangeDescriptor.getVer())
                 .voters(Collections.emptySet())
                 .learners(Collections.emptySet())
-                .build());
+                .build();
         }
     }
 

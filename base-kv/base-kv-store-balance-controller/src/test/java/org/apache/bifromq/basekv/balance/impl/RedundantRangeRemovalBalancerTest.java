@@ -23,9 +23,11 @@ import static org.testng.Assert.assertEquals;
 import static org.testng.Assert.assertSame;
 
 import com.google.protobuf.ByteString;
+import java.time.Duration;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicLong;
 import org.apache.bifromq.basekv.balance.BalanceNow;
 import org.apache.bifromq.basekv.balance.BalanceResult;
 import org.apache.bifromq.basekv.balance.BalanceResultType;
@@ -34,20 +36,22 @@ import org.apache.bifromq.basekv.proto.Boundary;
 import org.apache.bifromq.basekv.proto.KVRangeDescriptor;
 import org.apache.bifromq.basekv.proto.KVRangeId;
 import org.apache.bifromq.basekv.proto.KVRangeStoreDescriptor;
+import org.apache.bifromq.basekv.proto.State;
 import org.apache.bifromq.basekv.raft.proto.ClusterConfig;
 import org.apache.bifromq.basekv.raft.proto.RaftNodeStatus;
 import org.testng.annotations.BeforeMethod;
 import org.testng.annotations.Test;
 
 public class RedundantRangeRemovalBalancerTest {
-
     private final String clusterId = "testCluster";
     private final String localStoreId = "localStore";
     private RedundantRangeRemovalBalancer balancer;
+    private AtomicLong mockTime;
 
     @BeforeMethod
     public void setUp() {
-        balancer = new RedundantRangeRemovalBalancer(clusterId, localStoreId);
+        mockTime = new AtomicLong(0L); // Start time at 0
+        balancer = new RedundantRangeRemovalBalancer(clusterId, localStoreId, Duration.ofSeconds(1), mockTime::get);
     }
 
     @Test
@@ -56,6 +60,7 @@ public class RedundantRangeRemovalBalancerTest {
         KVRangeDescriptor kvRangeDescriptor = KVRangeDescriptor.newBuilder()
             .setId(kvRangeId)
             .setRole(RaftNodeStatus.Leader)
+            .setState(State.StateType.Normal)
             .setVer(1)
             .setBoundary(Boundary.newBuilder()
                 .setStartKey(ByteString.copyFromUtf8("a"))
@@ -85,6 +90,7 @@ public class RedundantRangeRemovalBalancerTest {
         KVRangeDescriptor kvRangeDescriptor1 = KVRangeDescriptor.newBuilder()
             .setId(kvRangeId1)
             .setRole(RaftNodeStatus.Leader)
+            .setState(State.StateType.Normal)
             .setVer(1)
             .setBoundary(Boundary.newBuilder()
                 .setStartKey(ByteString.copyFromUtf8("a"))
@@ -99,6 +105,7 @@ public class RedundantRangeRemovalBalancerTest {
         KVRangeDescriptor kvRangeDescriptor2 = KVRangeDescriptor.newBuilder()
             .setId(kvRangeId2)
             .setRole(RaftNodeStatus.Leader)
+            .setState(State.StateType.Normal)
             .setVer(1)
             .setBoundary(Boundary.newBuilder()
                 .setStartKey(ByteString.copyFromUtf8("n"))
@@ -121,6 +128,11 @@ public class RedundantRangeRemovalBalancerTest {
         balancer.update(storeDescriptors);
 
         BalanceResult command = balancer.balance();
+        // first returns AwaitBalance due to suspicion delay
+        assertEquals(command.type(), BalanceResultType.AwaitBalance);
+        // advance mock time beyond the max suspicion window (2s)
+        mockTime.set(3000L);
+        command = balancer.balance();
         assertEquals(command.type(), BalanceResultType.BalanceNow);
         ChangeConfigCommand changeConfigCommand = (ChangeConfigCommand) ((BalanceNow<?>) command).command;
 
@@ -137,6 +149,7 @@ public class RedundantRangeRemovalBalancerTest {
             .setId(kvRangeId1)
             .setRole(RaftNodeStatus.Leader)
             .setVer(1)
+            .setState(State.StateType.Normal)
             .setBoundary(Boundary.newBuilder()
                 .setStartKey(ByteString.copyFromUtf8("a"))
                 .setEndKey(ByteString.copyFromUtf8("m"))
@@ -150,6 +163,7 @@ public class RedundantRangeRemovalBalancerTest {
         KVRangeDescriptor kvRangeDescriptor2 = KVRangeDescriptor.newBuilder()
             .setId(kvRangeId2)
             .setRole(RaftNodeStatus.Follower)
+            .setState(State.StateType.Normal)
             .setVer(1)
             .setBoundary(Boundary.newBuilder()
                 .setStartKey(ByteString.copyFromUtf8("n"))
@@ -187,6 +201,7 @@ public class RedundantRangeRemovalBalancerTest {
             .setId(kvRangeId1)
             .setVer(1)
             .setRole(RaftNodeStatus.Leader)
+            .setState(State.StateType.Normal)
             .setBoundary(boundary)
             .setConfig(config)
             .build();
@@ -194,6 +209,7 @@ public class RedundantRangeRemovalBalancerTest {
             .setId(kvRangeId2)
             .setVer(1)
             .setRole(RaftNodeStatus.Leader)
+            .setState(State.StateType.Normal)
             .setBoundary(boundary)
             .setConfig(config)
             .build();
@@ -209,7 +225,10 @@ public class RedundantRangeRemovalBalancerTest {
         balancer.update(storeDescriptors);
 
         BalanceResult result = balancer.balance();
-
+        // first returns AwaitBalance due to suspicion delay
+        assertEquals(result.type(), BalanceResultType.AwaitBalance);
+        mockTime.set(3000L);
+        result = balancer.balance();
         assertEquals(result.type(), BalanceResultType.BalanceNow);
 
         ChangeConfigCommand command = (ChangeConfigCommand) ((BalanceNow<?>) result).command;
@@ -226,6 +245,7 @@ public class RedundantRangeRemovalBalancerTest {
         KVRangeDescriptor kvRangeDescriptor = KVRangeDescriptor.newBuilder()
             .setId(kvRangeId)
             .setRole(RaftNodeStatus.Leader)
+            .setState(State.StateType.Normal)
             .setVer(1)
             .setBoundary(Boundary.newBuilder()
                 .setStartKey(ByteString.copyFromUtf8("a"))
@@ -259,6 +279,7 @@ public class RedundantRangeRemovalBalancerTest {
         KVRangeDescriptor localRange = KVRangeDescriptor.newBuilder()
             .setId(kvRangeId)
             .setRole(RaftNodeStatus.Leader)
+            .setState(State.StateType.Normal)
             .setVer(1)
             .setBoundary(boundary)
             .setConfig(ClusterConfig.newBuilder()
@@ -289,6 +310,10 @@ public class RedundantRangeRemovalBalancerTest {
         balancer.update(Set.of(localStoreDesc, peerStoreDesc));
 
         BalanceResult result = balancer.balance();
+        // first returns AwaitBalance due to suspicion delay
+        assertEquals(result.type(), BalanceResultType.AwaitBalance);
+        mockTime.set(3000L);
+        result = balancer.balance();
         assertEquals(result.type(), BalanceResultType.BalanceNow);
 
         ChangeConfigCommand cmd = (ChangeConfigCommand) ((BalanceNow<?>) result).command;
@@ -311,6 +336,7 @@ public class RedundantRangeRemovalBalancerTest {
             .setId(kvRangeId)
             .setRole(RaftNodeStatus.Leader)
             .setVer(1)
+            .setState(State.StateType.Normal)
             .setBoundary(boundary)
             .setConfig(ClusterConfig.newBuilder()
                 .addVoters(localStoreId)
@@ -321,6 +347,7 @@ public class RedundantRangeRemovalBalancerTest {
             .setId(kvRangeId)
             .setRole(RaftNodeStatus.Leader)
             .setVer(1)
+            .setState(State.StateType.Normal)
             .setBoundary(boundary)
             .setConfig(ClusterConfig.newBuilder()
                 .addVoters(peerStoreId)
@@ -344,7 +371,7 @@ public class RedundantRangeRemovalBalancerTest {
     }
 
     @Test
-    public void idConflictButVotersOverlap_shouldNotDelete() {
+    public void idConflictButVotersOverlapShouldNotDelete() {
         String peerStoreId = "peer";
         KVRangeId kvRangeId = KVRangeId.newBuilder().setEpoch(1).setId(1).build();
         Boundary boundary = Boundary.newBuilder()
@@ -352,7 +379,10 @@ public class RedundantRangeRemovalBalancerTest {
             .setEndKey(ByteString.copyFromUtf8("z")).build();
 
         KVRangeDescriptor localRange = KVRangeDescriptor.newBuilder()
-            .setId(kvRangeId).setRole(RaftNodeStatus.Leader).setVer(1)
+            .setId(kvRangeId)
+            .setRole(RaftNodeStatus.Leader)
+            .setVer(1)
+            .setState(State.StateType.Normal)
             .setBoundary(boundary)
             .setConfig(ClusterConfig.newBuilder()
                 .addVoters(localStoreId)
@@ -360,7 +390,10 @@ public class RedundantRangeRemovalBalancerTest {
             .build();
 
         KVRangeDescriptor peerRange = KVRangeDescriptor.newBuilder()
-            .setId(kvRangeId).setRole(RaftNodeStatus.Leader).setVer(1)
+            .setId(kvRangeId)
+            .setRole(RaftNodeStatus.Leader)
+            .setVer(1)
+            .setState(State.StateType.Normal)
             .setBoundary(boundary)
             .setConfig(ClusterConfig.newBuilder()
                 .addVoters(localStoreId)

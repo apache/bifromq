@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 
 package org.apache.bifromq.basekv.utils;
@@ -22,10 +22,6 @@ package org.apache.bifromq.basekv.utils;
 import static org.apache.bifromq.basekv.utils.BoundaryUtil.endKey;
 import static org.apache.bifromq.basekv.utils.BoundaryUtil.startKey;
 
-import org.apache.bifromq.basekv.proto.Boundary;
-import org.apache.bifromq.basekv.proto.KVRangeDescriptor;
-import org.apache.bifromq.basekv.proto.KVRangeStoreDescriptor;
-import org.apache.bifromq.basekv.raft.proto.RaftNodeStatus;
 import com.google.protobuf.ByteString;
 import java.util.Comparator;
 import java.util.HashMap;
@@ -37,6 +33,10 @@ import java.util.Set;
 import java.util.TreeMap;
 import java.util.TreeSet;
 import java.util.stream.Collectors;
+import org.apache.bifromq.basekv.proto.Boundary;
+import org.apache.bifromq.basekv.proto.KVRangeDescriptor;
+import org.apache.bifromq.basekv.proto.KVRangeStoreDescriptor;
+import org.apache.bifromq.basekv.raft.proto.RaftNodeStatus;
 
 /**
  * Utilities for processing descriptor.
@@ -100,14 +100,21 @@ public class DescriptorUtil {
         for (KVRangeStoreDescriptor storeDescriptor : effectiveEpoch.storeDescriptors()) {
             for (KVRangeDescriptor rangeDescriptor : storeDescriptor.getRangesList()) {
                 if (rangeDescriptor.getRole() == RaftNodeStatus.Leader) {
-                    ByteString startKey = startKey(rangeDescriptor.getBoundary());
-                    if (startKey == null) {
-                        firstLeaderRanges.add(new LeaderRange(rangeDescriptor, storeDescriptor));
-                        continue;
+                    switch (rangeDescriptor.getState()) {
+                        case Normal, ConfigChanging, PreparedMerging, WaitingForMerge -> {
+                            ByteString startKey = startKey(rangeDescriptor.getBoundary());
+                            if (startKey == null) {
+                                firstLeaderRanges.add(new LeaderRange(rangeDescriptor, storeDescriptor));
+                                continue;
+                            }
+                            sortedLeaderRanges.computeIfAbsent(startKey,
+                                    k -> new TreeSet<>(Comparator.comparingLong(l -> l.descriptor().getId().getId())))
+                                .add(new LeaderRange(rangeDescriptor, storeDescriptor));
+                        }
+                        default -> {
+                            // skip other states
+                        }
                     }
-                    sortedLeaderRanges.computeIfAbsent(startKey,
-                            k -> new TreeSet<>(Comparator.comparingLong(l -> l.descriptor().getId().getId())))
-                        .add(new LeaderRange(rangeDescriptor, storeDescriptor));
                 }
             }
         }

@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 
 package org.apache.bifromq.basekv.balance.impl;
@@ -25,6 +25,8 @@ import static org.testng.Assert.assertEquals;
 import static org.testng.Assert.assertSame;
 import static org.testng.Assert.assertTrue;
 
+import com.google.protobuf.ByteString;
+import java.util.Set;
 import org.apache.bifromq.basekv.balance.BalanceNow;
 import org.apache.bifromq.basekv.balance.BalanceResult;
 import org.apache.bifromq.basekv.balance.BalanceResultType;
@@ -34,10 +36,9 @@ import org.apache.bifromq.basekv.proto.Boundary;
 import org.apache.bifromq.basekv.proto.KVRangeDescriptor;
 import org.apache.bifromq.basekv.proto.KVRangeId;
 import org.apache.bifromq.basekv.proto.KVRangeStoreDescriptor;
+import org.apache.bifromq.basekv.proto.State;
 import org.apache.bifromq.basekv.raft.proto.ClusterConfig;
 import org.apache.bifromq.basekv.raft.proto.RaftNodeStatus;
-import com.google.protobuf.ByteString;
-import java.util.Set;
 import org.testng.annotations.BeforeMethod;
 import org.testng.annotations.Test;
 
@@ -58,6 +59,7 @@ public class RangeLeaderBalancerTest {
         KVRangeDescriptor kvRangeDescriptor = KVRangeDescriptor.newBuilder()
             .setId(kvRangeId)
             .setRole(RaftNodeStatus.Leader)
+            .setState(State.StateType.Normal)
             .setBoundary(
                 Boundary.newBuilder().setStartKey(ByteString.copyFromUtf8("a")).setEndKey(ByteString.copyFromUtf8("z"))
                     .build())
@@ -139,6 +141,7 @@ public class RangeLeaderBalancerTest {
         KVRangeDescriptor kvRangeDescriptor1 = KVRangeDescriptor.newBuilder()
             .setId(kvRangeId1)
             .setRole(RaftNodeStatus.Leader)
+            .setState(State.StateType.Normal)
             .setBoundary(toBoundary(null, ByteString.copyFromUtf8("z")))
             .setConfig(ClusterConfig.newBuilder().addVoters(localStoreId).addLearners("otherStore").build())
             .build();
@@ -148,6 +151,7 @@ public class RangeLeaderBalancerTest {
             .setId(kvRangeId2)
             .setVer(1)
             .setRole(RaftNodeStatus.Leader)
+            .setState(State.StateType.Normal)
             .setBoundary(toBoundary(ByteString.copyFromUtf8("z"), null))
             .setConfig(ClusterConfig.newBuilder().addVoters(localStoreId).addVoters("otherStore").build())
             .build();
@@ -161,6 +165,7 @@ public class RangeLeaderBalancerTest {
         KVRangeDescriptor kvRangeDescriptor3 = KVRangeDescriptor.newBuilder()
             .setId(kvRangeId3)
             .setRole(RaftNodeStatus.Follower)
+            .setState(State.StateType.Normal)
             .setBoundary(toBoundary(ByteString.copyFromUtf8("z"), null))
             .setConfig(ClusterConfig.newBuilder().addVoters("otherStore").build())
             .build();
@@ -185,6 +190,7 @@ public class RangeLeaderBalancerTest {
         KVRangeDescriptor kvRangeDescriptor1 = KVRangeDescriptor.newBuilder()
             .setId(kvRangeId1)
             .setRole(RaftNodeStatus.Leader)
+            .setState(State.StateType.Normal)
             .setBoundary(Boundary.newBuilder().setEndKey(ByteString.copyFromUtf8("z")).build())
             .setConfig(ClusterConfig.newBuilder().addVoters(localStoreId).addLearners("otherStore").build())
             .build();
@@ -193,6 +199,7 @@ public class RangeLeaderBalancerTest {
             .setId(kvRangeId2)
             .setVer(1)
             .setRole(RaftNodeStatus.Leader)
+            .setState(State.StateType.Normal)
             .setBoundary(Boundary.newBuilder().setStartKey(ByteString.copyFromUtf8("z")).build())
             .setConfig(ClusterConfig.newBuilder().addVoters(localStoreId).addVoters("otherStore").build())
             .build();
@@ -205,6 +212,7 @@ public class RangeLeaderBalancerTest {
         KVRangeDescriptor kvRangeDescriptor3 = KVRangeDescriptor.newBuilder()
             .setId(kvRangeId3)
             .setRole(RaftNodeStatus.Leader)
+            .setState(State.StateType.Normal)
             .setBoundary(Boundary.newBuilder().setStartKey(ByteString.copyFromUtf8("z")).build())
             .setConfig(ClusterConfig.newBuilder().addVoters("otherStore").build())
             .build();

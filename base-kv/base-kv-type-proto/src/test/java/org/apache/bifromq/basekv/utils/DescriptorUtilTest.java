@@ -19,16 +19,15 @@
 
 package org.apache.bifromq.basekv.utils;
 
+import static org.apache.bifromq.basekv.proto.State.StateType.Merged;
+import static org.apache.bifromq.basekv.proto.State.StateType.Normal;
+import static org.apache.bifromq.basekv.proto.State.StateType.PreparedMerging;
+import static org.apache.bifromq.basekv.proto.State.StateType.Removed;
 import static org.apache.bifromq.basekv.utils.DescriptorUtil.getEffectiveEpoch;
 import static org.apache.bifromq.basekv.utils.DescriptorUtil.organizeByEpoch;
 import static org.testng.Assert.assertEquals;
 import static org.testng.Assert.assertTrue;
 
-import org.apache.bifromq.basekv.proto.Boundary;
-import org.apache.bifromq.basekv.proto.KVRangeDescriptor;
-import org.apache.bifromq.basekv.proto.KVRangeId;
-import org.apache.bifromq.basekv.proto.KVRangeStoreDescriptor;
-import org.apache.bifromq.basekv.raft.proto.RaftNodeStatus;
 import com.google.protobuf.ByteString;
 import java.util.Arrays;
 import java.util.HashSet;
@@ -37,6 +36,11 @@ import java.util.Map;
 import java.util.NavigableMap;
 import java.util.Set;
 import java.util.stream.Collectors;
+import org.apache.bifromq.basekv.proto.Boundary;
+import org.apache.bifromq.basekv.proto.KVRangeDescriptor;
+import org.apache.bifromq.basekv.proto.KVRangeId;
+import org.apache.bifromq.basekv.proto.KVRangeStoreDescriptor;
+import org.apache.bifromq.basekv.raft.proto.RaftNodeStatus;
 import org.testng.annotations.Test;
 
 public class DescriptorUtilTest {
@@ -460,6 +464,7 @@ public class DescriptorUtilTest {
         KVRangeDescriptor r1 = KVRangeDescriptor.newBuilder()
             .setId(id1)
             .setRole(RaftNodeStatus.Leader)
+            .setState(Normal)
             .setBoundary(boundaryBuilder1.build())
             .build();
 
@@ -470,6 +475,7 @@ public class DescriptorUtilTest {
         KVRangeDescriptor r2 = KVRangeDescriptor.newBuilder()
             .setId(id2)
             .setRole(RaftNodeStatus.Leader)
+            .setState(Normal)
             .setBoundary(boundaryBuilder2.build())
             .build();
 
@@ -479,6 +485,7 @@ public class DescriptorUtilTest {
         KVRangeDescriptor r3 = KVRangeDescriptor.newBuilder()
             .setId(id3)
             .setRole(RaftNodeStatus.Leader)
+            .setState(Normal)
             .setBoundary(boundaryBuilder3.build())
             .build();
 
@@ -517,11 +524,13 @@ public class DescriptorUtilTest {
         KVRangeDescriptor r1 = KVRangeDescriptor.newBuilder()
             .setId(id1)
             .setRole(RaftNodeStatus.Leader)
+            .setState(Normal)
             .setBoundary(boundary)
             .build();
         KVRangeDescriptor r2 = KVRangeDescriptor.newBuilder()
             .setId(id2)
             .setRole(RaftNodeStatus.Leader)
+            .setState(Normal)
             .setBoundary(boundary)
             .build();
 
@@ -567,5 +576,258 @@ public class DescriptorUtilTest {
         NavigableMap<Boundary, LeaderRange> routeMap = effectiveRoute.leaderRanges();
 
         assertTrue(routeMap.isEmpty());
+    }
+
+    @Test
+    public void getEffectiveRouteFiltersByState() {
+        KVRangeId id1 = KVRangeId.newBuilder().setEpoch(1).setId(1).build();
+        KVRangeId id2 = KVRangeId.newBuilder().setEpoch(1).setId(2).build();
+        KVRangeId id3 = KVRangeId.newBuilder().setEpoch(1).setId(3).build();
+        KVRangeId id4 = KVRangeId.newBuilder().setEpoch(1).setId(4).build();
+
+        // Allowed states
+        KVRangeDescriptor rNormal = KVRangeDescriptor.newBuilder()
+            .setId(id1)
+            .setRole(RaftNodeStatus.Leader)
+            .setBoundary(Boundary.newBuilder().setEndKey(ByteString.copyFromUtf8("b")).build())
+            .setState(Normal)
+            .build();
+        KVRangeDescriptor rPreparedMerging = KVRangeDescriptor.newBuilder()
+            .setId(id2)
+            .setRole(RaftNodeStatus.Leader)
+            .setBoundary(Boundary.newBuilder()
+                .setStartKey(ByteString.copyFromUtf8("b"))
+                .setEndKey(ByteString.copyFromUtf8("m"))
+                .build())
+            .setState(PreparedMerging)
+            .build();
+
+        // Disallowed states
+        KVRangeDescriptor rMerged = KVRangeDescriptor.newBuilder()
+            .setId(id3)
+            .setRole(RaftNodeStatus.Leader)
+            .setBoundary(Boundary.newBuilder()
+                .setStartKey(ByteString.copyFromUtf8("m"))
+                .setEndKey(ByteString.copyFromUtf8("z"))
+                .build())
+            .setState(Merged)
+            .build();
+        KVRangeDescriptor rRemoved = KVRangeDescriptor.newBuilder()
+            .setId(id4)
+            .setRole(RaftNodeStatus.Leader)
+            .setBoundary(Boundary.newBuilder()
+                .setStartKey(ByteString.copyFromUtf8("z"))
+                .build())
+            .setState(Removed)
+            .build();
+
+        KVRangeStoreDescriptor storeDescriptor = KVRangeStoreDescriptor.newBuilder()
+            .setId("store1")
+            .addRanges(rNormal)
+            .addRanges(rPreparedMerging)
+            .addRanges(rMerged)
+            .addRanges(rRemoved)
+            .build();
+
+        Set<KVRangeStoreDescriptor> storeDescriptors = new HashSet<>();
+        storeDescriptors.add(storeDescriptor);
+
+        EffectiveEpoch effectiveEpoch = new EffectiveEpoch(1, storeDescriptors);
+        EffectiveRoute effectiveRoute = DescriptorUtil.getEffectiveRoute(effectiveEpoch);
+        NavigableMap<Boundary, LeaderRange> routeMap = effectiveRoute.leaderRanges();
+
+        // Only two allowed ranges should be present
+        assertEquals(routeMap.size(), 2);
+        List<Long> ids = routeMap.values().stream().map(lr -> lr.descriptor().getId().getId()).toList();
+        assertTrue(ids.contains(1L));
+        assertTrue(ids.contains(2L));
+    }
+
+    @Test
+    public void getEffectiveRoutePrefersNullStartKeyAsFirst() {
+        KVRangeId id1 = KVRangeId.newBuilder().setEpoch(1).setId(1).build();
+        KVRangeId id2 = KVRangeId.newBuilder().setEpoch(1).setId(2).build();
+
+        // First range without startKey (should be chosen as first)
+        KVRangeDescriptor r1 = KVRangeDescriptor.newBuilder()
+            .setId(id1)
+            .setRole(RaftNodeStatus.Leader)
+            .setBoundary(Boundary.newBuilder()
+                .setEndKey(ByteString.copyFromUtf8("m"))
+                .build())
+            .setState(Normal)
+            .build();
+
+        // Second range with explicit startKey
+        KVRangeDescriptor r2 = KVRangeDescriptor.newBuilder()
+            .setId(id2)
+            .setRole(RaftNodeStatus.Leader)
+            .setBoundary(Boundary.newBuilder().setStartKey(ByteString.copyFromUtf8("m")).build())
+            .setState(Normal)
+            .build();
+
+        KVRangeStoreDescriptor storeDescriptor = KVRangeStoreDescriptor.newBuilder()
+            .setId("store1")
+            .addRanges(r2)
+            .addRanges(r1)
+            .build();
+
+        Set<KVRangeStoreDescriptor> storeDescriptors = new HashSet<>();
+        storeDescriptors.add(storeDescriptor);
+
+        EffectiveEpoch effectiveEpoch = new EffectiveEpoch(1, storeDescriptors);
+        NavigableMap<Boundary, LeaderRange> routeMap = DescriptorUtil.getEffectiveRoute(effectiveEpoch).leaderRanges();
+
+        assertEquals(routeMap.firstEntry().getValue().descriptor().getId(), id1);
+    }
+
+    @Test
+    public void getEffectiveRouteStopsAtNullEndKey() {
+        KVRangeId id1 = KVRangeId.newBuilder().setEpoch(1).setId(1).build();
+        KVRangeId id2 = KVRangeId.newBuilder().setEpoch(1).setId(2).build();
+        KVRangeId id3 = KVRangeId.newBuilder().setEpoch(1).setId(3).build();
+
+        KVRangeDescriptor r1 = KVRangeDescriptor.newBuilder()
+            .setId(id1)
+            .setRole(RaftNodeStatus.Leader)
+            .setBoundary(Boundary.newBuilder().setEndKey(ByteString.copyFromUtf8("b")).build())
+            .setState(Normal)
+            .build();
+        // Tail range with null endKey
+        KVRangeDescriptor r2 = KVRangeDescriptor.newBuilder()
+            .setId(id2)
+            .setRole(RaftNodeStatus.Leader)
+            .setBoundary(Boundary.newBuilder().setStartKey(ByteString.copyFromUtf8("b")).build())
+            .setState(Normal)
+            .build();
+        // An extra range that should never be reached after tail
+        KVRangeDescriptor r3 = KVRangeDescriptor.newBuilder()
+            .setId(id3)
+            .setRole(RaftNodeStatus.Leader)
+            .setBoundary(
+                Boundary.newBuilder().setStartKey(ByteString.copyFromUtf8("c")).setEndKey(ByteString.copyFromUtf8("d"))
+                    .build())
+            .setState(Normal)
+            .build();
+
+        KVRangeStoreDescriptor storeDescriptor = KVRangeStoreDescriptor.newBuilder()
+            .setId("store1")
+            .addRanges(r1)
+            .addRanges(r2)
+            .addRanges(r3)
+            .build();
+
+        Set<KVRangeStoreDescriptor> storeDescriptors = new HashSet<>();
+        storeDescriptors.add(storeDescriptor);
+
+        EffectiveEpoch effectiveEpoch = new EffectiveEpoch(1, storeDescriptors);
+        NavigableMap<Boundary, LeaderRange> routeMap = DescriptorUtil.getEffectiveRoute(effectiveEpoch).leaderRanges();
+
+        // Should stop at r2 (endKey null)
+        assertEquals(routeMap.size(), 2);
+        List<Long> ids = routeMap.values().stream().map(lr -> lr.descriptor().getId().getId()).toList();
+        assertTrue(ids.contains(1L));
+        assertTrue(ids.contains(2L));
+    }
+
+    @Test
+    public void getEffectiveRouteAllowsGapsByCeilingStartKey() {
+        KVRangeId id1 = KVRangeId.newBuilder().setEpoch(1).setId(1).build();
+        KVRangeId id2 = KVRangeId.newBuilder().setEpoch(1).setId(2).build();
+
+        KVRangeDescriptor r1 = KVRangeDescriptor.newBuilder()
+            .setId(id1)
+            .setRole(RaftNodeStatus.Leader)
+            .setBoundary(Boundary.newBuilder()
+                .setEndKey(ByteString.copyFromUtf8("b"))
+                .build())
+            .setState(Normal)
+            .build();
+        KVRangeDescriptor r2 = KVRangeDescriptor.newBuilder()
+            .setId(id2)
+            .setRole(RaftNodeStatus.Leader)
+            .setBoundary(Boundary.newBuilder()
+                .setStartKey(ByteString.copyFromUtf8("c"))
+                .setEndKey(ByteString.copyFromUtf8("z"))
+                .build())
+            .setState(Normal)
+            .build();
+
+        KVRangeStoreDescriptor storeDescriptor = KVRangeStoreDescriptor.newBuilder()
+            .setId("store1")
+            .addRanges(r1)
+            .addRanges(r2)
+            .build();
+
+        Set<KVRangeStoreDescriptor> storeDescriptors = new HashSet<>();
+        storeDescriptors.add(storeDescriptor);
+
+        EffectiveEpoch effectiveEpoch = new EffectiveEpoch(1, storeDescriptors);
+        NavigableMap<Boundary, LeaderRange> routeMap = DescriptorUtil.getEffectiveRoute(effectiveEpoch).leaderRanges();
+        assertEquals(routeMap.size(), 2);
+    }
+
+    @Test
+    public void organizeByEpochRetainsStoresWithoutRangesInEpoch() {
+        // store1 has epoch 1 & 2 ranges, store2 has only epoch 2
+        KVRangeId id11 = KVRangeId.newBuilder().setEpoch(1).setId(1).build();
+        KVRangeId id21 = KVRangeId.newBuilder().setEpoch(2).setId(1).build();
+        KVRangeDescriptor r11 = KVRangeDescriptor.newBuilder()
+            .setId(id11)
+            .setBoundary(Boundary.newBuilder().setEndKey(ByteString.copyFromUtf8("m")).build())
+            .build();
+        KVRangeDescriptor r21 = KVRangeDescriptor.newBuilder()
+            .setId(id21)
+            .setBoundary(Boundary.newBuilder().setStartKey(ByteString.copyFromUtf8("n")).build())
+            .build();
+
+        KVRangeStoreDescriptor s1 = KVRangeStoreDescriptor.newBuilder().setId("store1").addRanges(r11).addRanges(r21)
+            .build();
+        KVRangeStoreDescriptor s2 = KVRangeStoreDescriptor.newBuilder().setId("store2").addRanges(r21).build();
+
+        Set<KVRangeStoreDescriptor> set = new HashSet<>();
+        set.add(s1);
+        set.add(s2);
+
+        NavigableMap<Long, Set<KVRangeStoreDescriptor>> byEpoch = DescriptorUtil.organizeByEpoch(set);
+        // Epoch 1 should contain both stores, with store2 having 0 ranges
+        assertTrue(byEpoch.containsKey(1L));
+        Set<KVRangeStoreDescriptor> epoch1 = byEpoch.get(1L);
+        assertEquals(epoch1.size(), 2);
+        for (KVRangeStoreDescriptor d : epoch1) {
+            if (d.getId().equals("store1")) {
+                assertEquals(d.getRangesCount(), 1);
+                assertEquals(d.getRanges(0).getId().getEpoch(), 1L);
+            } else if (d.getId().equals("store2")) {
+                assertEquals(d.getRangesCount(), 0);
+            }
+        }
+    }
+
+    @Test
+    public void getEffectiveEpochOldestSelectionWithMixedStores() {
+        // store1 has epoch 2, store2 has epoch 3; no epoch 1 present => pick epoch 2
+        KVRangeId id2 = KVRangeId.newBuilder().setEpoch(2).setId(1).build();
+        KVRangeId id3 = KVRangeId.newBuilder().setEpoch(3).setId(1).build();
+        KVRangeDescriptor r2 = KVRangeDescriptor.newBuilder().setId(id2).build();
+        KVRangeDescriptor r3 = KVRangeDescriptor.newBuilder().setId(id3).build();
+
+        KVRangeStoreDescriptor s1 = KVRangeStoreDescriptor.newBuilder().setId("s1").addRanges(r2).build();
+        KVRangeStoreDescriptor s2 = KVRangeStoreDescriptor.newBuilder().setId("s2").addRanges(r3).build();
+        Set<KVRangeStoreDescriptor> set = new HashSet<>();
+        set.add(s1);
+        set.add(s2);
+
+        Set<KVRangeStoreDescriptor> result = DescriptorUtil.getEffectiveEpoch(set).get().storeDescriptors();
+        assertEquals(result.size(), 2);
+        // All descriptors in effective epoch must be epoch 2 versions of both stores, with s2 having 0 ranges
+        for (KVRangeStoreDescriptor d : result) {
+            if (d.getId().equals("s1")) {
+                assertEquals(d.getRangesCount(), 1);
+                assertEquals(d.getRanges(0).getId().getEpoch(), 2L);
+            } else if (d.getId().equals("s2")) {
+                assertEquals(d.getRangesCount(), 0);
+            }
+        }
     }
 }

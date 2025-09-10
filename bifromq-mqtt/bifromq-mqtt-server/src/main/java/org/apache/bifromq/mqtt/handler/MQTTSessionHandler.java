@@ -33,7 +33,6 @@ import static org.apache.bifromq.metrics.TenantMetric.MqttQoS2DeliverBytes;
 import static org.apache.bifromq.metrics.TenantMetric.MqttQoS2DistBytes;
 import static org.apache.bifromq.metrics.TenantMetric.MqttQoS2ExternalLatency;
 import static org.apache.bifromq.metrics.TenantMetric.MqttQoS2IngressBytes;
-import static org.apache.bifromq.metrics.TenantMetric.MqttTransientSubLatency;
 import static org.apache.bifromq.mqtt.handler.IMQTTProtocolHelper.SubResult.EXCEED_LIMIT;
 import static org.apache.bifromq.mqtt.handler.MQTTSessionIdUtil.packetId;
 import static org.apache.bifromq.mqtt.handler.MQTTSessionIdUtil.userSessionId;
@@ -570,12 +569,10 @@ public abstract class MQTTSessionHandler extends MQTTMessageHandler implements I
                             .setUserProperties(grantedUserProps);
                         subTask.subId().ifPresent(optionBuilder::setSubId);
                         TopicFilterOption tfOption = optionBuilder.build();
-                        Timer.Sample start = Timer.start();
                         return addFgTask(subTopicFilter(reqId, topicFilter, tfOption))
                             .thenComposeAsync(subResult -> {
                                 switch (subResult) {
                                     case OK, EXISTS -> {
-                                        start.stop(tenantMeter.timer(MqttTransientSubLatency));
                                         if (!isSharedSubscription(topicFilter) && settings.retainEnabled
                                             && (tfOption.getRetainHandling() == SEND_AT_SUBSCRIBE
                                             || (subResult == IMQTTProtocolHelper.SubResult.OK

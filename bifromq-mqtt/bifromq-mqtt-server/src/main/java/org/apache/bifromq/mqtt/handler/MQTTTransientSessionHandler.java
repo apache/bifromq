@@ -23,6 +23,7 @@ import static org.apache.bifromq.metrics.TenantMetric.MqttQoS0InternalLatency;
 import static org.apache.bifromq.metrics.TenantMetric.MqttQoS1InternalLatency;
 import static org.apache.bifromq.metrics.TenantMetric.MqttQoS2InternalLatency;
 import static org.apache.bifromq.metrics.TenantMetric.MqttTransientSubCount;
+import static org.apache.bifromq.metrics.TenantMetric.MqttTransientSubLatency;
 import static org.apache.bifromq.metrics.TenantMetric.MqttTransientUnsubCount;
 import static org.apache.bifromq.metrics.TenantMetric.MqttTransientUnsubLatency;
 import static org.apache.bifromq.mqtt.handler.IMQTTProtocolHelper.SubResult.EXCEED_LIMIT;
@@ -181,10 +182,12 @@ public abstract class MQTTTransientSessionHandler extends MQTTSessionHandler imp
             memUsage.addAndGet(topicFilter.length());
             memUsage.addAndGet(option.getSerializedSize());
         }
+        Timer.Sample start = Timer.start();
         return addMatchRecord(reqId, topicFilter, option.getIncarnation())
             .thenApplyAsync(matchResult -> {
                 switch (matchResult) {
                     case OK -> {
+                        start.stop(tenantMeter.timer(MqttTransientSubLatency));
                         if (prevOption == null) {
                             return OK;
                         } else {

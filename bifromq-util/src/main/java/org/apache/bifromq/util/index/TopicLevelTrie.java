@@ -19,9 +19,7 @@
 
 package org.apache.bifromq.util.index;
 
-import static java.util.Collections.emptySet;
-
-import com.google.common.collect.Sets;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -200,21 +198,22 @@ public abstract class TopicLevelTrie<V> {
             Map<Branch<V>, BranchSelector.Action> branches =
                 branchSelector.selectBranch(cn.branches, topicLevels, currentLevel);
 
-            Set<V> values = emptySet();
+            // Flatten union: accumulate into a mutable set to avoid deep SetView chains
+            Set<V> values = new HashSet<>();
             for (Map.Entry<Branch<V>, BranchSelector.Action> entry : branches.entrySet()) {
                 Branch<V> branch = entry.getKey();
                 BranchSelector.Action action = entry.getValue();
                 switch (action) {
                     case MATCH_AND_CONTINUE, CONTINUE -> {
                         if (action == BranchSelector.Action.MATCH_AND_CONTINUE) {
-                            values = Sets.union(values, branch.values());
+                            values.addAll(branch.values());
                         }
                         // Continue
                         if (branch.iNode != null) {
                             LookupResult<V> result =
                                 lookup(branch.iNode, i, topicLevels, currentLevel + 1, branchSelector);
                             if (result.successOrRetry) {
-                                values = Sets.union(values, result.values);
+                                values.addAll(result.values);
                             } else {
                                 return result;
                             }
@@ -222,7 +221,7 @@ public abstract class TopicLevelTrie<V> {
                     }
                     case MATCH_AND_STOP, STOP -> {
                         if (action == BranchSelector.Action.MATCH_AND_STOP) {
-                            values = Sets.union(values, branch.values());
+                            values.addAll(branch.values());
                         }
                     }
                     default -> throw new IllegalStateException("Unknown action: " + action);

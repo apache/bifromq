@@ -21,26 +21,43 @@ package org.apache.bifromq.dist.worker.cache;
 
 import static com.google.common.util.concurrent.MoreExecutors.directExecutor;
 import static org.apache.bifromq.basekv.utils.BoundaryUtil.FULL_BOUNDARY;
+import static org.apache.bifromq.dist.worker.schema.Matchings.normalMatching;
+import static org.apache.bifromq.dist.worker.schema.Matchings.receiverUrl;
+import static org.apache.bifromq.dist.worker.schema.Matchings.unorderedGroupMatching;
 import static org.awaitility.Awaitility.await;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.testng.Assert.assertEquals;
-import static org.testng.Assert.assertNotNull;
+import static org.testng.Assert.assertFalse;
 import static org.testng.Assert.assertTrue;
 
 import com.github.benmanes.caffeine.cache.Ticker;
-import com.google.common.collect.Sets;
 import java.time.Duration;
 import java.util.Map;
-import java.util.NavigableSet;
+import java.util.NavigableMap;
 import java.util.Set;
+import java.util.TreeMap;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.Executor;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicLong;
 import org.apache.bifromq.dist.worker.Comparators;
 import org.apache.bifromq.dist.worker.MeterTest;
+import org.apache.bifromq.dist.worker.cache.task.AddRoutesTask;
+import org.apache.bifromq.dist.worker.cache.task.RemoveRoutesTask;
+import org.apache.bifromq.dist.worker.schema.GroupMatching;
 import org.apache.bifromq.dist.worker.schema.Matching;
+import org.apache.bifromq.dist.worker.schema.NormalMatching;
 import org.apache.bifromq.metrics.TenantMetric;
+import org.apache.bifromq.plugin.eventcollector.IEventCollector;
 import org.apache.bifromq.plugin.settingprovider.ISettingProvider;
 import org.apache.bifromq.plugin.settingprovider.Setting;
 import org.apache.bifromq.type.RouteMatcher;
@@ -50,290 +67,263 @@ import org.testng.annotations.BeforeMethod;
 import org.testng.annotations.Test;
 
 public class TenantRouteCacheTest extends MeterTest {
+    private static final String TENANT_ID = "tenantA";
+    private static final String TOPIC = "sensor/temperature";
+    private static final Duration EXPIRY = Duration.ofMinutes(1);
+    private static final Duration FANOUT_CHECK = Duration.ofMillis(200);
 
-    private TenantRouteCache cache;
-    private ManualTicker mockTicker;
-    private ITenantRouteMatcher mockMatcher;
-    private ISettingProvider mockSettingProvider;
-    private String tenantId;
-    private Duration expiryDuration;
-    private Duration fanoutCheckDuration;
+    private final Set<TenantRouteCache> caches = ConcurrentHashMap.newKeySet();
+
+    private ManualTicker ticker;
+    private ITenantRouteMatcher matcher;
+    private IEventCollector eventCollector;
+    private ISettingProvider settingProvider;
+    private ExecutorService executorToShutdown;
 
     @BeforeMethod
-    public void setup() {
+    public void setUp() {
         super.setup();
-        tenantId = "tenant1";
-        mockTicker = new ManualTicker();
-        mockMatcher = mock(ITenantRouteMatcher.class);
-        mockSettingProvider = mock(ISettingProvider.class);
-        expiryDuration = Duration.ofMinutes(1);
-        fanoutCheckDuration = Duration.ofSeconds(2);
-        cache = new TenantRouteCache(tenantId, mockMatcher, mockSettingProvider, expiryDuration,
-            fanoutCheckDuration, directExecutor());
+        ticker = new ManualTicker();
+        matcher = mock(ITenantRouteMatcher.class);
+        settingProvider = mock(ISettingProvider.class);
+        eventCollector = mock(IEventCollector.class);
+        executorToShutdown = null;
     }
 
     @AfterMethod
     public void tearDown() {
-        cache.destroy();
+        caches.forEach(TenantRouteCache::destroy);
+        caches.clear();
+        if (executorToShutdown != null) {
+            executorToShutdown.shutdownNow();
+            executorToShutdown = null;
+        }
         super.tearDown();
     }
 
-    @SuppressWarnings("checkstyle:WhitespaceAround")
     @Test
-    public void getMatch() {
-        String topic = "home/sensor/temperature";
-        when(mockSettingProvider.provide(eq(Setting.MaxPersistentFanout), eq(tenantId))).thenReturn(10);
-        when(mockSettingProvider.provide(eq(Setting.MaxGroupFanout), eq(tenantId))).thenReturn(5);
-        when(mockMatcher.matchAll(eq(Set.of(topic)), eq(10), eq(5)))
-            .thenReturn(Map.of(topic, mockResult(1, 0, 0)));
+    public void shouldLoadAndIndexRoutesOnFirstAccess() {
+        TenantRouteCache cache = newCache(directExecutor());
+        NormalMatching existing = normalMatching(TENANT_ID, TOPIC, 1, "receiverA", "delivererA", 1);
+        IMatchedRoutes matchedRoutes = mockRoutesWithBackingSet(10, 5, Set.of(existing));
 
-        Set<Matching> cachedMatchings = cache.getMatch(topic, FULL_BOUNDARY).join();
-        assertNotNull(cachedMatchings);
-        assertEquals(cachedMatchings.size(), 1);
+        when(settingProvider.provide(eq(Setting.MaxPersistentFanout), eq(TENANT_ID))).thenReturn(10);
+        when(settingProvider.provide(eq(Setting.MaxGroupFanout), eq(TENANT_ID))).thenReturn(5);
+        when(matcher.matchAll(eq(Set.of(TOPIC)), eq(10), eq(5))).thenReturn(Map.of(TOPIC, matchedRoutes));
+
+        Set<Matching> result = cache.getMatch(TOPIC, FULL_BOUNDARY).join();
+
+        assertEquals(result, Set.of(existing));
+        assertTrue(cache.isCached(TopicUtil.from(TOPIC).getFilterLevelList()));
+        verify(matcher, times(1)).matchAll(eq(Set.of(TOPIC)), eq(10), eq(5));
     }
 
     @Test
-    public void isCached() {
-        String topic = "home/sensor/temperature";
-        when(mockSettingProvider.provide(eq(Setting.MaxPersistentFanout), eq(tenantId))).thenReturn(10);
-        when(mockSettingProvider.provide(eq(Setting.MaxGroupFanout), eq(tenantId))).thenReturn(5);
-        when(mockMatcher.matchAll(eq(Set.of(topic)), eq(10), eq(5)))
-            .thenReturn(Map.of(topic, mockResult(0, 0, 0)));
-        cache.getMatch(topic, FULL_BOUNDARY).join();
+    public void shouldReuseCachedValueWithoutReload() {
+        TenantRouteCache cache = newCache(directExecutor());
+        NormalMatching existing = normalMatching(TENANT_ID, TOPIC, 1, "receiverA", "delivererA", 1);
+        IMatchedRoutes matchedRoutes = mockRoutesWithBackingSet(10, 5, Set.of(existing));
 
-        assertTrue(cache.isCached(TopicUtil.from(topic).getFilterLevelList()));
+        when(settingProvider.provide(eq(Setting.MaxPersistentFanout), eq(TENANT_ID))).thenReturn(10);
+        when(settingProvider.provide(eq(Setting.MaxGroupFanout), eq(TENANT_ID))).thenReturn(5);
+        when(matcher.matchAll(eq(Set.of(TOPIC)), eq(10), eq(5))).thenReturn(Map.of(TOPIC, matchedRoutes));
+
+        Set<Matching> first = cache.getMatch(TOPIC, FULL_BOUNDARY).join();
+        Set<Matching> second = cache.getMatch(TOPIC, FULL_BOUNDARY).join();
+
+        assertEquals(first, Set.of(existing));
+        assertEquals(second, Set.of(existing));
+        verify(matcher, times(1)).matchAll(eq(Set.of(TOPIC)), eq(10), eq(5));
     }
 
     @Test
-    public void refreshToAddMatch() {
-        String topic = "home/sensor/temperature";
-        when(mockSettingProvider.provide(eq(Setting.MaxPersistentFanout), eq(tenantId))).thenReturn(10);
-        when(mockSettingProvider.provide(eq(Setting.MaxGroupFanout), eq(tenantId))).thenReturn(5);
-        when(mockMatcher.matchAll(eq(Set.of(topic)), eq(10), eq(5)))
-            .thenReturn(
-                Map.of(topic, mockResult(1, 0, 0)),
-                Map.of(topic, mockResult(3, 0, 0))
-            );
+    public void shouldReloadWhensReloadReturned() {
+        TenantRouteCache cache = newCache(directExecutor());
+        NormalMatching existing = normalMatching(TENANT_ID, TOPIC, 1, "receiverA", "delivererA", 1);
+        NormalMatching extra = normalMatching(TENANT_ID, TOPIC, 1, "receiverB", "delivererB", 2);
+        IMatchedRoutes initial = mockRoutesWithBackingSet(1, 5, Set.of(existing));
+        IMatchedRoutes reloaded = mockRoutesWithBackingSet(2, 5, Set.of(existing, extra));
 
-        Set<Matching> cachedMatchings = cache.getMatch(topic, FULL_BOUNDARY).join();
-        assertEquals(cachedMatchings.size(), 1);
+        when(settingProvider.provide(eq(Setting.MaxPersistentFanout), eq(TENANT_ID))).thenReturn(1, 2);
+        when(settingProvider.provide(eq(Setting.MaxGroupFanout), eq(TENANT_ID))).thenReturn(5, 5);
+        when(matcher.matchAll(eq(Set.of(TOPIC)), eq(1), eq(5))).thenReturn(Map.of(TOPIC, initial));
+        when(matcher.matchAll(eq(Set.of(TOPIC)), eq(2), eq(5))).thenReturn(Map.of(TOPIC, reloaded));
 
-        NavigableSet<RouteMatcher> routeMatchers = Sets.newTreeSet(Comparators.RouteMatcherComparator);
-        routeMatchers.add(TopicUtil.from("#"));
-        cache.refresh(routeMatchers);
+        Set<Matching> first = cache.getMatch(TOPIC, FULL_BOUNDARY).join();
+        assertEquals(first, Set.of(existing));
 
-        await().until(() -> cache.getMatch(topic, FULL_BOUNDARY).join().size() == 3);
+        ticker.advance(FANOUT_CHECK.plusMillis(1));
+        await().atMost(Duration.ofSeconds(5)).until(() -> cache.getMatch(TOPIC, FULL_BOUNDARY).join().contains(extra));
+
+        verify(matcher, times(2)).matchAll(eq(Set.of(TOPIC)), anyInt(), anyInt());
     }
 
     @Test
-    public void refreshToRemoveMatch() {
-        String topic = "home/sensor/temperature";
-        when(mockSettingProvider.provide(eq(Setting.MaxPersistentFanout), eq(tenantId))).thenReturn(10);
-        when(mockSettingProvider.provide(eq(Setting.MaxGroupFanout), eq(tenantId))).thenReturn(5);
-        when(mockMatcher.matchAll(eq(Set.of(topic)), eq(10), eq(5)))
-            .thenReturn(Map.of(topic, mockResult(2, 0, 0)));
+    public void shouldNotReloadWhenAdjustedReturned() {
+        TenantRouteCache cache = newCache(directExecutor());
+        NormalMatching existing = normalMatching(TENANT_ID, TOPIC, 1, "receiverA", "delivererA", 1);
+        IMatchedRoutes matchedRoutes = mockRoutesWithBackingSet(10, 5, Set.of(existing));
 
-        Set<Matching> cachedMatchings = cache.getMatch(topic, FULL_BOUNDARY).join();
-        assertEquals(cachedMatchings.size(), 2);
+        when(settingProvider.provide(eq(Setting.MaxPersistentFanout), eq(TENANT_ID))).thenReturn(10, 20);
+        when(settingProvider.provide(eq(Setting.MaxGroupFanout), eq(TENANT_ID))).thenReturn(5, 5);
+        when(matcher.matchAll(eq(Set.of(TOPIC)), eq(10), eq(5))).thenReturn(Map.of(TOPIC, matchedRoutes));
 
-        when(mockMatcher.matchAll(eq(Set.of(topic)), eq(10), eq(5)))
-            .thenReturn(Map.of(topic, mockResult(0, 0, 0)));
+        Set<Matching> first = cache.getMatch(TOPIC, FULL_BOUNDARY).join();
+        assertEquals(first, Set.of(existing));
 
-        NavigableSet<RouteMatcher> routeMatchers = Sets.newTreeSet(Comparators.RouteMatcherComparator);
-        routeMatchers.add(TopicUtil.from("#"));
-        cache.refresh(routeMatchers);
+        ticker.advance(FANOUT_CHECK.plusMillis(1));
+        Set<Matching> second = cache.getMatch(TOPIC, FULL_BOUNDARY).join();
+        assertEquals(second, Set.of(existing));
 
-        await().until(() -> cache.getMatch(topic, FULL_BOUNDARY).join().isEmpty());
+        verify(matcher, times(1)).matchAll(eq(Set.of(TOPIC)), anyInt(), anyInt());
     }
 
     @Test
-    public void testPersistentFanoutCheck() {
-        String topic = "home/sensor/temperature";
-        when(mockSettingProvider.provide(eq(Setting.MaxPersistentFanout), eq(tenantId))).thenReturn(10, 5, 10);
-        when(mockSettingProvider.provide(eq(Setting.MaxGroupFanout), eq(tenantId))).thenReturn(5);
-        when(mockMatcher.matchAll(eq(Set.of(topic)), eq(10), eq(5)))
-            .thenReturn(Map.of(topic, mockResult(0, 10, 0)));
+    public void shouldApplyAddRoutesTask() {
+        NormalMatching existing = normalMatching(TENANT_ID, TOPIC, 1, "receiverA", "delivererA", 1);
+        IMatchedRoutes matchedRoutes = mockRoutesWithBackingSet(10, 5, Set.of(existing));
 
-        Set<Matching> cachedMatchings = cache.getMatch(topic, FULL_BOUNDARY).join();
-        assertEquals(cachedMatchings.size(), 10);
+        when(settingProvider.provide(eq(Setting.MaxPersistentFanout), eq(TENANT_ID))).thenReturn(10);
+        when(settingProvider.provide(eq(Setting.MaxGroupFanout), eq(TENANT_ID))).thenReturn(5);
+        when(matcher.matchAll(eq(Set.of(TOPIC)), eq(10), eq(5))).thenReturn(Map.of(TOPIC, matchedRoutes));
 
-        when(mockMatcher.matchAll(eq(Set.of(topic)), eq(5), eq(5)))
-            .thenReturn(Map.of(topic, mockResult(0, 5, 0)));
+        TenantRouteCache cache = newCache(directExecutor());
 
-        NavigableSet<RouteMatcher> routeMatchers = Sets.newTreeSet(Comparators.RouteMatcherComparator);
-        routeMatchers.add(TopicUtil.from("#"));
-        // set maxPersistentFanout to 5
-        cache.refresh(routeMatchers);
-        await().until(() -> cache.getMatch(topic, FULL_BOUNDARY).join().size() == 5);
+        assertTrue(cache.getMatch(TOPIC, FULL_BOUNDARY).join().contains(existing));
 
-        // set maxPersistentFanout to 10
-        cache.refresh(routeMatchers);
+        NormalMatching newNormal = normalMatching(TENANT_ID, TOPIC, 1, "receiverB", "delivererB", 2);
+        GroupMatching newGroup = unorderedGroupMatching(TENANT_ID, "sensor/#", "groupA",
+            Map.of(receiverUrl(1, "receiverC", "delivererC"), 1L));
 
-        await().until(() -> cache.getMatch(topic, FULL_BOUNDARY).join().size() == 10);
+        NavigableMap<RouteMatcher, Set<Matching>> additions = new TreeMap<>(Comparators.RouteMatcherComparator);
+        additions.put(newNormal.matcher, Set.of(newNormal));
+        additions.put(newGroup.matcher, Set.of(newGroup));
+
+        cache.refresh(AddRoutesTask.of(additions));
+
+        await().atMost(Duration.ofSeconds(5)).until(() -> {
+            Set<Matching> current = cache.getMatch(TOPIC, FULL_BOUNDARY).join();
+            return current.contains(newNormal) && current.contains(newGroup);
+        });
     }
 
     @Test
-    public void testGroupFanoutCheck() {
-        String topic = "home/sensor/temperature";
-        when(mockSettingProvider.provide(eq(Setting.MaxPersistentFanout), eq(tenantId))).thenReturn(10);
-        when(mockSettingProvider.provide(eq(Setting.MaxGroupFanout), eq(tenantId))).thenReturn(5, 3, 5);
-        when(mockMatcher.matchAll(eq(Set.of(topic)), eq(10), eq(5)))
-            .thenReturn(Map.of(topic, mockResult(0, 0, 5)));
+    public void shouldApplyRemoveRoutesTask() {
+        TenantRouteCache cache = newCache(directExecutor());
+        NormalMatching normal = normalMatching(TENANT_ID, TOPIC, 1, "receiverA", "delivererA", 1);
+        GroupMatching removableGroup = unorderedGroupMatching(TENANT_ID, "sensor/#", "groupRemove",
+            Map.of(receiverUrl(1, "receiverB", "delivererB"), 1L));
+        GroupMatching updatableGroup = unorderedGroupMatching(TENANT_ID, "sensor/+", "groupUpdate",
+            Map.of(receiverUrl(1, "receiverC", "delivererC"), 1L,
+                receiverUrl(1, "receiverD", "delivererD"), 1L));
+        IMatchedRoutes matchedRoutes = mockRoutesWithBackingSet(10, 5, Set.of(normal, removableGroup, updatableGroup));
 
-        Set<Matching> cachedMatchings = cache.getMatch(topic, FULL_BOUNDARY).join();
-        assertEquals(cachedMatchings.size(), 5);
+        when(settingProvider.provide(eq(Setting.MaxPersistentFanout), eq(TENANT_ID))).thenReturn(10);
+        when(settingProvider.provide(eq(Setting.MaxGroupFanout), eq(TENANT_ID))).thenReturn(5);
+        when(matcher.matchAll(eq(Set.of(TOPIC)), eq(10), eq(5))).thenReturn(Map.of(TOPIC, matchedRoutes));
 
-        when(mockMatcher.matchAll(eq(Set.of(topic)), eq(10), eq(3)))
-            .thenReturn(Map.of(topic, mockResult(0, 0, 3)));
+        cache.getMatch(TOPIC, FULL_BOUNDARY).join();
 
-        NavigableSet<RouteMatcher> routeMatchers = Sets.newTreeSet(Comparators.RouteMatcherComparator);
-        routeMatchers.add(TopicUtil.from("#"));
-        // set maxGroupFanout to 3
-        cache.refresh(routeMatchers);
-        await().until(() -> cache.getMatch(topic, FULL_BOUNDARY).join().size() == 3);
+        GroupMatching emptyGroup = unorderedGroupMatching(TENANT_ID, "sensor/#", "groupRemove", Map.of());
+        GroupMatching reducedGroup = unorderedGroupMatching(TENANT_ID, "sensor/+",
+            "groupUpdate", Map.of(receiverUrl(1, "receiverC", "delivererC"), 1L));
 
-        // set maxGroupFanout to 5
-        cache.refresh(routeMatchers);
-        await().until(() -> cache.getMatch(topic, FULL_BOUNDARY).join().size() == 5);
+        NavigableMap<RouteMatcher, Set<Matching>> removals = new TreeMap<>(Comparators.RouteMatcherComparator);
+        removals.put(normal.matcher, Set.of(normal));
+        removals.put(removableGroup.matcher, Set.of(emptyGroup));
+        removals.put(updatableGroup.matcher, Set.of(reducedGroup));
+
+        cache.refresh(RemoveRoutesTask.of(removals));
+
+        await().atMost(Duration.ofSeconds(5)).until(() -> {
+            Set<Matching> current = cache.getMatch(TOPIC, FULL_BOUNDARY).join();
+            boolean normalRemoved = !current.contains(normal);
+            boolean groupRemoved = !current.contains(removableGroup);
+            boolean groupUpdated = current.contains(reducedGroup)
+                && current.stream().noneMatch(m -> m instanceof GroupMatching gm
+                && gm.matcher.equals(updatableGroup.matcher)
+                && gm.receivers().equals(updatableGroup.receivers()));
+            return normalRemoved && groupRemoved && groupUpdated;
+        });
     }
 
     @Test
-    public void reloadOnPersistentFanoutLimitDecrease() {
-        String topic = "home/sensor/temperature";
-        when(mockSettingProvider.provide(eq(Setting.MaxPersistentFanout), eq(tenantId))).thenReturn(10, 5);
-        when(mockSettingProvider.provide(eq(Setting.MaxGroupFanout), eq(tenantId))).thenReturn(5);
+    public void shouldQueueTasksUntilLoadCompletes() throws Exception {
+        executorToShutdown = Executors.newSingleThreadExecutor();
+        TenantRouteCache cache = newCache(executorToShutdown);
+        NormalMatching existing = normalMatching(TENANT_ID, TOPIC, 1, "receiverA", "delivererA", 1);
+        IMatchedRoutes matchedRoutes = mockRoutesWithBackingSet(10, 5, Set.of(existing));
 
-        when(mockMatcher.matchAll(eq(Set.of(topic)), eq(10), eq(5)))
-            .thenReturn(Map.of(topic, mockResult(0, 10, 0)));
+        CountDownLatch loadStarted = new CountDownLatch(1);
+        CountDownLatch allowLoad = new CountDownLatch(1);
 
-        assertEquals(cache.getMatch(topic, FULL_BOUNDARY).join().size(), 10);
+        when(settingProvider.provide(eq(Setting.MaxPersistentFanout), eq(TENANT_ID))).thenReturn(10);
+        when(settingProvider.provide(eq(Setting.MaxGroupFanout), eq(TENANT_ID))).thenReturn(5);
+        when(matcher.matchAll(eq(Set.of(TOPIC)), eq(10), eq(5))).thenAnswer(invocation -> {
+            loadStarted.countDown();
+            allowLoad.await(5, TimeUnit.SECONDS);
+            return Map.of(TOPIC, matchedRoutes);
+        });
 
-        when(mockMatcher.matchAll(eq(Set.of(topic)), eq(5), eq(5)))
-            .thenReturn(Map.of(topic, mockResult(0, 5, 0)));
+        CompletableFuture<Set<Matching>> future = cache.getMatch(TOPIC, FULL_BOUNDARY);
+        assertFalse(future.isDone());
+        assertTrue(loadStarted.await(5, TimeUnit.SECONDS));
 
-        mockTicker.advance(Duration.ofMillis(10));
-        await().until(() -> cache.getMatch(topic, FULL_BOUNDARY).join().size() == 5);
+        NormalMatching newNormal = normalMatching(TENANT_ID, TOPIC, 1, "receiverB", "delivererB", 2);
+        NavigableMap<RouteMatcher, Set<Matching>> additions = new TreeMap<>(Comparators.RouteMatcherComparator);
+        additions.put(newNormal.matcher, Set.of(newNormal));
+        cache.refresh(AddRoutesTask.of(additions));
+
+        assertFalse(future.isDone());
+        allowLoad.countDown();
+
+        Set<Matching> initial = future.join();
+        assertTrue(initial.contains(existing));
+
+        await().atMost(Duration.ofSeconds(5))
+            .until(() -> cache.getMatch(TOPIC, FULL_BOUNDARY).join().contains(newNormal));
     }
 
     @Test
-    public void reloadOnPersistentFanoutLimitIncreaseWhenClamped() {
-        String topic = "home/sensor/temperature";
-        when(mockSettingProvider.provide(eq(Setting.MaxPersistentFanout), eq(tenantId))).thenReturn(5, 10);
-        when(mockSettingProvider.provide(eq(Setting.MaxGroupFanout), eq(tenantId))).thenReturn(5);
+    public void shouldDestroyMeters() {
+        TenantRouteCache cache = new TenantRouteCache(TENANT_ID, matcher, settingProvider, EXPIRY, FANOUT_CHECK,
+            directExecutor());
+        caches.add(cache);
+        assertGauge(TENANT_ID, TenantMetric.MqttRouteCacheSize);
 
-        when(mockMatcher.matchAll(eq(Set.of(topic)), eq(5), eq(5)))
-            .thenReturn(Map.of(topic, mockResult(0, 5, 0)));
-
-        assertEquals(cache.getMatch(topic, FULL_BOUNDARY).join().size(), 5);
-
-        when(mockMatcher.matchAll(eq(Set.of(topic)), eq(10), eq(5)))
-            .thenReturn(Map.of(topic, mockResult(0, 10, 0)));
-
-        mockTicker.advance(Duration.ofMillis(10));
-        await().until(() -> cache.getMatch(topic, FULL_BOUNDARY).join().size() == 10);
-    }
-
-    @Test
-    public void reloadDoesNotRematchWhenIncreaseWithoutClamp() {
-        String topic = "home/sensor/temperature";
-        when(mockSettingProvider.provide(eq(Setting.MaxPersistentFanout), eq(tenantId))).thenReturn(10, 20);
-        when(mockSettingProvider.provide(eq(Setting.MaxGroupFanout), eq(tenantId))).thenReturn(5);
-        when(mockMatcher.matchAll(eq(Set.of(topic)), eq(10), eq(5)))
-            .thenReturn(Map.of(topic, mockResult(0, 3, 0)));
-
-        Set<Matching> first = cache.getMatch(topic, FULL_BOUNDARY).join();
-        assertEquals(first.size(), 3);
-
-        mockTicker.advance(Duration.ofMillis(10));
-
-        Set<Matching> second = cache.getMatch(topic, FULL_BOUNDARY).join();
-        assertEquals(second.size(), 3);
-
-        verify(mockMatcher, times(1)).matchAll(eq(Set.of(topic)), eq(10), eq(5));
-    }
-
-    @Test
-    public void testDestroy() {
-        TenantRouteCache cache = new TenantRouteCache(tenantId, mockMatcher, mockSettingProvider,
-            expiryDuration, fanoutCheckDuration, directExecutor());
-        assertGauge(tenantId, TenantMetric.MqttRouteCacheSize);
         cache.destroy();
-        assertNoGauge(tenantId, TenantMetric.MqttRouteCacheSize);
+        assertNoGauge(TENANT_ID, TenantMetric.MqttRouteCacheSize);
     }
 
-    private IMatchedRoutes mockResult(int transientFanout, int persistentFanout, int groupFanout) {
-        Set<Matching> matchings = Sets.newHashSet();
-        for (int i = 0; i < transientFanout; i++) {
-            Matching transientMatching = new Matching(tenantId, RouteMatcher.newBuilder()
-                .setMqttTopicFilter("transient/topic/" + i)
-                .build()) {
-                @Override
-                public Type type() {
-                    return Matching.Type.Normal;
-                }
-            };
-            matchings.add(transientMatching);
+    private TenantRouteCache newCache(Executor executor) {
+        TenantRouteCache cache = new TenantRouteCache(TENANT_ID, matcher, settingProvider,
+            EXPIRY, FANOUT_CHECK, ticker, executor);
+        caches.add(cache);
+        return cache;
+    }
+
+    private IMatchedRoutes mockRoutesWithBackingSet(int maxPersistentFanout, int maxGroupFanout, Set<Matching> seed) {
+        MatchedRoutes routes = new MatchedRoutes(TENANT_ID, TOPIC, eventCollector, maxPersistentFanout, maxGroupFanout);
+        for (Matching m : seed) {
+            if (m instanceof NormalMatching nm) {
+                routes.addNormalMatching(nm);
+            } else if (m instanceof GroupMatching gm) {
+                routes.putGroupMatching(gm);
+            }
         }
-        for (int i = 0; i < persistentFanout; i++) {
-            Matching transientMatching = new Matching(tenantId, RouteMatcher.newBuilder()
-                .setMqttTopicFilter("transient/topic/" + i)
-                .build()) {
-                @Override
-                public Type type() {
-                    return Matching.Type.Normal;
-                }
-            };
-            matchings.add(transientMatching);
-        }
-        for (int i = 0; i < groupFanout; i++) {
-            Matching transientMatching = new Matching(tenantId, RouteMatcher.newBuilder()
-                .setMqttTopicFilter("transient/topic/" + i)
-                .build()) {
-                @Override
-                public Type type() {
-                    return Type.Group;
-                }
-            };
-            matchings.add(transientMatching);
-        }
-        return new IMatchedRoutes() {
-            @Override
-            public int maxPersistentFanout() {
-                return persistentFanout;
-            }
-
-            @Override
-            public int maxGroupFanout() {
-                return groupFanout;
-            }
-
-            @Override
-            public int persistentFanout() {
-                return persistentFanout;
-            }
-
-            @Override
-            public int groupFanout() {
-                return groupFanout;
-            }
-
-            @Override
-            public Set<Matching> routes() {
-                return matchings;
-            }
-        };
+        return routes;
     }
 
     private static final class ManualTicker implements Ticker {
-        private long nanos = 0L;
+        private final AtomicLong nanos = new AtomicLong();
 
         @Override
         public long read() {
-            return nanos;
+            return nanos.get();
         }
 
-        void advance(Duration d) {
-            nanos += d.toNanos();
+        void advance(Duration duration) {
+            nanos.addAndGet(duration.toNanos());
         }
     }
 }

@@ -33,6 +33,7 @@ import org.apache.bifromq.plugin.eventcollector.EventType;
 public final class GroupFanoutThrottled extends Event<GroupFanoutThrottled> {
     private String tenantId;
     private String topic;
+    private String mqttTopicFilter;
     private int maxCount;
 
     @Override

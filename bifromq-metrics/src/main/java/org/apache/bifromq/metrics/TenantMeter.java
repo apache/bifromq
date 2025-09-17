@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 
 package org.apache.bifromq.metrics;
@@ -33,38 +33,6 @@ import lombok.extern.slf4j.Slf4j;
 @Slf4j
 class TenantMeter implements ITenantMeter {
     private static final Cleaner CLEANER = Cleaner.create();
-
-    private static class State implements Runnable {
-        final Map<TenantMetric, Meter> meters = new HashMap<>();
-
-        State(Tags tags) {
-            for (TenantMetric metric : TenantMetric.values()) {
-                switch (metric.meterType) {
-                    case COUNTER:
-                        meters.put(metric, Metrics.counter(metric.metricName, tags));
-                        break;
-                    case TIMER:
-                        meters.put(metric, Metrics.timer(metric.metricName, tags));
-                        break;
-                    case DISTRIBUTION_SUMMARY:
-                        meters.put(metric, Metrics.summary(metric.metricName, tags));
-                        break;
-                    case GAUGE:
-                        // ignore gauge
-                        break;
-                    default:
-                        throw new UnsupportedOperationException("Unsupported traffic meter type");
-                }
-            }
-        }
-
-        @Override
-        public void run() {
-            meters.values().forEach(Metrics.globalRegistry::remove);
-            meters.clear();
-        }
-    }
-
     private final State state;
     private final Tags tags;
     private final Cleaner.Cleanable cleanable;
@@ -98,8 +66,41 @@ class TenantMeter implements ITenantMeter {
         ((DistributionSummary) state.meters.get(metric)).record(value);
     }
 
-
     public void destroy() {
         cleanable.clean();
+    }
+
+    private static class State implements Runnable {
+        final Map<TenantMetric, Meter> meters = new HashMap<>();
+
+        State(Tags tags) {
+            for (TenantMetric metric : TenantMetric.values()) {
+                switch (metric.meterType) {
+                    case COUNTER: {
+                        if (!metric.isFunction) {
+                            meters.put(metric, Metrics.counter(metric.metricName, tags));
+                        }
+                    }
+                    break;
+                    case TIMER:
+                        meters.put(metric, Metrics.timer(metric.metricName, tags));
+                        break;
+                    case DISTRIBUTION_SUMMARY:
+                        meters.put(metric, Metrics.summary(metric.metricName, tags));
+                        break;
+                    case GAUGE:
+                        // ignore gauge
+                        break;
+                    default:
+                        throw new UnsupportedOperationException("Unsupported traffic meter type");
+                }
+            }
+        }
+
+        @Override
+        public void run() {
+            meters.values().forEach(Metrics.globalRegistry::remove);
+            meters.clear();
+        }
     }
 }

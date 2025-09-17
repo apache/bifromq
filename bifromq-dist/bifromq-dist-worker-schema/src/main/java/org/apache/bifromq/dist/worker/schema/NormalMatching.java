@@ -27,7 +27,7 @@ import org.apache.bifromq.type.RouteMatcher;
 /**
  * Represent a normal matching route.
  */
-@EqualsAndHashCode(callSuper = true)
+@EqualsAndHashCode(callSuper = true, cacheStrategy = EqualsAndHashCode.CacheStrategy.LAZY)
 @ToString
 public class NormalMatching extends Matching {
     private final String receiverUrl;

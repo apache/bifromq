@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 
 package org.apache.bifromq.dist.worker;
@@ -36,6 +36,14 @@ import static org.testng.Assert.assertEquals;
 import static org.testng.Assert.assertTrue;
 import static org.testng.Assert.fail;
 
+import com.google.protobuf.ByteString;
+import com.google.protobuf.InvalidProtocolBufferException;
+import java.util.List;
+import java.util.Optional;
+import java.util.Set;
+import java.util.concurrent.CompletableFuture;
+import java.util.function.Supplier;
+import lombok.SneakyThrows;
 import org.apache.bifromq.basekv.proto.Boundary;
 import org.apache.bifromq.basekv.proto.KVRangeId;
 import org.apache.bifromq.basekv.store.api.IKVCloseableReader;
@@ -67,14 +75,6 @@ import org.apache.bifromq.plugin.subbroker.CheckRequest;
 import org.apache.bifromq.type.TopicMessagePack;
 import org.apache.bifromq.util.BSUtil;
 import org.apache.bifromq.util.TopicUtil;
-import com.google.protobuf.ByteString;
-import com.google.protobuf.InvalidProtocolBufferException;
-import java.util.List;
-import java.util.Optional;
-import java.util.Set;
-import java.util.concurrent.CompletableFuture;
-import java.util.function.Supplier;
-import lombok.SneakyThrows;
 import org.testng.annotations.BeforeMethod;
 import org.testng.annotations.Test;
 
@@ -165,7 +165,8 @@ public class DistWorkerCoProcTest {
 
         // Verify that matches are removed from the cache
         verify(routeCache, times(1)).refresh(
-            argThat(m -> m.containsKey("tenant1") && m.get("tenant1").contains(TopicUtil.from("topicFilter1"))));
+            argThat(m -> m.containsKey("tenant1") && m.get("tenant1").routes.keySet()
+                .contains(TopicUtil.from("topicFilter1"))));
 
         // Verify that tenant state is updated
         verify(tenantsState, times(1)).decNormalRoutes(eq("tenant1"), eq(1));
@@ -240,7 +241,8 @@ public class DistWorkerCoProcTest {
 
         verify(writer, times(1)).delete(any(ByteString.class));
         verify(routeCache, times(1)).refresh(
-            argThat(m -> m.containsKey("tenant1") && m.get("tenant1").contains(TopicUtil.from("topicFilter1"))));
+            argThat(m -> m.containsKey("tenant1") && m.get("tenant1").routes.keySet()
+                .contains(TopicUtil.from("topicFilter1"))));
         verify(tenantsState, times(1)).decNormalRoutes(eq("tenant1"), eq(1));
 
         try {
@@ -371,7 +373,8 @@ public class DistWorkerCoProcTest {
 
         verify(writer, times(1)).delete(any(ByteString.class));
         verify(routeCache, times(1)).refresh(argThat(m -> m.containsKey("tenantA")
-            && m.get("tenantA").contains(TopicUtil.from("topicA"))));
+            && m.get("tenantA").routes.keySet()
+            .contains(TopicUtil.from("topicA"))));
         verify(tenantsState, times(1)).decNormalRoutes(eq("tenantA"), eq(1));
         verify(reader, times(1)).refresh();
     }
@@ -411,7 +414,7 @@ public class DistWorkerCoProcTest {
 
         verify(writer, times(1)).delete(any(ByteString.class));
         verify(routeCache, times(1)).refresh(argThat(m -> m.containsKey("tenantB")
-            && m.get("tenantB").contains(TopicUtil.from("topicB"))));
+            && m.get("tenantB").routes.keySet().contains(TopicUtil.from("topicB"))));
         verify(tenantsState, times(1)).decNormalRoutes(eq("tenantB"), eq(1));
         verify(reader, times(1)).refresh();
     }

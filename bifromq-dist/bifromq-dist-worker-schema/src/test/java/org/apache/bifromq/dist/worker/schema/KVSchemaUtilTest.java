@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 
 package org.apache.bifromq.dist.worker.schema;
@@ -24,21 +24,62 @@ import static org.apache.bifromq.dist.worker.schema.KVSchemaUtil.toGroupRouteKey
 import static org.apache.bifromq.dist.worker.schema.KVSchemaUtil.toNormalRouteKey;
 import static org.apache.bifromq.dist.worker.schema.KVSchemaUtil.toReceiverUrl;
 import static org.testng.Assert.assertEquals;
+import static org.testng.Assert.assertSame;
 import static org.testng.Assert.assertTrue;
 
+import com.google.protobuf.ByteString;
 import org.apache.bifromq.dist.rpc.proto.MatchRoute;
 import org.apache.bifromq.dist.rpc.proto.RouteGroup;
 import org.apache.bifromq.type.MatchInfo;
 import org.apache.bifromq.type.RouteMatcher;
 import org.apache.bifromq.util.BSUtil;
 import org.apache.bifromq.util.TopicUtil;
-import com.google.protobuf.ByteString;
 import org.testng.annotations.Test;
 
 public class KVSchemaUtilTest {
     private static final int MqttBroker = 0;
     private static final int InboxService = 1;
     private static final int RuleEngine = 2;
+
+    @Test
+    public void testNormalMatchingIntern() {
+        String tenantId = "tenantId";
+        String topicFilter = "/a/b/c";
+        RouteMatcher matcher = TopicUtil.from(topicFilter);
+        MatchRoute route = MatchRoute.newBuilder()
+            .setMatcher(matcher)
+            .setBrokerId(MqttBroker)
+            .setReceiverId("inbox1")
+            .setDelivererKey("delivererKey1")
+            .setIncarnation(1L)
+            .build();
+        ByteString key = toNormalRouteKey(tenantId, matcher, toReceiverUrl(route));
+        Matching matching1 = buildMatchRoute(key, BSUtil.toByteString(route.getIncarnation()));
+        Matching matching2 = buildMatchRoute(key, BSUtil.toByteString(route.getIncarnation()));
+        assertSame(matching1, matching2);
+    }
+
+    @Test
+    public void testGroupMatchingIntern() {
+        String origTopicFilter = "$share/group//a/b/c";
+        RouteMatcher matcher = TopicUtil.from(origTopicFilter);
+        MatchRoute route = MatchRoute.newBuilder()
+            .setMatcher(matcher)
+            .setBrokerId(MqttBroker)
+            .setReceiverId("inbox1")
+            .setDelivererKey("server1")
+            .setIncarnation(1L)
+            .build();
+
+        String scopedReceiverId = toReceiverUrl(MqttBroker, "inbox1", "server1");
+        ByteString key = toGroupRouteKey("tenantId", matcher);
+        RouteGroup groupMembers = RouteGroup.newBuilder()
+            .putMembers(scopedReceiverId, route.getIncarnation())
+            .build();
+        Matching matching1 = buildMatchRoute(key, groupMembers.toByteString());
+        Matching matching2 = buildMatchRoute(key, groupMembers.toByteString());
+        assertSame(matching1, matching2);
+    }
 
     @Test
     public void testParseNormalMatchRecord() {

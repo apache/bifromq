@@ -35,7 +35,6 @@ import com.google.protobuf.ByteString;
 import java.time.Duration;
 import java.util.List;
 import java.util.Map;
-import java.util.NavigableSet;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
@@ -46,12 +45,12 @@ import org.apache.bifromq.basekv.proto.Boundary;
 import org.apache.bifromq.basekv.proto.KVRangeId;
 import org.apache.bifromq.basekv.store.api.IKVCloseableReader;
 import org.apache.bifromq.basekv.utils.KVRangeIdUtil;
+import org.apache.bifromq.dist.worker.cache.task.RefreshEntriesTask;
 import org.apache.bifromq.dist.worker.schema.Matching;
 import org.apache.bifromq.plugin.eventcollector.IEventCollector;
 import org.apache.bifromq.plugin.settingprovider.ISettingProvider;
 import org.apache.bifromq.sysprops.props.DistCachedRoutesFanoutCheckIntervalSeconds;
 import org.apache.bifromq.sysprops.props.DistTopicMatchExpirySeconds;
-import org.apache.bifromq.type.RouteMatcher;
 
 /**
  * Cache for subscription matching.
@@ -125,7 +124,7 @@ public class SubscriptionCache implements ISubscriptionCache {
     }
 
     @Override
-    public void refresh(Map<String, NavigableSet<RouteMatcher>> topicFiltersByTenant) {
+    public void refresh(Map<String, RefreshEntriesTask> topicFiltersByTenant) {
         topicFiltersByTenant.forEach((tenantId, topicFilters) -> {
             ITenantRouteCache cache = tenantCache.getIfPresent(noRefreshExpiry(tenantId));
             if (cache != null) {

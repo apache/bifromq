@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 
 package org.apache.bifromq.metrics;
@@ -72,7 +72,9 @@ public enum TenantMetric {
     MqttPersistentSubCountGauge("mqtt.psub.num.gauge", Meter.Type.GAUGE),
 
     MqttRouteCacheSize("mqtt.route.cache.size.gauge", Meter.Type.GAUGE),
-    MqttRouteCacheMissCount("mqtt.route.cache.miss.count", Meter.Type.COUNTER),
+    MqttRouteCacheHitCount("mqtt.route.cache.hit.count", Meter.Type.COUNTER, true),
+    MqttRouteCacheEvictCount("mqtt.route.cache.evict.count", Meter.Type.COUNTER, true),
+    MqttRouteCacheMissCount("mqtt.route.cache.miss.count", Meter.Type.COUNTER, true),
     // retain related
     MqttIngressRetainBytes("mqtt.ingress.retain.bytes", Meter.Type.DISTRIBUTION_SUMMARY),
     MqttRetainedBytes("mqtt.retained.bytes", Meter.Type.DISTRIBUTION_SUMMARY),
@@ -83,9 +85,16 @@ public enum TenantMetric {
 
     public final String metricName;
     public final Meter.Type meterType;
+    public final boolean isFunction;
 
     TenantMetric(String metricName, Meter.Type meterType) {
+        this(metricName, meterType, false);
+    }
+
+    TenantMetric(String metricName, Meter.Type meterType, boolean isFunction) {
+        assert !isFunction || meterType == Meter.Type.COUNTER;
         this.metricName = metricName;
         this.meterType = meterType;
+        this.isFunction = isFunction;
     }
 }

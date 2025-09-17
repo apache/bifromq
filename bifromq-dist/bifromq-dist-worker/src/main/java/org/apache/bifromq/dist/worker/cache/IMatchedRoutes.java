@@ -20,10 +20,12 @@
 package org.apache.bifromq.dist.worker.cache;
 
 import java.util.Set;
+import org.apache.bifromq.dist.worker.schema.GroupMatching;
 import org.apache.bifromq.dist.worker.schema.Matching;
+import org.apache.bifromq.dist.worker.schema.NormalMatching;
 
 /**
- * The result of matching a topic within a boundary.
+ * A mutable matched routes for a topic.
  */
 public interface IMatchedRoutes {
     /**
@@ -61,4 +63,51 @@ public interface IMatchedRoutes {
      */
     Set<Matching> routes();
 
+    /**
+     * Add a normal matching to the matched routes.
+     *
+     * @param matching the normal matching to add
+     */
+    AddResult addNormalMatching(NormalMatching matching);
+
+    /**
+     * Remove a normal matching from the matched routes.
+     *
+     * @param matching the normal matching to remove
+     */
+    void removeNormalMatching(NormalMatching matching);
+
+    /**
+     * Add a new or override an existing group matching to the matched routes.
+     *
+     * @param matching the group matching to add or override
+     */
+    AddResult putGroupMatching(GroupMatching matching);
+
+    /**
+     * Remove an existing group matching.
+     *
+     * @param matching the group matching to remove
+     */
+    void removeGroupMatching(GroupMatching matching);
+
+    /**
+     * Adjust matched routes to new fanout limits. If the current fanout exceeds the new limits, the matched routes
+     * will be clamped to the new limits by removing excess persistent fanout matchings.
+     * If the new limits are higher than the previous and the current fanout is already at the previous limits,
+     * ReloadNeeded is returned.
+     *
+     * @param newMaxPersistentFanout the new maximum persistent fanout
+     * @param newMaxGroupFanout the new maximum group fanout
+     * @return the adjust result
+     */
+    AdjustResult adjust(int newMaxPersistentFanout, int newMaxGroupFanout);
+
+    enum AdjustResult {
+        Clamped, Adjusted, ReloadNeeded
+    }
+
+    enum AddResult {
+        Added, Exists, ExceedFanoutLimit
+    }
 }

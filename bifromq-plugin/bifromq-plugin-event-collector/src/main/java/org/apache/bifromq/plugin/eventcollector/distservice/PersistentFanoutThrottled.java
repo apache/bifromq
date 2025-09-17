@@ -33,6 +33,7 @@ import org.apache.bifromq.plugin.eventcollector.EventType;
 public final class PersistentFanoutThrottled extends Event<PersistentFanoutThrottled> {
     private String tenantId;
     private String topic;
+    private String mqttTopicFilter;
     private int maxCount;
 
     @Override

@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 
 package org.apache.bifromq.mqtt.integration.v3;
@@ -27,6 +27,11 @@ import static org.testng.Assert.assertEquals;
 import static org.testng.Assert.assertFalse;
 import static org.testng.Assert.assertTrue;
 
+import com.google.protobuf.ByteString;
+import io.reactivex.rxjava3.core.Observable;
+import io.reactivex.rxjava3.observers.TestObserver;
+import java.util.concurrent.CompletableFuture;
+import lombok.extern.slf4j.Slf4j;
 import org.apache.bifromq.mqtt.integration.MQTTTest;
 import org.apache.bifromq.mqtt.integration.v3.client.MqttMsg;
 import org.apache.bifromq.mqtt.integration.v3.client.MqttTestClient;
@@ -36,11 +41,6 @@ import org.apache.bifromq.plugin.authprovider.type.MQTT3AuthData;
 import org.apache.bifromq.plugin.authprovider.type.MQTT3AuthResult;
 import org.apache.bifromq.plugin.authprovider.type.Ok;
 import org.apache.bifromq.plugin.eventcollector.Event;
-import com.google.protobuf.ByteString;
-import io.reactivex.rxjava3.core.Observable;
-import io.reactivex.rxjava3.observers.TestObserver;
-import java.util.concurrent.CompletableFuture;
-import lombok.extern.slf4j.Slf4j;
 import org.eclipse.paho.client.mqttv3.MqttConnectOptions;
 import org.testng.annotations.Test;
 
@@ -122,6 +122,7 @@ public class MQTTLastWillTest extends MQTTTest {
 
         doAnswer(invocationOnMock -> null).when(eventCollector).report(any(Event.class));
 
+        // Publisher with retained will
         MqttConnectOptions lwtPubConnOpts = new MqttConnectOptions();
         lwtPubConnOpts.setCleanSession(true);
         lwtPubConnOpts.setWill(willTopic, willPayload.toByteArray(), 1, true);
@@ -129,17 +130,33 @@ public class MQTTLastWillTest extends MQTTTest {
         MqttTestClient lwtPubClient = new MqttTestClient(BROKER_URI, "lwtPubclient");
         lwtPubClient.connect(lwtPubConnOpts);
 
+        // Warm route: pre-subscribe and ensure path is active
+        MqttConnectOptions warmSubConnOpts = new MqttConnectOptions();
+        warmSubConnOpts.setCleanSession(true);
+        warmSubConnOpts.setUserName(userName);
+        MqttTestClient warmSubClient = new MqttTestClient(BROKER_URI, "lwtWarmSubClient");
+        warmSubClient.connect(warmSubConnOpts);
+        TestObserver<MqttMsg> warmSub = warmSubClient.subscribe(willTopic, 1).test();
+        await().until(() -> {
+            lwtPubClient.publish(willTopic, 1, ByteString.copyFromUtf8("test"), false);
+            return !warmSub.values().isEmpty();
+        });
+
+        // Trigger will publication and retained storage
         kill(deviceKey, "lwtPubclient").join();
 
+        // Fresh subscriber to receive retained snapshot (retain flag true)
         MqttConnectOptions lwtSubConnOpts = new MqttConnectOptions();
         lwtSubConnOpts.setCleanSession(true);
         lwtSubConnOpts.setUserName(userName);
-
         MqttTestClient lwtSubClient = new MqttTestClient(BROKER_URI, "lwtSubClient");
         lwtSubClient.connect(lwtSubConnOpts);
         Observable<MqttMsg> topicSub = lwtSubClient.subscribe(willTopic, 1);
 
-        MqttMsg msg = topicSub.blockingFirst();
+        MqttMsg msg = topicSub
+            .firstElement()
+            .timeout(30, java.util.concurrent.TimeUnit.SECONDS)
+            .blockingGet();
         assertEquals(msg.topic, willTopic);
         assertEquals(msg.qos, 1);
         assertEquals(msg.payload, willPayload);
@@ -148,6 +165,7 @@ public class MQTTLastWillTest extends MQTTTest {
         // clear the retained will message
         lwtSubClient.publish(willTopic, 1, ByteString.EMPTY, true);
         lwtSubClient.disconnect();
+        warmSubClient.disconnect();
     }
 
     @Test(groups = "integration", dependsOnMethods = "lastWillQoS1Retained")
@@ -223,23 +241,41 @@ public class MQTTLastWillTest extends MQTTTest {
                 .setGranted(Granted.getDefaultInstance())
                 .build()));
 
+        // Publisher with retained will
         MqttConnectOptions lwtPubConnOpts = new MqttConnectOptions();
         lwtPubConnOpts.setCleanSession(true);
         lwtPubConnOpts.setWill(willTopic, willPayload.toByteArray(), 2, true);
         lwtPubConnOpts.setUserName(userName);
         MqttTestClient lwtPubClient = new MqttTestClient(BROKER_URI, "lwtPubclient");
         lwtPubClient.connect(lwtPubConnOpts);
+
+        // Warm route: pre-subscribe and ensure path is active
+        MqttConnectOptions warmSubConnOpts = new MqttConnectOptions();
+        warmSubConnOpts.setCleanSession(true);
+        warmSubConnOpts.setUserName(userName);
+        MqttTestClient warmSubClient = new MqttTestClient(BROKER_URI, "lwtWarmSubClientQoS2");
+        warmSubClient.connect(warmSubConnOpts);
+        io.reactivex.rxjava3.observers.TestObserver<MqttMsg> warmSub = warmSubClient.subscribe(willTopic, 2).test();
+        await().until(() -> {
+            lwtPubClient.publish(willTopic, 2, ByteString.copyFromUtf8("test"), false);
+            return !warmSub.values().isEmpty();
+        });
+
+        // Trigger will publication and retained storage
         kill(deviceKey, "lwtPubclient").join();
 
+        // Fresh subscriber to receive retained snapshot (retain flag true)
         MqttConnectOptions lwtSubConnOpts = new MqttConnectOptions();
         lwtSubConnOpts.setCleanSession(true);
         lwtSubConnOpts.setUserName(userName);
-
         MqttTestClient lwtSubClient = new MqttTestClient(BROKER_URI, "lwtSubClient");
         lwtSubClient.connect(lwtSubConnOpts);
         Observable<MqttMsg> topicSub = lwtSubClient.subscribe(willTopic, 2);
 
-        MqttMsg msg = topicSub.blockingFirst();
+        MqttMsg msg = topicSub
+            .firstElement()
+            .timeout(30, java.util.concurrent.TimeUnit.SECONDS)
+            .blockingGet();
         assertEquals(msg.topic, willTopic);
         assertEquals(msg.qos, 2);
         assertEquals(msg.payload, willPayload);
@@ -248,5 +284,6 @@ public class MQTTLastWillTest extends MQTTTest {
         // clear the retained will message
         lwtSubClient.publish(willTopic, 2, ByteString.EMPTY, true);
         lwtSubClient.disconnect();
+        warmSubClient.disconnect();
     }
 }

@@ -17,40 +17,21 @@
  * under the License.
  */
 
-package org.apache.bifromq.dist.worker.schema;
+package org.apache.bifromq.dist.worker.cache;
 
+import java.util.concurrent.atomic.AtomicReference;
 import lombok.EqualsAndHashCode;
-import lombok.ToString;
-import org.apache.bifromq.type.RouteMatcher;
+import org.apache.bifromq.basekv.proto.Boundary;
 
-/**
- * The abstract class of matching route.
- */
 @EqualsAndHashCode(cacheStrategy = EqualsAndHashCode.CacheStrategy.LAZY)
-@ToString
-public abstract class Matching {
+public final class RouteCacheKey {
+    public final String topic;
+    public final Boundary matchRecordBoundary;
     @EqualsAndHashCode.Exclude
-    public final RouteMatcher matcher;
-    private final String tenantId;
-    private final String mqttTopicFilter;
+    public final AtomicReference<IMatchedRoutes> cachedMatchedRoutes = new AtomicReference<>();
 
-    protected Matching(String tenantId, RouteMatcher matcher) {
-        this.tenantId = tenantId;
-        this.matcher = matcher;
-        this.mqttTopicFilter = matcher.getMqttTopicFilter();
-    }
-
-    public abstract Type type();
-
-    public final String tenantId() {
-        return tenantId;
-    }
-
-    public final String mqttTopicFilter() {
-        return mqttTopicFilter;
-    }
-
-    public enum Type {
-        Normal, Group
+    public RouteCacheKey(String topic, Boundary matchRecordBoundary) {
+        this.topic = topic;
+        this.matchRecordBoundary = matchRecordBoundary;
     }
 }

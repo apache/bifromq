@@ -14,26 +14,25 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 
 package org.apache.bifromq.dist.worker.cache;
 
-import org.apache.bifromq.basekv.proto.Boundary;
-import org.apache.bifromq.dist.worker.schema.Matching;
-import org.apache.bifromq.type.RouteMatcher;
 import java.util.List;
 import java.util.Map;
-import java.util.NavigableSet;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
+import org.apache.bifromq.basekv.proto.Boundary;
+import org.apache.bifromq.dist.worker.cache.task.RefreshEntriesTask;
+import org.apache.bifromq.dist.worker.schema.Matching;
 
 public interface ISubscriptionCache {
     CompletableFuture<Set<Matching>> get(String tenantId, String topic);
 
     boolean isCached(String tenantId, List<String> filterLevels);
 
-    void refresh(Map<String, NavigableSet<RouteMatcher>> topicFiltersByTenant);
+    void refresh(Map<String, RefreshEntriesTask> tenantRefreshTasks);
 
     void reset(Boundary boundary);
 

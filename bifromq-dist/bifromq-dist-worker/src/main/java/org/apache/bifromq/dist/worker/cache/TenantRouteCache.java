@@ -23,35 +23,49 @@ import static java.util.Collections.singleton;
 import static org.apache.bifromq.plugin.settingprovider.Setting.MaxGroupFanout;
 import static org.apache.bifromq.plugin.settingprovider.Setting.MaxPersistentFanout;
 
+import com.github.benmanes.caffeine.cache.AsyncCacheLoader;
 import com.github.benmanes.caffeine.cache.AsyncLoadingCache;
-import com.github.benmanes.caffeine.cache.CacheLoader;
 import com.github.benmanes.caffeine.cache.Caffeine;
 import com.github.benmanes.caffeine.cache.Scheduler;
 import com.github.benmanes.caffeine.cache.Ticker;
 import com.github.benmanes.caffeine.cache.Weigher;
 import java.time.Duration;
-import java.util.HashMap;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
-import java.util.NavigableSet;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentLinkedDeque;
 import java.util.concurrent.Executor;
+import java.util.concurrent.atomic.AtomicBoolean;
 import org.apache.bifromq.basekv.proto.Boundary;
 import org.apache.bifromq.dist.worker.TopicIndex;
+import org.apache.bifromq.dist.worker.cache.task.AddRoutesTask;
+import org.apache.bifromq.dist.worker.cache.task.LoadEntryTask;
+import org.apache.bifromq.dist.worker.cache.task.RefreshEntriesTask;
+import org.apache.bifromq.dist.worker.cache.task.ReloadEntryTask;
+import org.apache.bifromq.dist.worker.cache.task.RemoveRoutesTask;
+import org.apache.bifromq.dist.worker.cache.task.TenantRouteCacheTask;
+import org.apache.bifromq.dist.worker.schema.GroupMatching;
 import org.apache.bifromq.dist.worker.schema.Matching;
+import org.apache.bifromq.dist.worker.schema.NormalMatching;
 import org.apache.bifromq.metrics.ITenantMeter;
 import org.apache.bifromq.metrics.TenantMetric;
 import org.apache.bifromq.plugin.settingprovider.ISettingProvider;
 import org.apache.bifromq.sysprops.props.DistMaxCachedRoutesPerTenant;
 import org.apache.bifromq.type.RouteMatcher;
 import org.checkerframework.checker.index.qual.NonNegative;
-import org.checkerframework.checker.nullness.qual.Nullable;
+import org.jspecify.annotations.NonNull;
 
 class TenantRouteCache implements ITenantRouteCache {
     private final String tenantId;
+    private final ISettingProvider settingProvider;
+    private final ITenantRouteMatcher matcher;
     private final AsyncLoadingCache<RouteCacheKey, IMatchedRoutes> routesCache;
     private final TopicIndex<RouteCacheKey> index;
+    private final Executor matchExecutor;
+    private final ConcurrentLinkedDeque<TenantRouteCacheTask> tasks = new ConcurrentLinkedDeque<>();
+    private final AtomicBoolean taskRunning = new AtomicBoolean(false);
 
     TenantRouteCache(String tenantId,
                      ITenantRouteMatcher matcher,
@@ -71,6 +85,9 @@ class TenantRouteCache implements ITenantRouteCache {
                      Ticker ticker,
                      Executor matchExecutor) {
         this.tenantId = tenantId;
+        this.matcher = matcher;
+        this.matchExecutor = matchExecutor;
+        this.settingProvider = settingProvider;
         index = new TopicIndex<>();
         routesCache = Caffeine.newBuilder()
             .scheduler(Scheduler.systemScheduler())
@@ -90,90 +107,38 @@ class TenantRouteCache implements ITenantRouteCache {
                     index.remove(key.topic, key);
                 }
             })
-            .buildAsync(new CacheLoader<>() {
+            .recordStats()
+            .buildAsync(new AsyncCacheLoader<>() {
                 @Override
-                public @Nullable IMatchedRoutes load(RouteCacheKey key) {
-                    int maxPersistentFanouts = settingProvider.provide(MaxPersistentFanout, tenantId);
-                    int maxGroupFanouts = settingProvider.provide(MaxGroupFanout, tenantId);
-                    ITenantMeter.get(tenantId).recordCount(TenantMetric.MqttRouteCacheMissCount);
-                    Map<String, IMatchedRoutes> results = matcher.matchAll(singleton(key.topic),
-                        maxPersistentFanouts, maxGroupFanouts);
-                    index.add(key.topic, key);
-                    return results.get(key.topic);
+                public CompletableFuture<IMatchedRoutes> asyncLoad(RouteCacheKey key, Executor executor) {
+                    LoadEntryTask task = LoadEntryTask.of(key.topic, key);
+                    submitCacheTask(task);
+                    return task.future;
                 }
 
                 @Override
-                public Map<RouteCacheKey, IMatchedRoutes> loadAll(Set<? extends RouteCacheKey> keys) {
-                    ITenantMeter.get(tenantId).recordCount(TenantMetric.MqttRouteCacheMissCount, keys.size());
-                    Map<String, RouteCacheKey> topicToKeyMap = new HashMap<>();
-                    keys.forEach(k -> topicToKeyMap.put(k.topic(), k));
+                public CompletableFuture<IMatchedRoutes> asyncReload(RouteCacheKey key,
+                                                                     @NonNull IMatchedRoutes oldValue,
+                                                                     Executor executor) {
                     int maxPersistentFanouts = settingProvider.provide(MaxPersistentFanout, tenantId);
                     int maxGroupFanouts = settingProvider.provide(MaxGroupFanout, tenantId);
-                    Map<String, IMatchedRoutes> resultMap = matcher.matchAll(topicToKeyMap.keySet(),
-                        maxPersistentFanouts, maxGroupFanouts);
-                    Map<RouteCacheKey, IMatchedRoutes> result = new HashMap<>();
-                    for (Map.Entry<String, IMatchedRoutes> entry : resultMap.entrySet()) {
-                        RouteCacheKey key = topicToKeyMap.get(entry.getKey());
-                        result.put(key, entry.getValue());
-                        index.add(key.topic, key);
+                    if (oldValue.adjust(maxPersistentFanouts, maxGroupFanouts)
+                        == IMatchedRoutes.AdjustResult.ReloadNeeded) {
+                        ReloadEntryTask task = ReloadEntryTask.of(key.topic, key, maxPersistentFanouts,
+                            maxGroupFanouts);
+                        submitCacheTask(task);
+                        return task.future;
                     }
-                    return result;
-                }
-
-                @Override
-                public @Nullable IMatchedRoutes reload(RouteCacheKey key, IMatchedRoutes oldValue) {
-                    int maxPersistentFanouts = settingProvider.provide(MaxPersistentFanout, tenantId);
-                    int maxGroupFanouts = settingProvider.provide(MaxGroupFanout, tenantId);
-                    if (needRefresh(oldValue, maxPersistentFanouts, maxGroupFanouts)) {
-                        Map<String, IMatchedRoutes> results = matcher.matchAll(singleton(key.topic),
-                            maxPersistentFanouts, maxGroupFanouts);
-                        return results.get(key.topic);
-                    } else if (oldValue.maxPersistentFanout() != maxPersistentFanouts
-                        || oldValue.maxGroupFanout() != maxGroupFanouts) {
-                        return new IMatchedRoutes() {
-                            @Override
-                            public int maxPersistentFanout() {
-                                return maxPersistentFanouts;
-                            }
-
-                            @Override
-                            public int maxGroupFanout() {
-                                return maxGroupFanouts;
-                            }
-
-                            @Override
-                            public int persistentFanout() {
-                                return oldValue.persistentFanout();
-                            }
-
-                            @Override
-                            public int groupFanout() {
-                                return oldValue.groupFanout();
-                            }
-
-                            @Override
-                            public Set<Matching> routes() {
-                                return oldValue.routes();
-                            }
-                        };
-                    } else {
-                        return oldValue;
-                    }
+                    return CompletableFuture.completedFuture(oldValue);
                 }
             });
+        ITenantMeter.counting(tenantId, TenantMetric.MqttRouteCacheHitCount, routesCache.synchronous(),
+            cache -> cache.stats().hitCount());
+        ITenantMeter.counting(tenantId, TenantMetric.MqttRouteCacheMissCount, routesCache.synchronous(),
+            cache -> cache.stats().missCount());
+        ITenantMeter.counting(tenantId, TenantMetric.MqttRouteCacheEvictCount, routesCache.synchronous(),
+            cache -> cache.stats().evictionCount());
         ITenantMeter.gauging(tenantId, TenantMetric.MqttRouteCacheSize, routesCache.synchronous()::estimatedSize);
-    }
-
-    private boolean needRefresh(IMatchedRoutes cachedRoutes, int maxPersistentFanouts, int maxGroupFanouts) {
-        return needRefresh(maxPersistentFanouts, cachedRoutes.maxPersistentFanout(), cachedRoutes.persistentFanout())
-            || needRefresh(maxGroupFanouts, cachedRoutes.maxGroupFanout(), cachedRoutes.groupFanout());
-    }
-
-    private boolean needRefresh(int currentLimit, int previousLimit, int currentFanout) {
-        // current limit increases and cachedRoutes reached the previous limit, need refresh
-        // current limit decreases and cachedRoutes exceeded the current limit, need refresh
-        return (previousLimit < currentLimit && currentFanout == previousLimit)
-            || (previousLimit > currentLimit && currentFanout > currentLimit);
     }
 
     @Override
@@ -182,14 +147,147 @@ class TenantRouteCache implements ITenantRouteCache {
     }
 
     @Override
-    public void refresh(NavigableSet<RouteMatcher> routeMatchers) {
-        routeMatchers.forEach(topicFilter -> {
-            for (RouteCacheKey cacheKey : index.match(topicFilter.getFilterLevelList())) {
-                // we must invalidate the cache entry first to ensure the refresh will trigger a load
-                routesCache.synchronous().invalidate(cacheKey);
-                routesCache.synchronous().refresh(cacheKey);
+    public void refresh(RefreshEntriesTask task) {
+        // Enqueue and schedule an async refresh task; ensure only one runner active
+        submitCacheTask(task);
+    }
+
+    private void submitCacheTask(TenantRouteCacheTask task) {
+        tasks.add(task);
+        tryScheduleTask();
+    }
+
+    private void tryScheduleTask() {
+        if (taskRunning.compareAndSet(false, true)) {
+            matchExecutor.execute(this::runTaskLoop);
+        }
+    }
+
+    private void runTaskLoop() {
+        TenantRouteCacheTask task;
+        List<CompletableFuture<Void>> loadFutures = new ArrayList<>(tasks.size());
+        outer:
+        while ((task = tasks.poll()) != null) {
+            switch (task.type()) {
+                case Load -> {
+                    LoadEntryTask loadEntryTask = (LoadEntryTask) task;
+                    loadFutures.add(CompletableFuture.runAsync(() -> {
+                        int maxPersistentFanouts = settingProvider.provide(MaxPersistentFanout, tenantId);
+                        int maxGroupFanouts = settingProvider.provide(MaxGroupFanout, tenantId);
+                        String topic = loadEntryTask.topic;
+                        RouteCacheKey cacheKey = loadEntryTask.cacheKey;
+                        Map<String, IMatchedRoutes> results = matcher.matchAll(singleton(topic), maxPersistentFanouts,
+                            maxGroupFanouts);
+
+                        IMatchedRoutes matchedRoutes = results.get(loadEntryTask.topic);
+                        // update reference
+                        cacheKey.cachedMatchedRoutes.set(matchedRoutes);
+                        // sync index
+                        index.add(topic, cacheKey);
+                        loadEntryTask.future.complete(matchedRoutes);
+                    }, matchExecutor));
+                }
+                case Reload -> {
+                    ReloadEntryTask reloadEntryTask = (ReloadEntryTask) task;
+                    loadFutures.add(CompletableFuture.runAsync(() -> {
+                        String topic = reloadEntryTask.topic;
+                        RouteCacheKey cacheKey = reloadEntryTask.cacheKey;
+                        Map<String, IMatchedRoutes> results = matcher.matchAll(singleton(topic),
+                            reloadEntryTask.maxPersistentFanouts, reloadEntryTask.maxGroupFanouts);
+                        IMatchedRoutes matchedRoutes = results.get(topic);
+                        // update reference
+                        cacheKey.cachedMatchedRoutes.set(matchedRoutes);
+                        reloadEntryTask.future.complete(matchedRoutes);
+                    }, matchExecutor));
+                }
+                case AddRoutes, RemoveRoutes -> {
+                    if (!loadFutures.isEmpty()) {
+                        tasks.addFirst(task);
+                        break outer;
+                    } else {
+                        switch (task.type()) {
+                            case AddRoutes -> {
+                                AddRoutesTask addTask = (AddRoutesTask) task;
+                                for (RouteMatcher topicFilter : addTask.routes.keySet()) {
+                                    Set<Matching> newMatchings = addTask.routes.get(topicFilter);
+                                    List<String> filterLevels = topicFilter.getFilterLevelList();
+                                    Set<RouteCacheKey> keys = index.match(filterLevels);
+                                    switch (topicFilter.getType()) {
+                                        case Normal -> {
+                                            for (RouteCacheKey cacheKey : keys) {
+                                                for (Matching matching : newMatchings) {
+                                                    cacheKey.cachedMatchedRoutes.get()
+                                                        .addNormalMatching((NormalMatching) matching);
+                                                }
+                                            }
+                                        }
+                                        case OrderedShare, UnorderedShare -> {
+                                            for (RouteCacheKey cacheKey : keys) {
+                                                for (Matching matching : newMatchings) {
+                                                    cacheKey.cachedMatchedRoutes.get()
+                                                        .putGroupMatching((GroupMatching) matching);
+                                                }
+                                            }
+                                        }
+                                        default -> {
+                                            // do nothing
+                                        }
+                                    }
+                                }
+                            }
+                            case RemoveRoutes -> {
+                                RemoveRoutesTask removeTask = (RemoveRoutesTask) task;
+                                for (RouteMatcher topicFilter : removeTask.routes.keySet()) {
+                                    Set<Matching> removedMatchings = removeTask.routes.get(topicFilter);
+                                    List<String> filterLevels = topicFilter.getFilterLevelList();
+                                    Set<RouteCacheKey> keys = index.match(filterLevels);
+                                    switch (topicFilter.getType()) {
+                                        case Normal -> {
+                                            for (RouteCacheKey cacheKey : keys) {
+                                                for (Matching matching : removedMatchings) {
+                                                    cacheKey.cachedMatchedRoutes.get()
+                                                        .removeNormalMatching((NormalMatching) matching);
+                                                }
+                                            }
+                                        }
+                                        case OrderedShare, UnorderedShare -> {
+                                            for (RouteCacheKey cacheKey : keys) {
+                                                for (Matching matching : removedMatchings) {
+                                                    GroupMatching groupMatching = (GroupMatching) matching;
+                                                    if (groupMatching.receivers().isEmpty()) {
+                                                        cacheKey.cachedMatchedRoutes.get()
+                                                            .removeGroupMatching(groupMatching);
+                                                    } else {
+                                                        cacheKey.cachedMatchedRoutes.get()
+                                                            .putGroupMatching(groupMatching);
+                                                    }
+                                                }
+                                            }
+                                        }
+                                        default -> {
+                                            // do nothing
+                                        }
+                                    }
+                                }
+                            }
+                            default -> {
+                                // do nothing
+                            }
+                        }
+                    }
+                }
+                default -> {
+                    // do nothing
+                }
             }
-        });
+        }
+        CompletableFuture.allOf(loadFutures.toArray(CompletableFuture[]::new))
+            .whenComplete((v, e) -> {
+                taskRunning.set(false);
+                if (!tasks.isEmpty()) {
+                    tryScheduleTask();
+                }
+            });
     }
 
     @Override
@@ -199,9 +297,9 @@ class TenantRouteCache implements ITenantRouteCache {
 
     @Override
     public void destroy() {
+        ITenantMeter.stopCounting(tenantId, TenantMetric.MqttRouteCacheMissCount);
+        ITenantMeter.stopCounting(tenantId, TenantMetric.MqttRouteCacheHitCount);
+        ITenantMeter.stopCounting(tenantId, TenantMetric.MqttRouteCacheEvictCount);
         ITenantMeter.stopGauging(tenantId, TenantMetric.MqttRouteCacheSize);
-    }
-
-    private record RouteCacheKey(String topic, Boundary matchRecordBoundary) {
     }
 }

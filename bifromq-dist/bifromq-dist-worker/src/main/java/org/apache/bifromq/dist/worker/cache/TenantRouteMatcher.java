@@ -27,7 +27,6 @@ import static org.apache.bifromq.basekv.utils.BoundaryUtil.upperBound;
 import static org.apache.bifromq.dist.worker.schema.KVSchemaUtil.buildMatchRoute;
 import static org.apache.bifromq.dist.worker.schema.KVSchemaUtil.tenantBeginKey;
 import static org.apache.bifromq.dist.worker.schema.KVSchemaUtil.tenantRouteStartKey;
-import static org.apache.bifromq.plugin.eventcollector.ThreadLocalEventPool.getLocal;
 
 import com.google.protobuf.ByteString;
 import io.micrometer.core.instrument.Timer;
@@ -36,18 +35,16 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Supplier;
 import org.apache.bifromq.basekv.proto.Boundary;
 import org.apache.bifromq.basekv.store.api.IKVIterator;
 import org.apache.bifromq.basekv.store.api.IKVReader;
 import org.apache.bifromq.dist.trie.TopicFilterIterator;
 import org.apache.bifromq.dist.trie.TopicTrieNode;
+import org.apache.bifromq.dist.worker.schema.GroupMatching;
 import org.apache.bifromq.dist.worker.schema.Matching;
 import org.apache.bifromq.dist.worker.schema.NormalMatching;
 import org.apache.bifromq.plugin.eventcollector.IEventCollector;
-import org.apache.bifromq.plugin.eventcollector.distservice.GroupFanoutThrottled;
-import org.apache.bifromq.plugin.eventcollector.distservice.PersistentFanoutThrottled;
 import org.apache.bifromq.util.TopicUtil;
 
 class TenantRouteMatcher implements ITenantRouteMatcher {
@@ -72,12 +69,11 @@ class TenantRouteMatcher implements ITenantRouteMatcher {
                                                 int maxGroupFanoutCount) {
         final Timer.Sample sample = Timer.start();
         Map<String, IMatchedRoutes> matchedRoutes = new HashMap<>();
-        Set<String> pFanoutTrimedTopic = new HashSet<>();
-        Set<String> gFanoutTrimedTopic = new HashSet<>();
         TopicTrieNode.Builder<String> topicTrieBuilder = TopicTrieNode.builder(false);
         topics.forEach(topic -> {
             topicTrieBuilder.addTopic(TopicUtil.parse(topic, false), topic);
-            matchedRoutes.put(topic, new MatchResult(maxPersistentFanoutCount, maxGroupFanoutCount));
+            matchedRoutes.put(topic,
+                new MatchedRoutes(tenantId, topic, eventCollector, maxPersistentFanoutCount, maxGroupFanoutCount));
         });
 
         IKVReader rangeReader = kvReaderSupplier.get();
@@ -96,6 +92,7 @@ class TenantRouteMatcher implements ITenantRouteMatcher {
         // track seek
         itr.seek(tenantBoundary.getStartKey());
         int probe = 0;
+
         while (itr.isValid() && compare(itr.key(), tenantBoundary.getEndKey()) < 0) {
             // track itr.key()
             Matching matching = buildMatchRoute(itr.key(), itr.value());
@@ -110,30 +107,12 @@ class TenantRouteMatcher implements ITenantRouteMatcher {
                         Set<String> backingTopics = new HashSet<>();
                         for (Set<String> topicSet : expansionSetItr.value().values()) {
                             for (String topic : topicSet) {
-                                MatchResult matchResult = (MatchResult) matchedRoutes.computeIfAbsent(topic,
-                                    k -> new MatchResult(maxPersistentFanoutCount, maxGroupFanoutCount));
+                                MatchedRoutes matchResult = (MatchedRoutes) matchedRoutes.computeIfAbsent(topic,
+                                    k -> new MatchedRoutes(tenantId, k, eventCollector, maxPersistentFanoutCount,
+                                        maxGroupFanoutCount));
                                 switch (matching.type()) {
-                                    case Normal -> {
-                                        NormalMatching normalRoute = (NormalMatching) matching;
-                                        if (normalRoute.subBrokerId() == 1) {
-                                            if (matchResult.persistentFanoutCount.get() < maxPersistentFanoutCount) {
-                                                matchResult.persistentFanoutCount.incrementAndGet();
-                                                matchResult.routes.add(matching);
-                                            } else {
-                                                pFanoutTrimedTopic.add(topic);
-                                            }
-                                        } else {
-                                            matchResult.routes.add(matching);
-                                        }
-                                    }
-                                    case Group -> {
-                                        if (matchResult.groupFanoutCount.get() < maxGroupFanoutCount) {
-                                            matchResult.groupFanoutCount.incrementAndGet();
-                                            matchResult.routes.add(matching);
-                                        } else {
-                                            gFanoutTrimedTopic.add(topic);
-                                        }
-                                    }
+                                    case Normal -> matchResult.addNormalMatching((NormalMatching) matching);
+                                    case Group -> matchResult.putGroupMatching((GroupMatching) matching);
                                     default -> {
                                         // never happen
                                     }
@@ -161,30 +140,12 @@ class TenantRouteMatcher implements ITenantRouteMatcher {
             } else {
                 itr.next();
                 for (String topic : matchedTopics) {
-                    MatchResult matchResult = (MatchResult) matchedRoutes.computeIfAbsent(topic,
-                        k -> new MatchResult(maxPersistentFanoutCount, maxGroupFanoutCount));
+                    MatchedRoutes matchResult = (MatchedRoutes) matchedRoutes.computeIfAbsent(topic,
+                        k -> new MatchedRoutes(tenantId, k, eventCollector, maxPersistentFanoutCount,
+                            maxGroupFanoutCount));
                     switch (matching.type()) {
-                        case Normal -> {
-                            NormalMatching normalRoute = (NormalMatching) matching;
-                            if (normalRoute.subBrokerId() == 1) {
-                                if (matchResult.persistentFanoutCount.get() < maxPersistentFanoutCount) {
-                                    matchResult.persistentFanoutCount.incrementAndGet();
-                                    matchResult.routes.add(matching);
-                                } else {
-                                    pFanoutTrimedTopic.add(topic);
-                                }
-                            } else {
-                                matchResult.routes.add(matching);
-                            }
-                        }
-                        case Group -> {
-                            if (matchResult.groupFanoutCount.get() < maxGroupFanoutCount) {
-                                matchResult.groupFanoutCount.incrementAndGet();
-                                matchResult.routes.add(matching);
-                            } else {
-                                gFanoutTrimedTopic.add(topic);
-                            }
-                        }
+                        case Normal -> matchResult.addNormalMatching((NormalMatching) matching);
+                        case Group -> matchResult.putGroupMatching((GroupMatching) matching);
                         default -> {
                             // never happen
                         }
@@ -193,54 +154,6 @@ class TenantRouteMatcher implements ITenantRouteMatcher {
             }
         }
         sample.stop(timer);
-        pFanoutTrimedTopic.forEach(topic -> eventCollector.report(getLocal(PersistentFanoutThrottled.class)
-            .tenantId(tenantId)
-            .topic(topic)
-            .maxCount(maxPersistentFanoutCount)
-        ));
-        gFanoutTrimedTopic.forEach(topic -> eventCollector.report(getLocal(GroupFanoutThrottled.class)
-            .tenantId(tenantId)
-            .topic(topic)
-            .maxCount(maxGroupFanoutCount)
-        ));
         return matchedRoutes;
-    }
-
-    private static class MatchResult implements IMatchedRoutes {
-        private final Set<Matching> routes = new HashSet<>();
-        private final int maxPersistentFanoutCount;
-        private final int maxGroupFanoutCount;
-        private final AtomicInteger persistentFanoutCount = new AtomicInteger(0);
-        private final AtomicInteger groupFanoutCount = new AtomicInteger(0);
-
-        private MatchResult(int maxPersistentFanoutCount, int maxGroupFanoutCount) {
-            this.maxPersistentFanoutCount = maxPersistentFanoutCount;
-            this.maxGroupFanoutCount = maxGroupFanoutCount;
-        }
-
-        @Override
-        public int maxPersistentFanout() {
-            return maxPersistentFanoutCount;
-        }
-
-        @Override
-        public int maxGroupFanout() {
-            return maxGroupFanoutCount;
-        }
-
-        @Override
-        public int persistentFanout() {
-            return persistentFanoutCount.get();
-        }
-
-        @Override
-        public int groupFanout() {
-            return groupFanoutCount.get();
-        }
-
-        @Override
-        public Set<Matching> routes() {
-            return routes;
-        }
     }
 }

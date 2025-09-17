@@ -29,7 +29,7 @@ import org.apache.bifromq.type.RouteMatcher;
 /**
  * Represent a group matching route.
  */
-@EqualsAndHashCode(callSuper = true)
+@EqualsAndHashCode(callSuper = true, cacheStrategy = EqualsAndHashCode.CacheStrategy.LAZY)
 @ToString
 public final class GroupMatching extends Matching {
     @EqualsAndHashCode.Exclude
@@ -41,8 +41,9 @@ public final class GroupMatching extends Matching {
     GroupMatching(String tenantId, RouteMatcher matcher, Map<String, Long> members) {
         super(tenantId, matcher);
         assert matcher.getType() != RouteMatcher.Type.Normal;
-        this.ordered = matcher.getType() == RouteMatcher.Type.OrderedShare;
         this.receivers = members;
+
+        this.ordered = matcher.getType() == RouteMatcher.Type.OrderedShare;
         this.receiverList = members.entrySet().stream()
             .map(e -> new NormalMatching(tenantId, matcher, e.getKey(), e.getValue()))
             .collect(Collectors.toList());

@@ -14,13 +14,14 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 
 package org.apache.bifromq.metrics;
 
 import io.micrometer.core.instrument.Timer;
 import java.util.function.Supplier;
+import java.util.function.ToDoubleFunction;
 
 public interface ITenantMeter {
     String TAG_TENANT_ID = "tenantId";
@@ -35,6 +36,18 @@ public interface ITenantMeter {
 
     static void stopGauging(String tenantId, TenantMetric gaugeMetric, String... tagValuePair) {
         TenantGauges.stopGauging(tenantId, gaugeMetric, tagValuePair);
+    }
+
+    static <C> void counting(String tenantId,
+                             TenantMetric counterMetric,
+                             C ctr,
+                             ToDoubleFunction<C> supplier,
+                             String... tagValuePair) {
+        TenantFunctionCounters.counting(tenantId, counterMetric, ctr, supplier, tagValuePair);
+    }
+
+    static void stopCounting(String tenantId, TenantMetric counterMetric, String... tagValuePair) {
+        TenantFunctionCounters.stopCounting(tenantId, counterMetric, tagValuePair);
     }
 
     void recordCount(TenantMetric metric);

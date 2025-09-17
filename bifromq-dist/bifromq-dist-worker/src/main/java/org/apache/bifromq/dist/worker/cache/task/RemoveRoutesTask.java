@@ -17,40 +17,26 @@
  * under the License.
  */
 
-package org.apache.bifromq.dist.worker.schema;
+package org.apache.bifromq.dist.worker.cache.task;
 
-import lombok.EqualsAndHashCode;
-import lombok.ToString;
+import java.util.NavigableMap;
+import java.util.Set;
+import org.apache.bifromq.dist.worker.schema.Matching;
 import org.apache.bifromq.type.RouteMatcher;
 
-/**
- * The abstract class of matching route.
- */
-@EqualsAndHashCode(cacheStrategy = EqualsAndHashCode.CacheStrategy.LAZY)
-@ToString
-public abstract class Matching {
-    @EqualsAndHashCode.Exclude
-    public final RouteMatcher matcher;
-    private final String tenantId;
-    private final String mqttTopicFilter;
+public class RemoveRoutesTask extends RefreshEntriesTask {
 
-    protected Matching(String tenantId, RouteMatcher matcher) {
-        this.tenantId = tenantId;
-        this.matcher = matcher;
-        this.mqttTopicFilter = matcher.getMqttTopicFilter();
+    private RemoveRoutesTask(
+        NavigableMap<RouteMatcher, Set<Matching>> removed) {
+        super(removed);
     }
 
-    public abstract Type type();
-
-    public final String tenantId() {
-        return tenantId;
+    public static RemoveRoutesTask of(NavigableMap<RouteMatcher, Set<Matching>> added) {
+        return new RemoveRoutesTask(added);
     }
 
-    public final String mqttTopicFilter() {
-        return mqttTopicFilter;
-    }
-
-    public enum Type {
-        Normal, Group
+    @Override
+    public CacheTaskType type() {
+        return CacheTaskType.RemoveRoutes;
     }
 }

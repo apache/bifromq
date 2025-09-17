@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 
 package org.apache.bifromq.dist.worker.cache;
@@ -33,13 +33,6 @@ import static org.testng.Assert.assertFalse;
 import static org.testng.Assert.assertNotNull;
 import static org.testng.Assert.assertTrue;
 
-import org.apache.bifromq.basekv.proto.Boundary;
-import org.apache.bifromq.basekv.proto.KVRangeId;
-import org.apache.bifromq.basekv.store.api.IKVCloseableReader;
-import org.apache.bifromq.dist.worker.Comparators;
-import org.apache.bifromq.dist.worker.schema.Matching;
-import org.apache.bifromq.type.RouteMatcher;
-import org.apache.bifromq.util.TopicUtil;
 import com.github.benmanes.caffeine.cache.Ticker;
 import com.google.protobuf.ByteString;
 import java.time.Duration;
@@ -47,13 +40,22 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.NavigableSet;
+import java.util.NavigableMap;
 import java.util.Set;
-import java.util.TreeSet;
+import java.util.TreeMap;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
 import java.util.concurrent.Executors;
 import java.util.function.Supplier;
+import org.apache.bifromq.basekv.proto.Boundary;
+import org.apache.bifromq.basekv.proto.KVRangeId;
+import org.apache.bifromq.basekv.store.api.IKVCloseableReader;
+import org.apache.bifromq.dist.worker.Comparators;
+import org.apache.bifromq.dist.worker.cache.task.AddRoutesTask;
+import org.apache.bifromq.dist.worker.cache.task.RefreshEntriesTask;
+import org.apache.bifromq.dist.worker.schema.Matching;
+import org.apache.bifromq.type.RouteMatcher;
+import org.apache.bifromq.util.TopicUtil;
 import org.testng.annotations.BeforeMethod;
 import org.testng.annotations.Test;
 
@@ -120,14 +122,15 @@ public class SubscriptionCacheTest {
     @Test
     public void refresh() {
         String tenantId = "tenant1";
-        NavigableSet<RouteMatcher> routeMatchers = new TreeSet<>(Comparators.RouteMatcherComparator);
-        Map<String, NavigableSet<RouteMatcher>> matchesByTenant = new HashMap<>();
-        matchesByTenant.put(tenantId, routeMatchers);
+        NavigableMap<RouteMatcher, Set<Matching>> routeMatchers = new TreeMap<>(Comparators.RouteMatcherComparator);
+        RefreshEntriesTask refreshEntriesTask = AddRoutesTask.of(routeMatchers);
+        Map<String, RefreshEntriesTask> matchesByTenant = new HashMap<>();
+        matchesByTenant.put(tenantId, refreshEntriesTask);
 
         when(tenantRouteCacheFactoryMock.create(tenantId)).thenReturn(tenantRouteCacheMock);
         cache.refresh(matchesByTenant);
 
-        verify(tenantRouteCacheMock, never()).refresh(routeMatchers);
+        verify(tenantRouteCacheMock, never()).refresh(refreshEntriesTask);
     }
 
     @Test

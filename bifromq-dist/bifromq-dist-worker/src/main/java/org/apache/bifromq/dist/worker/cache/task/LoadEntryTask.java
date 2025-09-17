@@ -17,24 +17,28 @@
  * under the License.
  */
 
-package org.apache.bifromq.dist.worker.cache;
+package org.apache.bifromq.dist.worker.cache.task;
 
-import java.util.List;
-import java.util.Set;
 import java.util.concurrent.CompletableFuture;
-import org.apache.bifromq.basekv.proto.Boundary;
-import org.apache.bifromq.dist.worker.cache.task.RefreshEntriesTask;
-import org.apache.bifromq.dist.worker.schema.Matching;
+import org.apache.bifromq.dist.worker.cache.IMatchedRoutes;
+import org.apache.bifromq.dist.worker.cache.RouteCacheKey;
 
-/**
- * Cache for matched routes for given tenant.
- */
-public interface ITenantRouteCache {
-    boolean isCached(List<String> filterLevels);
+public class LoadEntryTask extends TenantRouteCacheTask {
+    public final String topic;
+    public final RouteCacheKey cacheKey;
+    public final CompletableFuture<IMatchedRoutes> future = new CompletableFuture<>();
 
-    void refresh(RefreshEntriesTask task);
+    private LoadEntryTask(String topic, RouteCacheKey cacheKey) {
+        this.topic = topic;
+        this.cacheKey = cacheKey;
+    }
 
-    CompletableFuture<Set<Matching>> getMatch(String topic, Boundary currentTenantRange);
+    public static LoadEntryTask of(String topic, RouteCacheKey cacheKey) {
+        return new LoadEntryTask(topic, cacheKey);
+    }
 
-    void destroy();
+    @Override
+    public final CacheTaskType type() {
+        return CacheTaskType.Load;
+    }
 }

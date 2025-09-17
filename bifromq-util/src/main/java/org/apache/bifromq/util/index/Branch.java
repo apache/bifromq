@@ -14,15 +14,17 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 
 package org.apache.bifromq.util.index;
 
 import java.util.Set;
+import lombok.ToString;
 import org.pcollections.HashTreePSet;
 import org.pcollections.PSet;
 
+@ToString
 public class Branch<V> {
     final INode<V> iNode;
     PSet<V> values;

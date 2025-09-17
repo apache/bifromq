@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 
 package org.apache.bifromq.util.index;
@@ -24,6 +24,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicReferenceFieldUpdater;
+import lombok.ToString;
 import org.pcollections.HashTreePMap;
 import org.pcollections.PMap;
 
@@ -32,47 +33,10 @@ import org.pcollections.PMap;
  *
  * @param <V> The type of the value.
  */
+@ToString
 public abstract class TopicLevelTrie<V> {
     private static final AtomicReferenceFieldUpdater<TopicLevelTrie, INode> ROOT_UPDATER =
         AtomicReferenceFieldUpdater.newUpdater(TopicLevelTrie.class, INode.class, "root");
-
-    /**
-     * The branch selector when doing lookup.
-     */
-    public interface BranchSelector {
-        /**
-         * The action to take when selecting the branches.
-         */
-        enum Action {
-            STOP,
-            CONTINUE,
-            MATCH_AND_CONTINUE,
-            MATCH_AND_STOP;
-        }
-
-        /**
-         * Select the branches to lookup.
-         *
-         * @param branches     The branches to select.
-         * @param topicLevels  The topic levels.
-         * @param currentLevel The current level of the trie.
-         * @return The selected branches.
-         */
-        <V> Map<Branch<V>, Action> selectBranch(Map<String, Branch<V>> branches, List<String> topicLevels,
-                                                int currentLevel);
-    }
-
-    /**
-     * The return value of the lookup operation. The general contract is when the operation is successful, the
-     * successOrRetry flag is true and the values list contains the result. Otherwise, subclass MUST retry the lookup.
-     *
-     * @param values         The result values.
-     * @param successOrRetry The successOrRetry flag.
-     * @param <V>            The type of the value.
-     */
-    private record LookupResult<V>(Set<V> values, boolean successOrRetry) {
-    }
-
     private volatile INode<V> root = null;
 
     public TopicLevelTrie() {
@@ -124,7 +88,8 @@ public abstract class TopicLevelTrie<V> {
     protected void remove(List<String> topicLevels, V value) {
         while (true) {
             INode<V> r = root();
-            if (remove(r, null, null, topicLevels, 0, value)) {
+            Frame<V> rootF = new Frame<>(r, null, null);
+            if (remove(r, null, topicLevels, 0, value, rootF)) {
                 return;
             }
         }
@@ -132,21 +97,23 @@ public abstract class TopicLevelTrie<V> {
 
     private boolean remove(INode<V> i,
                            INode<V> parent,
-                           INode<V> grandparent,
                            List<String> topicLevels,
                            int levelIndex,
-                           V value) {
+                           V value,
+                           Frame<V> top) {
         // LPoint
         MainNode<V> main = i.main();
         if (main.cNode != null) {
             CNode<V> cn = main.cNode;
-            Branch<V> br = cn.branches.get(topicLevels.get(levelIndex));
+            String key = topicLevels.get(levelIndex);
+            Branch<V> br = cn.branches.get(key);
             if (br == null) {
                 return true;
             } else {
                 if (levelIndex + 1 < topicLevels.size()) {
                     if (br.iNode != null) {
-                        return remove(br.iNode, i, parent, topicLevels, levelIndex + 1, value);
+                        Frame<V> childTop = new Frame<>(br.iNode, key, top);
+                        return remove(br.iNode, i, topicLevels, levelIndex + 1, value, childTop);
                     }
                     return true;
                 }
@@ -154,10 +121,9 @@ public abstract class TopicLevelTrie<V> {
                     return true;
                 }
                 MainNode<V> newMain = toContracted(cn.removed(topicLevels.get(levelIndex), value), i);
-                // LPoint
                 if (i.cas(main, newMain)) {
-                    if (parent != null && newMain.tNode != null) {
-                        cleanParent(i, parent, grandparent, topicLevels.get(levelIndex - 1));
+                    if (newMain.tNode != null) {
+                        contractToRoot(top);
                     }
                     return true;
                 }
@@ -168,6 +134,35 @@ public abstract class TopicLevelTrie<V> {
             return false;
         }
         throw new IllegalStateException("TopicLevelTrie is in an invalid state");
+    }
+
+    private void contractToRoot(Frame<V> top) {
+        // top TNode
+        Frame<V> childF = top;
+        while (true) {
+            Frame<V> parentF = childF.prev;
+            if (parentF == null) {
+                // reach root
+                break;
+            }
+            Frame<V> gpF = parentF.prev;
+            cleanParent(childF.node, parentF.node, gpF == null ? null : gpF.node,
+                childF.keyFromParent, parentF.keyFromParent);
+
+            MainNode<V> pAfter = parentF.node.main();
+            if (pAfter.tNode != null) {
+                childF = parentF;
+                continue;
+            }
+            if (gpF != null) {
+                MainNode<V> gAfter = gpF.node.main();
+                if (gAfter.tNode != null) {
+                    childF = gpF;
+                    continue;
+                }
+            }
+            break;
+        }
     }
 
     /**
@@ -235,7 +230,6 @@ public abstract class TopicLevelTrie<V> {
         throw new IllegalStateException("TopicLevelTrie is in an invalid state");
     }
 
-
     @SuppressWarnings("unchecked")
     private INode<V> root() {
         return ROOT_UPDATER.get(this);
@@ -251,37 +245,53 @@ public abstract class TopicLevelTrie<V> {
     private void clean(INode<V> i) {
         MainNode<V> main = i.main();
         if (main.cNode != null) {
-            i.cas(main, toCompressed(main.cNode));
+            MainNode<V> compressed = toCompressed(main.cNode);
+            i.cas(main, toContracted(compressed.cNode, i));
         }
     }
 
-    private void cleanParent(INode<V> i, INode<V> parent, INode<V> grandparent, String topicLevel) {
-        MainNode<V> main = i.main();
-        MainNode<V> pMain = parent.main();
-        if (pMain.cNode != null) {
+    private void cleanParent(INode<V> i,
+                             INode<V> parent,
+                             INode<V> grandparent,
+                             String topicLevel,
+                             String parentTopicLevel) {
+        while (true) {
+            MainNode<V> main = i.main();
+            MainNode<V> pMain = parent.main();
+            if (pMain.cNode == null) {
+                return;
+            }
             Branch<V> br = pMain.cNode.branches.get(topicLevel);
-            if (br != null && br.iNode == i && main.tNode != null) {
-                if (!contract(grandparent, parent, pMain)) {
-                    cleanParent(grandparent, parent, i, topicLevel);
-                }
+            if (br == null || br.iNode != i || main.tNode == null) {
+                return;
+            }
+            if (contract(grandparent, parent, pMain, parentTopicLevel)) {
+                return;
             }
         }
     }
 
-    private boolean contract(INode<V> grandparent, INode<V> parent, MainNode<V> pMain) {
+    private boolean contract(INode<V> grandparent, INode<V> parent, MainNode<V> pMain, String parentTopicLevel) {
         MainNode<V> compressed = toCompressed(pMain.cNode);
         if (compressed.cNode.branches.isEmpty() && grandparent != null) {
             MainNode<V> ppMain = grandparent.main();
-            for (Map.Entry<String, Branch<V>> entry : ppMain.cNode.branches.entrySet()) {
-                if (entry.getValue().iNode == parent) {
-                    CNode<V> updated = ppMain.cNode.updatedBranch(entry.getKey(), null, entry.getValue());
-                    return grandparent.cas(ppMain, toCompressed(updated));
-                }
+            if (ppMain.cNode == null) {
+                return true;
             }
+            Branch<V> parentBr = ppMain.cNode.branches.get(parentTopicLevel);
+            if (parentBr == null || parentBr.iNode != parent) {
+                return true;
+            }
+            CNode<V> updated = ppMain.cNode.updatedBranch(parentTopicLevel, null, parentBr);
+            MainNode<V> gpNew = toContracted(toCompressed(updated).cNode, grandparent);
+            return grandparent.cas(ppMain, gpNew);
         } else {
+            Runnable hook = TestHook.beforeParentContractCas;
+            if (hook != null) {
+                hook.run();
+            }
             return parent.cas(pMain, toContracted(compressed.cNode, parent));
         }
-        return true;
     }
 
     private MainNode<V> toCompressed(CNode<V> cn) {
@@ -303,5 +313,62 @@ public abstract class TopicLevelTrie<V> {
         }
         MainNode<V> main = br.iNode.main();
         return main.tNode != null;
+    }
+
+    /**
+     * The branch selector when doing lookup.
+     */
+    public interface BranchSelector {
+        /**
+         * Select the branches to lookup.
+         *
+         * @param branches     The branches to select.
+         * @param topicLevels  The topic levels.
+         * @param currentLevel The current level of the trie.
+         * @return The selected branches.
+         */
+        <V> Map<Branch<V>, Action> selectBranch(Map<String, Branch<V>> branches, List<String> topicLevels,
+                                                int currentLevel);
+
+        /**
+         * The action to take when selecting the branches.
+         */
+        enum Action {
+            STOP,
+            CONTINUE,
+            MATCH_AND_CONTINUE,
+            MATCH_AND_STOP;
+        }
+    }
+
+    /**
+     * The return value of the lookup operation. The general contract is when the operation is successful, the
+     * successOrRetry flag is true and the values list contains the result. Otherwise, subclass MUST retry the lookup.
+     *
+     * @param values         The result values.
+     * @param successOrRetry The successOrRetry flag.
+     * @param <V>            The type of the value.
+     */
+    private record LookupResult<V>(Set<V> values, boolean successOrRetry) {
+    }
+
+    /** Path frame for upward contraction after a successful remove. */
+    private static final class Frame<T> {
+        final INode<T> node;          // current inode
+        final String keyFromParent; // branching key from parent
+        final Frame<T> prev;          // parent
+
+        Frame(INode<T> node, String keyFromParent, Frame<T> prev) {
+            this.node = node;
+            this.keyFromParent = keyFromParent;
+            this.prev = prev;
+        }
+    }
+
+    static final class TestHook {
+        static volatile Runnable beforeParentContractCas;
+
+        private TestHook() {
+        }
     }
 }

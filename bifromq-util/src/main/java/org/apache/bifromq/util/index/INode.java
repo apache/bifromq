@@ -20,7 +20,9 @@
 package org.apache.bifromq.util.index;
 
 import java.util.concurrent.atomic.AtomicReferenceFieldUpdater;
+import lombok.ToString;
 
+@ToString
 public class INode<V> {
     private static final AtomicReferenceFieldUpdater<INode, MainNode>
         MAIN_UPDATER = AtomicReferenceFieldUpdater.newUpdater(INode.class, MainNode.class, "main");

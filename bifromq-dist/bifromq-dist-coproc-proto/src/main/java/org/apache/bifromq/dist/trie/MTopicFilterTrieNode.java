@@ -14,18 +14,23 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 
 package org.apache.bifromq.dist.trie;
 
 import static org.apache.bifromq.util.TopicConst.MULTI_WILDCARD;
-import static java.util.Collections.emptySet;
-import static java.util.Collections.singleton;
 
-import com.google.common.collect.Sets;
+import com.github.benmanes.caffeine.cache.Cache;
+import com.github.benmanes.caffeine.cache.Caffeine;
+import com.github.benmanes.caffeine.cache.RemovalCause;
+import com.github.benmanes.caffeine.cache.Scheduler;
+import com.github.benmanes.caffeine.cache.Ticker;
+import java.util.HashSet;
 import java.util.NoSuchElementException;
 import java.util.Set;
+import java.util.concurrent.ConcurrentLinkedDeque;
+import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * Multi-level topic filter trie node.
@@ -33,15 +38,81 @@ import java.util.Set;
  * @param <V> value type
  */
 final class MTopicFilterTrieNode<V> extends TopicFilterTrieNode<V> {
-    private final Set<TopicTrieNode<V>> backingTopics;
+    private static final ConcurrentLinkedDeque<Long> KEYS = new ConcurrentLinkedDeque<>();
+    private static final AtomicLong SEQ = new AtomicLong();
+    private static volatile Ticker TICKER = Ticker.systemTicker();
+    private static final Cache<Long, MTopicFilterTrieNode<?>> POOL = Caffeine.newBuilder()
+        .expireAfterAccess(EXPIRE_AFTER)
+        .recordStats()
+        .scheduler(Scheduler.systemScheduler())
+        .ticker(() -> TICKER.read())
+        .removalListener((Long key, MTopicFilterTrieNode<?> value, RemovalCause cause) -> {
+            KEYS.remove(key);
+            if (cause == RemovalCause.EXPIRED || cause == RemovalCause.SIZE) {
+                value.recycle();
+            }
+        })
+        .build();
 
-    MTopicFilterTrieNode(TopicFilterTrieNode<V> parent, Set<TopicTrieNode<V>> siblingTopicTrieNodes) {
-        super(parent);
-        Set<TopicTrieNode<V>> topics = parent != null ? parent.backingTopics() : emptySet();
-        for (TopicTrieNode<V> sibling : siblingTopicTrieNodes) {
-            topics = collectTopics(sibling, topics);
+    private final Set<TopicTrieNode<V>> backingTopics = new HashSet<>();
+
+    MTopicFilterTrieNode() {
+    }
+
+    static <V> MTopicFilterTrieNode<V> borrow(TopicFilterTrieNode<V> parent,
+                                              Set<TopicTrieNode<V>> siblingTopicTrieNodes) {
+        while (true) {
+            Long key = KEYS.pollFirst();
+            if (key == null) {
+                break;
+            }
+            @SuppressWarnings("unchecked")
+            MTopicFilterTrieNode<V> pooled = (MTopicFilterTrieNode<V>) POOL.asMap().remove(key);
+            if (pooled != null) {
+                return pooled.init(parent, siblingTopicTrieNodes);
+            }
         }
-        backingTopics = topics;
+        MTopicFilterTrieNode<V> node = new MTopicFilterTrieNode<>();
+        return node.init(parent, siblingTopicTrieNodes);
+    }
+
+    static void release(MTopicFilterTrieNode<?> node) {
+        node.recycle();
+        long key = SEQ.incrementAndGet();
+        KEYS.offerLast(key);
+        POOL.put(key, node);
+    }
+
+    // test hooks (package-private)
+    static void poolClear() {
+        POOL.invalidateAll();
+        POOL.cleanUp();
+        KEYS.clear();
+    }
+
+    static void poolCleanUp() {
+        POOL.cleanUp();
+    }
+
+    static int poolApproxSize() {
+        return KEYS.size();
+    }
+
+    static void setTicker(Ticker ticker) {
+        TICKER = ticker != null ? ticker : Ticker.systemTicker();
+    }
+
+    MTopicFilterTrieNode<V> init(TopicFilterTrieNode<V> parent, Set<TopicTrieNode<V>> siblingTopicTrieNodes) {
+        assert siblingTopicTrieNodes != null;
+        this.parent = parent;
+        backingTopics.clear();
+        if (parent != null) {
+            backingTopics.addAll(parent.backingTopics());
+        }
+        for (TopicTrieNode<V> sibling : siblingTopicTrieNodes) {
+            collectTopics(sibling);
+        }
+        return this;
     }
 
     @Override
@@ -54,16 +125,14 @@ final class MTopicFilterTrieNode<V> extends TopicFilterTrieNode<V> {
         return backingTopics;
     }
 
-    private Set<TopicTrieNode<V>> collectTopics(TopicTrieNode<V> node, Set<TopicTrieNode<V>> topics) {
+    private void collectTopics(TopicTrieNode<V> node) {
         if (node.isUserTopic()) {
-            topics = Sets.union(topics, singleton(node));
+            backingTopics.add(node);
         }
         for (TopicTrieNode<V> child : node.children().values()) {
-            topics = collectTopics(child, topics);
+            collectTopics(child);
         }
-        return topics;
     }
-
 
     @Override
     void seekChild(String childLevelName) {
@@ -103,5 +172,10 @@ final class MTopicFilterTrieNode<V> extends TopicFilterTrieNode<V> {
     @Override
     TopicFilterTrieNode<V> childNode() {
         throw new NoSuchElementException();
+    }
+
+    private void recycle() {
+        parent = null;
+        backingTopics.clear();
     }
 }

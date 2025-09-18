@@ -38,7 +38,7 @@ public final class GroupMatching extends Matching {
     public final List<NormalMatching> receiverList;
     private final Map<String, Long> receivers;
 
-    GroupMatching(String tenantId, RouteMatcher matcher, Map<String, Long> members) {
+    public GroupMatching(String tenantId, RouteMatcher matcher, Map<String, Long> members) {
         super(tenantId, matcher);
         assert matcher.getType() != RouteMatcher.Type.Normal;
         this.receivers = members;

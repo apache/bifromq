@@ -39,7 +39,8 @@ import java.util.function.Supplier;
 import org.apache.bifromq.basekv.proto.Boundary;
 import org.apache.bifromq.basekv.store.api.IKVIterator;
 import org.apache.bifromq.basekv.store.api.IKVReader;
-import org.apache.bifromq.dist.trie.TopicFilterIterator;
+import org.apache.bifromq.dist.trie.ITopicFilterIterator;
+import org.apache.bifromq.dist.trie.ThreadLocalTopicFilterIterator;
 import org.apache.bifromq.dist.trie.TopicTrieNode;
 import org.apache.bifromq.dist.worker.schema.GroupMatching;
 import org.apache.bifromq.dist.worker.schema.Matching;
@@ -85,75 +86,76 @@ class TenantRouteMatcher implements ITenantRouteMatcher {
         if (isNULLRange(tenantBoundary)) {
             return matchedRoutes;
         }
-
-        TopicFilterIterator<String> expansionSetItr = new TopicFilterIterator<>(topicTrieBuilder.build());
-        Map<List<String>, Set<String>> matchedTopicFilters = new HashMap<>();
-        IKVIterator itr = rangeReader.iterator();
-        // track seek
-        itr.seek(tenantBoundary.getStartKey());
-        int probe = 0;
-
-        while (itr.isValid() && compare(itr.key(), tenantBoundary.getEndKey()) < 0) {
-            // track itr.key()
-            Matching matching = buildMatchRoute(itr.key(), itr.value());
-            // key: topic
-            Set<String> matchedTopics = matchedTopicFilters.get(matching.matcher.getFilterLevelList());
-            if (matchedTopics == null) {
-                List<String> seekTopicFilter = matching.matcher.getFilterLevelList();
-                expansionSetItr.seek(seekTopicFilter);
-                if (expansionSetItr.isValid()) {
-                    List<String> topicFilterToMatch = expansionSetItr.key();
-                    if (topicFilterToMatch.equals(seekTopicFilter)) {
-                        Set<String> backingTopics = new HashSet<>();
-                        for (Set<String> topicSet : expansionSetItr.value().values()) {
-                            for (String topic : topicSet) {
-                                MatchedRoutes matchResult = (MatchedRoutes) matchedRoutes.computeIfAbsent(topic,
-                                    k -> new MatchedRoutes(tenantId, k, eventCollector, maxPersistentFanoutCount,
-                                        maxGroupFanoutCount));
-                                switch (matching.type()) {
-                                    case Normal -> matchResult.addNormalMatching((NormalMatching) matching);
-                                    case Group -> matchResult.putGroupMatching((GroupMatching) matching);
-                                    default -> {
-                                        // never happen
+        try (ITopicFilterIterator<String> expansionSetItr =
+                 ThreadLocalTopicFilterIterator.get(topicTrieBuilder.build())) {
+            expansionSetItr.init(topicTrieBuilder.build());
+            Map<List<String>, Set<String>> matchedTopicFilters = new HashMap<>();
+            IKVIterator itr = rangeReader.iterator();
+            // track seek
+            itr.seek(tenantBoundary.getStartKey());
+            int probe = 0;
+            while (itr.isValid() && compare(itr.key(), tenantBoundary.getEndKey()) < 0) {
+                // track itr.key()
+                Matching matching = buildMatchRoute(itr.key(), itr.value());
+                // key: topic
+                Set<String> matchedTopics = matchedTopicFilters.get(matching.matcher.getFilterLevelList());
+                if (matchedTopics == null) {
+                    List<String> seekTopicFilter = matching.matcher.getFilterLevelList();
+                    expansionSetItr.seek(seekTopicFilter);
+                    if (expansionSetItr.isValid()) {
+                        List<String> topicFilterToMatch = expansionSetItr.key();
+                        if (topicFilterToMatch.equals(seekTopicFilter)) {
+                            Set<String> backingTopics = new HashSet<>();
+                            for (Set<String> topicSet : expansionSetItr.value().values()) {
+                                for (String topic : topicSet) {
+                                    MatchedRoutes matchResult = (MatchedRoutes) matchedRoutes.computeIfAbsent(topic,
+                                        k -> new MatchedRoutes(tenantId, k, eventCollector, maxPersistentFanoutCount,
+                                            maxGroupFanoutCount));
+                                    switch (matching.type()) {
+                                        case Normal -> matchResult.addNormalMatching((NormalMatching) matching);
+                                        case Group -> matchResult.putGroupMatching((GroupMatching) matching);
+                                        default -> {
+                                            // never happen
+                                        }
                                     }
+                                    backingTopics.add(topic);
                                 }
-                                backingTopics.add(topic);
+                            }
+                            matchedTopicFilters.put(matching.matcher.getFilterLevelList(), backingTopics);
+                            itr.next();
+                            probe = 0;
+                        } else {
+                            // next() is much cheaper than seek(), we probe following 20 entries
+                            if (probe++ < 20) {
+                                // probe next
+                                itr.next();
+                            } else {
+                                // seek to match next topic filter
+                                ByteString nextMatch = tenantRouteStartKey(tenantId, topicFilterToMatch);
+                                itr.seek(nextMatch);
                             }
                         }
-                        matchedTopicFilters.put(matching.matcher.getFilterLevelList(), backingTopics);
-                        itr.next();
-                        probe = 0;
                     } else {
-                        // next() is much cheaper than seek(), we probe following 20 entries
-                        if (probe++ < 20) {
-                            // probe next
-                            itr.next();
-                        } else {
-                            // seek to match next topic filter
-                            ByteString nextMatch = tenantRouteStartKey(tenantId, topicFilterToMatch);
-                            itr.seek(nextMatch);
-                        }
+                        break; // no more topic filter to match, stop here
                     }
                 } else {
-                    break; // no more topic filter to match, stop here
-                }
-            } else {
-                itr.next();
-                for (String topic : matchedTopics) {
-                    MatchedRoutes matchResult = (MatchedRoutes) matchedRoutes.computeIfAbsent(topic,
-                        k -> new MatchedRoutes(tenantId, k, eventCollector, maxPersistentFanoutCount,
-                            maxGroupFanoutCount));
-                    switch (matching.type()) {
-                        case Normal -> matchResult.addNormalMatching((NormalMatching) matching);
-                        case Group -> matchResult.putGroupMatching((GroupMatching) matching);
-                        default -> {
-                            // never happen
+                    itr.next();
+                    for (String topic : matchedTopics) {
+                        MatchedRoutes matchResult = (MatchedRoutes) matchedRoutes.computeIfAbsent(topic,
+                            k -> new MatchedRoutes(tenantId, k, eventCollector, maxPersistentFanoutCount,
+                                maxGroupFanoutCount));
+                        switch (matching.type()) {
+                            case Normal -> matchResult.addNormalMatching((NormalMatching) matching);
+                            case Group -> matchResult.putGroupMatching((GroupMatching) matching);
+                            default -> {
+                                // never happen
+                            }
                         }
                     }
                 }
             }
+            sample.stop(timer);
+            return matchedRoutes;
         }
-        sample.stop(timer);
-        return matchedRoutes;
     }
 }

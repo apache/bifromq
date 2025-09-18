@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 
 package org.apache.bifromq.dist.trie;
@@ -29,7 +29,19 @@ import java.util.Set;
  *
  * @param <V> the value type for topic associated value
  */
-public interface ITopicFilterIterator<V> {
+public interface ITopicFilterIterator<V> extends AutoCloseable {
+    /**
+     * Init the iterator with the given root node.
+     *
+     * @param root the root node of the topic trie
+     */
+    void init(TopicTrieNode<V> root);
+
+    /**
+     * Reset the iterator after using.
+     */
+    void close();
+
     /**
      * Seek to the given topic filter levels, so that the next topic filter is greater or equals to the given topic
      * filter levels.

@@ -22,6 +22,7 @@ package org.apache.bifromq.dist.trie;
 import static org.apache.bifromq.util.TopicConst.NUL;
 
 import com.google.common.collect.Lists;
+import java.time.Duration;
 import java.util.List;
 import java.util.Set;
 
@@ -31,14 +32,25 @@ import java.util.Set;
  * @param <V> value type
  */
 abstract class TopicFilterTrieNode<V> {
-    protected final TopicFilterTrieNode<V> parent;
+    static final Duration EXPIRE_AFTER = Duration.ofMinutes(1);
 
-    protected TopicFilterTrieNode(TopicFilterTrieNode<V> parent) {
-        this.parent = parent;
+    protected TopicFilterTrieNode<V> parent;
+
+    protected TopicFilterTrieNode() {
     }
 
     static <V> TopicFilterTrieNode<V> from(TopicTrieNode<V> root) {
-        return new NTopicFilterTrieNode<>(null, root.levelName(), Set.of(root));
+        return NTopicFilterTrieNode.borrow(null, root.levelName(), Set.of(root));
+    }
+
+    static void release(TopicFilterTrieNode<?> node) {
+        if (node instanceof MTopicFilterTrieNode<?> mNode) {
+            MTopicFilterTrieNode.release(mNode);
+        } else if (node instanceof STopicFilterTrieNode<?> sNode) {
+            STopicFilterTrieNode.release(sNode);
+        } else if (node instanceof NTopicFilterTrieNode<?> nNode) {
+            NTopicFilterTrieNode.release(nNode);
+        }
     }
 
     /**

@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 
 package org.apache.bifromq.dist.trie;
@@ -36,21 +36,32 @@ import java.util.Stack;
  * @param <V> the value type for topic associated value
  */
 public class TopicFilterIterator<V> implements ITopicFilterIterator<V> {
-    private final TopicTrieNode<V> topicTrieRoot;
     // the invariant of the stack:
     // empty: no valid topic filter to iterator from  expansion set
     // non-empty: always point to a valid topic filter in expansion set when there is no operation
     private final Stack<TopicFilterTrieNode<V>> traverseStack = new Stack<>();
 
-    public TopicFilterIterator(TopicTrieNode<V> root) {
+    private TopicTrieNode<V> topicTrieRoot;
+
+    public TopicFilterIterator() {
+    }
+
+    @Override
+    public void init(TopicTrieNode<V> root) {
         this.topicTrieRoot = root;
         seek(Collections.emptyList());
     }
 
     @Override
+    public void close() {
+        clearTraverseStack();
+        topicTrieRoot = null;
+    }
+
+    @Override
     public void seek(List<String> filterLevels) {
-        traverseStack.clear();
-        traverseStack.add(TopicFilterTrieNode.from(topicTrieRoot));
+        clearTraverseStack();
+        traverseStack.push(TopicFilterTrieNode.from(topicTrieRoot));
         int i = -1;
         out:
         while (!traverseStack.isEmpty() && i < filterLevels.size()) {
@@ -73,7 +84,7 @@ public class TopicFilterIterator<V> implements ITopicFilterIterator<V> {
                     traverseStack.push(node.childNode());
                 } else {
                     // backtrace
-                    traverseStack.pop();
+                    popAndRelease();
                     if (traverseStack.isEmpty()) {
                         break;
                     }
@@ -85,7 +96,7 @@ public class TopicFilterIterator<V> implements ITopicFilterIterator<V> {
                             traverseStack.push(parent.childNode());
                             break out;
                         } else {
-                            traverseStack.pop();
+                            popAndRelease();
                         }
                     }
                 }
@@ -94,7 +105,7 @@ public class TopicFilterIterator<V> implements ITopicFilterIterator<V> {
                 // no least next topicfilter exists in expansion set for the given topic filter
                 // drain the stack
                 while (!traverseStack.isEmpty()) {
-                    traverseStack.pop();
+                    popAndRelease();
                 }
             }
         }
@@ -112,8 +123,8 @@ public class TopicFilterIterator<V> implements ITopicFilterIterator<V> {
 
     @Override
     public void seekPrev(List<String> filterLevels) {
-        traverseStack.clear();
-        traverseStack.add(TopicFilterTrieNode.from(topicTrieRoot));
+        clearTraverseStack();
+        traverseStack.push(TopicFilterTrieNode.from(topicTrieRoot));
         int i = -1;
         out:
         while (!traverseStack.isEmpty() && i < filterLevels.size()) {
@@ -129,7 +140,7 @@ public class TopicFilterIterator<V> implements ITopicFilterIterator<V> {
                 // levelNameToSeek == levelName
                 if (i == filterLevels.size()) {
                     // backtrace to find strictly greatest prev topic filter
-                    traverseStack.pop();
+                    popAndRelease();
                     if (traverseStack.isEmpty()) {
                         break;
                     }
@@ -142,7 +153,7 @@ public class TopicFilterIterator<V> implements ITopicFilterIterator<V> {
                             break out;
                         } else if (parent.backingTopics().isEmpty()) {
                             // if current stack do not represent a topicfilter in expansion set, backtrace one level up
-                            traverseStack.pop();
+                            popAndRelease();
                         } else {
                             // current stack represents the greatest previous topic filter
                             // make sure it points to valid child position
@@ -164,7 +175,7 @@ public class TopicFilterIterator<V> implements ITopicFilterIterator<V> {
                             return;
                         }
                         // backtrace
-                        traverseStack.pop();
+                        popAndRelease();
                         if (traverseStack.isEmpty()) {
                             break;
                         }
@@ -178,7 +189,7 @@ public class TopicFilterIterator<V> implements ITopicFilterIterator<V> {
                                 break out;
                             } else if (parent.backingTopics().isEmpty()) {
                                 // if current stack not represent a valid topic, backtrace one level up
-                                traverseStack.pop();
+                                popAndRelease();
                             } else {
                                 // current stack represents a topicfilter in expansion set
                                 // make sure it points to valid child position
@@ -193,7 +204,7 @@ public class TopicFilterIterator<V> implements ITopicFilterIterator<V> {
                 // no greatest prev topicfilter exists in expansion set for the given topic filter
                 // drain the stack
                 while (!traverseStack.isEmpty()) {
-                    traverseStack.pop();
+                    popAndRelease();
                 }
             }
         }
@@ -220,7 +231,7 @@ public class TopicFilterIterator<V> implements ITopicFilterIterator<V> {
     public void prev() {
         assert traverseStack.isEmpty() || !traverseStack.peek().backingTopics().isEmpty();
         while (!traverseStack.isEmpty()) {
-            traverseStack.pop();
+            popAndRelease();
             if (traverseStack.isEmpty()) {
                 return;
             }
@@ -257,7 +268,7 @@ public class TopicFilterIterator<V> implements ITopicFilterIterator<V> {
                     break;
                 }
             } else {
-                traverseStack.pop();
+                popAndRelease();
                 if (!traverseStack.isEmpty()) {
                     traverseStack.peek().nextChild();
                 }
@@ -286,5 +297,15 @@ public class TopicFilterIterator<V> implements ITopicFilterIterator<V> {
             value.put(topicTrieNode.topic(), topicTrieNode.values());
         }
         return value;
+    }
+
+    private void clearTraverseStack() {
+        while (!traverseStack.isEmpty()) {
+            popAndRelease();
+        }
+    }
+
+    private void popAndRelease() {
+        TopicFilterTrieNode.release(traverseStack.pop());
     }
 }

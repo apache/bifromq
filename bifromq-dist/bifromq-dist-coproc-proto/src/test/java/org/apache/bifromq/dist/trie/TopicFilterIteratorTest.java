@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 
 package org.apache.bifromq.dist.trie;
@@ -28,9 +28,6 @@ import static org.apache.bifromq.util.TopicUtil.parse;
 import static org.testng.Assert.assertEquals;
 import static org.testng.Assert.assertTrue;
 
-import org.apache.bifromq.dist.TestUtil;
-import org.apache.bifromq.util.TopicConst;
-import org.apache.bifromq.util.TopicUtil;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
@@ -38,6 +35,9 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ThreadLocalRandom;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.bifromq.dist.TestUtil;
+import org.apache.bifromq.util.TopicConst;
+import org.apache.bifromq.util.TopicUtil;
 import org.testng.annotations.Test;
 
 @Slf4j
@@ -47,7 +47,8 @@ public class TopicFilterIteratorTest {
         String topic = randomTopic();
         TopicTrieNode<String> topicTrie =
             TopicTrieNode.<String>builder(false).addTopic(parse(topic, false), "v1").build();
-        TopicFilterIterator<String> itr = new TopicFilterIterator<>(topicTrie);
+        TopicFilterIterator<String> itr = new TopicFilterIterator<>();
+        itr.init(topicTrie);
         List<String> generated = new ArrayList<>();
         for (; itr.isValid(); itr.next()) {
             generated.add(fastJoin(NUL, itr.key()));
@@ -72,7 +73,8 @@ public class TopicFilterIteratorTest {
         builder.addTopic(parse(randomTopic(), false), "_");
         builder.addTopic(parse(randomTopic(), false), "_");
         builder.addTopic(parse(randomTopic(), false), "_");
-        TopicFilterIterator<String> itr = new TopicFilterIterator<>(builder.build());
+        TopicFilterIterator<String> itr = new TopicFilterIterator<>();
+        itr.init(builder.build());
         List<String> generated = new ArrayList<>();
         for (; itr.isValid(); itr.next()) {
             generated.add(fastJoin(NUL, itr.key()));
@@ -94,7 +96,8 @@ public class TopicFilterIteratorTest {
         builder.addTopic(parse(randomTopic(), false), "_");
         builder.addTopic(parse(randomTopic(), false), "_");
         builder.addTopic(parse(randomTopic(), false), "_");
-        TopicFilterIterator<String> itr = new TopicFilterIterator<>(builder.build());
+        TopicFilterIterator<String> itr = new TopicFilterIterator<>();
+        itr.init(builder.build());
         List<String> generated = new ArrayList<>();
         for (; itr.isValid(); itr.next()) {
             generated.add(fastJoin(NUL, itr.key()));
@@ -117,7 +120,8 @@ public class TopicFilterIteratorTest {
         builder.addTopic(parse(randomTopic(), false), "_");
         builder.addTopic(parse(randomTopic(), false), "_");
         builder.addTopic(parse(randomTopic(), false), "_");
-        TopicFilterIterator<String> itr = new TopicFilterIterator<>(builder.build());
+        TopicFilterIterator<String> itr = new TopicFilterIterator<>();
+        itr.init(builder.build());
         List<String> generated = new ArrayList<>();
         for (; itr.isValid(); itr.next()) {
             generated.add(fastJoin(NUL, itr.key()));
@@ -142,7 +146,8 @@ public class TopicFilterIteratorTest {
         builder.addTopic(parse(randomTopic(), false), "_");
         builder.addTopic(parse(randomTopic(), false), "_");
         builder.addTopic(parse(randomTopic(), false), "_");
-        TopicFilterIterator<String> itr = new TopicFilterIterator<>(builder.build());
+        TopicFilterIterator<String> itr = new TopicFilterIterator<>();
+        itr.init(builder.build());
         List<String> generated = new ArrayList<>();
         for (; itr.isValid(); itr.next()) {
             generated.add(fastJoin(NUL, itr.key()));
@@ -171,7 +176,8 @@ public class TopicFilterIteratorTest {
         builder.addTopic(parse(randomTopic(), false), "_");
         builder.addTopic(parse(randomTopic(), false), "_");
         builder.addTopic(parse(randomTopic(), false), "_");
-        TopicFilterIterator<String> itr = new TopicFilterIterator<>(builder.build());
+        TopicFilterIterator<String> itr = new TopicFilterIterator<>();
+        itr.init(builder.build());
         List<String> generated = new ArrayList<>();
         for (; itr.isValid(); itr.next()) {
             generated.add(fastJoin(NUL, itr.key()));
@@ -198,7 +204,8 @@ public class TopicFilterIteratorTest {
         builder.addTopic(parse(randomTopic(), false), "_");
         builder.addTopic(parse(randomTopic(), false), "_");
         builder.addTopic(parse(randomTopic(), false), "_");
-        TopicFilterIterator<String> itr = new TopicFilterIterator<>(builder.build());
+        TopicFilterIterator<String> itr = new TopicFilterIterator<>();
+        itr.init(builder.build());
         List<String> generated = new ArrayList<>();
         for (; itr.isValid(); itr.next()) {
             generated.add(fastJoin(NUL, itr.key()));
@@ -227,7 +234,8 @@ public class TopicFilterIteratorTest {
         builder.addTopic(parse(randomTopic(), false), "_");
         builder.addTopic(parse(randomTopic(), false), "_");
         builder.addTopic(parse(randomTopic(), false), "_");
-        TopicFilterIterator<String> itr = new TopicFilterIterator<>(builder.build());
+        TopicFilterIterator<String> itr = new TopicFilterIterator<>();
+        itr.init(builder.build());
         List<String> generated = new ArrayList<>();
         for (; itr.isValid(); itr.next()) {
             generated.add(fastJoin(NUL, itr.key()));
@@ -252,7 +260,8 @@ public class TopicFilterIteratorTest {
         builder.addTopic(parse(randomTopic(), false), "_");
         builder.addTopic(parse(randomTopic(), false), "_");
         builder.addTopic(parse(randomTopic(), false), "_");
-        TopicFilterIterator<String> itr = new TopicFilterIterator<>(builder.build());
+        TopicFilterIterator<String> itr = new TopicFilterIterator<>();
+        itr.init(builder.build());
         List<String> generated = new ArrayList<>();
         for (; itr.isValid(); itr.next()) {
             generated.add(fastJoin(NUL, itr.key()));
@@ -276,7 +285,8 @@ public class TopicFilterIteratorTest {
         builder.addTopic(parse("a", false), "v1");
         builder.addTopic(parse("a/b", false), "v2");
         builder.addTopic(parse("c", false), "v3");
-        TopicFilterIterator<String> itr = new TopicFilterIterator<>(builder.build());
+        TopicFilterIterator<String> itr = new TopicFilterIterator<>();
+        itr.init(builder.build());
         itr.seek(List.of("#"));
         assertEquals(itr.value().size(), 3);
         assertEquals(itr.value().get(List.of("a")), Set.of("v1"));
@@ -309,7 +319,8 @@ public class TopicFilterIteratorTest {
         builder.addTopic(parse("$sys/a", false), "v1");
         builder.addTopic(parse("a/b", false), "v2");
         builder.addTopic(parse("c", false), "v3");
-        TopicFilterIterator<String> itr = new TopicFilterIterator<>(builder.build());
+        TopicFilterIterator<String> itr = new TopicFilterIterator<>();
+        itr.init(builder.build());
         itr.seek(List.of("#"));
         assertEquals(itr.value().size(), 2);
         assertEquals(itr.value().get(List.of("a", "b")), Set.of("v2"));
@@ -322,7 +333,8 @@ public class TopicFilterIteratorTest {
         builder.addTopic(parse("tenant/$sys/a", false), "v1");
         builder.addTopic(parse("tenant/a/b", false), "v2");
         builder.addTopic(parse("tenant/c", false), "v3");
-        TopicFilterIterator<String> itr = new TopicFilterIterator<>(builder.build());
+        TopicFilterIterator<String> itr = new TopicFilterIterator<>();
+        itr.init(builder.build());
         itr.seek(List.of("tenant", "#"));
         assertEquals(itr.value().size(), 2);
         assertEquals(itr.value().get(List.of("tenant", "a", "b")), Set.of("v2"));
@@ -337,7 +349,8 @@ public class TopicFilterIteratorTest {
             allTopicFilters.addAll(topicToFilters.get(topic));
         }
         List<String> sortedTopicFilters = allTopicFilters.stream().map(TopicUtil::escape).sorted().toList();
-        TopicFilterIterator<String> iterator = new TopicFilterIterator<>(topicTrieBuilder.build());
+        TopicFilterIterator<String> iterator = new TopicFilterIterator<>();
+        iterator.init(topicTrieBuilder.build());
         List<String> generated = new ArrayList<>();
         for (; iterator.isValid(); iterator.next()) {
             generated.add(fastJoin(NUL, iterator.key()));

@@ -59,7 +59,8 @@ import org.apache.bifromq.dist.rpc.proto.BatchDistRequest;
 import org.apache.bifromq.dist.rpc.proto.DistPack;
 import org.apache.bifromq.dist.rpc.proto.DistServiceROCoProcInput;
 import org.apache.bifromq.dist.rpc.proto.Fact;
-import org.apache.bifromq.dist.trie.TopicFilterIterator;
+import org.apache.bifromq.dist.trie.ITopicFilterIterator;
+import org.apache.bifromq.dist.trie.ThreadLocalTopicFilterIterator;
 import org.apache.bifromq.dist.trie.TopicTrieNode;
 import org.apache.bifromq.type.ClientInfo;
 import org.apache.bifromq.type.Message;
@@ -231,36 +232,39 @@ class BatchDistServerCall implements IBatchCall<TenantPubRequest, DistServerCall
         batch.keySet()
             .forEach(topic -> topicTrieBuilder.addTopic(TopicUtil.parse(batcherKey.tenantId(), topic, false), topic));
 
-        TopicFilterIterator<String> topicFilterIterator = new TopicFilterIterator<>(topicTrieBuilder.build());
-        List<KVRangeSetting> finalCandidates = new LinkedList<>();
-        for (KVRangeSetting candidate : allCandidates) {
-            Optional<Fact> factOpt = candidate.getFact(Fact.class);
-            if (factOpt.isEmpty()) {
-                finalCandidates.add(candidate);
-                continue;
-            }
-            Fact fact = factOpt.get();
-            if (!fact.hasFirstGlobalFilterLevels() || !fact.hasLastGlobalFilterLevels()) {
-                // range is empty
-                continue;
-            }
-            List<String> firstFilterLevels = fact.getFirstGlobalFilterLevels().getFilterLevelList();
-            List<String> lastFilterLevels = fact.getLastGlobalFilterLevels().getFilterLevelList();
-            topicFilterIterator.seek(firstFilterLevels);
-            if (topicFilterIterator.isValid()) {
-                // firstTopicFilter <= nextTopicFilter
-                if (topicFilterIterator.key().equals(firstFilterLevels) ||
-                    fastJoin(NUL, topicFilterIterator.key()).compareTo(fastJoin(NUL, lastFilterLevels)) <= 0) {
-                    // if firstTopicFilter == nextTopicFilter || nextFilterLevels <= lastFilterLevels
-                    // add to finalCandidates
+        try (ITopicFilterIterator<String> topicFilterIterator =
+                 ThreadLocalTopicFilterIterator.get(topicTrieBuilder.build())) {
+            topicFilterIterator.init(topicTrieBuilder.build());
+            List<KVRangeSetting> finalCandidates = new LinkedList<>();
+            for (KVRangeSetting candidate : allCandidates) {
+                Optional<Fact> factOpt = candidate.getFact(Fact.class);
+                if (factOpt.isEmpty()) {
                     finalCandidates.add(candidate);
+                    continue;
                 }
-            } else {
-                // endTopicFilter < firstTopicFilter, stop
-                break;
+                Fact fact = factOpt.get();
+                if (!fact.hasFirstGlobalFilterLevels() || !fact.hasLastGlobalFilterLevels()) {
+                    // range is empty
+                    continue;
+                }
+                List<String> firstFilterLevels = fact.getFirstGlobalFilterLevels().getFilterLevelList();
+                List<String> lastFilterLevels = fact.getLastGlobalFilterLevels().getFilterLevelList();
+                topicFilterIterator.seek(firstFilterLevels);
+                if (topicFilterIterator.isValid()) {
+                    // firstTopicFilter <= nextTopicFilter
+                    if (topicFilterIterator.key().equals(firstFilterLevels)
+                        || fastJoin(NUL, topicFilterIterator.key()).compareTo(fastJoin(NUL, lastFilterLevels)) <= 0) {
+                        // if firstTopicFilter == nextTopicFilter || nextFilterLevels <= lastFilterLevels
+                        // add to finalCandidates
+                        finalCandidates.add(candidate);
+                    }
+                } else {
+                    // endTopicFilter < firstTopicFilter, stop
+                    break;
+                }
             }
+            return finalCandidates;
         }
-        return finalCandidates;
     }
 
     private <E> boolean hasSingleItem(Collection<E> collection) {

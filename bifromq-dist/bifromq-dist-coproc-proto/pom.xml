@@ -35,6 +35,11 @@
             <artifactId>bifromq-common-type</artifactId>
         </dependency>
         <dependency>
+            <groupId>com.github.ben-manes.caffeine</groupId>
+            <artifactId>caffeine</artifactId>
+            <version>${caffeine.version}</version>
+        </dependency>
+        <dependency>
             <groupId>org.apache.bifromq</groupId>
             <artifactId>bifromq-dist-worker-schema</artifactId>
         </dependency>
@@ -46,6 +51,10 @@
         <dependency>
             <groupId>org.openjdk.jmh</groupId>
             <artifactId>jmh-generator-annprocess</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.awaitility</groupId>
+            <artifactId>awaitility</artifactId>
         </dependency>
         <dependency>
             <groupId>org.apache.logging.log4j</groupId>

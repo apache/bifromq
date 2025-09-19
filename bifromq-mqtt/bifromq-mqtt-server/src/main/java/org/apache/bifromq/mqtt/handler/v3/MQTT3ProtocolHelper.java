@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 
 package org.apache.bifromq.mqtt.handler.v3;
@@ -35,6 +35,7 @@ import io.netty.handler.codec.mqtt.MqttMessageBuilders;
 import io.netty.handler.codec.mqtt.MqttMessageIdVariableHeader;
 import io.netty.handler.codec.mqtt.MqttPublishMessage;
 import io.netty.handler.codec.mqtt.MqttQoS;
+import io.netty.handler.codec.mqtt.MqttReasonCodes;
 import io.netty.handler.codec.mqtt.MqttSubAckMessage;
 import io.netty.handler.codec.mqtt.MqttSubscribeMessage;
 import io.netty.handler.codec.mqtt.MqttTopicSubscription;
@@ -53,6 +54,7 @@ import org.apache.bifromq.mqtt.handler.record.SubTask;
 import org.apache.bifromq.mqtt.handler.record.SubTasks;
 import org.apache.bifromq.mqtt.spi.IUserPropsCustomizer;
 import org.apache.bifromq.plugin.authprovider.type.CheckResult;
+import org.apache.bifromq.plugin.eventcollector.IEventCollector;
 import org.apache.bifromq.plugin.eventcollector.OutOfTenantResource;
 import org.apache.bifromq.plugin.eventcollector.mqttbroker.clientdisconnect.BadPacket;
 import org.apache.bifromq.plugin.eventcollector.mqttbroker.clientdisconnect.ByServer;
@@ -196,9 +198,13 @@ public class MQTT3ProtocolHelper implements IMQTTProtocolHelper {
 
     @Override
     public ProtocolResponse onSubBackPressured(MqttSubscribeMessage subMessage) {
-        return goAway((getLocal(ServerBusy.class)
-            .reason("Too many subscribe")
-            .clientInfo(clientInfo)));
+        return response(MqttMessageBuilders.subAck()
+                .packetId(subMessage.variableHeader().messageId())
+                .addGrantedQos(MqttQoS.FAILURE)
+                .build(),
+            getLocal(ServerBusy.class)
+                .reason("Too many subscribe")
+                .clientInfo(clientInfo));
     }
 
     @Override
@@ -253,9 +259,7 @@ public class MQTT3ProtocolHelper implements IMQTTProtocolHelper {
 
     @Override
     public ProtocolResponse onUnsubBackPressured(MqttUnsubscribeMessage unsubMessage) {
-        return goAway((getLocal(ServerBusy.class)
-            .reason("Too many unsubscribe")
-            .clientInfo(clientInfo)));
+        return responseNothing(getLocal(ServerBusy.class).reason("Too many unsubscribe").clientInfo(clientInfo));
     }
 
     @Override
@@ -396,9 +400,7 @@ public class MQTT3ProtocolHelper implements IMQTTProtocolHelper {
             String reason = result.retainResult() == RetainReply.Result.BACK_PRESSURE_REJECTED
                 ? "Too many retained qos0 publish"
                 : "Too many qos0 publish";
-            return goAway(getLocal(ServerBusy.class)
-                .reason(reason)
-                .clientInfo(clientInfo));
+            return responseNothing(getLocal(ServerBusy.class).reason(reason).clientInfo(clientInfo));
         } else {
             return responseNothing();
         }
@@ -425,9 +427,7 @@ public class MQTT3ProtocolHelper implements IMQTTProtocolHelper {
             String reason = result.retainResult() == RetainReply.Result.BACK_PRESSURE_REJECTED
                 ? "Too many retained qos1 publish"
                 : "Too many qos1 publish";
-            return goAway(getLocal(ServerBusy.class)
-                .reason(reason)
-                .clientInfo(clientInfo));
+            return responseNothing(getLocal(ServerBusy.class).reason(reason).clientInfo(clientInfo));
         } else {
             if (settings.debugMode) {
                 return response(MqttMessageBuilders.pubAck()
@@ -468,9 +468,7 @@ public class MQTT3ProtocolHelper implements IMQTTProtocolHelper {
             String reason = result.retainResult() == RetainReply.Result.BACK_PRESSURE_REJECTED
                 ? "Too many retained qos2 publish"
                 : "Too many qos2 publish";
-            return goAway(getLocal(ServerBusy.class)
-                .reason(reason)
-                .clientInfo(clientInfo));
+            return responseNothing(getLocal(ServerBusy.class).reason(reason).clientInfo(clientInfo));
         } else {
             if (settings.debugMode) {
                 return response(MQTT3MessageBuilders.pubRec()

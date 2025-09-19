@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 
 package org.apache.bifromq.mqtt.handler.v5;
@@ -23,6 +23,7 @@ import static io.netty.handler.codec.mqtt.MqttConnectReturnCode.CONNECTION_REFUS
 import static org.apache.bifromq.mqtt.handler.record.ProtocolResponse.farewell;
 import static org.apache.bifromq.mqtt.handler.record.ProtocolResponse.farewellNow;
 import static org.apache.bifromq.mqtt.handler.record.ProtocolResponse.response;
+import static org.apache.bifromq.mqtt.handler.record.ProtocolResponse.responseNothing;
 import static org.apache.bifromq.mqtt.handler.v5.MQTT5MessageUtils.isUTF8Payload;
 import static org.apache.bifromq.mqtt.handler.v5.MQTT5MessageUtils.messageExpiryInterval;
 import static org.apache.bifromq.mqtt.handler.v5.MQTT5MessageUtils.receiveMaximum;
@@ -73,6 +74,7 @@ import org.apache.bifromq.mqtt.spi.IUserPropsCustomizer;
 import org.apache.bifromq.mqtt.spi.UserProperty;
 import org.apache.bifromq.plugin.authprovider.type.CheckResult;
 import org.apache.bifromq.plugin.eventcollector.Event;
+import org.apache.bifromq.plugin.eventcollector.IEventCollector;
 import org.apache.bifromq.plugin.eventcollector.OutOfTenantResource;
 import org.apache.bifromq.plugin.eventcollector.mqttbroker.clientdisconnect.BadPacket;
 import org.apache.bifromq.plugin.eventcollector.mqttbroker.clientdisconnect.ByServer;
@@ -295,9 +297,15 @@ public class MQTT5ProtocolHelper implements IMQTTProtocolHelper {
 
     @Override
     public ProtocolResponse onSubBackPressured(MqttSubscribeMessage subMessage) {
-        return farewell(MQTT5MessageBuilders.disconnect().reasonCode(MQTT5DisconnectReasonCode.ServerBusy)
+        return response(MQTT5MessageBuilders
+                .subAck()
+                .packetId(subMessage.variableHeader().messageId())
+                .reasonCodes(MQTT5SubAckReasonCode.ImplementationSpecificError)
                 .reasonString("Too many subscribe").build(),
-            getLocal(ServerBusy.class).reason("Too many subscribe").clientInfo(clientInfo));
+            getLocal(ServerBusy.class)
+                .reason("Too many subscribe")
+                .clientInfo(clientInfo));
+
     }
 
     @Override
@@ -373,9 +381,15 @@ public class MQTT5ProtocolHelper implements IMQTTProtocolHelper {
 
     @Override
     public ProtocolResponse onUnsubBackPressured(MqttUnsubscribeMessage unsubMessage) {
-        return farewell(MQTT5MessageBuilders.disconnect().reasonCode(MQTT5DisconnectReasonCode.ServerBusy)
+        return response(MQTT5MessageBuilders
+                .unsubAck()
+                .packetId(unsubMessage.variableHeader().messageId())
+                .addReasonCode(MQTT5UnsubAckReasonCode.ImplementationSpecificError)
                 .reasonString("Too many unsubscribe").build(),
-            getLocal(ServerBusy.class).reason("Too many unsubscribe").clientInfo(clientInfo));
+            getLocal(ServerBusy.class)
+                .reason("Too many unsubscribe")
+                .clientInfo(clientInfo));
+
     }
 
     @Override
@@ -719,9 +733,10 @@ public class MQTT5ProtocolHelper implements IMQTTProtocolHelper {
             String reason =
                 result.retainResult() == RetainReply.Result.BACK_PRESSURE_REJECTED ? "Too many retained qos0 publish" :
                     "Too many qos0 publish";
-            return farewell(
-                MQTT5MessageBuilders.disconnect().reasonCode(MQTT5DisconnectReasonCode.ServerBusy).reasonString(reason)
-                    .userProps(userProps).build(), getLocal(ServerBusy.class).reason(reason).clientInfo(clientInfo));
+            return ProtocolResponse.responseNothing(
+                getLocal(ServerBusy.class)
+                    .reason(reason)
+                    .clientInfo(clientInfo));
         } else {
             return ProtocolResponse.responseNothing();
         }
@@ -763,9 +778,14 @@ public class MQTT5ProtocolHelper implements IMQTTProtocolHelper {
             String reason =
                 result.retainResult() == RetainReply.Result.BACK_PRESSURE_REJECTED ? "Too many retained qos1 publish" :
                     "Too many qos1 publish";
-            return farewell(
-                MQTT5MessageBuilders.disconnect().reasonCode(MQTT5DisconnectReasonCode.ServerBusy).reasonString(reason)
-                    .build(), getLocal(ServerBusy.class).reason(reason).clientInfo(clientInfo));
+            return response(MQTT5MessageBuilders.pubAck(requestProblemInfo)
+                    .packetId(message.variableHeader().packetId())
+                    .reasonCode(MQTT5PubAckReasonCode.ImplementationSpecificError)
+                    .reasonString(reason)
+                    .userProps(userProps).build(),
+                getLocal(ServerBusy.class)
+                    .reason(reason)
+                    .clientInfo(clientInfo));
         }
         int packetId = message.variableHeader().packetId();
         Event<?>[] debugEvents;
@@ -836,9 +856,14 @@ public class MQTT5ProtocolHelper implements IMQTTProtocolHelper {
             String reason =
                 result.retainResult() == RetainReply.Result.BACK_PRESSURE_REJECTED ? "Too many retained qos2 publish" :
                     "Too many qos2 publish";
-            return farewell(
-                MQTT5MessageBuilders.disconnect().reasonCode(MQTT5DisconnectReasonCode.ServerBusy).reasonString(reason)
-                    .build(), getLocal(ServerBusy.class).reason(reason).clientInfo(clientInfo));
+            return response(MQTT5MessageBuilders.pubRec(requestProblemInfo)
+                    .packetId(message.variableHeader().packetId())
+                    .reasonCode(MQTT5PubRecReasonCode.ImplementationSpecificError)
+                    .reasonString(reason)
+                    .userProps(userProps).build(),
+                getLocal(ServerBusy.class)
+                    .reason(reason)
+                    .clientInfo(clientInfo));
         }
         int packetId = message.variableHeader().packetId();
         Event<?>[] debugEvents;

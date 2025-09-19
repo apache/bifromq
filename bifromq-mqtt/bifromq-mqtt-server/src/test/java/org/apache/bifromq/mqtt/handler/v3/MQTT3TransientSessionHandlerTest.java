@@ -20,6 +20,57 @@
 package org.apache.bifromq.mqtt.handler.v3;
 
 
+import com.google.common.collect.Lists;
+import com.google.protobuf.ByteString;
+import io.netty.channel.Channel;
+import io.netty.channel.ChannelDuplexHandler;
+import io.netty.channel.ChannelHandlerContext;
+import io.netty.channel.ChannelInitializer;
+import io.netty.channel.ChannelPipeline;
+import io.netty.channel.embedded.EmbeddedChannel;
+import io.netty.handler.codec.mqtt.MqttDecoder;
+import io.netty.handler.codec.mqtt.MqttMessage;
+import io.netty.handler.codec.mqtt.MqttMessageIdVariableHeader;
+import io.netty.handler.codec.mqtt.MqttMessageType;
+import io.netty.handler.codec.mqtt.MqttPublishMessage;
+import io.netty.handler.codec.mqtt.MqttSubAckMessage;
+import io.netty.handler.codec.mqtt.MqttSubscribeMessage;
+import io.netty.handler.codec.mqtt.MqttUnsubAckMessage;
+import io.netty.handler.codec.mqtt.MqttUnsubscribeMessage;
+import io.netty.handler.traffic.ChannelTrafficShapingHandler;
+import lombok.SneakyThrows;
+import lombok.extern.slf4j.Slf4j;
+import org.apache.bifromq.basehlc.HLC;
+import org.apache.bifromq.dist.client.PubResult;
+import org.apache.bifromq.mqtt.handler.BaseSessionHandlerTest;
+import org.apache.bifromq.mqtt.handler.ChannelAttrs;
+import org.apache.bifromq.mqtt.handler.TenantSettings;
+import org.apache.bifromq.mqtt.session.IMQTTTransientSession;
+import org.apache.bifromq.mqtt.utils.MQTTMessageUtils;
+import org.apache.bifromq.plugin.authprovider.type.CheckResult;
+import org.apache.bifromq.plugin.authprovider.type.Granted;
+import org.apache.bifromq.plugin.authprovider.type.MQTTAction;
+import org.apache.bifromq.plugin.eventcollector.mqttbroker.pushhandling.QoS1Confirmed;
+import org.apache.bifromq.plugin.eventcollector.mqttbroker.pushhandling.QoS2Confirmed;
+import org.apache.bifromq.type.ClientInfo;
+import org.apache.bifromq.type.Message;
+import org.apache.bifromq.type.QoS;
+import org.apache.bifromq.type.TopicMessagePack;
+import org.mockito.ArgumentCaptor;
+import org.testng.Assert;
+import org.testng.annotations.AfterMethod;
+import org.testng.annotations.BeforeMethod;
+import org.testng.annotations.Test;
+
+import java.lang.reflect.Method;
+import java.net.InetSocketAddress;
+import java.nio.ByteBuffer;
+import java.util.Collections;
+import java.util.List;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.TimeUnit;
+
+import static io.netty.handler.codec.mqtt.MqttMessageType.PUBREL;
 import static org.apache.bifromq.mqtt.handler.MQTTSessionIdUtil.userSessionId;
 import static org.apache.bifromq.plugin.eventcollector.EventType.DISCARD;
 import static org.apache.bifromq.plugin.eventcollector.EventType.EXCEED_RECEIVING_LIMIT;
@@ -65,7 +116,6 @@ import static org.apache.bifromq.type.MQTTClientInfoConstants.MQTT_CLIENT_ID_KEY
 import static org.apache.bifromq.type.MQTTClientInfoConstants.MQTT_PROTOCOL_VER_KEY;
 import static org.apache.bifromq.type.MQTTClientInfoConstants.MQTT_TYPE_VALUE;
 import static org.apache.bifromq.type.MQTTClientInfoConstants.MQTT_USER_ID_KEY;
-import static io.netty.handler.codec.mqtt.MqttMessageType.PUBREL;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
@@ -81,55 +131,6 @@ import static org.testng.Assert.assertEquals;
 import static org.testng.Assert.assertFalse;
 import static org.testng.Assert.assertNull;
 import static org.testng.Assert.assertTrue;
-
-import org.apache.bifromq.basehlc.HLC;
-import org.apache.bifromq.dist.client.PubResult;
-import org.apache.bifromq.mqtt.handler.BaseSessionHandlerTest;
-import org.apache.bifromq.mqtt.handler.ChannelAttrs;
-import org.apache.bifromq.mqtt.handler.TenantSettings;
-import org.apache.bifromq.mqtt.session.IMQTTTransientSession;
-import org.apache.bifromq.mqtt.utils.MQTTMessageUtils;
-import org.apache.bifromq.plugin.authprovider.type.CheckResult;
-import org.apache.bifromq.plugin.authprovider.type.Granted;
-import org.apache.bifromq.plugin.authprovider.type.MQTTAction;
-import org.apache.bifromq.plugin.eventcollector.mqttbroker.pushhandling.QoS1Confirmed;
-import org.apache.bifromq.plugin.eventcollector.mqttbroker.pushhandling.QoS2Confirmed;
-import org.apache.bifromq.type.ClientInfo;
-import org.apache.bifromq.type.Message;
-import org.apache.bifromq.type.QoS;
-import org.apache.bifromq.type.TopicMessagePack;
-import com.google.common.collect.Lists;
-import com.google.protobuf.ByteString;
-import io.netty.channel.Channel;
-import io.netty.channel.ChannelDuplexHandler;
-import io.netty.channel.ChannelHandlerContext;
-import io.netty.channel.ChannelInitializer;
-import io.netty.channel.ChannelPipeline;
-import io.netty.channel.embedded.EmbeddedChannel;
-import io.netty.handler.codec.mqtt.MqttDecoder;
-import io.netty.handler.codec.mqtt.MqttMessage;
-import io.netty.handler.codec.mqtt.MqttMessageIdVariableHeader;
-import io.netty.handler.codec.mqtt.MqttMessageType;
-import io.netty.handler.codec.mqtt.MqttPublishMessage;
-import io.netty.handler.codec.mqtt.MqttSubAckMessage;
-import io.netty.handler.codec.mqtt.MqttSubscribeMessage;
-import io.netty.handler.codec.mqtt.MqttUnsubAckMessage;
-import io.netty.handler.codec.mqtt.MqttUnsubscribeMessage;
-import io.netty.handler.traffic.ChannelTrafficShapingHandler;
-import java.lang.reflect.Method;
-import java.net.InetSocketAddress;
-import java.nio.ByteBuffer;
-import java.util.Collections;
-import java.util.List;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.TimeUnit;
-import lombok.SneakyThrows;
-import lombok.extern.slf4j.Slf4j;
-import org.mockito.ArgumentCaptor;
-import org.testng.Assert;
-import org.testng.annotations.AfterMethod;
-import org.testng.annotations.BeforeMethod;
-import org.testng.annotations.Test;
 
 @Slf4j
 public class MQTT3TransientSessionHandlerTest extends BaseSessionHandlerTest {
@@ -416,8 +417,8 @@ public class MQTT3TransientSessionHandlerTest extends BaseSessionHandlerTest {
         channel.writeInbound(message);
         channel.advanceTimeBy(6, TimeUnit.SECONDS);
         channel.runScheduledPendingTasks();
-        assertFalse(channel.isOpen());
-        verifyEvent(MQTT_SESSION_START, QOS1_DIST_ERROR, SERVER_BUSY, MQTT_SESSION_STOP);
+        assertTrue(channel.isOpen());
+        verifyEvent(MQTT_SESSION_START, QOS1_DIST_ERROR, SERVER_BUSY);
     }
 
     @Test
@@ -487,8 +488,8 @@ public class MQTT3TransientSessionHandlerTest extends BaseSessionHandlerTest {
         channel.writeInbound(message);
         channel.advanceTimeBy(6, TimeUnit.SECONDS);
         channel.runScheduledPendingTasks();
-        assertFalse(channel.isOpen());
-        verifyEvent(MQTT_SESSION_START, QOS2_DIST_ERROR, SERVER_BUSY, MQTT_SESSION_STOP);
+        assertTrue(channel.isOpen());
+        verifyEvent(MQTT_SESSION_START, QOS2_DIST_ERROR, SERVER_BUSY);
     }
 
     @Test

@@ -17,7 +17,7 @@
  * under the License.
  */
 
-package org.apache.bifromq.dist.worker.schema;
+package org.apache.bifromq.dist.worker.schema.cache;
 
 import static org.apache.bifromq.util.TopicConst.DELIMITER;
 import static org.apache.bifromq.util.TopicConst.ORDERED_SHARE;
@@ -26,6 +26,7 @@ import static org.apache.bifromq.util.TopicConst.UNORDERED_SHARE;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
+import org.apache.bifromq.dist.worker.schema.KVSchemaUtil;
 import org.apache.bifromq.type.RouteMatcher;
 
 /**

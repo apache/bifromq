@@ -19,11 +19,13 @@
 
 package org.apache.bifromq.dist.worker.schema.cache;
 
+import static org.apache.bifromq.dist.worker.schema.KVSchemaUtil.toGroupRouteKey;
 import static org.apache.bifromq.dist.worker.schema.KVSchemaUtil.toReceiverUrl;
 import static org.testng.Assert.assertEquals;
 import static org.testng.Assert.assertNotSame;
 import static org.testng.Assert.assertSame;
 
+import com.google.protobuf.ByteString;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -34,9 +36,6 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import org.apache.bifromq.dist.rpc.proto.RouteGroup;
-import org.apache.bifromq.dist.worker.schema.GroupMatching;
-import org.apache.bifromq.dist.worker.schema.NormalMatching;
-import org.apache.bifromq.dist.worker.schema.RouteDetail;
 import org.apache.bifromq.type.RouteMatcher;
 import org.apache.bifromq.util.TopicUtil;
 import org.testng.annotations.Test;
@@ -53,6 +52,24 @@ public class GroupMatchingCacheTest {
             b.putMembers(e.getKey(), e.getValue());
         }
         return b.build();
+    }
+
+    @Test
+    public void reuseMatcherFromRouteDetailCache() {
+        String tenantId = "tenant-" + UUID.randomUUID();
+        RouteMatcher matcher = TopicUtil.from("$share/g" + UUID.randomUUID() + "/cache");
+        RouteGroup group = RouteGroup.newBuilder()
+            .putMembers(toReceiverUrl(1, "inbox-" + UUID.randomUUID(), "d" + UUID.randomUUID()), 1L)
+            .build();
+
+        ByteString routeKey = toGroupRouteKey(tenantId, matcher);
+
+        RouteDetail fromCache = RouteDetailCache.get(routeKey);
+        GroupMatching m1 = (GroupMatching) GroupMatchingCache.get(fromCache, group);
+        GroupMatching m2 = (GroupMatching) GroupMatchingCache.get(RouteDetailCache.get(routeKey), group);
+
+        assertSame(fromCache, RouteDetailCache.get(routeKey));
+        assertSame(m1, m2);
     }
 
     @Test

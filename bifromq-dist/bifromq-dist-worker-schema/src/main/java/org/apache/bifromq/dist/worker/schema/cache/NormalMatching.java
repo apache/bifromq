@@ -17,7 +17,7 @@
  * under the License.
  */
 
-package org.apache.bifromq.dist.worker.schema;
+package org.apache.bifromq.dist.worker.schema.cache;
 
 import lombok.EqualsAndHashCode;
 import lombok.ToString;
@@ -40,10 +40,10 @@ public class NormalMatching extends Matching {
     @EqualsAndHashCode.Exclude
     private final Receiver receiver;
 
-    public NormalMatching(String tenantId, RouteMatcher matcher, String receiverUrl, long incarnation) {
+    NormalMatching(String tenantId, RouteMatcher matcher, String receiverUrl, long incarnation) {
         super(tenantId, matcher);
         this.receiverUrl = receiverUrl;
-        this.receiver = KVSchemaUtil.parseReceiver(receiverUrl);
+        this.receiver = ReceiverCache.get(receiverUrl);
         this.incarnation = incarnation;
 
         matchInfo = MatchInfo.newBuilder()

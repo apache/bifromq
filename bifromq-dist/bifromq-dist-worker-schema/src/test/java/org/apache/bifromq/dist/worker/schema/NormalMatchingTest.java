@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 
 package org.apache.bifromq.dist.worker.schema;
@@ -24,8 +24,9 @@ import static org.apache.bifromq.dist.worker.schema.KVSchemaUtil.toReceiverUrl;
 import static org.apache.bifromq.util.BSUtil.toByteString;
 import static org.testng.Assert.assertNotEquals;
 
-import org.apache.bifromq.util.TopicUtil;
 import com.google.protobuf.ByteString;
+import org.apache.bifromq.dist.worker.schema.cache.NormalMatching;
+import org.apache.bifromq.util.TopicUtil;
 import org.testng.annotations.Test;
 
 public class NormalMatchingTest {

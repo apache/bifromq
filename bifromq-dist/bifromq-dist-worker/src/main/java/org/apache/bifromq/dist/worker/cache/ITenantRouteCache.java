@@ -24,7 +24,7 @@ import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import org.apache.bifromq.basekv.proto.Boundary;
 import org.apache.bifromq.dist.worker.cache.task.RefreshEntriesTask;
-import org.apache.bifromq.dist.worker.schema.Matching;
+import org.apache.bifromq.dist.worker.schema.cache.Matching;
 
 /**
  * Cache for matched routes for given tenant.

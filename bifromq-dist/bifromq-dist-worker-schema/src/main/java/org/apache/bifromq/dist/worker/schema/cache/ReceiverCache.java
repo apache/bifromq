@@ -23,19 +23,16 @@ import static org.apache.bifromq.util.TopicConst.NUL;
 
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
-import com.github.benmanes.caffeine.cache.Interner;
-import org.apache.bifromq.dist.worker.schema.Receiver;
 
 public class ReceiverCache {
-    private static final Interner<String> RECEIVER_URL_INTERNER = Interner.newWeakInterner();
-    private static final Interner<Receiver> RECEIVER_INTERNER = Interner.newWeakInterner();
-    private static final Cache<String, Receiver> RECEIVER_CACHE = Caffeine.newBuilder().weakKeys().build();
+    private static final Cache<String, Receiver> RECEIVER_CACHE = Caffeine.newBuilder()
+        .weakValues()
+        .build();
 
     public static Receiver get(String receiverUrl) {
-        receiverUrl = RECEIVER_URL_INTERNER.intern(receiverUrl);
         return RECEIVER_CACHE.get(receiverUrl, k -> {
             String[] parts = k.split(NUL);
-            return RECEIVER_INTERNER.intern(new Receiver(Integer.parseInt(parts[0]), parts[1], parts[2]));
+            return new Receiver(Integer.parseInt(parts[0]), parts[1], parts[2]);
         });
     }
 }

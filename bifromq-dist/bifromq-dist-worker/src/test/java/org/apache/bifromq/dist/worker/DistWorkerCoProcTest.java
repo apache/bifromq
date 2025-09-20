@@ -20,7 +20,6 @@
 package org.apache.bifromq.dist.worker;
 
 import static org.apache.bifromq.basekv.utils.BoundaryUtil.FULL_BOUNDARY;
-import static org.apache.bifromq.dist.worker.schema.KVSchemaUtil.parseRouteDetail;
 import static org.apache.bifromq.dist.worker.schema.KVSchemaUtil.toReceiverUrl;
 import static org.apache.bifromq.util.BSUtil.toByteString;
 import static org.mockito.ArgumentMatchers.any;
@@ -70,7 +69,8 @@ import org.apache.bifromq.dist.rpc.proto.RouteGroup;
 import org.apache.bifromq.dist.rpc.proto.TenantOption;
 import org.apache.bifromq.dist.worker.cache.ISubscriptionCache;
 import org.apache.bifromq.dist.worker.schema.KVSchemaUtil;
-import org.apache.bifromq.dist.worker.schema.Matching;
+import org.apache.bifromq.dist.worker.schema.cache.Matching;
+import org.apache.bifromq.dist.worker.schema.cache.RouteDetailCache;
 import org.apache.bifromq.plugin.subbroker.CheckRequest;
 import org.apache.bifromq.type.TopicMessagePack;
 import org.apache.bifromq.util.BSUtil;
@@ -471,7 +471,7 @@ public class DistWorkerCoProcTest {
 
         when(routeCache.isCached(eq(tenant1), eq(TopicUtil.from(topic1).getFilterLevelList()))).thenReturn(false);
         when(routeCache.isCached(eq(tenant1),
-            eq(TopicUtil.from(parseRouteDetail(groupMatchKey).matcher().getMqttTopicFilter())
+            eq(TopicUtil.from(RouteDetailCache.get(groupMatchKey).matcher().getMqttTopicFilter())
                 .getFilterLevelList()))).thenReturn(false);
         when(routeCache.isCached(eq(tenant2), eq(TopicUtil.from(topic2).getFilterLevelList()))).thenReturn(false);
 

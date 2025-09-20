@@ -36,8 +36,9 @@ import java.util.List;
 import org.apache.bifromq.dist.rpc.proto.MatchRoute;
 import org.apache.bifromq.dist.rpc.proto.RouteGroup;
 import org.apache.bifromq.dist.worker.schema.cache.GroupMatchingCache;
+import org.apache.bifromq.dist.worker.schema.cache.Matching;
 import org.apache.bifromq.dist.worker.schema.cache.NormalMatchingCache;
-import org.apache.bifromq.dist.worker.schema.cache.ReceiverCache;
+import org.apache.bifromq.dist.worker.schema.cache.RouteDetail;
 import org.apache.bifromq.dist.worker.schema.cache.RouteDetailCache;
 import org.apache.bifromq.type.RouteMatcher;
 import org.apache.bifromq.util.BSUtil;
@@ -54,12 +55,8 @@ public class KVSchemaUtil {
         return subBrokerId + NUL + receiverId + NUL + delivererKey;
     }
 
-    public static Receiver parseReceiver(String receiverUrl) {
-        return ReceiverCache.get(receiverUrl);
-    }
-
     public static Matching buildMatchRoute(ByteString routeKey, ByteString routeValue) {
-        RouteDetail routeDetail = parseRouteDetail(routeKey);
+        RouteDetail routeDetail = RouteDetailCache.get(routeKey);
         if (routeDetail.matcher().getType() == RouteMatcher.Type.Normal) {
             return buildNormalMatchRoute(routeDetail, BSUtil.toLong(routeValue));
         }
@@ -105,10 +102,6 @@ public class KVSchemaUtil {
         return tenantRouteBucketStartKey(tenantId, routeMatcher.getFilterLevelList(), bucket(routeMatcher.getGroup()))
             .concat(routeMatcher.getType() == RouteMatcher.Type.OrderedShare ? FLAG_ORDERED_VAL : FLAG_UNORDERED_VAL)
             .concat(toReceiverBytes(routeMatcher.getGroup()));
-    }
-
-    public static RouteDetail parseRouteDetail(ByteString routeKey) {
-        return RouteDetailCache.get(routeKey);
     }
 
     private static ByteString toReceiverBytes(String receiver) {

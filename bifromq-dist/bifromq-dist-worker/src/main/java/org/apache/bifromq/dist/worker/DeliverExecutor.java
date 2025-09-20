@@ -14,22 +14,13 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 
 package org.apache.bifromq.dist.worker;
 
 import static org.apache.bifromq.plugin.eventcollector.ThreadLocalEventPool.getLocal;
 
-import org.apache.bifromq.baseenv.EnvProvider;
-import org.apache.bifromq.deliverer.DeliveryCall;
-import org.apache.bifromq.deliverer.IMessageDeliverer;
-import org.apache.bifromq.deliverer.TopicMessagePackHolder;
-import org.apache.bifromq.dist.worker.schema.NormalMatching;
-import org.apache.bifromq.plugin.eventcollector.IEventCollector;
-import org.apache.bifromq.plugin.eventcollector.distservice.DeliverError;
-import org.apache.bifromq.plugin.eventcollector.distservice.Delivered;
-import org.apache.bifromq.type.MatchInfo;
 import io.micrometer.core.instrument.Metrics;
 import io.micrometer.core.instrument.binder.jvm.ExecutorServiceMetrics;
 import java.util.concurrent.ConcurrentLinkedQueue;
@@ -39,6 +30,15 @@ import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.bifromq.baseenv.EnvProvider;
+import org.apache.bifromq.deliverer.DeliveryCall;
+import org.apache.bifromq.deliverer.IMessageDeliverer;
+import org.apache.bifromq.deliverer.TopicMessagePackHolder;
+import org.apache.bifromq.dist.worker.schema.cache.NormalMatching;
+import org.apache.bifromq.plugin.eventcollector.IEventCollector;
+import org.apache.bifromq.plugin.eventcollector.distservice.DeliverError;
+import org.apache.bifromq.plugin.eventcollector.distservice.Delivered;
+import org.apache.bifromq.type.MatchInfo;
 
 @Slf4j
 public class DeliverExecutor {

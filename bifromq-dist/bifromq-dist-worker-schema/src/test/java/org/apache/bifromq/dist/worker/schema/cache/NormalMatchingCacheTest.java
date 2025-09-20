@@ -19,11 +19,13 @@
 
 package org.apache.bifromq.dist.worker.schema.cache;
 
+import static org.apache.bifromq.dist.worker.schema.KVSchemaUtil.toNormalRouteKey;
 import static org.apache.bifromq.dist.worker.schema.KVSchemaUtil.toReceiverUrl;
 import static org.testng.Assert.assertEquals;
 import static org.testng.Assert.assertNotSame;
 import static org.testng.Assert.assertSame;
 
+import com.google.protobuf.ByteString;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
@@ -31,8 +33,6 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
-import org.apache.bifromq.dist.worker.schema.NormalMatching;
-import org.apache.bifromq.dist.worker.schema.RouteDetail;
 import org.apache.bifromq.type.MatchInfo;
 import org.apache.bifromq.type.RouteMatcher;
 import org.apache.bifromq.util.TopicUtil;
@@ -43,6 +43,22 @@ public class NormalMatchingCacheTest {
     private static RouteDetail detail(String tenantId, String topicFilter, String receiverUrl) {
         RouteMatcher matcher = TopicUtil.from(topicFilter);
         return new RouteDetail(tenantId, matcher, receiverUrl);
+    }
+
+    @Test
+    public void reuseMatcherFromRouteDetailCache() {
+        String tenantId = "tenant-" + UUID.randomUUID();
+        String topicFilter = "/cache/" + UUID.randomUUID();
+        String receiverUrl = toReceiverUrl(1, "inbox-" + UUID.randomUUID(), "d-" + UUID.randomUUID());
+        RouteMatcher matcher = TopicUtil.from(topicFilter);
+        ByteString routeKey = toNormalRouteKey(tenantId, matcher, receiverUrl);
+
+        RouteDetail fromCache = RouteDetailCache.get(routeKey);
+        NormalMatching m1 = (NormalMatching) NormalMatchingCache.get(fromCache, 9L);
+        NormalMatching m2 = (NormalMatching) NormalMatchingCache.get(RouteDetailCache.get(routeKey), 9L);
+
+        assertSame(fromCache, RouteDetailCache.get(routeKey));
+        assertSame(m1, m2);
     }
 
     @Test

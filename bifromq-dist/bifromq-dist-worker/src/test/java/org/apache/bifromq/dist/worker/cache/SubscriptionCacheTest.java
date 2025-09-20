@@ -53,7 +53,7 @@ import org.apache.bifromq.basekv.store.api.IKVCloseableReader;
 import org.apache.bifromq.dist.worker.Comparators;
 import org.apache.bifromq.dist.worker.cache.task.AddRoutesTask;
 import org.apache.bifromq.dist.worker.cache.task.RefreshEntriesTask;
-import org.apache.bifromq.dist.worker.schema.Matching;
+import org.apache.bifromq.dist.worker.schema.cache.Matching;
 import org.apache.bifromq.type.RouteMatcher;
 import org.apache.bifromq.util.TopicUtil;
 import org.testng.annotations.BeforeMethod;

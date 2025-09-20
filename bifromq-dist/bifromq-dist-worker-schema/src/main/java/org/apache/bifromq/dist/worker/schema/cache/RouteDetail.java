@@ -17,8 +17,27 @@
  * under the License.
  */
 
-package org.apache.bifromq.dist.worker.schema;
+package org.apache.bifromq.dist.worker.schema.cache;
 
-public record Receiver(int subBrokerId, String receiverId, String delivererKey) {
+import lombok.EqualsAndHashCode;
+import lombok.Getter;
+import lombok.experimental.Accessors;
+import org.apache.bifromq.type.RouteMatcher;
 
+/**
+ * The Route Detail must be retrieved from RouteDetailCache.
+ */
+@Accessors(fluent = true)
+@Getter
+@EqualsAndHashCode
+public final class RouteDetail {
+    private final String tenantId;
+    private final RouteMatcher matcher;
+    private final String receiverUrl;
+
+    RouteDetail(String tenantId, RouteMatcher matcher, String receiverUrl) {
+        this.tenantId = tenantId;
+        this.matcher = matcher;
+        this.receiverUrl = receiverUrl;
+    }
 }

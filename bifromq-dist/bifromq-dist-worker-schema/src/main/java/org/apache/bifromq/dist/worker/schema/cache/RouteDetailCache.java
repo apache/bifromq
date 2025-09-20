@@ -34,21 +34,25 @@ import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
 import com.github.benmanes.caffeine.cache.Interner;
 import com.google.protobuf.ByteString;
-import org.apache.bifromq.dist.worker.schema.RouteDetail;
 import org.apache.bifromq.type.RouteMatcher;
 
 public class RouteDetailCache {
-    private static final Interner<String> TENANTID_INTERNER = Interner.newWeakInterner();
-    private static final Interner<String> MQTT_TOPIC_FILTER_INTERNER = Interner.newWeakInterner();
     private static final Interner<ByteString> ROUTE_KEY_INTERNER = Interner.newWeakInterner();
+    private static final Interner<String> TENANTID_INTERNER = Interner.newWeakInterner();
+    private static final Interner<String> MQTT_TOPICFILTER__INTERNER = Interner.newWeakInterner();
     private static final Interner<RouteMatcher> ROUTE_MATCHER_INTERNER = Interner.newWeakInterner();
-    private static final Cache<String, RouteMatcher> ROUTE_MATCHER_CACHE = Caffeine.newBuilder().weakKeys().build();
-    private static final Cache<ByteString, RouteDetail> ROUTE_DETAIL_CACHE = Caffeine.newBuilder().weakKeys().build();
+    private static final Cache<String, RouteMatcher> ROUTE_MATCHER_CACHE = Caffeine.newBuilder()
+        .weakKeys()
+        .weakValues()
+        .build();
+    private static final Cache<ByteString, RouteDetail> ROUTE_DETAIL_CACHE = Caffeine.newBuilder()
+        .weakKeys()
+        .weakValues()
+        .build();
 
     public static RouteDetail get(ByteString routeKey) {
         // <VER><LENGTH_PREFIX_TENANT_ID><ESCAPED_TOPIC_FILTER><SEP><BUCKET_BYTE><FLAG_BYTE><LENGTH_SUFFIX_RECEIVER_BYTES>
-        routeKey = ROUTE_KEY_INTERNER.intern(routeKey);
-        return ROUTE_DETAIL_CACHE.get(routeKey, k -> {
+        return ROUTE_DETAIL_CACHE.get(ROUTE_KEY_INTERNER.intern(routeKey), k -> {
             short tenantIdLen = tenantIdLen(k);
             int tenantIdStartIdx = SCHEMA_VER.size() + Short.BYTES;
             int escapedTopicFilterStartIdx = tenantIdStartIdx + tenantIdLen;
@@ -66,8 +70,8 @@ public class RouteDetailCache {
                 .toStringUtf8();
             switch (flag) {
                 case FLAG_NORMAL -> {
-                    String mqttTopicFilter = MQTT_TOPIC_FILTER_INTERNER.intern(unescape(escapedTopicFilter));
-                    RouteMatcher matcher = ROUTE_MATCHER_CACHE.get(mqttTopicFilter,
+                    String mqttTopicFilter = unescape(escapedTopicFilter);
+                    RouteMatcher matcher = ROUTE_MATCHER_CACHE.get(MQTT_TOPICFILTER__INTERNER.intern(mqttTopicFilter),
                         t -> ROUTE_MATCHER_INTERNER.intern(RouteMatcher.newBuilder()
                             .setType(RouteMatcher.Type.Normal)
                             .addAllFilterLevel(parse(escapedTopicFilter, true))
@@ -76,9 +80,9 @@ public class RouteDetailCache {
                     return new RouteDetail(tenantId, matcher, receiverInfo); // receiverInfo is the receiverUrl
                 }
                 case FLAG_UNORDERED -> {
-                    String mqttTopicFilter = MQTT_TOPIC_FILTER_INTERNER.intern(
-                        UNORDERED_SHARE + DELIMITER + receiverInfo + DELIMITER + unescape(escapedTopicFilter));
-                    RouteMatcher matcher = ROUTE_MATCHER_CACHE.get(mqttTopicFilter,
+                    String mqttTopicFilter =
+                        UNORDERED_SHARE + DELIMITER + receiverInfo + DELIMITER + unescape(escapedTopicFilter);
+                    RouteMatcher matcher = ROUTE_MATCHER_CACHE.get(MQTT_TOPICFILTER__INTERNER.intern(mqttTopicFilter),
                         t -> ROUTE_MATCHER_INTERNER.intern(RouteMatcher.newBuilder()
                             .setType(RouteMatcher.Type.UnorderedShare)
                             .addAllFilterLevel(parse(escapedTopicFilter, true))
@@ -88,17 +92,15 @@ public class RouteDetailCache {
                     return new RouteDetail(tenantId, matcher, null);
                 }
                 case FLAG_ORDERED -> {
-                    String mqttTopicFilter = MQTT_TOPIC_FILTER_INTERNER.intern(
-                        ORDERED_SHARE + DELIMITER + receiverInfo + DELIMITER + unescape(escapedTopicFilter));
-                    RouteMatcher matcher = ROUTE_MATCHER_CACHE.get(mqttTopicFilter, t -> {
-                        RouteMatcher m = RouteMatcher.newBuilder()
+                    String mqttTopicFilter =
+                        ORDERED_SHARE + DELIMITER + receiverInfo + DELIMITER + unescape(escapedTopicFilter);
+                    RouteMatcher matcher = ROUTE_MATCHER_CACHE.get(MQTT_TOPICFILTER__INTERNER.intern(mqttTopicFilter),
+                        t -> ROUTE_MATCHER_INTERNER.intern(RouteMatcher.newBuilder()
                             .setType(RouteMatcher.Type.OrderedShare)
                             .addAllFilterLevel(parse(escapedTopicFilter, true))
                             .setGroup(receiverInfo) // group name
                             .setMqttTopicFilter(t)
-                            .build();
-                        return ROUTE_MATCHER_INTERNER.intern(m);
-                    });
+                            .build()));
                     return new RouteDetail(tenantId, matcher, null);
                 }
                 default -> throw new UnsupportedOperationException("Unknown route type: " + flag);
@@ -112,5 +114,14 @@ public class RouteDetailCache {
 
     private static short receiverBytesLen(ByteString routeKey) {
         return toShort(routeKey.substring(routeKey.size() - Short.BYTES));
+    }
+
+    static void drainCaches() {
+        ROUTE_MATCHER_CACHE.cleanUp();
+        ROUTE_DETAIL_CACHE.cleanUp();
+    }
+
+    static long routeMatcherCacheSize() {
+        return ROUTE_MATCHER_CACHE.estimatedSize();
     }
 }

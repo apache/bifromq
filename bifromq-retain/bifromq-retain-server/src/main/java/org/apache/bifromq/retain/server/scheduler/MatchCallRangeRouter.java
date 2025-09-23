@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 
 package org.apache.bifromq.retain.server.scheduler;
@@ -37,10 +37,6 @@ import static org.apache.bifromq.util.TopicUtil.isNormalTopicFilter;
 import static org.apache.bifromq.util.TopicUtil.isWildcardTopicFilter;
 import static org.apache.bifromq.util.TopicUtil.parse;
 
-import org.apache.bifromq.basekv.client.KVRangeSetting;
-import org.apache.bifromq.basekv.proto.Boundary;
-import org.apache.bifromq.retain.store.schema.KVSchemaUtil;
-import org.apache.bifromq.retain.store.schema.LevelHash;
 import com.google.protobuf.ByteString;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -51,6 +47,10 @@ import java.util.Map;
 import java.util.NavigableMap;
 import java.util.Optional;
 import java.util.Set;
+import org.apache.bifromq.basekv.client.KVRangeSetting;
+import org.apache.bifromq.basekv.proto.Boundary;
+import org.apache.bifromq.retain.store.schema.KVSchemaUtil;
+import org.apache.bifromq.retain.store.schema.LevelHash;
 
 class MatchCallRangeRouter {
     public static Map<KVRangeSetting, Set<String>> rangeLookup(String tenantId, Set<String> topicFilters,
@@ -114,7 +114,7 @@ class MatchCallRangeRouter {
         Collection<KVRangeSetting> allCandidates = findByBoundary(topicBoundary, effectiveRouter);
         List<KVRangeSetting> candidates = new ArrayList<>(allCandidates.size());
         for (KVRangeSetting rangeSetting : allCandidates) {
-            Boundary candidateBoundary = rangeSetting.boundary;
+            Boundary candidateBoundary = rangeSetting.boundary();
             ByteString candidateStartKey = startKey(candidateBoundary);
             ByteString candidateEndKey = endKey(candidateBoundary);
             if (compareStartKey(candidateStartKey, retainKeyPrefixBegin) > 0

@@ -27,11 +27,6 @@ import static org.testng.Assert.assertEquals;
 import static org.testng.Assert.assertFalse;
 import static org.testng.Assert.assertTrue;
 
-import org.apache.bifromq.basekv.proto.Boundary;
-import org.apache.bifromq.basekv.proto.KVRangeDescriptor;
-import org.apache.bifromq.basekv.proto.KVRangeId;
-import org.apache.bifromq.basekv.raft.proto.RaftNodeStatus;
-import org.apache.bifromq.basekv.utils.BoundaryUtil;
 import com.beust.jcommander.internal.Lists;
 import com.google.protobuf.ByteString;
 import java.util.Collection;
@@ -40,6 +35,11 @@ import java.util.List;
 import java.util.NavigableMap;
 import java.util.Optional;
 import java.util.TreeMap;
+import org.apache.bifromq.basekv.proto.Boundary;
+import org.apache.bifromq.basekv.proto.KVRangeDescriptor;
+import org.apache.bifromq.basekv.proto.KVRangeId;
+import org.apache.bifromq.basekv.raft.proto.RaftNodeStatus;
+import org.apache.bifromq.basekv.utils.BoundaryUtil;
 import org.testng.annotations.Test;
 
 public class KVRangeRouterUtilTest {
@@ -103,27 +103,27 @@ public class KVRangeRouterUtilTest {
         // Test find by key within the first range
         Optional<KVRangeSetting> result1 = findByKey(ByteString.copyFromUtf8("a"), router);
         assertTrue(result1.isPresent());
-        assertEquals(result1.get().id.getId(), 1L);
+        assertEquals(result1.get().id().getId(), 1L);
 
         // Test find by key within the second range
         Optional<KVRangeSetting> result2 = findByKey(ByteString.copyFromUtf8("b"), router);
         assertTrue(result2.isPresent());
-        assertEquals(result2.get().id.getId(), 2L);
+        assertEquals(result2.get().id().getId(), 2L);
 
         // Test find by key within the third range
         Optional<KVRangeSetting> result3 = findByKey(ByteString.copyFromUtf8("c"), router);
         assertTrue(result3.isPresent());
-        assertEquals(result3.get().id.getId(), 3L);
+        assertEquals(result3.get().id().getId(), 3L);
 
         // Test find by key within the fourth range
         Optional<KVRangeSetting> result4 = findByKey(ByteString.copyFromUtf8("d"), router);
         assertTrue(result4.isPresent());
-        assertEquals(result4.get().id.getId(), 4L);
+        assertEquals(result4.get().id().getId(), 4L);
 
         // Test find by key not in any range
         Optional<KVRangeSetting> result5 = findByKey(ByteString.copyFromUtf8("z"), router);
         assertTrue(result5.isPresent());
-        assertEquals(result5.get().id.getId(), 4L);
+        assertEquals(result5.get().id().getId(), 4L);
     }
 
     @Test
@@ -174,21 +174,21 @@ public class KVRangeRouterUtilTest {
         Collection<KVRangeSetting> result0 = findByBoundary(
             Boundary.newBuilder().setEndKey(ByteString.copyFromUtf8("a")).build(), router); // (null, "a")
         assertEquals(result0.size(), 1);
-        assertEquals(result0.stream().findFirst().get().id.getId(), 1L);
+        assertEquals(result0.stream().findFirst().get().id().getId(), 1L);
 
         // Test find by exact boundary of the first range
         Collection<KVRangeSetting> result1 = findByBoundary(
             Boundary.newBuilder().setEndKey(ByteString.copyFromUtf8("b")).build(), router); // (null, "b")
         assertEquals(result1.size(), 1);
-        assertEquals(result1.stream().findFirst().get().id.getId(), 1L);
+        assertEquals(result1.stream().findFirst().get().id().getId(), 1L);
 
         // Test find by overlapping boundary with the second range
         List<KVRangeSetting> result2 = Lists.newArrayList(findByBoundary(
             Boundary.newBuilder().setStartKey(ByteString.copyFromUtf8("b")).build(), router)); // ["b", null)
         assertEquals(result2.size(), 3); // Covers ranges 2, 3, and 4
-        assertEquals(result2.get(0).boundary, range2.getBoundary());
-        assertEquals(result2.get(1).boundary, range3.getBoundary());
-        assertEquals(result2.get(2).boundary, range4.getBoundary());
+        assertEquals(result2.get(0).boundary(), range2.getBoundary());
+        assertEquals(result2.get(1).boundary(), range3.getBoundary());
+        assertEquals(result2.get(2).boundary(), range4.getBoundary());
 
         // Test find by a boundary that overlaps multiple ranges
         List<KVRangeSetting> result3 = Lists.newArrayList(findByBoundary(
@@ -196,25 +196,25 @@ public class KVRangeRouterUtilTest {
                 .setEndKey(ByteString.copyFromUtf8("d"))
                 .build(), router)); // ["b", "d")
         assertEquals(result3.size(), 2); // Covers ranges 2 and 3
-        assertEquals(result3.get(0).boundary, range2.getBoundary());
-        assertEquals(result3.get(1).boundary, range3.getBoundary());
+        assertEquals(result3.get(0).boundary(), range2.getBoundary());
+        assertEquals(result3.get(1).boundary(), range3.getBoundary());
 
         List<KVRangeSetting> result4 = Lists.newArrayList(findByBoundary(
             Boundary.newBuilder().setStartKey(ByteString.copyFromUtf8("x"))
                 .setEndKey(ByteString.copyFromUtf8("y"))
                 .build(), router)); // ["x", "y")
         assertEquals(result4.size(), 1);
-        assertEquals(result4.get(0).boundary, range4.getBoundary());
+        assertEquals(result4.get(0).boundary(), range4.getBoundary());
 
         List<KVRangeSetting> result5 = Lists.newArrayList(findByBoundary(FULL_BOUNDARY, router));
         assertEquals(result5.size(), 4);
-        assertEquals(result5.get(0).boundary, range1.getBoundary());
-        assertEquals(result5.get(1).boundary, range2.getBoundary());
-        assertEquals(result5.get(2).boundary, range3.getBoundary());
-        assertEquals(result5.get(3).boundary, range4.getBoundary());
+        assertEquals(result5.get(0).boundary(), range1.getBoundary());
+        assertEquals(result5.get(1).boundary(), range2.getBoundary());
+        assertEquals(result5.get(2).boundary(), range3.getBoundary());
+        assertEquals(result5.get(3).boundary(), range4.getBoundary());
 
         List<KVRangeSetting> result6 = Lists.newArrayList(findByBoundary(NULL_BOUNDARY, router));
         assertEquals(result6.size(), 1);
-        assertEquals(result6.get(0).boundary, range1.getBoundary());
+        assertEquals(result6.get(0).boundary(), range1.getBoundary());
     }
 }

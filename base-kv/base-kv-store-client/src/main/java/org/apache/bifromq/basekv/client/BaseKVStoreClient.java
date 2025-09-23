@@ -509,17 +509,17 @@ final class BaseKVStoreClient implements IBaseKVStoreClient {
     private void patchRouter(String leaderStoreId, KVRangeDescriptor latest) {
         NavigableMap<Boundary, KVRangeSetting> router = effectiveRouter.get();
         KVRangeSetting setting = new KVRangeSetting(clusterId, leaderStoreId, latest);
-        Collection<KVRangeSetting> overlaps = findByBoundary(setting.boundary, router);
+        Collection<KVRangeSetting> overlaps = findByBoundary(setting.boundary(), router);
         log.debug("Patching router: clusterId={}, leaderStoreId={}, latest={}, overlaps={}",
             clusterId, leaderStoreId, latest, overlaps);
-        if (overlaps.stream().allMatch(s -> s.ver < latest.getVer())) {
+        if (overlaps.stream().allMatch(s -> s.ver() < latest.getVer())) {
             NavigableMap<Boundary, KVRangeSetting> patched = new TreeMap<>(BoundaryUtil::compare);
             for (KVRangeSetting s : router.values()) {
                 if (!overlaps.contains(s)) {
-                    patched.put(s.boundary, s);
+                    patched.put(s.boundary(), s);
                 }
             }
-            patched.put(setting.boundary, setting);
+            patched.put(setting.boundary(), setting);
             effectiveRouter.compareAndSet(router, Collections.unmodifiableNavigableMap(patched));
         }
     }

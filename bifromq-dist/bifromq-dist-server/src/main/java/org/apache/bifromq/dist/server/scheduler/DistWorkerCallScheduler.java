@@ -19,10 +19,9 @@
 
 package org.apache.bifromq.dist.server.scheduler;
 
-import org.apache.bifromq.basekv.client.IBaseKVStoreClient;
-import org.apache.bifromq.basescheduler.BatchCallScheduler;
 import java.util.Optional;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.bifromq.basescheduler.BatchCallScheduler;
 
 /**
  * Scheduling dist worker calls by batching dist server calls.
@@ -35,10 +34,10 @@ public class DistWorkerCallScheduler
     /**
      * Constructor of DistWorkerCallScheduler.
      *
-     * @param distWorkerClient  the dist worker client
+     * @param factory  the factory to create batch dist server call builders
      */
-    public DistWorkerCallScheduler(IBaseKVStoreClient distWorkerClient) {
-        super((name, batcherKey) -> () -> new BatchDistServerCall(distWorkerClient, batcherKey), Long.MAX_VALUE);
+    public DistWorkerCallScheduler(BatchDistServerCallBuilderFactory factory, long maxBurstLatency) {
+        super(factory, maxBurstLatency);
     }
 
     @Override

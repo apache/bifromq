@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 
 package org.apache.bifromq.retain.store.gc;
@@ -28,6 +28,10 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.testng.Assert.assertEquals;
 
+import com.google.protobuf.ByteString;
+import java.util.Collections;
+import java.util.TreeMap;
+import java.util.concurrent.CompletableFuture;
 import org.apache.bifromq.basehlc.HLC;
 import org.apache.bifromq.basekv.client.IBaseKVStoreClient;
 import org.apache.bifromq.basekv.client.KVRangeSetting;
@@ -36,10 +40,6 @@ import org.apache.bifromq.basekv.proto.KVRangeDescriptor;
 import org.apache.bifromq.basekv.utils.BoundaryUtil;
 import org.apache.bifromq.basekv.utils.KVRangeIdUtil;
 import org.apache.bifromq.retain.rpc.proto.GCRequest;
-import com.google.protobuf.ByteString;
-import java.util.Collections;
-import java.util.TreeMap;
-import java.util.concurrent.CompletableFuture;
 import org.mockito.Mock;
 import org.mockito.MockitoAnnotations;
 import org.testng.annotations.AfterMethod;
@@ -90,7 +90,7 @@ public class RetainStoreGCProcessorTest {
         }});
         when(storeClient.execute(anyString(), any())).thenReturn(new CompletableFuture<>());
         gcProcessor.gc(reqId, tenantId, null, now);
-        verify(storeClient).execute(eq(setting.leader), argThat(req -> {
+        verify(storeClient).execute(eq(setting.leader()), argThat(req -> {
             if (req.getReqId() != reqId
                 || req.getVer() != rangeDescriptor.getVer()
                 || !req.getKvRangeId().equals(rangeDescriptor.getId())) {
@@ -122,7 +122,7 @@ public class RetainStoreGCProcessorTest {
         }});
         when(storeClient.execute(anyString(), any())).thenReturn(new CompletableFuture<>());
         gcProcessor.gc(reqId, tenantId, expirySeconds, now);
-        verify(storeClient).execute(eq(setting.leader), argThat(req -> {
+        verify(storeClient).execute(eq(setting.leader()), argThat(req -> {
             if (req.getReqId() != reqId
                 || req.getVer() != rangeDescriptor.getVer()
                 || !req.getKvRangeId().equals(rangeDescriptor.getId())) {
@@ -161,7 +161,7 @@ public class RetainStoreGCProcessorTest {
         }});
         when(storeClient.execute(anyString(), any())).thenReturn(new CompletableFuture<>());
         gcProcessor.gc(reqId, null, expirySeconds, now);
-        verify(storeClient).execute(eq(localSetting.leader), argThat(req -> {
+        verify(storeClient).execute(eq(localSetting.leader()), argThat(req -> {
             if (req.getReqId() != reqId
                 || req.getVer() != localDescriptor.getVer()
                 || !req.getKvRangeId().equals(localDescriptor.getId())) {
@@ -199,7 +199,7 @@ public class RetainStoreGCProcessorTest {
         }});
         when(storeClient.execute(anyString(), any())).thenReturn(new CompletableFuture<>());
         gcProcessor.gc(reqId, null, null, now);
-        verify(storeClient).execute(eq(localSetting.leader), argThat(req -> {
+        verify(storeClient).execute(eq(localSetting.leader()), argThat(req -> {
             if (req.getReqId() != reqId
                 || req.getVer() != localDescriptor.getVer()
                 || !req.getKvRangeId().equals(localDescriptor.getId())) {

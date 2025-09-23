@@ -340,10 +340,10 @@ public abstract class DistWorkerTest {
                     .build())
                 .build())
             .build();
-        KVRangeRWReply reply = storeClient.execute(s.leader, KVRangeRWRequest.newBuilder()
+        KVRangeRWReply reply = storeClient.execute(s.leader(), KVRangeRWRequest.newBuilder()
             .setReqId(reqId)
-            .setVer(s.ver)
-            .setKvRangeId(s.id)
+            .setVer(s.ver())
+            .setKvRangeId(s.id())
             .setRwCoProc(RWCoProcInput.newBuilder().setDistService(input).build())
             .build()).join();
         assertEquals(reply.getReqId(), reqId);
@@ -387,10 +387,10 @@ public abstract class DistWorkerTest {
                     .build())
                 .build())
             .build();
-        KVRangeRWReply reply = storeClient.execute(s.leader, KVRangeRWRequest.newBuilder()
+        KVRangeRWReply reply = storeClient.execute(s.leader(), KVRangeRWRequest.newBuilder()
             .setReqId(reqId)
-            .setVer(s.ver)
-            .setKvRangeId(s.id)
+            .setVer(s.ver())
+            .setKvRangeId(s.id())
             .setRwCoProc(RWCoProcInput.newBuilder().setDistService(input).build())
             .build()).join();
         assertEquals(reply.getReqId(), reqId);
@@ -416,10 +416,10 @@ public abstract class DistWorkerTest {
                 .setBatchDist(request)
                 .build())
             .build();
-        KVRangeROReply reply = storeClient.query(s.leader, KVRangeRORequest.newBuilder()
+        KVRangeROReply reply = storeClient.query(s.leader(), KVRangeRORequest.newBuilder()
             .setReqId(reqId)
-            .setVer(s.ver)
-            .setKvRangeId(s.id)
+            .setVer(s.ver())
+            .setKvRangeId(s.id())
             .setRoCoProc(input)
             .build()).join();
         assertEquals(reply.getReqId(), reqId);

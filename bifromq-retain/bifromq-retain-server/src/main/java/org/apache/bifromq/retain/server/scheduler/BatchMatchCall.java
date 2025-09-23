@@ -156,8 +156,8 @@ class BatchMatchCall implements IBatchCall<MatchRetainedRequest, MatchRetainedRe
 
     private CompletableFuture<BatchMatchReply> queryCoProc(BatchMatchRequest request, KVRangeSetting rangeSetting) {
         return retainStoreClient.query(rangeSetting.randomReplica(),
-                KVRangeRORequest.newBuilder().setReqId(request.getReqId()).setKvRangeId(rangeSetting.id)
-                    .setVer(rangeSetting.ver).setRoCoProc(ROCoProcInput.newBuilder()
+                KVRangeRORequest.newBuilder().setReqId(request.getReqId()).setKvRangeId(rangeSetting.id())
+                    .setVer(rangeSetting.ver()).setRoCoProc(ROCoProcInput.newBuilder()
                         .setRetainService(RetainServiceROCoProcInput.newBuilder().setBatchMatch(request).build()).build())
                     .build())
             .thenApply(v -> {

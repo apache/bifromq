@@ -21,26 +21,17 @@ package org.apache.bifromq.dist.server.scheduler;
 
 import static java.util.Collections.emptyMap;
 import static org.apache.bifromq.base.util.CompletableFutureUtil.unwrap;
-import static org.apache.bifromq.basekv.client.KVRangeRouterUtil.findByBoundary;
-import static org.apache.bifromq.basekv.utils.BoundaryUtil.toBoundary;
-import static org.apache.bifromq.basekv.utils.BoundaryUtil.upperBound;
-import static org.apache.bifromq.dist.worker.schema.KVSchemaUtil.tenantBeginKey;
-import static org.apache.bifromq.util.TopicConst.NUL;
-import static org.apache.bifromq.util.TopicUtil.fastJoin;
 
 import com.google.common.collect.Iterables;
-import com.google.protobuf.ByteString;
 import java.util.ArrayDeque;
 import java.util.Collection;
 import java.util.HashMap;
-import java.util.Iterator;
-import java.util.LinkedList;
-import java.util.List;
+import java.util.HashSet;
 import java.util.Map;
 import java.util.NavigableMap;
 import java.util.Objects;
-import java.util.Optional;
 import java.util.Queue;
+import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.bifromq.basekv.client.IBaseKVStoreClient;
@@ -58,15 +49,10 @@ import org.apache.bifromq.dist.rpc.proto.BatchDistReply;
 import org.apache.bifromq.dist.rpc.proto.BatchDistRequest;
 import org.apache.bifromq.dist.rpc.proto.DistPack;
 import org.apache.bifromq.dist.rpc.proto.DistServiceROCoProcInput;
-import org.apache.bifromq.dist.rpc.proto.Fact;
-import org.apache.bifromq.dist.trie.ITopicFilterIterator;
-import org.apache.bifromq.dist.trie.ThreadLocalTopicFilterIterator;
-import org.apache.bifromq.dist.trie.TopicTrieNode;
 import org.apache.bifromq.type.ClientInfo;
 import org.apache.bifromq.type.Message;
 import org.apache.bifromq.type.PublisherMessagePack;
 import org.apache.bifromq.type.TopicMessagePack;
-import org.apache.bifromq.util.TopicUtil;
 
 @Slf4j
 class BatchDistServerCall implements IBatchCall<TenantPubRequest, DistServerCallResult, DistServerCallBatcherKey> {
@@ -76,11 +62,15 @@ class BatchDistServerCall implements IBatchCall<TenantPubRequest, DistServerCall
     private final Queue<ICallTask<TenantPubRequest, DistServerCallResult, DistServerCallBatcherKey>> tasks =
         new ArrayDeque<>();
     private final Map<String, Map<ClientInfo, Iterable<Message>>> batch = new HashMap<>(128);
+    private final TenantRangeLookupCache lookupCache;
 
-    BatchDistServerCall(IBaseKVStoreClient distWorkerClient, DistServerCallBatcherKey batcherKey) {
+    BatchDistServerCall(IBaseKVStoreClient distWorkerClient,
+                        DistServerCallBatcherKey batcherKey,
+                        TenantRangeLookupCache lookupCache) {
         this.distWorkerClient = distWorkerClient;
         this.batcherKey = batcherKey;
         this.orderKey = batcherKey.tenantId() + batcherKey.batcherId();
+        this.lookupCache = lookupCache;
     }
 
     @Override
@@ -105,8 +95,8 @@ class BatchDistServerCall implements IBatchCall<TenantPubRequest, DistServerCall
 
     @Override
     public CompletableFuture<Void> execute() {
-        Collection<KVRangeSetting> candidates = rangeLookup();
-        if (candidates.isEmpty()) {
+        Map<KVRangeSetting, Set<String>> topicsByRange = rangeLookup();
+        if (topicsByRange.isEmpty()) {
             // no candidate range
             ICallTask<TenantPubRequest, DistServerCallResult, DistServerCallBatcherKey> task;
             while ((task = tasks.poll()) != null) {
@@ -117,13 +107,13 @@ class BatchDistServerCall implements IBatchCall<TenantPubRequest, DistServerCall
             }
             return CompletableFuture.completedFuture(null);
         } else {
-            return parallelDist(candidates);
+            return parallelDist(topicsByRange);
         }
     }
 
-    private CompletableFuture<Void> parallelDist(Collection<KVRangeSetting> candidates) {
+    private CompletableFuture<Void> parallelDist(Map<KVRangeSetting, Set<String>> topicsByRange) {
         long reqId = System.nanoTime();
-        CompletableFuture<?>[] rangeQueryReplies = replicaSelect(candidates).entrySet().stream().map(entry -> {
+        CompletableFuture<?>[] rangeQueryReplies = replicaSelect(topicsByRange).entrySet().stream().map(entry -> {
             KVRangeReplica rangeReplica = entry.getKey();
             Map<String, Map<ClientInfo, Iterable<Message>>> replicaBatch = entry.getValue();
             BatchDistRequest.Builder batchDistBuilder =
@@ -205,10 +195,7 @@ class BatchDistServerCall implements IBatchCall<TenantPubRequest, DistServerCall
                 Map<String, Integer> fanOutResult = new HashMap<>();
                 for (PublisherMessagePack clientMsgPack : task.call().publisherMessagePacks()) {
                     for (PublisherMessagePack.TopicPack topicMsgPack : clientMsgPack.getMessagePackList()) {
-                        Integer fanOut = allFanOutByTopic.get(topicMsgPack.getTopic());
-                        if (fanOut == null) {
-                            log.error("Illegal state: no result for topic: {}", topicMsgPack.getTopic());
-                        }
+                        int fanOut = allFanOutByTopic.getOrDefault(topicMsgPack.getTopic(), 0);
                         fanOutResult.put(topicMsgPack.getTopic(), fanOut);
                     }
                 }
@@ -217,83 +204,40 @@ class BatchDistServerCall implements IBatchCall<TenantPubRequest, DistServerCall
         });
     }
 
-    private Collection<KVRangeSetting> rangeLookup() {
+    private Map<KVRangeSetting, Set<String>> rangeLookup() {
         NavigableMap<Boundary, KVRangeSetting> effectiveRouter = distWorkerClient.latestEffectiveRouter();
-        if (hasSingleItem(effectiveRouter.keySet())) {
-            return effectiveRouter.values();
-        }
-        ByteString tenantStartKey = tenantBeginKey(batcherKey.tenantId());
-        Boundary tenantBoundary = toBoundary(tenantStartKey, upperBound(tenantStartKey));
-        Collection<KVRangeSetting> allCandidates = findByBoundary(tenantBoundary, effectiveRouter);
-        if (hasSingleItem(allCandidates)) {
-            return allCandidates;
-        }
-        TopicTrieNode.Builder<String> topicTrieBuilder = TopicTrieNode.builder(true);
-        batch.keySet()
-            .forEach(topic -> topicTrieBuilder.addTopic(TopicUtil.parse(batcherKey.tenantId(), topic, false), topic));
-
-        try (ITopicFilterIterator<String> topicFilterIterator =
-                 ThreadLocalTopicFilterIterator.get(topicTrieBuilder.build())) {
-            topicFilterIterator.init(topicTrieBuilder.build());
-            List<KVRangeSetting> finalCandidates = new LinkedList<>();
-            for (KVRangeSetting candidate : allCandidates) {
-                Optional<Fact> factOpt = candidate.getFact(Fact.class);
-                if (factOpt.isEmpty()) {
-                    finalCandidates.add(candidate);
-                    continue;
-                }
-                Fact fact = factOpt.get();
-                if (!fact.hasFirstGlobalFilterLevels() || !fact.hasLastGlobalFilterLevels()) {
-                    // range is empty
-                    continue;
-                }
-                List<String> firstFilterLevels = fact.getFirstGlobalFilterLevels().getFilterLevelList();
-                List<String> lastFilterLevels = fact.getLastGlobalFilterLevels().getFilterLevelList();
-                topicFilterIterator.seek(firstFilterLevels);
-                if (topicFilterIterator.isValid()) {
-                    // firstTopicFilter <= nextTopicFilter
-                    if (topicFilterIterator.key().equals(firstFilterLevels)
-                        || fastJoin(NUL, topicFilterIterator.key()).compareTo(fastJoin(NUL, lastFilterLevels)) <= 0) {
-                        // if firstTopicFilter == nextTopicFilter || nextFilterLevels <= lastFilterLevels
-                        // add to finalCandidates
-                        finalCandidates.add(candidate);
-                    }
-                } else {
-                    // endTopicFilter < firstTopicFilter, stop
-                    break;
-                }
+        Map<KVRangeSetting, Set<String>> topicsByRange = new HashMap<>();
+        for (String topic : batch.keySet()) {
+            Collection<KVRangeSetting> candidates = lookupCache.lookup(topic, effectiveRouter);
+            for (KVRangeSetting candidate : candidates) {
+                topicsByRange.computeIfAbsent(candidate, k -> new HashSet<>()).add(topic);
             }
-            return finalCandidates;
         }
-    }
-
-    private <E> boolean hasSingleItem(Collection<E> collection) {
-        Iterator<E> iterator = collection.iterator();
-        if (iterator.hasNext()) {
-            iterator.next();
-            return !iterator.hasNext();
-        }
-        return false;
+        return topicsByRange;
     }
 
     private Map<KVRangeReplica, Map<String, Map<ClientInfo, Iterable<Message>>>> replicaSelect(
-        Collection<KVRangeSetting> candidates) {
+        Map<KVRangeSetting, Set<String>> topicsByRange) {
         Map<KVRangeReplica, Map<String, Map<ClientInfo, Iterable<Message>>>> batchByReplica = new HashMap<>();
-        for (KVRangeSetting rangeSetting : candidates) {
-            if (rangeSetting.hasInProcReplica() || rangeSetting.allReplicas.size() == 1) {
+        for (KVRangeSetting rangeSetting : topicsByRange.keySet()) {
+            Map<String, Map<ClientInfo, Iterable<Message>>> rangeBatch = new HashMap<>();
+            for (String topic : topicsByRange.get(rangeSetting)) {
+                rangeBatch.put(topic, batch.get(topic));
+            }
+            if (rangeSetting.hasInProcReplica() || rangeSetting.allReplicas().size() == 1) {
                 // build-in or single replica
                 KVRangeReplica replica =
-                    new KVRangeReplica(rangeSetting.id, rangeSetting.ver, rangeSetting.randomReplica());
-                batchByReplica.put(replica, batch);
+                    new KVRangeReplica(rangeSetting.id(), rangeSetting.ver(), rangeSetting.randomReplica());
+                batchByReplica.put(replica, rangeBatch);
             } else {
-                for (String topic : batch.keySet()) {
+                for (String topic : rangeBatch.keySet()) {
                     // bind replica based on tenantId, topic
                     int hash = Objects.hash(batcherKey.tenantId(), topic);
-                    int replicaIdx = Math.abs(hash) % rangeSetting.allReplicas.size();
+                    int replicaIdx = Math.abs(hash) % rangeSetting.allReplicas().size();
                     // replica bind
-                    KVRangeReplica replica =
-                        new KVRangeReplica(rangeSetting.id, rangeSetting.ver, rangeSetting.allReplicas.get(replicaIdx));
-                    batchByReplica.computeIfAbsent(replica, k -> new HashMap<>()).put(topic, batch.get(topic));
+                    KVRangeReplica replica = new KVRangeReplica(rangeSetting.id(), rangeSetting.ver(),
+                        rangeSetting.allReplicas().get(replicaIdx));
+                    batchByReplica.computeIfAbsent(replica, k -> new HashMap<>()).put(topic, rangeBatch.get(topic));
                 }
             }
         }

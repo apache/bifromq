@@ -103,7 +103,7 @@ public class SubscriptionCache implements ISubscriptionCache {
                     cachedTenantRoutes.destroy();
                 }
             })
-            .build(k -> tenantRouteCacheFactory.create(k.tenantId));
+            .build(k -> tenantRouteCacheFactory.create(id, k.tenantId));
     }
 
     @Override

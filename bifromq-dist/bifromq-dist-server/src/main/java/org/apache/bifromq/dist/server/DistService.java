@@ -21,6 +21,9 @@ package org.apache.bifromq.dist.server;
 
 import static org.apache.bifromq.baserpc.server.UnaryResponse.response;
 
+import io.grpc.stub.StreamObserver;
+import java.time.Duration;
+import lombok.extern.slf4j.Slf4j;
 import org.apache.bifromq.basekv.client.IBaseKVStoreClient;
 import org.apache.bifromq.dist.rpc.proto.DistReply;
 import org.apache.bifromq.dist.rpc.proto.DistRequest;
@@ -31,6 +34,7 @@ import org.apache.bifromq.dist.rpc.proto.UnmatchReply;
 import org.apache.bifromq.dist.rpc.proto.UnmatchRequest;
 import org.apache.bifromq.dist.server.handler.MatchReqHandler;
 import org.apache.bifromq.dist.server.handler.UnmatchReqHandler;
+import org.apache.bifromq.dist.server.scheduler.BatchDistServerCallBuilderFactory;
 import org.apache.bifromq.dist.server.scheduler.DistWorkerCallScheduler;
 import org.apache.bifromq.dist.server.scheduler.IDistWorkerCallScheduler;
 import org.apache.bifromq.dist.server.scheduler.IMatchCallScheduler;
@@ -39,8 +43,8 @@ import org.apache.bifromq.dist.server.scheduler.MatchCallScheduler;
 import org.apache.bifromq.dist.server.scheduler.UnmatchCallScheduler;
 import org.apache.bifromq.plugin.eventcollector.IEventCollector;
 import org.apache.bifromq.plugin.settingprovider.ISettingProvider;
-import io.grpc.stub.StreamObserver;
-import lombok.extern.slf4j.Slf4j;
+import org.apache.bifromq.sysprops.props.DistMaxCachedRoutesPerTenant;
+import org.apache.bifromq.sysprops.props.DistTopicMatchExpirySeconds;
 
 @Slf4j
 public class DistService extends DistServiceGrpc.DistServiceImplBase {
@@ -58,7 +62,10 @@ public class DistService extends DistServiceGrpc.DistServiceImplBase {
         IUnmatchCallScheduler unmatchCallScheduler = new UnmatchCallScheduler(distWorkerClient);
         unmatchReqHandler = new UnmatchReqHandler(eventCollector, unmatchCallScheduler);
 
-        this.distCallScheduler = new DistWorkerCallScheduler(distWorkerClient);
+        BatchDistServerCallBuilderFactory factory = new BatchDistServerCallBuilderFactory(distWorkerClient,
+            DistMaxCachedRoutesPerTenant.INSTANCE.get(),
+            Duration.ofSeconds(DistTopicMatchExpirySeconds.INSTANCE.get()));
+        this.distCallScheduler = new DistWorkerCallScheduler(factory, Long.MAX_VALUE);
     }
 
     @Override

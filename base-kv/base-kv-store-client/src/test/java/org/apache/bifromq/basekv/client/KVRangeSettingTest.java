@@ -25,15 +25,15 @@ import static org.apache.bifromq.basekv.utils.BoundaryUtil.toBoundary;
 import static org.testng.Assert.assertEquals;
 import static org.testng.Assert.assertFalse;
 
+import com.google.protobuf.Any;
+import com.google.protobuf.ByteString;
+import com.google.protobuf.Struct;
 import org.apache.bifromq.basekv.proto.Boundary;
 import org.apache.bifromq.basekv.proto.KVRangeDescriptor;
 import org.apache.bifromq.basekv.raft.proto.ClusterConfig;
 import org.apache.bifromq.basekv.raft.proto.RaftNodeStatus;
 import org.apache.bifromq.basekv.raft.proto.RaftNodeSyncState;
 import org.apache.bifromq.basekv.utils.KVRangeIdUtil;
-import com.google.protobuf.Any;
-import com.google.protobuf.ByteString;
-import com.google.protobuf.Struct;
 import org.testng.annotations.Test;
 
 public class KVRangeSettingTest {
@@ -72,8 +72,8 @@ public class KVRangeSettingTest {
                 .putSyncState(remoteLearner2, RaftNodeSyncState.Probing).setConfig(
                     ClusterConfig.newBuilder().addVoters(localVoter).addVoters(remoteVoter1).addVoters(remoteVoter2)
                         .addLearners(remoteLearner1).addLearners(remoteLearner2).build()).build());
-        assertFalse(setting.followers.contains(remoteVoter2));
-        assertFalse(setting.allReplicas.contains(remoteLearner2));
+        assertFalse(setting.followers().contains(remoteVoter2));
+        assertFalse(setting.allReplicas().contains(remoteLearner2));
     }
 
     @Test

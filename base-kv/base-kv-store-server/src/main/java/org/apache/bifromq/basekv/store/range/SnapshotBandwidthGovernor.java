@@ -19,14 +19,19 @@
 
 package org.apache.bifromq.basekv.store.range;
 
-import com.google.protobuf.ByteString;
+import com.google.common.util.concurrent.RateLimiter;
 
-public interface IKVReseter {
-    void put(ByteString key, ByteString value);
+final class SnapshotBandwidthGovernor {
+    private final RateLimiter rateLimiter;
 
-    void flush();
+    SnapshotBandwidthGovernor(long bytesPerSec) {
+        rateLimiter = bytesPerSec > 0 ? RateLimiter.create(bytesPerSec) : null;
+    }
 
-    IKVRange abort();
-
-    IKVRange done();
+    void acquire(int bytes) {
+        if (rateLimiter == null || bytes <= 0) {
+            return;
+        }
+        rateLimiter.acquire(bytes);
+    }
 }

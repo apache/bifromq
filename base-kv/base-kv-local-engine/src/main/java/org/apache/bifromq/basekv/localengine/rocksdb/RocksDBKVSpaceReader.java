@@ -19,24 +19,24 @@
 
 package org.apache.bifromq.basekv.localengine.rocksdb;
 
+import static com.google.protobuf.UnsafeByteOperations.unsafeWrap;
+import static java.util.Collections.singletonList;
 import static org.apache.bifromq.basekv.localengine.rocksdb.Keys.DATA_SECTION_END;
 import static org.apache.bifromq.basekv.localengine.rocksdb.Keys.DATA_SECTION_START;
 import static org.apache.bifromq.basekv.localengine.rocksdb.Keys.toDataKey;
 import static org.apache.bifromq.basekv.utils.BoundaryUtil.compare;
 import static org.apache.bifromq.basekv.utils.BoundaryUtil.isValid;
-import static com.google.protobuf.UnsafeByteOperations.unsafeWrap;
-import static java.util.Collections.singletonList;
 import static org.rocksdb.SizeApproximationFlag.INCLUDE_FILES;
 import static org.rocksdb.SizeApproximationFlag.INCLUDE_MEMTABLES;
 
+import com.google.protobuf.ByteString;
+import java.util.Optional;
 import org.apache.bifromq.basekv.localengine.AbstractKVSpaceReader;
 import org.apache.bifromq.basekv.localengine.IKVSpaceIterator;
 import org.apache.bifromq.basekv.localengine.ISyncContext;
 import org.apache.bifromq.basekv.localengine.KVEngineException;
 import org.apache.bifromq.basekv.localengine.metrics.KVSpaceOpMeters;
 import org.apache.bifromq.basekv.proto.Boundary;
-import com.google.protobuf.ByteString;
-import java.util.Optional;
 import org.rocksdb.ColumnFamilyHandle;
 import org.rocksdb.Range;
 import org.rocksdb.RocksDB;
@@ -86,12 +86,12 @@ abstract class RocksDBKVSpaceReader extends AbstractKVSpaceReader {
     }
 
     @Override
-    protected final IKVSpaceIterator doNewIterator() {
+    protected IKVSpaceIterator doNewIterator() {
         return new RocksDBKVSpaceIterator(db(), cfHandle(), Boundary.getDefaultInstance(), newRefresher());
     }
 
     @Override
-    protected final IKVSpaceIterator doNewIterator(Boundary subBoundary) {
+    protected IKVSpaceIterator doNewIterator(Boundary subBoundary) {
         assert isValid(subBoundary);
         return new RocksDBKVSpaceIterator(db(), cfHandle(), subBoundary, newRefresher());
     }

@@ -22,6 +22,7 @@ package org.apache.bifromq.basekv.store.range;
 import io.reactivex.rxjava3.annotations.NonNull;
 import io.reactivex.rxjava3.observers.DisposableObserver;
 import io.reactivex.rxjava3.schedulers.Schedulers;
+import java.util.Objects;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
@@ -59,7 +60,7 @@ class KVRangeRestorer {
         this.executor = executor;
         this.idleTimeSec = idleTimeSec;
         this.log = MDCLogger.getLogger(KVRangeRestorer.class, tags);
-        RestoreSession initialSession = new RestoreSession(startSnapshot);
+        RestoreSession initialSession = new RestoreSession(startSnapshot, null);
         initialSession.doneFuture.complete(null);
         currentSession.set(initialSession);
     }
@@ -69,17 +70,27 @@ class KVRangeRestorer {
     }
 
     public CompletableFuture<Void> restoreFrom(String leader, KVRangeSnapshot rangeSnapshot) {
-        RestoreSession session = new RestoreSession(rangeSnapshot);
+        RestoreSession existingSession = currentSession.get();
+        if (existingSession != null
+            && existingSession.snapshot.equals(rangeSnapshot)
+            && !existingSession.doneFuture.isDone()
+            && Objects.equals(existingSession.leader, leader)) {
+            log.info("Reuse snapshot restore session: session={}, leader={} \n{}", existingSession.id,
+                existingSession.leader, rangeSnapshot);
+            return existingSession.doneFuture;
+        }
+        RestoreSession session = new RestoreSession(rangeSnapshot, leader);
         RestoreSession prevSession = currentSession.getAndSet(session);
-        if (!prevSession.snapshot.equals(rangeSnapshot) && !prevSession.doneFuture.isDone()) {
+        if (prevSession != null && !prevSession.doneFuture.isDone()) {
             // cancel previous restore session
-            log.info("Cancel previous restore session: session={} \n{}", prevSession.id, prevSession.snapshot);
+            log.info("Cancel previous restore session: session={}, leader={} \n{}", prevSession.id,
+                prevSession.leader, prevSession.snapshot);
             prevSession.doneFuture.cancel(true);
         }
         CompletableFuture<Void> onDone = session.doneFuture;
         try {
             IKVReseter restorer = range.toReseter(rangeSnapshot);
-            log.info("Restoring from snapshot: session={}, leader={} \n{}", session.id, leader, rangeSnapshot);
+            log.info("Restoring from snapshot: session={}, leader={} \n{}", session.id, session.leader, rangeSnapshot);
             DisposableObserver<KVRangeMessage> observer = messenger.receive()
                 .filter(m -> m.hasSaveSnapshotDataRequest()
                     && m.getSaveSnapshotDataRequest().getSessionId().equals(session.id))
@@ -158,11 +169,11 @@ class KVRangeRestorer {
                     restorer.abort();
                 }
             });
-            log.debug("Send snapshot sync request to {} {}", leader, !onDone.isDone());
+            log.debug("Send snapshot sync request to {} {}", session.leader, !onDone.isDone());
             if (!onDone.isDone()) {
                 messenger.send(KVRangeMessage.newBuilder()
                     .setRangeId(range.id())
-                    .setHostStoreId(leader)
+                    .setHostStoreId(session.leader)
                     .setSnapshotSyncRequest(SnapshotSyncRequest.newBuilder()
                         .setSessionId(session.id)
                         .setSnapshot(rangeSnapshot)
@@ -179,9 +190,11 @@ class KVRangeRestorer {
         final String id = UUID.randomUUID().toString();
         final KVRangeSnapshot snapshot;
         final CompletableFuture<Void> doneFuture = new CompletableFuture<>();
+        final String leader;
 
-        private RestoreSession(KVRangeSnapshot snapshot) {
+        private RestoreSession(KVRangeSnapshot snapshot, String leader) {
             this.snapshot = snapshot;
+            this.leader = leader;
         }
     }
 }

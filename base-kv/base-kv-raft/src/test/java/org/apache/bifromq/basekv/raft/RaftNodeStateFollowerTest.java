@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 
 package org.apache.bifromq.basekv.raft;
@@ -31,6 +31,17 @@ import static org.testng.Assert.assertFalse;
 import static org.testng.Assert.assertSame;
 import static org.testng.Assert.assertTrue;
 
+import com.google.protobuf.ByteString;
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+import java.util.Set;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.apache.bifromq.basekv.raft.event.RaftEvent;
 import org.apache.bifromq.basekv.raft.event.RaftEventType;
 import org.apache.bifromq.basekv.raft.event.SnapshotRestoredEvent;
@@ -53,17 +64,6 @@ import org.apache.bifromq.basekv.raft.proto.RequestVoteReply;
 import org.apache.bifromq.basekv.raft.proto.Snapshot;
 import org.apache.bifromq.basekv.raft.proto.TimeoutNow;
 import org.apache.bifromq.basekv.raft.proto.Voting;
-import com.google.protobuf.ByteString;
-import java.util.Arrays;
-import java.util.Collections;
-import java.util.HashMap;
-import java.util.LinkedHashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.Objects;
-import java.util.Set;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.atomic.AtomicInteger;
 import org.mockito.ArgumentCaptor;
 import org.mockito.MockitoAnnotations;
 import org.mockito.stubbing.Answer;
@@ -660,6 +660,80 @@ public class RaftNodeStateFollowerTest extends RaftNodeStateTest {
         noInLeaseFollower.receive("newLeader", installSnapshot);
         verify(msgSender, times(0)).send(anyMap());
         verify(eventListener, times(0)).onEvent(any());
+        verify(snapshotInstaller, times(0)).install(any(), any(), any());
+    }
+
+    @Test
+    public void testIgnoreSnapshotWhenCommittedProgressNotBehind() {
+        Snapshot snapshot = Snapshot.newBuilder()
+            .setClusterConfig(clusterConfig)
+            .setIndex(2)
+            .setTerm(2)
+            .build();
+        IRaftStateStore stateStorage = new InMemoryStateStore("testLocal", snapshot);
+
+        stateStorage.append(Collections.singletonList(LogEntry.newBuilder()
+            .setTerm(2)
+            .setIndex(3)
+            .setData(ByteString.copyFromUtf8("entry"))
+            .build()), false);
+
+        RaftNodeStateFollower follower = new RaftNodeStateFollower(2, 3, null,
+            defaultRaftConfig, stateStorage, msgSender, eventListener, snapshotInstaller, onSnapshotInstalled);
+
+        ByteString fsmSnapshot = ByteString.copyFromUtf8("snapshot");
+        RaftMessage installSnapshot = RaftMessage.newBuilder()
+            .setTerm(2)
+            .setInstallSnapshot(InstallSnapshot.newBuilder()
+                .setLeaderId("newLeader")
+                .setSnapshot(Snapshot.newBuilder()
+                    .setTerm(2)
+                    .setIndex(2)
+                    .setData(fsmSnapshot)
+                    .build())
+                .build())
+            .build();
+
+        follower.receive("newLeader", installSnapshot);
+
+        verify(snapshotInstaller, times(0)).install(any(), any(), any());
+    }
+
+    @Test
+    public void testInstallSnapshotWhenItAdvancesCommittedProgress() {
+        Snapshot snapshot = Snapshot.newBuilder()
+            .setClusterConfig(clusterConfig)
+            .setIndex(0)
+            .setTerm(1)
+            .build();
+        IRaftStateStore stateStorage = new InMemoryStateStore("testLocal", snapshot);
+
+        stateStorage.append(Arrays.asList(
+            LogEntry.newBuilder().setTerm(2).setIndex(1).setData(ByteString.copyFromUtf8("e1")).build(),
+            LogEntry.newBuilder().setTerm(2).setIndex(2).setData(ByteString.copyFromUtf8("e2")).build(),
+            LogEntry.newBuilder().setTerm(3).setIndex(3).setData(ByteString.copyFromUtf8("e3")).build(),
+            LogEntry.newBuilder().setTerm(3).setIndex(4).setData(ByteString.copyFromUtf8("e4")).build(),
+            LogEntry.newBuilder().setTerm(3).setIndex(5).setData(ByteString.copyFromUtf8("e5")).build()), false);
+
+        RaftNodeStateFollower follower = new RaftNodeStateFollower(3, 0, null,
+            defaultRaftConfig, stateStorage, msgSender, eventListener, snapshotInstaller, onSnapshotInstalled);
+
+        ByteString fsmSnapshot = ByteString.copyFromUtf8("snapshot");
+        RaftMessage installSnapshot = RaftMessage.newBuilder()
+            .setTerm(3)
+            .setInstallSnapshot(InstallSnapshot.newBuilder()
+                .setLeaderId("newLeader")
+                .setSnapshot(Snapshot.newBuilder()
+                    .setTerm(3)
+                    .setIndex(4)
+                    .setData(fsmSnapshot)
+                    .build())
+                .build())
+            .build();
+
+        follower.receive("newLeader", installSnapshot);
+
+        verify(snapshotInstaller, times(1)).install(eq(fsmSnapshot), eq("newLeader"), any());
     }
 
     @Test
@@ -829,8 +903,8 @@ public class RaftNodeStateFollowerTest extends RaftNodeStateTest {
             .setInstallSnapshot(InstallSnapshot.newBuilder()
                 .setLeaderId("newLeader")
                 .setSnapshot(Snapshot.newBuilder()
-                    .setTerm(0)
-                    .setIndex(0)
+                    .setIndex(1)
+                    .setTerm(1)
                     .setData(fsmSnapshot)
                     .build())
                 .build())
@@ -865,7 +939,7 @@ public class RaftNodeStateFollowerTest extends RaftNodeStateTest {
                 .setTerm(1)
                 .setInstallSnapshotReply(InstallSnapshotReply.newBuilder()
                     .setRejected(false)
-                    .setLastIndex(0)
+                    .setLastIndex(1)
                     .build())
                 .build()));
         }});
@@ -898,8 +972,8 @@ public class RaftNodeStateFollowerTest extends RaftNodeStateTest {
             .setInstallSnapshot(InstallSnapshot.newBuilder()
                 .setLeaderId("newLeader")
                 .setSnapshot(Snapshot.newBuilder()
-                    .setTerm(0)
                     .setIndex(0)
+                    .setTerm(1)
                     .setData(fsmSnapshot1)
                     .build())
                 .build())

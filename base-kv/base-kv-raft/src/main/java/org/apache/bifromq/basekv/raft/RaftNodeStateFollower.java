@@ -582,10 +582,20 @@ class RaftNodeStateFollower extends RaftNodeState {
         Snapshot snapshot = installSnapshot.getSnapshot();
 
         Snapshot latestSnapshot = stateStorage.latestSnapshot();
-        if (latestSnapshot.getIndex() > snapshot.getIndex() && latestSnapshot.getTerm() > snapshot.getTerm()) {
+        long localIndex = latestSnapshot.getIndex();
+        long localTerm = latestSnapshot.getTerm();
+        if (commitIndex > localIndex) {
+            Optional<LogEntry> committedEntry = stateStorage.entryAt(commitIndex);
+            if (committedEntry.isPresent()) {
+                localIndex = commitIndex;
+                localTerm = committedEntry.get().getTerm();
+            }
+        }
+        if (localTerm > snapshot.getTerm()
+            || (localTerm == snapshot.getTerm() && localIndex > snapshot.getIndex())) {
             // ignore obsolete snapshot
-            log.debug("Ignore obsolete snapshot[index:{},term:{}] from peer[{}]",
-                snapshot.getIndex(), snapshot.getTerm(), fromLeader);
+            log.debug("Ignore snapshot[index:{},term:{}] from peer[{}] since local committed progress[index:{},term:{}] is not behind",
+                snapshot.getIndex(), snapshot.getTerm(), fromLeader, localIndex, localTerm);
             return;
         }
 

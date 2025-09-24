@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 
 package org.apache.bifromq.basecluster.memberlist;
@@ -34,10 +34,6 @@ import static org.testng.Assert.assertFalse;
 import static org.testng.Assert.assertTrue;
 import static org.testng.Assert.fail;
 
-import org.apache.bifromq.basecluster.membership.proto.HostEndpoint;
-import org.apache.bifromq.basecluster.messenger.IMessenger;
-import org.apache.bifromq.basecluster.messenger.MessageEnvelope;
-import org.apache.bifromq.basecluster.proto.ClusterMessage;
 import io.reactivex.rxjava3.core.Scheduler;
 import io.reactivex.rxjava3.schedulers.Schedulers;
 import io.reactivex.rxjava3.schedulers.Timed;
@@ -51,6 +47,10 @@ import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executors;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.bifromq.basecluster.membership.proto.HostEndpoint;
+import org.apache.bifromq.basecluster.messenger.IMessenger;
+import org.apache.bifromq.basecluster.messenger.MessageEnvelope;
+import org.apache.bifromq.basecluster.proto.ClusterMessage;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.MockitoAnnotations;
@@ -118,9 +118,11 @@ public class AutoSeederTest {
     public void joinKnownEndpoint() {
         AutoSeeder seeder =
             new AutoSeeder(messenger, scheduler, memberList, addressResolver, joinTimeout, joinInterval);
-        membersSubject.onNext(new HashMap<>() {{
-            put(REMOTE_HOST_1_ENDPOINT, 0);
-        }});
+        membersSubject.onNext(new HashMap<>() {
+            {
+                put(REMOTE_HOST_1_ENDPOINT, 0);
+            }
+        });
         try {
             seeder.join(Collections.singleton(REMOTE_ADDR_1)).join();
             verify(messenger, atMost(0)).send(any(), any(), anyBoolean());
@@ -131,14 +133,16 @@ public class AutoSeederTest {
 
     @Test
     public void stopJoinEarlier() {
+        when(messenger.send(any(), any(), anyBoolean())).thenReturn(CompletableFuture.completedFuture(null));
         AutoSeeder seeder =
             new AutoSeeder(messenger, scheduler, memberList, addressResolver, joinTimeout, joinInterval);
         CompletableFuture<Void> joinResult = seeder.join(Collections.singleton(REMOTE_ADDR_1));
-        when(messenger.send(any(), any(), anyBoolean())).thenReturn(CompletableFuture.completedFuture(null));
         verify(messenger, timeout(200).atLeast(1)).send(any(), any(), anyBoolean());
-        membersSubject.onNext(new HashMap<>() {{
-            put(REMOTE_HOST_1_ENDPOINT, 0);
-        }});
+        membersSubject.onNext(new HashMap<>() {
+            {
+                put(REMOTE_HOST_1_ENDPOINT, 0);
+            }
+        });
         joinResult.join();
     }
 }

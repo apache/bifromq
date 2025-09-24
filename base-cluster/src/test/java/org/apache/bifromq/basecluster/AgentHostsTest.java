@@ -174,12 +174,10 @@ public class AgentHostsTest extends AgentTestTemplate {
 
         await().until(() -> {
             Map<AgentMemberAddr, AgentMemberMetadata> agentMembers = agentOnS1.membership().blockingFirst();
-            log.info("S1: {}", agentMembers);
             return agentMembers.size() == 1;
         });
         await().until(() -> {
             Map<AgentMemberAddr, AgentMemberMetadata> agentMembers = agentOnS2.membership().blockingFirst();
-            log.info("S2: {}", agentMembers);
             return agentMembers.size() == 1;
         });
 
@@ -229,20 +227,16 @@ public class AgentHostsTest extends AgentTestTemplate {
         await().until(() -> agentOnS3.membership().blockingFirst().size() == 4);
 
         // unhost agentNode2 from s1
-        log.info("Stop hosting agentNode11 from s1");
         agentOnS1.deregister(agentMember11OnS1);
         await().until(() -> agentOnS1.membership().blockingFirst().size() == 3);
         await().until(() -> agentOnS2.membership().blockingFirst().size() == 3);
         await().until(() -> agentOnS3.membership().blockingFirst().size() == 3);
 
-        log.info("Stop hosting agentNode1 from s1");
         // unhost agentNode 1 from s1
         agentOnS1.deregister(agentMember1OnS1);
         await().until(() -> agentOnS2.membership().blockingFirst().size() == 2);
         await().until(() -> agentOnS3.membership().blockingFirst().size() == 2);
 
-
-        log.info("Re-hosting agentNode1 from s1 with different metadata attached");
         // re-host agentNode1 in s1 with different metadata
         agentOnS1.register("agentNode1");
         agentMember1OnS1 = agentOnS1.register("agentNode1");
@@ -344,7 +338,6 @@ public class AgentHostsTest extends AgentTestTemplate {
         await().until(() -> host3.membership().blockingFirst().size() == 3);
 
         //  isolate s1 from others
-        log.info("isolate s1");
         storeMgr.isolate("s1");
         await().forever().until(() -> host1.membership().blockingFirst().size() == 1);
         await().forever().until(() -> host2.membership().blockingFirst().size() == 2);
@@ -382,13 +375,11 @@ public class AgentHostsTest extends AgentTestTemplate {
         await().until(() -> agentOnS3.membership().blockingFirst().size() == 4);
 
         //  isolate s2 from others
-        log.info("isolate s1");
         storeMgr.isolate("s1");
         await().forever().until(() -> agentOnS1.membership().blockingFirst().size() == 2);
         await().forever().until(() -> agentOnS2.membership().blockingFirst().size() == 2);
         await().forever().until(() -> agentOnS3.membership().blockingFirst().size() == 2);
 
-        log.info("integrate s1");
         // integrate s1 into the cluster
         storeMgr.integrate("s1");
         await().forever().until(() -> agentOnS1.membership().blockingFirst().size() == 4);

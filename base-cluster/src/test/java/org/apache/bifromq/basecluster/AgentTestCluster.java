@@ -32,6 +32,7 @@ import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.UUID;
 import lombok.AllArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.bifromq.basecluster.agent.proto.AgentMemberAddr;
@@ -101,6 +102,9 @@ public class AgentTestCluster {
         crashedHostMap.put(crashedEndpoint, crashedAgentHost);
         ITransport transport = hostTransportMap.remove(hostId);
         crashedHostTransportMap.put(hostId, transport);
+        AgentHostMeta meta = hostMetaMap.get(hostId);
+        // bump crdt store id
+        meta.options.crdtStoreOptions().id(UUID.randomUUID().toString());
     }
 
     public void integrate(String hostId) {

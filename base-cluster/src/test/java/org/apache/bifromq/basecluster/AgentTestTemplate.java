@@ -79,8 +79,7 @@ public abstract class AgentTestTemplate {
         if (storeMgr != null) {
             log.info("Shutting down test cluster");
             AgentTestCluster lastStoreMgr = this.storeMgr;
-            // run in a separate thread to avoid blocking the test thread
-            new Thread(lastStoreMgr::shutdown).start();
+            lastStoreMgr.shutdown();
         }
     }
 

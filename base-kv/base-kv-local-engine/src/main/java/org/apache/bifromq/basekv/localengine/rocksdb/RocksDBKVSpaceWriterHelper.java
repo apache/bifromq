@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 
 package org.apache.bifromq.basekv.localengine.rocksdb;
@@ -26,9 +26,6 @@ import static org.apache.bifromq.basekv.localengine.rocksdb.Keys.toMetaKey;
 import static org.apache.bifromq.basekv.utils.BoundaryUtil.endKeyBytes;
 import static org.apache.bifromq.basekv.utils.BoundaryUtil.startKeyBytes;
 
-import org.apache.bifromq.basekv.localengine.ISyncContext;
-import org.apache.bifromq.basekv.localengine.KVEngineException;
-import org.apache.bifromq.basekv.proto.Boundary;
 import com.google.protobuf.ByteString;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -36,6 +33,9 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
+import org.apache.bifromq.basekv.localengine.ISyncContext;
+import org.apache.bifromq.basekv.localengine.KVEngineException;
+import org.apache.bifromq.basekv.proto.Boundary;
 import org.rocksdb.ColumnFamilyHandle;
 import org.rocksdb.RocksDB;
 import org.rocksdb.RocksDBException;
@@ -98,13 +98,31 @@ class RocksDBKVSpaceWriterHelper {
         batch.deleteRange(cfHandle, startKey, endKey);
     }
 
-    void done() throws RocksDBException {
-        Runnable doneFn = () -> {
+    void flush() {
+        if (batch.count() == 0) {
+            return;
+        }
+        if (hasPendingMetadata()) {
+            throw new IllegalStateException("Flush is not allowed when metadata changes exist");
+        }
+        runInMutators(() -> {
             try {
                 if (batch.count() > 0) {
                     db.write(writeOptions, batch);
                     batch.clear();
-                    batch.close();
+                }
+            } catch (Throwable e) {
+                throw new KVEngineException("Range write error", e);
+            }
+        });
+    }
+
+    void done() {
+        runInMutators(() -> {
+            try {
+                if (batch.count() > 0) {
+                    db.write(writeOptions, batch);
+                    batch.clear();
                 }
             } catch (Throwable e) {
                 throw new KVEngineException("Range write error", e);
@@ -113,17 +131,7 @@ class RocksDBKVSpaceWriterHelper {
                     batch.close();
                 }
             }
-        };
-        AtomicReference<Runnable> finalRun = new AtomicReference<>();
-        for (ISyncContext.IMutator mutator : mutators) {
-            if (finalRun.get() == null) {
-                finalRun.set(() -> mutator.run(doneFn));
-            } else {
-                Runnable innerRun = finalRun.get();
-                finalRun.set(() -> mutator.run(innerRun));
-            }
-        }
-        finalRun.get().run();
+        });
         for (ColumnFamilyHandle columnFamilyHandle : afterWriteCallbacks.keySet()) {
             Map<ByteString, ByteString> updatedMetadata = metadataChanges.get(columnFamilyHandle);
             afterWriteCallbacks.get(columnFamilyHandle).accept(updatedMetadata);
@@ -138,5 +146,30 @@ class RocksDBKVSpaceWriterHelper {
 
     int count() {
         return batch.count();
+    }
+
+    long dataSize() {
+        return batch.getDataSize();
+    }
+
+    boolean hasPendingMetadata() {
+        return metadataChanges.values().stream().anyMatch(map -> !map.isEmpty());
+    }
+
+    private void runInMutators(Runnable runnable) {
+        if (mutators.isEmpty()) {
+            runnable.run();
+            return;
+        }
+        AtomicReference<Runnable> finalRun = new AtomicReference<>();
+        for (ISyncContext.IMutator mutator : mutators) {
+            if (finalRun.get() == null) {
+                finalRun.set(() -> mutator.run(runnable));
+            } else {
+                Runnable innerRun = finalRun.get();
+                finalRun.set(() -> mutator.run(innerRun));
+            }
+        }
+        finalRun.get().run();
     }
 }

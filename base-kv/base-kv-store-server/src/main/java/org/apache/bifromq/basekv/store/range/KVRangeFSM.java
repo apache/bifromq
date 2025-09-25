@@ -1068,7 +1068,7 @@ public class KVRangeFSM implements IKVRangeFSM {
                             finishCommand(taskId);
                         }
                         messenger.once(KVRangeMessage::hasEnsureRangeReply)
-                            .orTimeout(5, TimeUnit.SECONDS)
+                            .orTimeout(300, TimeUnit.SECONDS)
                             .whenCompleteAsync((v, e) -> {
                                 if (e != null || v.getEnsureRangeReply().getResult() != EnsureRangeReply.Result.OK) {
                                     log.error("Failed to load rhs range[taskId={}]: newRangeId={}",
@@ -1092,7 +1092,6 @@ public class KVRangeFSM implements IKVRangeFSM {
                                     .build())
                                 .build()).build());
                     });
-
                 } else {
                     onDone.complete(() -> finishCommandWithError(taskId,
                         new KVRangeException.BadRequest("Invalid split key")));

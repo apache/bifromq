@@ -89,7 +89,7 @@ message DistReply {
     ERROR = 3;
   }
   message DistResult {
-    map<string, uint32> topic = 1; // fan-out number
+    map<string, uint32> topic = 1; // fan-out number, -1 for try again, -2 for error
   }
   uint64 reqId = 1;
   Code code = 2;

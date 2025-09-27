@@ -25,8 +25,7 @@ import java.util.Iterator;
 import java.util.Map;
 import java.util.Queue;
 import java.util.concurrent.CompletableFuture;
-import org.apache.bifromq.base.util.AsyncRetry;
-import org.apache.bifromq.base.util.exception.NeedRetryException;
+import lombok.extern.slf4j.Slf4j;
 import org.apache.bifromq.baserpc.client.IRPCClient;
 import org.apache.bifromq.basescheduler.IBatchCall;
 import org.apache.bifromq.basescheduler.ICallTask;
@@ -36,15 +35,15 @@ import org.apache.bifromq.dist.rpc.proto.DistRequest;
 import org.apache.bifromq.type.ClientInfo;
 import org.apache.bifromq.type.PublisherMessagePack;
 
+@Slf4j
 class BatchPubCall implements IBatchCall<PubRequest, PubResult, PubCallBatcherKey> {
     private final IRPCClient.IRequestPipeline<DistRequest, DistReply> ppln;
     private final Queue<ICallTask<PubRequest, PubResult, PubCallBatcherKey>> tasks = new ArrayDeque<>(64);
-    private final long retryTimeoutNanos;
-    private final Map<ClientInfo, Map<String, PublisherMessagePack.TopicPack.Builder>> clientMsgPack = new HashMap<>(128);
+    private final Map<ClientInfo, Map<String, PublisherMessagePack.TopicPack.Builder>> clientMsgPack = new HashMap<>(
+        128);
 
-    BatchPubCall(IRPCClient.IRequestPipeline<DistRequest, DistReply> ppln, long retryTimeoutNanos) {
+    BatchPubCall(IRPCClient.IRequestPipeline<DistRequest, DistReply> ppln) {
         this.ppln = ppln;
-        this.retryTimeoutNanos = retryTimeoutNanos;
     }
 
     @Override
@@ -78,24 +77,13 @@ class BatchPubCall implements IBatchCall<PubRequest, PubResult, PubCallBatcherKe
             itr.remove();
         }
         DistRequest request = requestBuilder.build();
-        return AsyncRetry.exec(() -> execute(request), retryTimeoutNanos);
-    }
-
-    private CompletableFuture<Void> execute(DistRequest request) {
-        CompletableFuture<Void> onDone = new CompletableFuture<>();
-        execute(request, onDone);
-        return onDone;
-    }
-
-    private void execute(DistRequest request, CompletableFuture<Void> onDone) {
-        ppln.invoke(request)
-            .whenComplete((reply, e) -> {
+        return ppln.invoke(request)
+            .handle((reply, e) -> {
                 if (e != null) {
                     ICallTask<PubRequest, PubResult, PubCallBatcherKey> task;
                     while ((task = tasks.poll()) != null) {
                         task.resultPromise().complete(PubResult.ERROR);
                     }
-                    onDone.complete(null);
                 } else {
                     switch (reply.getCode()) {
                         case OK -> {
@@ -109,28 +97,35 @@ class BatchPubCall implements IBatchCall<PubRequest, PubResult, PubCallBatcherKe
                             ICallTask<PubRequest, PubResult, PubCallBatcherKey> task;
                             while ((task = tasks.poll()) != null) {
                                 Integer fanOut = fanoutResultMap.get(task.call().publisher).get(task.call().topic);
-                                task.resultPromise().complete(fanOut > 0 ? PubResult.OK : PubResult.NO_MATCH);
+                                if (fanOut == null) {
+                                    // should not happen
+                                    log.error("Illegal state: no dist result for topic: {}", task.call().topic);
+                                    fanOut = 0;
+                                }
+                                switch (fanOut) {
+                                    case -2 -> task.resultPromise().complete(PubResult.ERROR);
+                                    case -1 -> task.resultPromise().complete(PubResult.TRY_LATER);
+                                    case 0 -> task.resultPromise().complete(PubResult.NO_MATCH);
+                                    default -> task.resultPromise().complete(PubResult.OK);
+                                }
                             }
-                            onDone.complete(null);
                         }
                         case BACK_PRESSURE_REJECTED -> {
                             ICallTask<PubRequest, PubResult, PubCallBatcherKey> task;
                             while ((task = tasks.poll()) != null) {
                                 task.resultPromise().complete(PubResult.BACK_PRESSURE_REJECTED);
                             }
-                            onDone.complete(null);
                         }
-                        case TRY_LATER -> onDone.completeExceptionally(new NeedRetryException("Retry later"));
                         default -> {
                             assert reply.getCode() == DistReply.Code.ERROR;
                             ICallTask<PubRequest, PubResult, PubCallBatcherKey> task;
                             while ((task = tasks.poll()) != null) {
                                 task.resultPromise().complete(PubResult.ERROR);
                             }
-                            onDone.complete(null);
                         }
                     }
                 }
+                return null;
             });
     }
 }

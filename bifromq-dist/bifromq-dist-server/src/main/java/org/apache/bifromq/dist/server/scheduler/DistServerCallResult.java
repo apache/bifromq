@@ -14,17 +14,17 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 
 package org.apache.bifromq.dist.server.scheduler;
 
 import java.util.Map;
 
-public record DistServerCallResult(Code code, Map<String, Integer> fanOut) {
-    public enum Code {
-        OK,
-        TryLater,
-        Error
-    }
+/**
+ * Result of a dist server call.
+ *
+ * @param fanOut non-negative value indicates the number of workers the request is fanned out to for each tenant, -1 indicates the topic needs retry
+ */
+public record DistServerCallResult(Map<String, Integer> fanOut) {
 }

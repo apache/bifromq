@@ -22,6 +22,7 @@ package org.apache.bifromq.dist.server.scheduler;
 import com.github.benmanes.caffeine.cache.Caffeine;
 import com.github.benmanes.caffeine.cache.LoadingCache;
 import java.time.Duration;
+import java.util.Map;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.bifromq.basekv.client.IBaseKVStoreClient;
 import org.apache.bifromq.basescheduler.IBatchCallBuilder;
@@ -29,7 +30,7 @@ import org.apache.bifromq.basescheduler.IBatchCallBuilderFactory;
 
 @Slf4j
 public class BatchDistServerCallBuilderFactory
-    implements IBatchCallBuilderFactory<TenantPubRequest, DistServerCallResult, DistServerCallBatcherKey> {
+    implements IBatchCallBuilderFactory<TenantPubRequest, Map<String, Integer>, DistServerCallBatcherKey> {
     private final IBaseKVStoreClient distWorkerClient;
     private final LoadingCache<String, TenantRangeLookupCache> tenantRangeLookupCaches;
 
@@ -43,7 +44,7 @@ public class BatchDistServerCallBuilderFactory
     }
 
     @Override
-    public IBatchCallBuilder<TenantPubRequest, DistServerCallResult, DistServerCallBatcherKey> newBuilder(String name,
+    public IBatchCallBuilder<TenantPubRequest, Map<String, Integer>, DistServerCallBatcherKey> newBuilder(String name,
                                                                                                           DistServerCallBatcherKey batcherKey) {
         return () -> new BatchDistServerCall(distWorkerClient, batcherKey,
             tenantRangeLookupCaches.get(batcherKey.tenantId()));

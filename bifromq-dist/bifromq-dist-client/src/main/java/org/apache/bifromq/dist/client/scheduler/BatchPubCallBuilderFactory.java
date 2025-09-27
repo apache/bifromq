@@ -21,7 +21,6 @@ package org.apache.bifromq.dist.client.scheduler;
 
 import static java.util.Collections.emptyMap;
 
-import java.time.Duration;
 import java.util.UUID;
 import org.apache.bifromq.baserpc.client.IRPCClient;
 import org.apache.bifromq.basescheduler.IBatchCall;
@@ -31,15 +30,12 @@ import org.apache.bifromq.dist.client.PubResult;
 import org.apache.bifromq.dist.rpc.proto.DistReply;
 import org.apache.bifromq.dist.rpc.proto.DistRequest;
 import org.apache.bifromq.dist.rpc.proto.DistServiceGrpc;
-import org.apache.bifromq.sysprops.props.DataPlaneMaxBurstLatencyMillis;
 
 public class BatchPubCallBuilderFactory implements IBatchCallBuilderFactory<PubRequest, PubResult, PubCallBatcherKey> {
     private final IRPCClient rpcClient;
-    private final long retryTimeoutNanos;
 
     public BatchPubCallBuilderFactory(IRPCClient rpcClient) {
         this.rpcClient = rpcClient;
-        this.retryTimeoutNanos = Duration.ofMillis(DataPlaneMaxBurstLatencyMillis.INSTANCE.get()).toNanos();
     }
 
     @Override
@@ -52,7 +48,7 @@ public class BatchPubCallBuilderFactory implements IBatchCallBuilderFactory<PubR
         return new IBatchCallBuilder<>() {
             @Override
             public IBatchCall<PubRequest, PubResult, PubCallBatcherKey> newBatchCall() {
-                return new BatchPubCall(ppln, retryTimeoutNanos);
+                return new BatchPubCall(ppln);
             }
 
             @Override

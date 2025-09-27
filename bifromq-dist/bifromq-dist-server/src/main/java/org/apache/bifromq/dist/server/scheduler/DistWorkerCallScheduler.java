@@ -19,6 +19,7 @@
 
 package org.apache.bifromq.dist.server.scheduler;
 
+import java.util.Map;
 import java.util.Optional;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.bifromq.basescheduler.BatchCallScheduler;
@@ -28,7 +29,7 @@ import org.apache.bifromq.basescheduler.BatchCallScheduler;
  */
 @Slf4j
 public class DistWorkerCallScheduler
-    extends BatchCallScheduler<TenantPubRequest, DistServerCallResult, DistServerCallBatcherKey>
+    extends BatchCallScheduler<TenantPubRequest, Map<String, Integer>, DistServerCallBatcherKey>
     implements IDistWorkerCallScheduler {
 
     /**

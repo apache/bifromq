@@ -14,14 +14,17 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 
 package org.apache.bifromq.dist.client;
 
 import static org.apache.bifromq.base.util.CompletableFutureUtil.unwrap;
 
-import org.apache.bifromq.base.util.exception.RetryTimeoutException;
+import io.reactivex.rxjava3.core.Observable;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.atomic.AtomicBoolean;
+import lombok.extern.slf4j.Slf4j;
 import org.apache.bifromq.baserpc.client.IRPCClient;
 import org.apache.bifromq.basescheduler.exception.BackPressureException;
 import org.apache.bifromq.dist.client.scheduler.BatchPubCallBuilderFactory;
@@ -34,10 +37,6 @@ import org.apache.bifromq.dist.rpc.proto.UnmatchRequest;
 import org.apache.bifromq.type.ClientInfo;
 import org.apache.bifromq.type.Message;
 import org.apache.bifromq.type.RouteMatcher;
-import io.reactivex.rxjava3.core.Observable;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.atomic.AtomicBoolean;
-import lombok.extern.slf4j.Slf4j;
 
 @Slf4j
 final class DistClient implements IDistClient {
@@ -61,9 +60,6 @@ final class DistClient implements IDistClient {
             .exceptionally(unwrap(e -> {
                 if (e instanceof BackPressureException) {
                     return PubResult.BACK_PRESSURE_REJECTED;
-                }
-                if (e instanceof RetryTimeoutException) {
-                    return PubResult.TRY_LATER;
                 }
                 log.debug("Failed to pub", e);
                 return PubResult.ERROR;

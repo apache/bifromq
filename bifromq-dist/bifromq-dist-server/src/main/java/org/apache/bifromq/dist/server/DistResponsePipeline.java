@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 
 package org.apache.bifromq.dist.server;
@@ -24,12 +24,16 @@ import static org.apache.bifromq.plugin.eventcollector.ThreadLocalEventPool.getL
 import static org.apache.bifromq.plugin.eventcollector.distservice.DistError.DistErrorCode.DROP_EXCEED_LIMIT;
 import static org.apache.bifromq.plugin.eventcollector.distservice.DistError.DistErrorCode.RPC_FAILURE;
 
+import io.grpc.stub.StreamObserver;
+import java.time.Duration;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.atomic.AtomicInteger;
+import lombok.extern.slf4j.Slf4j;
 import org.apache.bifromq.baseenv.MemUsage;
 import org.apache.bifromq.baserpc.server.ResponsePipeline;
 import org.apache.bifromq.basescheduler.exception.BackPressureException;
 import org.apache.bifromq.dist.rpc.proto.DistReply;
 import org.apache.bifromq.dist.rpc.proto.DistRequest;
-import org.apache.bifromq.dist.server.scheduler.DistServerCallResult;
 import org.apache.bifromq.dist.server.scheduler.IDistWorkerCallScheduler;
 import org.apache.bifromq.dist.server.scheduler.TenantPubRequest;
 import org.apache.bifromq.plugin.eventcollector.IEventCollector;
@@ -40,11 +44,6 @@ import org.apache.bifromq.sysprops.props.IngressSlowDownDirectMemoryUsage;
 import org.apache.bifromq.sysprops.props.IngressSlowDownHeapMemoryUsage;
 import org.apache.bifromq.sysprops.props.MaxSlowDownTimeoutSeconds;
 import org.apache.bifromq.type.PublisherMessagePack;
-import io.grpc.stub.StreamObserver;
-import java.time.Duration;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.atomic.AtomicInteger;
-import lombok.extern.slf4j.Slf4j;
 
 @Slf4j
 class DistResponsePipeline extends ResponsePipeline<DistRequest, DistReply> {
@@ -67,7 +66,7 @@ class DistResponsePipeline extends ResponsePipeline<DistRequest, DistReply> {
     @Override
     protected CompletableFuture<DistReply> handleRequest(String tenantId, DistRequest request) {
         return distCallScheduler.schedule(new TenantPubRequest(tenantId, request.getMessagesList(), callQueueIdx))
-            .handle(unwrap((result, e) -> {
+            .handle(unwrap((fanoutByTopic, e) -> {
                 DistReply.Builder replyBuilder = DistReply.newBuilder().setReqId(request.getReqId());
                 if (e != null) {
                     if (e instanceof BackPressureException) {
@@ -85,34 +84,27 @@ class DistResponsePipeline extends ResponsePipeline<DistRequest, DistReply> {
                             .code(RPC_FAILURE));
                     }
                 } else {
-                    switch (result.code()) {
-                        case OK -> {
-                            int totalFanout = 0;
-                            for (PublisherMessagePack publisherMsgPack : request.getMessagesList()) {
-                                DistReply.DistResult.Builder resultBuilder = DistReply.DistResult.newBuilder();
-                                for (PublisherMessagePack.TopicPack topicPack : publisherMsgPack.getMessagePackList()) {
-                                    Integer fanOut = result.fanOut().get(topicPack.getTopic());
-                                    if (fanOut == null) {
-                                        log.warn("Illegal state: no result for topic: {}", topicPack.getTopic());
-                                        resultBuilder.putTopic(topicPack.getTopic(), 0);
-                                    } else {
-                                        resultBuilder.putTopic(topicPack.getTopic(), fanOut);
-                                        totalFanout += fanOut;
-                                    }
+                    int totalFanout = 0;
+                    for (PublisherMessagePack publisherMsgPack : request.getMessagesList()) {
+                        DistReply.DistResult.Builder resultBuilder = DistReply.DistResult.newBuilder();
+                        for (PublisherMessagePack.TopicPack topicPack : publisherMsgPack.getMessagePackList()) {
+                            Integer fanOut = fanoutByTopic.get(topicPack.getTopic());
+                            if (fanOut == null) {
+                                log.warn("Illegal state: no dist result for topic: {}", topicPack.getTopic());
+                                resultBuilder.putTopic(topicPack.getTopic(), 0);
+                            } else {
+                                resultBuilder.putTopic(topicPack.getTopic(), fanOut);
+                                if (fanOut > 0) {
+                                    totalFanout += fanOut;
                                 }
-                                replyBuilder.setCode(DistReply.Code.OK).addResults(resultBuilder.build());
                             }
-                            eventCollector.report(getLocal(Disted.class)
-                                .reqId(request.getReqId())
-                                .messages(request.getMessagesList())
-                                .fanout(totalFanout));
                         }
-                        case TryLater -> replyBuilder.setCode(DistReply.Code.TRY_LATER);
-                        default -> {
-                            assert result.code() == DistServerCallResult.Code.Error;
-                            replyBuilder.setCode(DistReply.Code.ERROR);
-                        }
+                        replyBuilder.setCode(DistReply.Code.OK).addResults(resultBuilder.build());
                     }
+                    eventCollector.report(getLocal(Disted.class)
+                        .reqId(request.getReqId())
+                        .messages(request.getMessagesList())
+                        .fanout(totalFanout));
                 }
                 return replyBuilder.build();
             }));

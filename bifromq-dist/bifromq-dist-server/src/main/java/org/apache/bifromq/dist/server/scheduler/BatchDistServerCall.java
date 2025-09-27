@@ -19,7 +19,6 @@
 
 package org.apache.bifromq.dist.server.scheduler;
 
-import static java.util.Collections.emptyMap;
 import static org.apache.bifromq.base.util.CompletableFutureUtil.unwrap;
 
 import com.google.common.collect.Iterables;
@@ -27,6 +26,7 @@ import java.util.ArrayDeque;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.NavigableMap;
 import java.util.Objects;
@@ -34,6 +34,7 @@ import java.util.Optional;
 import java.util.Queue;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
+import java.util.stream.Collectors;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.bifromq.basekv.client.IBaseKVStoreClient;
 import org.apache.bifromq.basekv.client.KVRangeSetting;
@@ -46,21 +47,21 @@ import org.apache.bifromq.basekv.store.proto.ReplyCode;
 import org.apache.bifromq.baserpc.client.exception.ServerNotFoundException;
 import org.apache.bifromq.basescheduler.IBatchCall;
 import org.apache.bifromq.basescheduler.ICallTask;
-import org.apache.bifromq.dist.rpc.proto.BatchDistReply;
 import org.apache.bifromq.dist.rpc.proto.BatchDistRequest;
 import org.apache.bifromq.dist.rpc.proto.DistPack;
 import org.apache.bifromq.dist.rpc.proto.DistServiceROCoProcInput;
+import org.apache.bifromq.dist.rpc.proto.TopicFanout;
 import org.apache.bifromq.type.ClientInfo;
 import org.apache.bifromq.type.Message;
 import org.apache.bifromq.type.PublisherMessagePack;
 import org.apache.bifromq.type.TopicMessagePack;
 
 @Slf4j
-class BatchDistServerCall implements IBatchCall<TenantPubRequest, DistServerCallResult, DistServerCallBatcherKey> {
+class BatchDistServerCall implements IBatchCall<TenantPubRequest, Map<String, Integer>, DistServerCallBatcherKey> {
     private final IBaseKVStoreClient distWorkerClient;
     private final DistServerCallBatcherKey batcherKey;
     private final String orderKey;
-    private final Queue<ICallTask<TenantPubRequest, DistServerCallResult, DistServerCallBatcherKey>> tasks =
+    private final Queue<ICallTask<TenantPubRequest, Map<String, Integer>, DistServerCallBatcherKey>> tasks =
         new ArrayDeque<>();
     private final Map<String, Map<ClientInfo, Iterable<Message>>> batch = new HashMap<>(128);
     private final TenantRangeLookupCache lookupCache;
@@ -75,7 +76,7 @@ class BatchDistServerCall implements IBatchCall<TenantPubRequest, DistServerCall
     }
 
     @Override
-    public void add(ICallTask<TenantPubRequest, DistServerCallResult, DistServerCallBatcherKey> callTask) {
+    public void add(ICallTask<TenantPubRequest, Map<String, Integer>, DistServerCallBatcherKey> callTask) {
         tasks.add(callTask);
         callTask.call().publisherMessagePacks().forEach(publisherMsgPack -> publisherMsgPack.getMessagePackList()
             .forEach(topicMsgs -> batch.computeIfAbsent(topicMsgs.getTopic(), k -> new HashMap<>())
@@ -99,12 +100,12 @@ class BatchDistServerCall implements IBatchCall<TenantPubRequest, DistServerCall
         Map<KVRangeSetting, Set<String>> topicsByRange = rangeLookup();
         if (topicsByRange.isEmpty()) {
             // no candidate range
-            ICallTask<TenantPubRequest, DistServerCallResult, DistServerCallBatcherKey> task;
+            ICallTask<TenantPubRequest, Map<String, Integer>, DistServerCallBatcherKey> task;
             while ((task = tasks.poll()) != null) {
                 Map<String, Integer> fanOutResult = new HashMap<>();
                 task.call().publisherMessagePacks().forEach(clientMessagePack -> clientMessagePack.getMessagePackList()
                     .forEach(topicMessagePack -> fanOutResult.put(topicMessagePack.getTopic(), 0)));
-                task.resultPromise().complete(new DistServerCallResult(DistServerCallResult.Code.OK, fanOutResult));
+                task.resultPromise().complete(fanOutResult);
             }
             return CompletableFuture.completedFuture(null);
         } else {
@@ -114,13 +115,14 @@ class BatchDistServerCall implements IBatchCall<TenantPubRequest, DistServerCall
 
     private CompletableFuture<Void> parallelDist(Map<KVRangeSetting, Set<String>> topicsByRange) {
         long reqId = System.nanoTime();
-        ReplicaSelection selection = replicaSelect(topicsByRange);
-        CompletableFuture<?>[] rangeQueryReplies = selection.batchByReplica().entrySet().stream()
-            .map(entry -> {
-                KVRangeReplica rangeReplica = entry.getKey();
-                Map<String, Map<ClientInfo, Iterable<Message>>> replicaBatch = entry.getValue();
-                BatchDistRequest.Builder batchDistBuilder =
-                    BatchDistRequest.newBuilder().setReqId(reqId).setOrderKey(orderKey);
+        Collection<ReplicaBatch> replicaBatches = replicaSelect(topicsByRange);
+        Map<CompletableFuture<KVRangeROReply>, ReplicaBatch> rangeQueryReplies = replicaBatches.stream()
+            .collect(Collectors.toMap(entry -> {
+                KVRangeReplica rangeReplica = entry.replica;
+                Map<String, Map<ClientInfo, Iterable<Message>>> replicaBatch = entry.msgBatch;
+                BatchDistRequest.Builder batchDistBuilder = BatchDistRequest.newBuilder()
+                    .setReqId(reqId)
+                    .setOrderKey(orderKey);
                 replicaBatch.forEach((topic, publisherMsgs) -> {
                     String tenantId = batcherKey.tenantId();
                     DistPack.Builder distPackBuilder = DistPack.newBuilder().setTenantId(tenantId);
@@ -139,14 +141,16 @@ class BatchDistServerCall implements IBatchCall<TenantPubRequest, DistServerCall
                     return CompletableFuture.completedFuture(
                         KVRangeROReply.newBuilder().setReqId(reqId).setCode(ReplyCode.TryLater).build());
                 }
-                return distWorkerClient.query(rangeReplica.storeId,
-                        KVRangeRORequest.newBuilder().setReqId(reqId).setVer(rangeReplica.ver).setKvRangeId(rangeReplica.id)
-                            .setRoCoProc(ROCoProcInput.newBuilder()
-                                .setDistService(DistServiceROCoProcInput.newBuilder()
-                                    .setBatchDist(batchDistBuilder.build())
-                                    .build())
+                return distWorkerClient.query(rangeReplica.storeId, KVRangeRORequest.newBuilder()
+                        .setReqId(reqId)
+                        .setVer(rangeReplica.ver)
+                        .setKvRangeId(rangeReplica.id)
+                        .setRoCoProc(ROCoProcInput.newBuilder()
+                            .setDistService(DistServiceROCoProcInput.newBuilder()
+                                .setBatchDist(batchDistBuilder.build())
                                 .build())
-                            .build(), orderKey)
+                            .build())
+                        .build(), orderKey)
                     .exceptionally(unwrap(e -> {
                         if (e instanceof ServerNotFoundException) {
                             // map server not found to try later
@@ -157,59 +161,60 @@ class BatchDistServerCall implements IBatchCall<TenantPubRequest, DistServerCall
                             return KVRangeROReply.newBuilder().setReqId(reqId).setCode(ReplyCode.InternalError).build();
                         }
                     }));
-            }).toArray(CompletableFuture[]::new);
-        return CompletableFuture.allOf(rangeQueryReplies).thenAccept(replies -> {
-            boolean needRetry = false;
-            boolean hasError = false;
-            // aggregate fan-out count from each reply
-            Map<String, Integer> allFanOutByTopic = new HashMap<>();
-            for (CompletableFuture<?> replyFuture : rangeQueryReplies) {
-                KVRangeROReply rangeROReply = ((KVRangeROReply) replyFuture.join());
-                switch (rangeROReply.getCode()) {
-                    case Ok -> {
-                        BatchDistReply reply = rangeROReply.getRoCoProcResult().getDistService().getBatchDist();
-                        for (String tenantId : reply.getResultMap().keySet()) {
-                            assert tenantId.equals(batcherKey.tenantId());
-                            Map<String, Integer> topicFanOut = reply.getResultMap().get(tenantId).getFanoutMap();
-                            topicFanOut.forEach((topic, fanOut) -> allFanOutByTopic.compute(topic, (k, val) -> {
-                                if (val == null) {
-                                    val = 0;
-                                }
-                                val += fanOut;
-                                return val;
-                            }));
+            }, replicaBatch -> replicaBatch));
+        return CompletableFuture.allOf(rangeQueryReplies.keySet().toArray(new CompletableFuture[0]))
+            .thenAccept(v -> {
+                Map<String, Integer> allFanOutByTopic = new HashMap<>();
+                for (CompletableFuture<KVRangeROReply> replyFuture : rangeQueryReplies.keySet()) {
+                    ReplicaBatch batch = rangeQueryReplies.get(replyFuture);
+                    KVRangeROReply reply = replyFuture.join();
+                    switch (reply.getCode()) {
+                        case Ok -> {
+                            Map<String, TopicFanout> topicFanoutByTenant = reply
+                                .getRoCoProcResult()
+                                .getDistService()
+                                .getBatchDist()
+                                .getResultMap();
+                            for (String tenantId : topicFanoutByTenant.keySet()) {
+                                assert tenantId.equals(batcherKey.tenantId());
+                                Map<String, Integer> topicFanOut = topicFanoutByTenant.get(tenantId).getFanoutMap();
+                                topicFanOut.forEach((topic, fanOut) -> allFanOutByTopic.compute(topic, (k, val) -> {
+                                    if (val == null) {
+                                        val = 0;
+                                    }
+                                    if (val < 0) {
+                                        // already marked as error or need retry
+                                        return val;
+                                    }
+                                    val += fanOut;
+                                    return val;
+                                }));
+                            }
+                        }
+                        case BadVersion, TryLater -> {
+                            for (String topic : batch.msgBatch.keySet()) {
+                                allFanOutByTopic.put(topic, -1); // need retry
+                            }
+                        }
+                        default -> {
+                            for (String topic : batch.msgBatch.keySet()) {
+                                allFanOutByTopic.put(topic, -2); // error
+                            }
                         }
                     }
-                    case BadVersion, TryLater -> needRetry = true;
-                    default -> hasError = true;
                 }
-            }
-            ICallTask<TenantPubRequest, DistServerCallResult, DistServerCallBatcherKey> task;
-            if (needRetry && !hasError) {
+                ICallTask<TenantPubRequest, Map<String, Integer>, DistServerCallBatcherKey> task;
                 while ((task = tasks.poll()) != null) {
-                    task.resultPromise()
-                        .complete(new DistServerCallResult(DistServerCallResult.Code.TryLater, emptyMap()));
-                }
-                return;
-            }
-            if (hasError) {
-                while ((task = tasks.poll()) != null) {
-                    task.resultPromise()
-                        .complete(new DistServerCallResult(DistServerCallResult.Code.Error, emptyMap()));
-                }
-                return;
-            }
-            while ((task = tasks.poll()) != null) {
-                Map<String, Integer> fanOutResult = new HashMap<>();
-                for (PublisherMessagePack clientMsgPack : task.call().publisherMessagePacks()) {
-                    for (PublisherMessagePack.TopicPack topicMsgPack : clientMsgPack.getMessagePackList()) {
-                        int fanOut = allFanOutByTopic.getOrDefault(topicMsgPack.getTopic(), 0);
-                        fanOutResult.put(topicMsgPack.getTopic(), fanOut);
+                    Map<String, Integer> fanOutResult = new HashMap<>();
+                    for (PublisherMessagePack clientMsgPack : task.call().publisherMessagePacks()) {
+                        for (PublisherMessagePack.TopicPack topicMsgPack : clientMsgPack.getMessagePackList()) {
+                            int fanOut = allFanOutByTopic.getOrDefault(topicMsgPack.getTopic(), 0);
+                            fanOutResult.put(topicMsgPack.getTopic(), fanOut);
+                        }
                     }
+                    task.resultPromise().complete(fanOutResult);
                 }
-                task.resultPromise().complete(new DistServerCallResult(DistServerCallResult.Code.OK, fanOutResult));
-            }
-        });
+            });
     }
 
     private Map<KVRangeSetting, Set<String>> rangeLookup() {
@@ -224,10 +229,8 @@ class BatchDistServerCall implements IBatchCall<TenantPubRequest, DistServerCall
         return topicsByRange;
     }
 
-    private ReplicaSelection replicaSelect(
-        Map<KVRangeSetting, Set<String>> topicsByRange) {
-        Map<KVRangeReplica, Map<String, Map<ClientInfo, Iterable<Message>>>> batchByReplica = new HashMap<>();
-        boolean hasUnavailableRange = false;
+    private Collection<ReplicaBatch> replicaSelect(Map<KVRangeSetting, Set<String>> topicsByRange) {
+        Map<KVRangeReplica, ReplicaBatch> batchByReplica = new LinkedHashMap<>(); // preserve insertion order
         for (KVRangeSetting rangeSetting : topicsByRange.keySet()) {
             Map<String, Map<ClientInfo, Iterable<Message>>> rangeBatch = new HashMap<>();
             for (String topic : topicsByRange.get(rangeSetting)) {
@@ -237,7 +240,7 @@ class BatchDistServerCall implements IBatchCall<TenantPubRequest, DistServerCall
             if (inProcReplica.isPresent()) {
                 // build-in or single replica
                 KVRangeReplica replica = new KVRangeReplica(rangeSetting.id(), rangeSetting.ver(), inProcReplica.get());
-                batchByReplica.put(replica, rangeBatch);
+                batchByReplica.put(replica, new ReplicaBatch(replica, rangeBatch));
             } else {
                 for (String topic : rangeBatch.keySet()) {
                     // bind replica based on tenantId, topic
@@ -246,17 +249,18 @@ class BatchDistServerCall implements IBatchCall<TenantPubRequest, DistServerCall
                     Optional<String> replicaStore = rangeSetting.getQueryReadyReplica(replicaSeq);
                     KVRangeReplica replica = new KVRangeReplica(rangeSetting.id(), rangeSetting.ver(),
                         replicaStore.orElse(null));
-                    batchByReplica.computeIfAbsent(replica, k -> new HashMap<>()).put(topic, rangeBatch.get(topic));
+                    batchByReplica.computeIfAbsent(replica, k -> new ReplicaBatch(replica, new HashMap<>()))
+                        .msgBatch.put(topic, rangeBatch.get(topic));
                 }
             }
         }
-        return new ReplicaSelection(batchByReplica);
+        return batchByReplica.values();
     }
 
     private record KVRangeReplica(KVRangeId id, long ver, String storeId) {
     }
 
-    private record ReplicaSelection(
-        Map<KVRangeReplica, Map<String, Map<ClientInfo, Iterable<Message>>>> batchByReplica) {
+    private record ReplicaBatch(KVRangeReplica replica, Map<String, Map<ClientInfo, Iterable<Message>>> msgBatch) {
+
     }
 }

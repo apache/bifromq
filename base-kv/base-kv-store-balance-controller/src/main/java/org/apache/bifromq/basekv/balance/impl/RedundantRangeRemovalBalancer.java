@@ -51,7 +51,7 @@ import org.apache.bifromq.basekv.raft.proto.ClusterConfig;
 import org.apache.bifromq.basekv.raft.proto.RaftNodeStatus;
 import org.apache.bifromq.basekv.utils.EffectiveEpoch;
 import org.apache.bifromq.basekv.utils.KVRangeIdUtil;
-import org.apache.bifromq.basekv.utils.LeaderRange;
+import org.apache.bifromq.basekv.utils.RangeLeader;
 
 /**
  * The RedundantEpochRemovalBalancer is a specialized StoreBalancer designed to manage and remove redundant replicas
@@ -149,21 +149,21 @@ public class RedundantRangeRemovalBalancer extends StoreBalancer {
     }
 
     private boolean cleanupIdConflictRange(EffectiveEpoch effectiveEpoch) {
-        Map<KVRangeId, NavigableSet<LeaderRange>> conflictingRanges =
+        Map<KVRangeId, NavigableSet<RangeLeader>> conflictingRanges =
             findConflictingRanges(effectiveEpoch.storeDescriptors());
         if (!conflictingRanges.isEmpty()) {
             // deal with id-conflict ranges
             for (KVRangeId rangeId : conflictingRanges.keySet()) {
-                NavigableSet<LeaderRange> leaderRanges = conflictingRanges.get(rangeId);
-                for (LeaderRange leaderRange : leaderRanges) {
-                    if (!leaderRange.ownerStoreDescriptor().getId().equals(localStoreId)) {
+                NavigableSet<RangeLeader> rangeLeaders = conflictingRanges.get(rangeId);
+                for (RangeLeader rangeLeader : rangeLeaders) {
+                    if (!rangeLeader.storeId().equals(localStoreId)) {
                         return false;
                     }
                     log.warn("Schedule command to remove id-conflict range: id={}, boundary={}",
-                        KVRangeIdUtil.toString(leaderRange.descriptor().getId()),
-                        leaderRange.descriptor().getBoundary());
+                        KVRangeIdUtil.toString(rangeLeader.descriptor().getId()),
+                        rangeLeader.descriptor().getBoundary());
                     pendingQuitCommand.set(
-                        new PendingQuitCommand(quit(localStoreId, leaderRange.descriptor()), randomSuspicionTimeout()));
+                        new PendingQuitCommand(quit(localStoreId, rangeLeader.descriptor()), randomSuspicionTimeout()));
                     return true;
                 }
             }
@@ -173,7 +173,7 @@ public class RedundantRangeRemovalBalancer extends StoreBalancer {
 
     private boolean cleanupBoundaryConflictRange(EffectiveEpoch effectiveEpoch) {
         // deal with boundary-conflict ranges
-        NavigableMap<Boundary, LeaderRange> effectiveLeaders = getEffectiveRoute(effectiveEpoch).leaderRanges();
+        NavigableMap<Boundary, RangeLeader> effectiveLeaders = getEffectiveRoute(effectiveEpoch).leaderRanges();
         for (KVRangeStoreDescriptor storeDescriptor : effectiveEpoch.storeDescriptors()) {
             if (!storeDescriptor.getId().equals(localStoreId)) {
                 continue;
@@ -183,8 +183,8 @@ public class RedundantRangeRemovalBalancer extends StoreBalancer {
                     continue;
                 }
                 Boundary boundary = rangeDescriptor.getBoundary();
-                LeaderRange leaderRange = effectiveLeaders.get(boundary);
-                if (leaderRange == null || !leaderRange.descriptor().getId().equals(rangeDescriptor.getId())) {
+                RangeLeader rangeLeader = effectiveLeaders.get(boundary);
+                if (rangeLeader == null || !rangeLeader.descriptor().getId().equals(rangeDescriptor.getId())) {
                     log.warn("Schedule command to remove boundary-conflict range: id={}, boundary={}",
                         KVRangeIdUtil.toString(rangeDescriptor.getId()), rangeDescriptor.getBoundary());
                     pendingQuitCommand.set(
@@ -196,34 +196,34 @@ public class RedundantRangeRemovalBalancer extends StoreBalancer {
         return false;
     }
 
-    private Map<KVRangeId, NavigableSet<LeaderRange>> findConflictingRanges(
+    private Map<KVRangeId, NavigableSet<RangeLeader>> findConflictingRanges(
         Set<KVRangeStoreDescriptor> effectiveEpoch) {
-        Map<KVRangeId, NavigableSet<LeaderRange>> leaderRangesByRangeId = new HashMap<>();
-        Map<KVRangeId, NavigableSet<LeaderRange>> conflictingRanges = new HashMap<>();
+        Map<KVRangeId, NavigableSet<RangeLeader>> leaderRangesByRangeId = new HashMap<>();
+        Map<KVRangeId, NavigableSet<RangeLeader>> conflictingRanges = new HashMap<>();
         for (KVRangeStoreDescriptor storeDescriptor : effectiveEpoch) {
             for (KVRangeDescriptor rangeDescriptor : storeDescriptor.getRangesList()) {
                 if (rangeDescriptor.getRole() != RaftNodeStatus.Leader) {
                     continue;
                 }
                 KVRangeId rangeId = rangeDescriptor.getId();
-                SortedSet<LeaderRange> leaderRanges = leaderRangesByRangeId.computeIfAbsent(rangeId, k -> new TreeSet<>(
-                    Comparator.comparing((LeaderRange lr) -> lr.ownerStoreDescriptor().getId(), String::compareTo)
+                SortedSet<RangeLeader> rangeLeaders = leaderRangesByRangeId.computeIfAbsent(rangeId, k -> new TreeSet<>(
+                    Comparator.comparing(RangeLeader::storeId, String::compareTo)
                         .reversed()));
-                leaderRanges.add(new LeaderRange(rangeDescriptor, storeDescriptor));
+                rangeLeaders.add(new RangeLeader(storeDescriptor.getId(), rangeDescriptor));
             }
         }
         for (KVRangeId rangeId : leaderRangesByRangeId.keySet()) {
-            NavigableSet<LeaderRange> leaderRanges = leaderRangesByRangeId.get(rangeId);
-            LeaderRange firstLeaderRange = leaderRanges.first();
-            ClusterConfig firstLeaderClusterConfig = firstLeaderRange.descriptor().getConfig();
-            if (leaderRanges.size() > 1) {
-                NavigableSet<LeaderRange> restLeaderRanges = leaderRanges.tailSet(firstLeaderRange, false);
+            NavigableSet<RangeLeader> rangeLeaders = leaderRangesByRangeId.get(rangeId);
+            RangeLeader firstRangeLeader = rangeLeaders.first();
+            ClusterConfig firstLeaderClusterConfig = firstRangeLeader.descriptor().getConfig();
+            if (rangeLeaders.size() > 1) {
+                NavigableSet<RangeLeader> restRangeLeaders = rangeLeaders.tailSet(firstRangeLeader, false);
                 // check if rest leader ranges are conflicting: disjoint voter set
-                for (LeaderRange restLeaderRange : restLeaderRanges) {
-                    ClusterConfig restLeaderClusterConfig = restLeaderRange.descriptor().getConfig();
+                for (RangeLeader restRangeLeader : restRangeLeaders) {
+                    ClusterConfig restLeaderClusterConfig = restRangeLeader.descriptor().getConfig();
                     if (isDisjoint(firstLeaderClusterConfig, restLeaderClusterConfig)) {
                         // if disjoint, add to conflicting ranges
-                        conflictingRanges.put(rangeId, leaderRanges);
+                        conflictingRanges.put(rangeId, rangeLeaders);
                     }
                 }
             }

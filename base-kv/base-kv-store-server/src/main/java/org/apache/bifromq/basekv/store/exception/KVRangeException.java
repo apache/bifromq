@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 
 package org.apache.bifromq.basekv.store.exception;
@@ -31,13 +31,26 @@ public class KVRangeException extends RuntimeException {
     }
 
     public static class TryLater extends KVRangeException {
+        public final KVRangeDescriptor latest;
 
         public TryLater(String message) {
             super(message);
+            this.latest = null;
+        }
+
+        public TryLater(String message, KVRangeDescriptor latest) {
+            super(message);
+            this.latest = latest;
         }
 
         public TryLater(String message, Throwable cause) {
             super(message, cause);
+            this.latest = null;
+        }
+
+        public TryLater(String message, KVRangeDescriptor latest, Throwable cause) {
+            super(message, cause);
+            this.latest = latest;
         }
     }
 
@@ -55,13 +68,26 @@ public class KVRangeException extends RuntimeException {
     }
 
     public static class BadRequest extends KVRangeException {
+        public final KVRangeDescriptor latest;
 
         public BadRequest(String message) {
             super(message);
+            this.latest = null;
+        }
+
+        public BadRequest(String message, KVRangeDescriptor latest) {
+            super(message);
+            this.latest = latest;
         }
 
         public BadRequest(String message, Throwable cause) {
             super(message, cause);
+            this.latest = null;
+        }
+
+        public BadRequest(String message, KVRangeDescriptor latest, Throwable cause) {
+            super(message, cause);
+            this.latest = latest;
         }
     }
 

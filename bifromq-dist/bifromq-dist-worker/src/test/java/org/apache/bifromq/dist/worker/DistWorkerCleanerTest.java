@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 
 package org.apache.bifromq.dist.worker;
@@ -30,6 +30,14 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import java.time.Duration;
+import java.util.HashMap;
+import java.util.NavigableMap;
+import java.util.TreeMap;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
+import java.util.concurrent.TimeUnit;
 import org.apache.bifromq.basekv.client.IBaseKVStoreClient;
 import org.apache.bifromq.basekv.client.KVRangeSetting;
 import org.apache.bifromq.basekv.proto.Boundary;
@@ -38,13 +46,6 @@ import org.apache.bifromq.basekv.store.proto.KVRangeROReply;
 import org.apache.bifromq.basekv.store.proto.KVRangeRORequest;
 import org.apache.bifromq.basekv.utils.BoundaryUtil;
 import org.apache.bifromq.basekv.utils.KVRangeIdUtil;
-import java.time.Duration;
-import java.util.NavigableMap;
-import java.util.TreeMap;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.ScheduledFuture;
-import java.util.concurrent.TimeUnit;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.MockitoAnnotations;
@@ -97,11 +98,14 @@ public class DistWorkerCleanerTest {
         when(jobScheduler.schedule(any(Runnable.class), anyLong(), any(TimeUnit.class))).thenReturn(mockFuture);
 
         // Setup KVRange data
-        KVRangeSetting leaderRange = new KVRangeSetting("dist.worker", "store1",
-            KVRangeDescriptor.newBuilder()
-                .setId(KVRangeIdUtil.generate())
-                .setVer(1)
-                .build());
+        KVRangeSetting leaderRange = new KVRangeSetting("dist.worker", "store1", new HashMap<>() {
+            {
+                put("store1", KVRangeDescriptor.newBuilder()
+                    .setId(KVRangeIdUtil.generate())
+                    .setVer(1)
+                    .build());
+            }
+        });
         NavigableMap<Boundary, KVRangeSetting> router = new TreeMap<>(BoundaryUtil::compare);
         router.put(FULL_BOUNDARY, leaderRange);
         when(distWorkerClient.latestEffectiveRouter()).thenReturn(router);
@@ -150,11 +154,14 @@ public class DistWorkerCleanerTest {
         when(jobScheduler.schedule(any(Runnable.class), anyLong(), any(TimeUnit.class)))
             .thenReturn(mockFuture);
 
-        KVRangeSetting leaderRange = new KVRangeSetting("dist.worker", "store1",
-            KVRangeDescriptor.newBuilder()
-                .setId(KVRangeIdUtil.generate())
-                .setVer(1)
-                .build());
+        KVRangeSetting leaderRange = new KVRangeSetting("dist.worker", "store1", new HashMap<>() {
+            {
+                put("store1", KVRangeDescriptor.newBuilder()
+                    .setId(KVRangeIdUtil.generate())
+                    .setVer(1)
+                    .build());
+            }
+        });
 
         NavigableMap<Boundary, KVRangeSetting> router = new TreeMap<>(BoundaryUtil::compare);
         router.put(FULL_BOUNDARY, leaderRange);
@@ -177,11 +184,14 @@ public class DistWorkerCleanerTest {
     @Test
     public void testNoGcForNonLeaderRanges() {
         // Setup non-leader range
-        KVRangeSetting nonLeaderRange = new KVRangeSetting("dist.worker", "store2",
-            KVRangeDescriptor.newBuilder()
-                .setId(KVRangeIdUtil.generate())
-                .setVer(1)
-                .build());
+        KVRangeSetting nonLeaderRange = new KVRangeSetting("dist.worker", "store2", new HashMap<>() {
+            {
+                put("store2", KVRangeDescriptor.newBuilder()
+                    .setId(KVRangeIdUtil.generate())
+                    .setVer(1)
+                    .build());
+            }
+        });
 
         NavigableMap<Boundary, KVRangeSetting> router = new TreeMap<>(BoundaryUtil::compare);
         router.put(FULL_BOUNDARY, nonLeaderRange);

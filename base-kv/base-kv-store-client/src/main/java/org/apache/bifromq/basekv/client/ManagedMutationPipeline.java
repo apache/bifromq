@@ -19,27 +19,31 @@
 
 package org.apache.bifromq.basekv.client;
 
+import io.reactivex.rxjava3.core.Observable;
+import io.reactivex.rxjava3.disposables.Disposable;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.Executor;
+import java.util.function.Consumer;
 import org.apache.bifromq.basekv.proto.KVRangeDescriptor;
 import org.apache.bifromq.basekv.store.proto.KVRangeRWReply;
 import org.apache.bifromq.basekv.store.proto.KVRangeRWRequest;
 import org.apache.bifromq.baserpc.client.IRPCClient;
-import io.reactivex.rxjava3.core.Observable;
-import io.reactivex.rxjava3.disposables.Disposable;
-import java.util.concurrent.CompletableFuture;
-import java.util.function.Consumer;
 import org.slf4j.Logger;
 
 class ManagedMutationPipeline implements IMutationPipeline {
     private final Logger log;
     private final Disposable disposable;
     private final Consumer<KVRangeDescriptor> routePatcher;
+    private final Executor clientExecutor;
     private volatile IRPCClient.IRequestPipeline<KVRangeRWRequest, KVRangeRWReply> ppln;
 
     ManagedMutationPipeline(Observable<IRPCClient.IRequestPipeline<KVRangeRWRequest, KVRangeRWReply>> pplnObservable,
                             Consumer<KVRangeDescriptor> routePatcher,
+                            Executor clientExecutor,
                             Logger log) {
         this.log = log;
         this.routePatcher = routePatcher;
+        this.clientExecutor = clientExecutor;
         disposable = pplnObservable.subscribe(next -> {
             IRPCClient.IRequestPipeline<KVRangeRWRequest, KVRangeRWReply> old = ppln;
             ppln = next;
@@ -54,12 +58,12 @@ class ManagedMutationPipeline implements IMutationPipeline {
     public CompletableFuture<KVRangeRWReply> execute(KVRangeRWRequest request) {
         log.trace("Requesting rw range:req={}", request);
         return ppln.invoke(request)
-            .thenApply(v -> {
+            .thenApplyAsync(v -> {
                 if (v.hasLatest()) {
                     routePatcher.accept(v.getLatest());
                 }
                 return v;
-            });
+            }, clientExecutor);
     }
 
     @Override

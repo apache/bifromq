@@ -14,19 +14,19 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 
 package org.apache.bifromq.basekv.utils;
 
 import static com.google.protobuf.UnsafeByteOperations.unsafeWrap;
 
-import org.apache.bifromq.basekv.proto.Boundary;
 import com.google.protobuf.ByteString;
 import java.util.Iterator;
 import java.util.NavigableSet;
 import java.util.Set;
 import java.util.TreeSet;
+import org.apache.bifromq.basekv.proto.Boundary;
 
 /**
  * Utility class for Boundary calculation.
@@ -406,6 +406,9 @@ public class BoundaryUtil {
     public static boolean isValidSplitSet(NavigableSet<Boundary> sorted) {
         ByteString checkKey = null;
         Iterator<Boundary> iterator = sorted.iterator();
+        if (!iterator.hasNext()) {
+            return false;
+        }
         while (iterator.hasNext()) {
             Boundary boundary = iterator.next();
             if (checkKey == null) {

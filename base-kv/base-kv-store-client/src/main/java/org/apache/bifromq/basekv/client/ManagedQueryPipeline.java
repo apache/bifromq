@@ -19,27 +19,31 @@
 
 package org.apache.bifromq.basekv.client;
 
+import io.reactivex.rxjava3.core.Observable;
+import io.reactivex.rxjava3.disposables.Disposable;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.Executor;
+import java.util.function.Consumer;
 import org.apache.bifromq.basekv.proto.KVRangeDescriptor;
 import org.apache.bifromq.basekv.store.proto.KVRangeROReply;
 import org.apache.bifromq.basekv.store.proto.KVRangeRORequest;
 import org.apache.bifromq.baserpc.client.IRPCClient;
-import io.reactivex.rxjava3.core.Observable;
-import io.reactivex.rxjava3.disposables.Disposable;
-import java.util.concurrent.CompletableFuture;
-import java.util.function.Consumer;
 import org.slf4j.Logger;
 
 class ManagedQueryPipeline implements IQueryPipeline {
     private final Logger log;
     private final Disposable disposable;
     private final Consumer<KVRangeDescriptor> routePatcher;
+    private final Executor clientExecutor;
     private volatile IRPCClient.IRequestPipeline<KVRangeRORequest, KVRangeROReply> ppln;
 
     ManagedQueryPipeline(Observable<IRPCClient.IRequestPipeline<KVRangeRORequest, KVRangeROReply>> pplnObservable,
                          Consumer<KVRangeDescriptor> routePatcher,
+                         Executor clientExecutor,
                          Logger log) {
         this.log = log;
         this.routePatcher = routePatcher;
+        this.clientExecutor = clientExecutor;
         disposable = pplnObservable.subscribe(next -> {
             IRPCClient.IRequestPipeline<KVRangeRORequest, KVRangeROReply> old = ppln;
             ppln = next;
@@ -53,12 +57,12 @@ class ManagedQueryPipeline implements IQueryPipeline {
     public CompletableFuture<KVRangeROReply> query(KVRangeRORequest request) {
         log.trace("Invoke ro range request: \n{}", request);
         return ppln.invoke(request)
-            .thenApply(v -> {
+            .thenApplyAsync(v -> {
                 if (v.hasLatest()) {
                     routePatcher.accept(v.getLatest());
                 }
                 return v;
-            });
+            }, clientExecutor);
     }
 
     @Override

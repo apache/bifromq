@@ -57,14 +57,14 @@ class KVRangeQueryRunner implements IKVRangeQueryRunner {
     private final StampedLock queryLock;
     private final AtomicBoolean closed = new AtomicBoolean();
     private final List<IKVRangeSplitHinter> splitHinters;
-    private final Supplier<KVRangeDescriptor> latestStatusSupplier;
+    private final Supplier<KVRangeDescriptor> descriptorSupplier;
 
     KVRangeQueryRunner(IKVRange kvRange,
                        IKVRangeCoProc coProc,
                        Executor executor,
                        IKVRangeQueryLinearizer linearizer,
                        List<IKVRangeSplitHinter> splitHinters,
-                       Supplier<KVRangeDescriptor> latestStatusSupplier,
+                       Supplier<KVRangeDescriptor> descriptorSupplier,
                        StampedLock queryLock,
                        String... tags) {
         this.kvRange = kvRange;
@@ -73,7 +73,7 @@ class KVRangeQueryRunner implements IKVRangeQueryRunner {
         this.linearizer = linearizer;
         this.queryLock = queryLock;
         this.splitHinters = splitHinters;
-        this.latestStatusSupplier = latestStatusSupplier;
+        this.descriptorSupplier = descriptorSupplier;
         this.log = MDCLogger.getLogger(KVRangeQueryRunner.class, tags);
     }
 
@@ -118,7 +118,7 @@ class KVRangeQueryRunner implements IKVRangeQueryRunner {
                                                               boolean linearized) {
         if (!boundaryCompatible(ver, kvRange.version())) {
             return CompletableFuture.failedFuture(
-                new KVRangeException.BadVersion("Version Mismatch", latestStatusSupplier.get()));
+                new KVRangeException.BadVersion("Version Mismatch", descriptorSupplier.get()));
         }
         CompletableFuture<ResultT> onDone = new CompletableFuture<>();
         runningQueries.add(onDone);
@@ -157,8 +157,13 @@ class KVRangeQueryRunner implements IKVRangeQueryRunner {
 
     private <ReqT, ResultT> CompletableFuture<ResultT> doQuery(long ver, QueryFunction<ReqT, ResultT> queryFn) {
         CompletableFuture<ResultT> onDone = new CompletableFuture<>();
-        long stamp = queryLock.readLock();
+        long stamp = queryLock.tryReadLock();
         try {
+            if (stamp == 0L) {
+                // range is being reset or managed by a writer, don't block; hint client to retry with latest
+                return CompletableFuture.failedFuture(
+                    new KVRangeException.TryLater("Range is resetting or busy", descriptorSupplier.get()));
+            }
             IKVReader dataReader = kvRange.borrowDataReader();
             // return the borrowed reader when future completed
             onDone.whenComplete((v, e) -> kvRange.returnDataReader(dataReader));
@@ -166,7 +171,7 @@ class KVRangeQueryRunner implements IKVRangeQueryRunner {
             if (!boundaryCompatible(ver, kvRange.version())) {
                 queryLock.unlockRead(stamp);
                 onDone.completeExceptionally(
-                    new KVRangeException.BadVersion("Version Mismatch", latestStatusSupplier.get()));
+                    new KVRangeException.BadVersion("Version Mismatch", descriptorSupplier.get()));
                 return onDone;
             }
             if (state.getType() == Merged || state.getType() == Removed || state.getType() == ToBePurged) {
@@ -185,7 +190,9 @@ class KVRangeQueryRunner implements IKVRangeQueryRunner {
                     }
                 }, executor);
         } catch (Throwable e) {
-            queryLock.unlockRead(stamp);
+            if (stamp != 0L) {
+                queryLock.unlockRead(stamp);
+            }
             log.debug("Failed to query range", e);
             return CompletableFuture.failedFuture(new KVRangeException.InternalException(e.getMessage()));
         }

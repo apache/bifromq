@@ -30,6 +30,7 @@ import java.util.HashSet;
 import java.util.Map;
 import java.util.NavigableMap;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.Queue;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
@@ -113,43 +114,50 @@ class BatchDistServerCall implements IBatchCall<TenantPubRequest, DistServerCall
 
     private CompletableFuture<Void> parallelDist(Map<KVRangeSetting, Set<String>> topicsByRange) {
         long reqId = System.nanoTime();
-        CompletableFuture<?>[] rangeQueryReplies = replicaSelect(topicsByRange).entrySet().stream().map(entry -> {
-            KVRangeReplica rangeReplica = entry.getKey();
-            Map<String, Map<ClientInfo, Iterable<Message>>> replicaBatch = entry.getValue();
-            BatchDistRequest.Builder batchDistBuilder =
-                BatchDistRequest.newBuilder().setReqId(reqId).setOrderKey(orderKey);
-            replicaBatch.forEach((topic, publisherMsgs) -> {
-                String tenantId = batcherKey.tenantId();
-                DistPack.Builder distPackBuilder = DistPack.newBuilder().setTenantId(tenantId);
-                TopicMessagePack.Builder topicMsgPackBuilder = TopicMessagePack.newBuilder().setTopic(topic);
-                publisherMsgs.forEach((publisher, msgs) -> {
-                    TopicMessagePack.PublisherPack.Builder packBuilder = TopicMessagePack.PublisherPack.newBuilder()
-                        .setPublisher(publisher);
-                    msgs.forEach(packBuilder::addMessage);
-                    topicMsgPackBuilder.addMessage(packBuilder.build());
+        ReplicaSelection selection = replicaSelect(topicsByRange);
+        CompletableFuture<?>[] rangeQueryReplies = selection.batchByReplica().entrySet().stream()
+            .map(entry -> {
+                KVRangeReplica rangeReplica = entry.getKey();
+                Map<String, Map<ClientInfo, Iterable<Message>>> replicaBatch = entry.getValue();
+                BatchDistRequest.Builder batchDistBuilder =
+                    BatchDistRequest.newBuilder().setReqId(reqId).setOrderKey(orderKey);
+                replicaBatch.forEach((topic, publisherMsgs) -> {
+                    String tenantId = batcherKey.tenantId();
+                    DistPack.Builder distPackBuilder = DistPack.newBuilder().setTenantId(tenantId);
+                    TopicMessagePack.Builder topicMsgPackBuilder = TopicMessagePack.newBuilder().setTopic(topic);
+                    publisherMsgs.forEach((publisher, msgs) -> {
+                        TopicMessagePack.PublisherPack.Builder packBuilder = TopicMessagePack.PublisherPack.newBuilder()
+                            .setPublisher(publisher);
+                        msgs.forEach(packBuilder::addMessage);
+                        topicMsgPackBuilder.addMessage(packBuilder.build());
+                    });
+                    distPackBuilder.addMsgPack(topicMsgPackBuilder.build());
+                    batchDistBuilder.addDistPack(distPackBuilder.build());
                 });
-                distPackBuilder.addMsgPack(topicMsgPackBuilder.build());
-                batchDistBuilder.addDistPack(distPackBuilder.build());
-            });
-            return distWorkerClient.query(rangeReplica.storeId,
-                    KVRangeRORequest.newBuilder().setReqId(reqId).setVer(rangeReplica.ver).setKvRangeId(rangeReplica.id)
-                        .setRoCoProc(ROCoProcInput.newBuilder()
-                            .setDistService(DistServiceROCoProcInput.newBuilder()
-                                .setBatchDist(batchDistBuilder.build())
+                if (rangeReplica.storeId == null) {
+                    // no available replica for the range
+                    return CompletableFuture.completedFuture(
+                        KVRangeROReply.newBuilder().setReqId(reqId).setCode(ReplyCode.TryLater).build());
+                }
+                return distWorkerClient.query(rangeReplica.storeId,
+                        KVRangeRORequest.newBuilder().setReqId(reqId).setVer(rangeReplica.ver).setKvRangeId(rangeReplica.id)
+                            .setRoCoProc(ROCoProcInput.newBuilder()
+                                .setDistService(DistServiceROCoProcInput.newBuilder()
+                                    .setBatchDist(batchDistBuilder.build())
+                                    .build())
                                 .build())
-                            .build())
-                        .build(), orderKey)
-                .exceptionally(unwrap(e -> {
-                    if (e instanceof ServerNotFoundException) {
-                        // map server not found to try later
-                        return KVRangeROReply.newBuilder().setReqId(reqId).setCode(ReplyCode.TryLater).build();
-                    } else {
-                        log.debug("Failed to query range: {}", rangeReplica, e);
-                        // map rpc exception to internal error
-                        return KVRangeROReply.newBuilder().setReqId(reqId).setCode(ReplyCode.InternalError).build();
-                    }
-                }));
-        }).toArray(CompletableFuture[]::new);
+                            .build(), orderKey)
+                    .exceptionally(unwrap(e -> {
+                        if (e instanceof ServerNotFoundException) {
+                            // map server not found to try later
+                            return KVRangeROReply.newBuilder().setReqId(reqId).setCode(ReplyCode.TryLater).build();
+                        } else {
+                            log.debug("Failed to query range: {}", rangeReplica, e);
+                            // map rpc exception to internal error
+                            return KVRangeROReply.newBuilder().setReqId(reqId).setCode(ReplyCode.InternalError).build();
+                        }
+                    }));
+            }).toArray(CompletableFuture[]::new);
         return CompletableFuture.allOf(rangeQueryReplies).thenAccept(replies -> {
             boolean needRetry = false;
             boolean hasError = false;
@@ -216,34 +224,39 @@ class BatchDistServerCall implements IBatchCall<TenantPubRequest, DistServerCall
         return topicsByRange;
     }
 
-    private Map<KVRangeReplica, Map<String, Map<ClientInfo, Iterable<Message>>>> replicaSelect(
+    private ReplicaSelection replicaSelect(
         Map<KVRangeSetting, Set<String>> topicsByRange) {
         Map<KVRangeReplica, Map<String, Map<ClientInfo, Iterable<Message>>>> batchByReplica = new HashMap<>();
+        boolean hasUnavailableRange = false;
         for (KVRangeSetting rangeSetting : topicsByRange.keySet()) {
             Map<String, Map<ClientInfo, Iterable<Message>>> rangeBatch = new HashMap<>();
             for (String topic : topicsByRange.get(rangeSetting)) {
                 rangeBatch.put(topic, batch.get(topic));
             }
-            if (rangeSetting.hasInProcReplica() || rangeSetting.allReplicas().size() == 1) {
+            Optional<String> inProcReplica = rangeSetting.inProcQueryReadyReplica();
+            if (inProcReplica.isPresent()) {
                 // build-in or single replica
-                KVRangeReplica replica =
-                    new KVRangeReplica(rangeSetting.id(), rangeSetting.ver(), rangeSetting.randomReplica());
+                KVRangeReplica replica = new KVRangeReplica(rangeSetting.id(), rangeSetting.ver(), inProcReplica.get());
                 batchByReplica.put(replica, rangeBatch);
             } else {
                 for (String topic : rangeBatch.keySet()) {
                     // bind replica based on tenantId, topic
-                    int hash = Objects.hash(batcherKey.tenantId(), topic);
-                    int replicaIdx = Math.abs(hash) % rangeSetting.allReplicas().size();
+                    int replicaSeq = Math.abs(Objects.hash(batcherKey.tenantId(), topic));
                     // replica bind
+                    Optional<String> replicaStore = rangeSetting.getQueryReadyReplica(replicaSeq);
                     KVRangeReplica replica = new KVRangeReplica(rangeSetting.id(), rangeSetting.ver(),
-                        rangeSetting.allReplicas().get(replicaIdx));
+                        replicaStore.orElse(null));
                     batchByReplica.computeIfAbsent(replica, k -> new HashMap<>()).put(topic, rangeBatch.get(topic));
                 }
             }
         }
-        return batchByReplica;
+        return new ReplicaSelection(batchByReplica);
     }
 
     private record KVRangeReplica(KVRangeId id, long ver, String storeId) {
+    }
+
+    private record ReplicaSelection(
+        Map<KVRangeReplica, Map<String, Map<ClientInfo, Iterable<Message>>>> batchByReplica) {
     }
 }

@@ -21,6 +21,7 @@ package org.apache.bifromq.basekv.client.scheduler;
 
 import static org.apache.bifromq.basekv.utils.BoundaryUtil.FULL_BOUNDARY;
 
+import java.util.HashMap;
 import org.apache.bifromq.basekv.client.KVRangeSetting;
 import org.apache.bifromq.basekv.proto.KVRangeDescriptor;
 import org.apache.bifromq.basekv.proto.KVRangeId;
@@ -36,6 +37,10 @@ public class Fixtures {
                 .addVoters(leaderStoreId)
                 .build())
             .build();
-        return new KVRangeSetting("test_cluster", leaderStoreId, descriptor);
+        return new KVRangeSetting("test_cluster", leaderStoreId, new HashMap<>() {
+            {
+                put(leaderStoreId, descriptor);
+            }
+        });
     }
 }

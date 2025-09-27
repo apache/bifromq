@@ -99,18 +99,29 @@ class MutatePipeline extends ResponsePipeline<KVRangeRWRequest, KVRangeRWReply> 
                     }
                     return replyBuilder.build();
                 }
-                if (e instanceof KVRangeStoreException.KVRangeNotFoundException
-                    || e instanceof KVRangeException.TryLater) {
+                if (e instanceof KVRangeException.TryLater tryLater) {
+                    KVRangeRWReply.Builder replyBuilder = KVRangeRWReply.newBuilder()
+                        .setReqId(request.getReqId())
+                        .setCode(ReplyCode.TryLater);
+                    if (tryLater.latest != null) {
+                        replyBuilder.setLatest(tryLater.latest);
+                    }
+                    return replyBuilder.build();
+                }
+                if (e instanceof KVRangeStoreException.KVRangeNotFoundException) {
                     return KVRangeRWReply.newBuilder()
                         .setReqId(request.getReqId())
                         .setCode(ReplyCode.TryLater)
                         .build();
                 }
-                if (e instanceof KVRangeException.BadRequest) {
-                    return KVRangeRWReply.newBuilder()
+                if (e instanceof KVRangeException.BadRequest badRequest) {
+                    KVRangeRWReply.Builder replyBuilder = KVRangeRWReply.newBuilder()
                         .setReqId(request.getReqId())
-                        .setCode(ReplyCode.BadRequest)
-                        .build();
+                        .setCode(ReplyCode.BadRequest);
+                    if (badRequest.latest != null) {
+                        replyBuilder.setLatest(badRequest.latest);
+                    }
+                    return replyBuilder.build();
                 }
                 if (e instanceof DropProposalException.TransferringLeaderException) {
                     return KVRangeRWReply.newBuilder()

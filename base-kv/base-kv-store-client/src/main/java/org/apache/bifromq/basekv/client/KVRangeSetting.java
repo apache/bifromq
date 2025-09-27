@@ -29,6 +29,7 @@ import com.google.protobuf.InvalidProtocolBufferException;
 import com.google.protobuf.Message;
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.TreeSet;
@@ -58,68 +59,50 @@ public class KVRangeSetting {
     private final Boundary boundary;
     @Getter
     private final String leader;
-    @Getter
-    private final List<String> voters;
-    @Getter
-    private final List<String> followers;
-    @Getter
-    private final List<String> allReplicas;
-    private final List<String> inProcVoters;
-    private final List<String> inProcFollowers;
+    private final List<String> allQueryReadyReplicas;
     private final List<String> inProcReplicas;
     @EqualsAndHashCode.Exclude
     private volatile Object factObject;
 
-    public KVRangeSetting(String clusterId, String leaderStoreId, KVRangeDescriptor desc) {
+    public KVRangeSetting(String clusterId, String leaderStoreId, Map<String, KVRangeDescriptor> currentReplicas) {
+        assert currentReplicas.containsKey(leaderStoreId) : "replicas doesn't contain leader store";
+        KVRangeDescriptor leaderDesc = currentReplicas.get(leaderStoreId);
         this.clusterId = clusterId;
-        id = desc.getId();
-        ver = desc.getVer();
-        boundary = desc.getBoundary();
+        id = leaderDesc.getId();
+        ver = leaderDesc.getVer();
+        boundary = leaderDesc.getBoundary();
         leader = leaderStoreId;
-        fact = desc.getFact();
-        Set<String> voters = new TreeSet<>();
-        Set<String> inProcVoters = new TreeSet<>();
-        Set<String> followers = new TreeSet<>();
-        Set<String> inProcFollowers = new TreeSet<>();
-        Set<String> allReplicas = new TreeSet<>();
+        fact = leaderDesc.getFact();
+        Set<String> allQueryReadyReplicas = new TreeSet<>();
         Set<String> inProcReplicas = new TreeSet<>();
 
-        Set<String> allVoters =
-            Sets.newHashSet(Iterables.concat(desc.getConfig().getVotersList(), desc.getConfig().getNextVotersList()));
+        Set<String> allVoters = Sets.newHashSet(
+            Iterables.concat(leaderDesc.getConfig().getVotersList(), leaderDesc.getConfig().getNextVotersList()));
         for (String v : allVoters) {
-            if (desc.getSyncStateMap().get(v) == RaftNodeSyncState.Replicating) {
-                voters.add(v);
-                if (getInProcStores(clusterId).contains(v)) {
-                    inProcVoters.add(v);
+            if (leaderDesc.getSyncStateMap().get(v) == RaftNodeSyncState.Replicating) {
+                if (isReadyForQuery(v, currentReplicas)) {
+                    allQueryReadyReplicas.add(v);
                 }
-                if (!v.equals(leaderStoreId)) {
-                    followers.add(v);
-                    if (getInProcStores(clusterId).contains(v)) {
-                        inProcFollowers.add(v);
-                    }
-                }
-                allReplicas.add(v);
                 if (getInProcStores(clusterId).contains(v)) {
                     inProcReplicas.add(v);
                 }
             }
         }
         Set<String> allLearners = Sets.union(Sets.newHashSet(
-            Iterables.concat(desc.getConfig().getLearnersList(), desc.getConfig().getNextLearnersList())), allVoters);
+                Iterables.concat(leaderDesc.getConfig().getLearnersList(), leaderDesc.getConfig().getNextLearnersList())),
+            allVoters);
 
-        for (String v : allLearners) {
-            if (desc.getSyncStateMap().get(v) == RaftNodeSyncState.Replicating) {
-                allReplicas.add(v);
-                if (getInProcStores(clusterId).contains(v)) {
-                    inProcReplicas.add(v);
+        for (String l : allLearners) {
+            if (leaderDesc.getSyncStateMap().get(l) == RaftNodeSyncState.Replicating) {
+                if (isReadyForQuery(l, currentReplicas)) {
+                    allQueryReadyReplicas.add(l);
+                }
+                if (getInProcStores(clusterId).contains(l)) {
+                    inProcReplicas.add(l);
                 }
             }
         }
-        this.voters = Collections.unmodifiableList(Lists.newArrayList(voters));
-        this.inProcVoters = Collections.unmodifiableList(Lists.newArrayList(inProcVoters));
-        this.followers = Collections.unmodifiableList(Lists.newArrayList(followers));
-        this.inProcFollowers = Collections.unmodifiableList(Lists.newArrayList(inProcFollowers));
-        this.allReplicas = Collections.unmodifiableList(Lists.newArrayList(allReplicas));
+        this.allQueryReadyReplicas = Collections.unmodifiableList(Lists.newArrayList(allQueryReadyReplicas));
         this.inProcReplicas = Collections.unmodifiableList(Lists.newArrayList(inProcReplicas));
     }
 
@@ -144,39 +127,46 @@ public class KVRangeSetting {
         return Optional.of((T) factObject);
     }
 
-    public boolean hasInProcVoter() {
-        return !inProcVoters.isEmpty();
-    }
-
-    public boolean hasInProcReplica() {
-        return !inProcReplicas.isEmpty();
-    }
-
-    public String randomReplica() {
+    public Optional<String> inProcQueryReadyReplica() {
         if (!inProcReplicas.isEmpty()) {
             if (inProcReplicas.size() == 1) {
-                return inProcReplicas.get(0);
+                if (allQueryReadyReplicas.contains(inProcReplicas.get(0))) {
+                    return Optional.of(inProcReplicas.get(0));
+                }
             }
-            return inProcReplicas.get(ThreadLocalRandom.current().nextInt(inProcReplicas.size()));
+            return allQueryReadyReplicas.stream().filter(inProcReplicas::contains).findFirst();
         }
-        if (allReplicas.size() == 1) {
-            return allReplicas.get(0);
-        }
-        return allReplicas.get(ThreadLocalRandom.current().nextInt(allReplicas.size()));
+        return Optional.empty();
     }
 
-    public String randomVoters() {
-        if (getInProcStores(clusterId).contains(leader)) {
-            return leader;
-        } else if (!inProcVoters.isEmpty()) {
-            if (inProcVoters.size() == 1) {
-                return inProcVoters.get(0);
+    public Optional<String> getQueryReadyReplica(int seq) {
+        if (allQueryReadyReplicas.isEmpty()) {
+            return Optional.empty();
+        }
+        return Optional.of(allQueryReadyReplicas.get(seq % allQueryReadyReplicas.size()));
+    }
+
+    public Optional<String> randomReplicaForQuery() {
+        if (!inProcReplicas.isEmpty()) {
+            if (inProcReplicas.size() == 1 && allQueryReadyReplicas.contains(inProcReplicas.get(0))) {
+                return Optional.of(inProcReplicas.get(0));
             }
-            return inProcVoters.get(ThreadLocalRandom.current().nextInt(inProcVoters.size()));
         }
-        if (voters.size() == 1) {
-            return voters.get(0);
+        if (allQueryReadyReplicas.isEmpty()) {
+            return Optional.empty();
         }
-        return voters.get(ThreadLocalRandom.current().nextInt(voters.size()));
+        if (allQueryReadyReplicas.size() == 1) {
+            return Optional.of(allQueryReadyReplicas.get(0));
+        }
+        return Optional.of(
+            allQueryReadyReplicas.get(ThreadLocalRandom.current().nextInt(allQueryReadyReplicas.size())));
+    }
+
+    private boolean isReadyForQuery(String storeId, Map<String, KVRangeDescriptor> descMap) {
+        KVRangeDescriptor desc = descMap.get(storeId);
+        if (desc == null) {
+            return false;
+        }
+        return desc.getReadyForQuery();
     }
 }

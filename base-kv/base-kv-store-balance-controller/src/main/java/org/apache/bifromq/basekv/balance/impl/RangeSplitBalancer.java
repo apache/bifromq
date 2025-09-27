@@ -38,7 +38,7 @@ import org.apache.bifromq.basekv.proto.KVRangeStoreDescriptor;
 import org.apache.bifromq.basekv.proto.SplitHint;
 import org.apache.bifromq.basekv.raft.proto.ClusterConfig;
 import org.apache.bifromq.basekv.utils.EffectiveRoute;
-import org.apache.bifromq.basekv.utils.LeaderRange;
+import org.apache.bifromq.basekv.utils.RangeLeader;
 
 /**
  * The load-based split balancer.
@@ -128,11 +128,11 @@ public class RangeSplitBalancer extends RuleBasedPlacementBalancer {
         double ioLatencyLimitPerRange =
             loadRules.getFieldsMap().get(LOAD_RULE_IO_NANOS_LIMIT_PER_RANGE).getNumberValue();
         Map<Boundary, ClusterConfig> expectedRangeLayout = new HashMap<>();
-        for (Map.Entry<Boundary, LeaderRange> entry : effectiveRoute.leaderRanges().entrySet()) {
+        for (Map.Entry<Boundary, RangeLeader> entry : effectiveRoute.leaderRanges().entrySet()) {
             Boundary boundary = entry.getKey();
-            LeaderRange leaderRange = entry.getValue();
-            KVRangeDescriptor rangeDescriptor = leaderRange.descriptor();
-            KVRangeStoreDescriptor storeDescriptor = landscape.get(leaderRange.ownerStoreDescriptor().getId());
+            RangeLeader rangeLeader = entry.getValue();
+            KVRangeDescriptor rangeDescriptor = rangeLeader.descriptor();
+            KVRangeStoreDescriptor storeDescriptor = landscape.get(rangeLeader.storeId());
             ClusterConfig clusterConfig = rangeDescriptor.getConfig();
             if (containsDeadMember(clusterConfig, landscape.keySet())) {
                 // shortcut when config contains dead members

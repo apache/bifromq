@@ -42,7 +42,7 @@ import org.apache.bifromq.basekv.raft.proto.ClusterConfig;
 import org.apache.bifromq.basekv.utils.BoundaryUtil;
 import org.apache.bifromq.basekv.utils.EffectiveRoute;
 import org.apache.bifromq.basekv.utils.KVRangeIdUtil;
-import org.apache.bifromq.basekv.utils.LeaderRange;
+import org.apache.bifromq.basekv.utils.RangeLeader;
 
 /**
  * Utility class for generating balance commands.
@@ -93,8 +93,8 @@ public class CommandUtil {
             ClusterConfig expectedRangeLayout = expectedRouteLayout.get(expectedRange);
             if (currentItr.hasNext()) {
                 Boundary currentRange = currentItr.next();
-                LeaderRange currentLeaderRange = effectiveRoute.leaderRanges().get(currentRange);
-                ClusterConfig currentRangeLayout = currentLeaderRange.descriptor().getConfig();
+                RangeLeader currentRangeLeader = effectiveRoute.leaderRanges().get(currentRange);
+                ClusterConfig currentRangeLayout = currentRangeLeader.descriptor().getConfig();
                 if (!currentRangeLayout.getNextVotersList().isEmpty()
                     || !currentRangeLayout.getNextLearnersList().isEmpty()) {
                     // abort generation if current layout is in config change process
@@ -104,9 +104,9 @@ public class CommandUtil {
                     if (!isSame(expectedRangeLayout, currentRangeLayout)) {
                         // generate config change
                         return ChangeConfigCommand.builder()
-                            .toStore(currentLeaderRange.ownerStoreDescriptor().getId())
-                            .kvRangeId(currentLeaderRange.descriptor().getId())
-                            .expectedVer(currentLeaderRange.descriptor().getVer())
+                            .toStore(currentRangeLeader.storeId())
+                            .kvRangeId(currentRangeLeader.descriptor().getId())
+                            .expectedVer(currentRangeLeader.descriptor().getVer())
                             .voters(setOf(expectedRangeLayout.getVotersList()))
                             .learners(setOf(expectedRangeLayout.getLearnersList()))
                             .build();
@@ -114,9 +114,9 @@ public class CommandUtil {
                     // move on to next
                 } else if (inRange(expectedRange, currentRange)) {
                     return SplitCommand.builder()
-                        .toStore(currentLeaderRange.ownerStoreDescriptor().getId())
-                        .kvRangeId(currentLeaderRange.descriptor().getId())
-                        .expectedVer(currentLeaderRange.descriptor().getVer())
+                        .toStore(currentRangeLeader.storeId())
+                        .kvRangeId(currentRangeLeader.descriptor().getId())
+                        .expectedVer(currentRangeLeader.descriptor().getVer())
                         .splitKey(expectedRange.getEndKey())
                         .build();
                 } else if (BoundaryUtil.compare(expectedRange, currentRange) < 0) {
@@ -136,25 +136,25 @@ public class CommandUtil {
                             .build();
                     } else {
                         Boundary nextCurrentBoundary = currentItr.next();
-                        LeaderRange nextLeaderRange = effectiveRoute.leaderRanges().get(nextCurrentBoundary);
-                        ClusterConfig nextCurrentRangeLayout = nextLeaderRange.descriptor().getConfig();
+                        RangeLeader nextRangeLeader = effectiveRoute.leaderRanges().get(nextCurrentBoundary);
+                        ClusterConfig nextCurrentRangeLayout = nextRangeLeader.descriptor().getConfig();
                         if (!nextCurrentRangeLayout.getNextVotersList().isEmpty()
                             || !nextCurrentRangeLayout.getNextLearnersList().isEmpty()) {
                             // abort generation if there is running config change process in mergee range
                             return null;
                         } else if (isSame(expectedRangeLayout, nextCurrentRangeLayout)) {
                             return MergeCommand.builder()
-                                .toStore(currentLeaderRange.ownerStoreDescriptor().getId())
-                                .kvRangeId(currentLeaderRange.descriptor().getId())
-                                .expectedVer(currentLeaderRange.descriptor().getVer())
-                                .mergeeId(nextLeaderRange.descriptor().getId())
+                                .toStore(currentRangeLeader.storeId())
+                                .kvRangeId(currentRangeLeader.descriptor().getId())
+                                .expectedVer(currentRangeLeader.descriptor().getVer())
+                                .mergeeId(nextRangeLeader.descriptor().getId())
                                 .build();
                         } else {
                             // align mergee layout with merger layout
                             return ChangeConfigCommand.builder()
-                                .toStore(nextLeaderRange.ownerStoreDescriptor().getId())
-                                .kvRangeId(nextLeaderRange.descriptor().getId())
-                                .expectedVer(nextLeaderRange.descriptor().getVer())
+                                .toStore(nextRangeLeader.storeId())
+                                .kvRangeId(nextRangeLeader.descriptor().getId())
+                                .expectedVer(nextRangeLeader.descriptor().getVer())
                                 .voters(setOf(currentRangeLayout.getVotersList()))
                                 .learners(setOf(currentRangeLayout.getLearnersList()))
                                 .build();

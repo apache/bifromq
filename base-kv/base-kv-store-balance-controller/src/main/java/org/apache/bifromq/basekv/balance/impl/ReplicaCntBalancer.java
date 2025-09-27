@@ -37,7 +37,7 @@ import org.apache.bifromq.basekv.proto.KVRangeDescriptor;
 import org.apache.bifromq.basekv.proto.KVRangeStoreDescriptor;
 import org.apache.bifromq.basekv.raft.proto.ClusterConfig;
 import org.apache.bifromq.basekv.utils.EffectiveRoute;
-import org.apache.bifromq.basekv.utils.LeaderRange;
+import org.apache.bifromq.basekv.utils.RangeLeader;
 
 /**
  * ReplicaCntBalancer is used to achieve following goals:
@@ -129,7 +129,7 @@ public class ReplicaCntBalancer extends RuleBasedPlacementBalancer {
         final int expectedLearners = (int) loadRules.getFieldsMap().get(LOAD_RULE_LEARNERS).getNumberValue();
 
         if (liveStores.size() < expectedVoters) {
-            for (Map.Entry<Boundary, LeaderRange> e : effectiveRoute.leaderRanges().entrySet()) {
+            for (Map.Entry<Boundary, RangeLeader> e : effectiveRoute.leaderRanges().entrySet()) {
                 ClusterConfig cc = e.getValue().descriptor().getConfig();
                 for (String v : cc.getVotersList()) {
                     if (!liveStores.contains(v)) {
@@ -142,9 +142,9 @@ public class ReplicaCntBalancer extends RuleBasedPlacementBalancer {
 
         boolean meetingGoal = false;
 
-        for (Map.Entry<Boundary, LeaderRange> entry : effectiveRoute.leaderRanges().entrySet()) {
-            LeaderRange leaderRange = entry.getValue();
-            KVRangeDescriptor rangeDescriptor = leaderRange.descriptor();
+        for (Map.Entry<Boundary, RangeLeader> entry : effectiveRoute.leaderRanges().entrySet()) {
+            RangeLeader rangeLeader = entry.getValue();
+            KVRangeDescriptor rangeDescriptor = rangeLeader.descriptor();
             ClusterConfig clusterConfig = rangeDescriptor.getConfig();
 
             // if there is running config change process, abort generation and wait for the next round
@@ -166,7 +166,7 @@ public class ReplicaCntBalancer extends RuleBasedPlacementBalancer {
             int targetVoters = Math.min(expectedVoters, liveStores.size());
             boolean needFix = voters.size() != targetVoters;
             if (!meetingGoal && needFix) {
-                String leaderStore = leaderRange.ownerStoreDescriptor().getId();
+                String leaderStore = rangeLeader.storeId();
                 if (voters.size() < targetVoters) {
                     if (!learners.isEmpty()) {
                         List<String> learnerCandidates = landscape.entrySet().stream()
@@ -249,9 +249,9 @@ public class ReplicaCntBalancer extends RuleBasedPlacementBalancer {
             return true;
         }
 
-        for (Map.Entry<Boundary, LeaderRange> entry : effectiveRoute.leaderRanges().entrySet()) {
-            LeaderRange leaderRange = entry.getValue();
-            KVRangeDescriptor rangeDescriptor = leaderRange.descriptor();
+        for (Map.Entry<Boundary, RangeLeader> entry : effectiveRoute.leaderRanges().entrySet()) {
+            RangeLeader rangeLeader = entry.getValue();
+            KVRangeDescriptor rangeDescriptor = rangeLeader.descriptor();
             ClusterConfig clusterConfig = rangeDescriptor.getConfig();
 
             Set<String> voters = new HashSet<>(clusterConfig.getVotersList());
@@ -318,7 +318,7 @@ public class ReplicaCntBalancer extends RuleBasedPlacementBalancer {
                                       Map<Boundary, ClusterConfig> expectedRangeLayout) {
         final Set<String> liveStores = landscape.keySet();
         Map<String, Integer> storeVoterCount = new HashMap<>();
-        for (Map.Entry<Boundary, LeaderRange> entry : effectiveRoute.leaderRanges().entrySet()) {
+        for (Map.Entry<Boundary, RangeLeader> entry : effectiveRoute.leaderRanges().entrySet()) {
             ClusterConfig config = entry.getValue().descriptor().getConfig();
             config.getVotersList().stream()
                 .filter(liveStores::contains)
@@ -344,9 +344,9 @@ public class ReplicaCntBalancer extends RuleBasedPlacementBalancer {
         }
 
         boolean meetingGoal = false;
-        for (Map.Entry<Boundary, LeaderRange> entry : effectiveRoute.leaderRanges().entrySet()) {
+        for (Map.Entry<Boundary, RangeLeader> entry : effectiveRoute.leaderRanges().entrySet()) {
             Boundary boundary = entry.getKey();
-            LeaderRange lr = entry.getValue();
+            RangeLeader lr = entry.getValue();
             ClusterConfig cc = lr.descriptor().getConfig();
 
             Set<String> learners = Sets.newHashSet(cc.getLearnersList());
@@ -394,7 +394,7 @@ public class ReplicaCntBalancer extends RuleBasedPlacementBalancer {
         final Set<String> liveStores = landscape.keySet();
 
         Map<String, Integer> storeLearnerCount = new HashMap<>();
-        for (Map.Entry<Boundary, LeaderRange> entry : effectiveRoute.leaderRanges().entrySet()) {
+        for (Map.Entry<Boundary, RangeLeader> entry : effectiveRoute.leaderRanges().entrySet()) {
             ClusterConfig config = entry.getValue().descriptor().getConfig();
             config.getLearnersList().stream()
                 .filter(liveStores::contains)
@@ -419,9 +419,9 @@ public class ReplicaCntBalancer extends RuleBasedPlacementBalancer {
         }
 
         boolean meetingGoal = false;
-        for (Map.Entry<Boundary, LeaderRange> entry : effectiveRoute.leaderRanges().entrySet()) {
+        for (Map.Entry<Boundary, RangeLeader> entry : effectiveRoute.leaderRanges().entrySet()) {
             Boundary boundary = entry.getKey();
-            LeaderRange lr = entry.getValue();
+            RangeLeader lr = entry.getValue();
             ClusterConfig cc = lr.descriptor().getConfig();
 
             Set<String> voters = Sets.newHashSet(cc.getVotersList());

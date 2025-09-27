@@ -35,6 +35,7 @@ import java.util.TreeSet;
 import java.util.stream.Collectors;
 import org.apache.bifromq.basekv.proto.Boundary;
 import org.apache.bifromq.basekv.proto.KVRangeDescriptor;
+import org.apache.bifromq.basekv.proto.KVRangeId;
 import org.apache.bifromq.basekv.proto.KVRangeStoreDescriptor;
 import org.apache.bifromq.basekv.raft.proto.RaftNodeStatus;
 
@@ -93,23 +94,43 @@ public class DescriptorUtil {
      * @return effective route
      */
     public static EffectiveRoute getEffectiveRoute(EffectiveEpoch effectiveEpoch) {
-        NavigableSet<LeaderRange> firstLeaderRanges = new TreeSet<>(
-            Comparator.comparingLong(l -> l.descriptor().getId().getId()));
-        NavigableMap<ByteString, NavigableSet<LeaderRange>> sortedLeaderRanges = new TreeMap<>(
-            ByteString.unsignedLexicographicalComparator());
+        Map<KVRangeId, Map<String, KVRangeDescriptor>> rangeMap = new HashMap<>();
         for (KVRangeStoreDescriptor storeDescriptor : effectiveEpoch.storeDescriptors()) {
             for (KVRangeDescriptor rangeDescriptor : storeDescriptor.getRangesList()) {
+                rangeMap.computeIfAbsent(rangeDescriptor.getId(), k -> new HashMap<>())
+                    .put(storeDescriptor.getId(), rangeDescriptor);
+            }
+        }
+        return new EffectiveRoute(effectiveEpoch.epoch(), getRangeLeaders(rangeMap));
+    }
+
+    /**
+     * Get the leader ranges from the range map.
+     *
+     * @param rangeMap range map
+     * @return leader ranges
+     */
+    public static NavigableMap<Boundary, RangeLeader> getRangeLeaders(
+        Map<KVRangeId, Map<String, KVRangeDescriptor>> rangeMap) {
+        NavigableSet<RangeLeader> firstRangeLeaders = new TreeSet<>(
+            Comparator.comparingLong(l -> l.descriptor().getId().getId()));
+        NavigableMap<ByteString, NavigableSet<RangeLeader>> sortedLeaderRanges = new TreeMap<>(
+            ByteString.unsignedLexicographicalComparator());
+        for (KVRangeId rangeId : rangeMap.keySet()) {
+            Map<String, KVRangeDescriptor> replicas = rangeMap.get(rangeId);
+            for (String storeId : replicas.keySet()) {
+                KVRangeDescriptor rangeDescriptor = replicas.get(storeId);
                 if (rangeDescriptor.getRole() == RaftNodeStatus.Leader) {
                     switch (rangeDescriptor.getState()) {
                         case Normal, ConfigChanging, PreparedMerging, WaitingForMerge -> {
                             ByteString startKey = startKey(rangeDescriptor.getBoundary());
                             if (startKey == null) {
-                                firstLeaderRanges.add(new LeaderRange(rangeDescriptor, storeDescriptor));
+                                firstRangeLeaders.add(new RangeLeader(storeId, rangeDescriptor));
                                 continue;
                             }
                             sortedLeaderRanges.computeIfAbsent(startKey,
                                     k -> new TreeSet<>(Comparator.comparingLong(l -> l.descriptor().getId().getId())))
-                                .add(new LeaderRange(rangeDescriptor, storeDescriptor));
+                                .add(new RangeLeader(storeId, rangeDescriptor));
                         }
                         default -> {
                             // skip other states
@@ -118,10 +139,10 @@ public class DescriptorUtil {
                 }
             }
         }
-        NavigableMap<Boundary, LeaderRange> effectiveRouteMap = new TreeMap<>(BoundaryUtil::compare);
-        LeaderRange prev = firstLeaderRanges.pollFirst();
+        NavigableMap<Boundary, RangeLeader> effectiveRouteMap = new TreeMap<>(BoundaryUtil::compare);
+        RangeLeader prev = firstRangeLeaders.pollFirst();
         if (prev == null) {
-            Map.Entry<ByteString, NavigableSet<LeaderRange>> firstEntry = sortedLeaderRanges.firstEntry();
+            Map.Entry<ByteString, NavigableSet<RangeLeader>> firstEntry = sortedLeaderRanges.firstEntry();
             if (firstEntry != null) {
                 prev = firstEntry.getValue().pollFirst();
             }
@@ -133,13 +154,13 @@ public class DescriptorUtil {
                 // reach the end bound
                 break;
             }
-            Map.Entry<ByteString, NavigableSet<LeaderRange>> next = sortedLeaderRanges.ceilingEntry(endKey);
+            Map.Entry<ByteString, NavigableSet<RangeLeader>> next = sortedLeaderRanges.ceilingEntry(endKey);
             if (next != null) {
                 prev = next.getValue().pollFirst();
             } else {
                 prev = null;
             }
         }
-        return new EffectiveRoute(effectiveEpoch.epoch(), effectiveRouteMap);
+        return effectiveRouteMap;
     }
 }

@@ -29,6 +29,7 @@ import com.google.protobuf.ByteString;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.HashMap;
 import java.util.List;
 import java.util.NavigableMap;
 import java.util.TreeMap;
@@ -95,7 +96,11 @@ public class TenantRangeLookupCacheTest {
         if (fact != null) {
             desc.setFact(Any.pack(fact));
         }
-        return new KVRangeSetting("test_cluster", "S1", desc.build());
+        return new KVRangeSetting("test_cluster", "S1", new HashMap<>() {
+            {
+                put("S1", desc.build());
+            }
+        });
     }
 
     @BeforeMethod
@@ -324,4 +329,3 @@ public class TenantRangeLookupCacheTest {
         assertTrue(third.isEmpty());
     }
 }
-

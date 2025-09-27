@@ -23,6 +23,14 @@ package org.apache.bifromq.basekv.balance.impl;
 import static org.apache.bifromq.basekv.utils.DescriptorUtil.getEffectiveEpoch;
 import static org.apache.bifromq.basekv.utils.DescriptorUtil.getEffectiveRoute;
 
+import com.google.common.collect.Sets;
+import java.util.Comparator;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.NavigableMap;
+import java.util.Optional;
+import java.util.Set;
 import org.apache.bifromq.basekv.balance.BalanceNow;
 import org.apache.bifromq.basekv.balance.BalanceResult;
 import org.apache.bifromq.basekv.balance.NoNeedBalance;
@@ -34,15 +42,7 @@ import org.apache.bifromq.basekv.proto.KVRangeStoreDescriptor;
 import org.apache.bifromq.basekv.raft.proto.ClusterConfig;
 import org.apache.bifromq.basekv.utils.EffectiveEpoch;
 import org.apache.bifromq.basekv.utils.EffectiveRoute;
-import org.apache.bifromq.basekv.utils.LeaderRange;
-import com.google.common.collect.Sets;
-import java.util.Comparator;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.NavigableMap;
-import java.util.Optional;
-import java.util.Set;
+import org.apache.bifromq.basekv.utils.RangeLeader;
 
 /**
  * The goal of the balancer is to balance the leader count of each store by emitting TransferLeadership command.
@@ -78,10 +78,10 @@ public class RangeLeaderBalancer extends StoreBalancer {
         return balanceLeaderCount(effectiveRoute.leaderRanges());
     }
 
-    private BalanceResult balanceLeaderCount(NavigableMap<Boundary, LeaderRange> effectiveRoute) {
+    private BalanceResult balanceLeaderCount(NavigableMap<Boundary, RangeLeader> effectiveRoute) {
         Map<String, Integer> storeLeaderCount = new HashMap<>();
-        for (Map.Entry<Boundary, LeaderRange> entry : effectiveRoute.entrySet()) {
-            String localStoreId = entry.getValue().ownerStoreDescriptor().getId();
+        for (Map.Entry<Boundary, RangeLeader> entry : effectiveRoute.entrySet()) {
+            String localStoreId = entry.getValue().storeId();
             KVRangeDescriptor rangeDescriptor = entry.getValue().descriptor();
             ClusterConfig clusterConfig = rangeDescriptor.getConfig();
             clusterConfig.getVotersList().forEach(voter -> storeLeaderCount.computeIfAbsent(voter, k -> 0));
@@ -106,10 +106,10 @@ public class RangeLeaderBalancer extends StoreBalancer {
             return NoNeedBalance.INSTANCE;
         }
         // scan the effective route to find the range to balance
-        for (Map.Entry<Boundary, LeaderRange> entry : effectiveRoute.entrySet()) {
-            LeaderRange leaderRange = entry.getValue();
-            String leaderStoreId = leaderRange.ownerStoreDescriptor().getId();
-            KVRangeDescriptor rangeDescriptor = leaderRange.descriptor();
+        for (Map.Entry<Boundary, RangeLeader> entry : effectiveRoute.entrySet()) {
+            RangeLeader rangeLeader = entry.getValue();
+            String leaderStoreId = rangeLeader.storeId();
+            KVRangeDescriptor rangeDescriptor = rangeLeader.descriptor();
             ClusterConfig clusterConfig = rangeDescriptor.getConfig();
             Set<String> voters = Sets.newHashSet(clusterConfig.getVotersList());
 

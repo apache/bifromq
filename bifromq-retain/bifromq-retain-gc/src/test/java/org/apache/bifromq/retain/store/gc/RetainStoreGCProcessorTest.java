@@ -30,6 +30,7 @@ import static org.testng.Assert.assertEquals;
 
 import com.google.protobuf.ByteString;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.TreeMap;
 import java.util.concurrent.CompletableFuture;
 import org.apache.bifromq.basehlc.HLC;
@@ -84,10 +85,16 @@ public class RetainStoreGCProcessorTest {
             .setVer(1)
             .setBoundary(FULL_BOUNDARY)
             .build();
-        KVRangeSetting setting = new KVRangeSetting("clueter", "store", rangeDescriptor);
-        when(storeClient.latestEffectiveRouter()).thenReturn(new TreeMap<>(BoundaryUtil::compare) {{
-            put(FULL_BOUNDARY, setting);
-        }});
+        KVRangeSetting setting = new KVRangeSetting("clueter", "store", new HashMap<>() {
+            {
+                put("store", rangeDescriptor);
+            }
+        });
+        when(storeClient.latestEffectiveRouter()).thenReturn(new TreeMap<>(BoundaryUtil::compare) {
+            {
+                put(FULL_BOUNDARY, setting);
+            }
+        });
         when(storeClient.execute(anyString(), any())).thenReturn(new CompletableFuture<>());
         gcProcessor.gc(reqId, tenantId, null, now);
         verify(storeClient).execute(eq(setting.leader()), argThat(req -> {
@@ -116,7 +123,11 @@ public class RetainStoreGCProcessorTest {
             .setVer(1)
             .setBoundary(FULL_BOUNDARY)
             .build();
-        KVRangeSetting setting = new KVRangeSetting("cluster", "store", rangeDescriptor);
+        KVRangeSetting setting = new KVRangeSetting("cluster", "store", new HashMap<>() {
+            {
+                put("store", rangeDescriptor);
+            }
+        });
         when(storeClient.latestEffectiveRouter()).thenReturn(new TreeMap<>(BoundaryUtil::compare) {{
             put(FULL_BOUNDARY, setting);
         }});
@@ -153,8 +164,16 @@ public class RetainStoreGCProcessorTest {
             .setVer(1)
             .setBoundary(Boundary.newBuilder().setStartKey(ByteString.copyFromUtf8("a")).build())
             .build();
-        KVRangeSetting localSetting = new KVRangeSetting("cluster", localStoreId, localDescriptor);
-        KVRangeSetting remoteSetting = new KVRangeSetting("cluster", "remoteStore", remoteDescriptor);
+        KVRangeSetting localSetting = new KVRangeSetting("cluster", localStoreId, new HashMap<>() {
+            {
+                put(localStoreId, localDescriptor);
+            }
+        });
+        KVRangeSetting remoteSetting = new KVRangeSetting("cluster", "remoteStore", new HashMap<>() {
+            {
+                put("remoteStore", remoteDescriptor);
+            }
+        });
         when(storeClient.latestEffectiveRouter()).thenReturn(new TreeMap<>(BoundaryUtil::compare) {{
             put(localDescriptor.getBoundary(), localSetting);
             put(remoteDescriptor.getBoundary(), remoteSetting);
@@ -191,12 +210,22 @@ public class RetainStoreGCProcessorTest {
             .setVer(1)
             .setBoundary(Boundary.newBuilder().setStartKey(ByteString.copyFromUtf8("a")).build())
             .build();
-        KVRangeSetting localSetting = new KVRangeSetting("cluster", localStoreId, localDescriptor);
-        KVRangeSetting remoteSetting = new KVRangeSetting("cluster", "remoteStore", remoteDescriptor);
-        when(storeClient.latestEffectiveRouter()).thenReturn(new TreeMap<>(BoundaryUtil::compare) {{
-            put(localDescriptor.getBoundary(), localSetting);
-            put(remoteDescriptor.getBoundary(), remoteSetting);
-        }});
+        KVRangeSetting localSetting = new KVRangeSetting("cluster", localStoreId, new HashMap<>() {
+            {
+                put(localStoreId, localDescriptor);
+            }
+        });
+        KVRangeSetting remoteSetting = new KVRangeSetting("cluster", "remoteStore", new HashMap<>() {
+            {
+                put("remoteStore", remoteDescriptor);
+            }
+        });
+        when(storeClient.latestEffectiveRouter()).thenReturn(new TreeMap<>(BoundaryUtil::compare) {
+            {
+                put(localDescriptor.getBoundary(), localSetting);
+                put(remoteDescriptor.getBoundary(), remoteSetting);
+            }
+        });
         when(storeClient.execute(anyString(), any())).thenReturn(new CompletableFuture<>());
         gcProcessor.gc(reqId, null, null, now);
         verify(storeClient).execute(eq(localSetting.leader()), argThat(req -> {

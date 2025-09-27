@@ -14,33 +14,18 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 
 package org.apache.bifromq.basekv.store;
 
+import static java.util.Collections.emptyMap;
 import static org.apache.bifromq.basekv.proto.State.StateType.Normal;
 import static org.apache.bifromq.basekv.utils.BoundaryUtil.FULL_BOUNDARY;
-import static java.util.Collections.emptyMap;
 import static org.testng.Assert.assertEquals;
 import static org.testng.Assert.assertFalse;
 import static org.testng.Assert.assertTrue;
 
-import org.apache.bifromq.baseenv.EnvProvider;
-import org.apache.bifromq.basekv.MockableTest;
-import org.apache.bifromq.basekv.TestCoProcFactory;
-import org.apache.bifromq.basekv.localengine.rocksdb.RocksDBCPableKVEngineConfigurator;
-import org.apache.bifromq.basekv.localengine.rocksdb.RocksDBWALableKVEngineConfigurator;
-import org.apache.bifromq.basekv.proto.KVRangeDescriptor;
-import org.apache.bifromq.basekv.proto.KVRangeId;
-import org.apache.bifromq.basekv.proto.KVRangeMessage;
-import org.apache.bifromq.basekv.proto.KVRangeStoreDescriptor;
-import org.apache.bifromq.basekv.proto.StoreMessage;
-import org.apache.bifromq.basekv.raft.proto.ClusterConfig;
-import org.apache.bifromq.basekv.raft.proto.RaftNodeStatus;
-import org.apache.bifromq.basekv.raft.proto.RaftNodeSyncState;
-import org.apache.bifromq.basekv.store.option.KVRangeStoreOptions;
-import org.apache.bifromq.basekv.utils.KVRangeIdUtil;
 import com.google.protobuf.Any;
 import io.reactivex.rxjava3.core.Observable;
 import io.reactivex.rxjava3.subjects.PublishSubject;
@@ -60,6 +45,21 @@ import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import lombok.SneakyThrows;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.bifromq.baseenv.EnvProvider;
+import org.apache.bifromq.basekv.MockableTest;
+import org.apache.bifromq.basekv.TestCoProcFactory;
+import org.apache.bifromq.basekv.localengine.rocksdb.RocksDBCPableKVEngineConfigurator;
+import org.apache.bifromq.basekv.localengine.rocksdb.RocksDBWALableKVEngineConfigurator;
+import org.apache.bifromq.basekv.proto.KVRangeDescriptor;
+import org.apache.bifromq.basekv.proto.KVRangeId;
+import org.apache.bifromq.basekv.proto.KVRangeMessage;
+import org.apache.bifromq.basekv.proto.KVRangeStoreDescriptor;
+import org.apache.bifromq.basekv.proto.StoreMessage;
+import org.apache.bifromq.basekv.raft.proto.ClusterConfig;
+import org.apache.bifromq.basekv.raft.proto.RaftNodeStatus;
+import org.apache.bifromq.basekv.raft.proto.RaftNodeSyncState;
+import org.apache.bifromq.basekv.store.option.KVRangeStoreOptions;
+import org.apache.bifromq.basekv.utils.KVRangeIdUtil;
 import org.testng.annotations.Test;
 
 @Slf4j
@@ -167,6 +167,7 @@ public class KVRangeBootstrapTest extends MockableTest {
             .setConfig(ClusterConfig.newBuilder().addVoters(rangeStore.id()).build())
             .putSyncState(rangeStore.id(), RaftNodeSyncState.Replicating)
             .setFact(Any.getDefaultInstance())
+            .setReadyForQuery(true)
             .build());
     }
 

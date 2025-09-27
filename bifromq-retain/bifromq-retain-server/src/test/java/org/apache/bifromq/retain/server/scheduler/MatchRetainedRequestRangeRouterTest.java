@@ -28,6 +28,7 @@ import static org.testng.Assert.assertEquals;
 import static org.testng.Assert.assertTrue;
 
 import com.google.protobuf.ByteString;
+import java.util.HashMap;
 import java.util.Iterator;
 import java.util.Map;
 import java.util.NavigableMap;
@@ -153,9 +154,10 @@ public class MatchRetainedRequestRangeRouterTest {
     }
 
     private KVRangeSetting toRangeSetting(Boundary boundary) {
-        return new KVRangeSetting("test", "test", KVRangeDescriptor
-            .newBuilder()
-            .setBoundary(boundary)
-            .build());
+        return new KVRangeSetting("test", "test", new HashMap<>() {
+            {
+                put("test", KVRangeDescriptor.newBuilder().setBoundary(boundary).build());
+            }
+        });
     }
 }

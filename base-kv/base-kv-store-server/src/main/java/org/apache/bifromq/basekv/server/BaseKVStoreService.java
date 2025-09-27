@@ -168,6 +168,11 @@ class BaseKVStoreService extends BaseKVStoreServiceGrpc.BaseKVStoreServiceImplBa
                         replyBuilder.setLatest(badVersion.latest);
                     }
                 }
+                if (e instanceof KVRangeException.TryLater tryLater) {
+                    if (tryLater.latest != null) {
+                        replyBuilder.setLatest(tryLater.latest);
+                    }
+                }
                 return replyBuilder.build();
             })), responseObserver);
     }
@@ -191,6 +196,11 @@ class BaseKVStoreService extends BaseKVStoreServiceGrpc.BaseKVStoreServiceImplBa
                         replyBuilder.setLatest(badVersion.latest);
                     }
                 }
+                if (e instanceof KVRangeException.TryLater tryLater) {
+                    if (tryLater.latest != null) {
+                        replyBuilder.setLatest(tryLater.latest);
+                    }
+                }
                 return replyBuilder.build();
             })), responseObserver);
     }
@@ -211,6 +221,11 @@ class BaseKVStoreService extends BaseKVStoreServiceGrpc.BaseKVStoreServiceImplBa
                         replyBuilder.setLatest(badVersion.latest);
                     }
                 }
+                if (e instanceof KVRangeException.TryLater tryLater) {
+                    if (tryLater.latest != null) {
+                        replyBuilder.setLatest(tryLater.latest);
+                    }
+                }
                 return replyBuilder.build();
             })), responseObserver);
     }
@@ -229,6 +244,11 @@ class BaseKVStoreService extends BaseKVStoreServiceGrpc.BaseKVStoreServiceImplBa
                 if (e instanceof KVRangeException.BadVersion badVersion) {
                     if (badVersion.latest != null) {
                         replyBuilder.setLatest(badVersion.latest);
+                    }
+                }
+                if (e instanceof KVRangeException.TryLater tryLater) {
+                    if (tryLater.latest != null) {
+                        replyBuilder.setLatest(tryLater.latest);
                     }
                 }
                 return replyBuilder.build();

@@ -14,11 +14,14 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 
 package org.apache.bifromq.basekv.utils;
 
+import static com.google.protobuf.ByteString.EMPTY;
+import static com.google.protobuf.ByteString.copyFrom;
+import static com.google.protobuf.ByteString.copyFromUtf8;
 import static org.apache.bifromq.basekv.utils.BoundaryUtil.FULL_BOUNDARY;
 import static org.apache.bifromq.basekv.utils.BoundaryUtil.MIN_KEY;
 import static org.apache.bifromq.basekv.utils.BoundaryUtil.NULL_BOUNDARY;
@@ -27,18 +30,16 @@ import static org.apache.bifromq.basekv.utils.BoundaryUtil.inRange;
 import static org.apache.bifromq.basekv.utils.BoundaryUtil.isSplittable;
 import static org.apache.bifromq.basekv.utils.BoundaryUtil.split;
 import static org.apache.bifromq.basekv.utils.BoundaryUtil.upperBound;
-import static com.google.protobuf.ByteString.EMPTY;
-import static com.google.protobuf.ByteString.copyFrom;
-import static com.google.protobuf.ByteString.copyFromUtf8;
 import static org.testng.Assert.assertEquals;
 import static org.testng.Assert.assertFalse;
 import static org.testng.Assert.assertNull;
 import static org.testng.Assert.assertTrue;
 import static org.testng.Assert.fail;
 
-import org.apache.bifromq.basekv.proto.Boundary;
 import com.google.protobuf.ByteString;
+import java.util.Collections;
 import java.util.Set;
+import org.apache.bifromq.basekv.proto.Boundary;
 import org.testng.annotations.Test;
 
 public class BoundaryUtilTest {
@@ -209,6 +210,7 @@ public class BoundaryUtilTest {
         // Valid split set with contiguous boundaries
         Set<Boundary> validSplitSet = Set.of(_a, a_b, b_c, c_d, d_e, e_);
         assertTrue(BoundaryUtil.isValidSplitSet(validSplitSet));
+        assertFalse(BoundaryUtil.isValidSplitSet(Collections.emptyNavigableSet()));
 
         // Single boundary that is FULL_BOUNDARY
         Set<Boundary> singleFullBoundary = Set.of(FULL_BOUNDARY);
@@ -353,8 +355,8 @@ public class BoundaryUtilTest {
         assertEquals(d_, BoundaryUtil.combine(e_, d_e));
         assertEquals(d_, BoundaryUtil.combine(d_e, e_));
 
-        assertEquals(FULL_BOUNDARY, BoundaryUtil.combine(_a, a_));
-        assertEquals(FULL_BOUNDARY, BoundaryUtil.combine(a_, _a));
+        assertEquals(BoundaryUtil.combine(_a, a_), FULL_BOUNDARY);
+        assertEquals(BoundaryUtil.combine(a_, _a), FULL_BOUNDARY);
 
         assertEquals(a_, BoundaryUtil.combine(a_, NULL_BOUNDARY));
         assertEquals(a_, BoundaryUtil.combine(NULL_BOUNDARY, a_));

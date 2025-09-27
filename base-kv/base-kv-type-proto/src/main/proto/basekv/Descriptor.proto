@@ -46,6 +46,7 @@ message KVRangeDescriptor {
   repeated SplitHint hints = 9;
   google.protobuf.Any fact = 10;
   uint64 hlc = 11;
+  bool readyForQuery = 12;
 }
 
 message KVRangeStoreDescriptor {

@@ -40,12 +40,11 @@ import org.apache.bifromq.basekv.balance.command.SplitCommand;
 import org.apache.bifromq.basekv.proto.Boundary;
 import org.apache.bifromq.basekv.proto.KVRangeDescriptor;
 import org.apache.bifromq.basekv.proto.KVRangeId;
-import org.apache.bifromq.basekv.proto.KVRangeStoreDescriptor;
 import org.apache.bifromq.basekv.raft.proto.ClusterConfig;
 import org.apache.bifromq.basekv.utils.BoundaryUtil;
 import org.apache.bifromq.basekv.utils.EffectiveRoute;
 import org.apache.bifromq.basekv.utils.KVRangeIdUtil;
-import org.apache.bifromq.basekv.utils.LeaderRange;
+import org.apache.bifromq.basekv.utils.RangeLeader;
 import org.testng.annotations.Test;
 
 public class CommandUtilTest {
@@ -123,23 +122,20 @@ public class CommandUtilTest {
         expected.put(boundary(null, "a"), ClusterConfig.newBuilder().addVoters("voter1").build());
         expected.put(boundary("a", null), ClusterConfig.newBuilder().addVoters("voter1").build());
 
-        NavigableMap<Boundary, LeaderRange> current = new TreeMap<>(BoundaryUtil::compare);
+        NavigableMap<Boundary, RangeLeader> current = new TreeMap<>(BoundaryUtil::compare);
         KVRangeId id = KVRangeIdUtil.generate();
         KVRangeId id1 = KVRangeIdUtil.next(id);
-        current.put(boundary(null, "a"), new LeaderRange(KVRangeDescriptor
+        current.put(boundary(null, "a"), new RangeLeader("voter1", KVRangeDescriptor
             .newBuilder()
             .setId(id)
             .setVer(1L)
             .setConfig(ClusterConfig.newBuilder().setCorrelateId("c1").addVoters("voter1").build())
-            .build(),
-            KVRangeStoreDescriptor.newBuilder().setId("voter1").build()));
-        current.put(boundary("a", null), new LeaderRange(KVRangeDescriptor
+            .build()));
+        current.put(boundary("a", null), new RangeLeader("voter1", KVRangeDescriptor
             .newBuilder()
             .setId(id1)
             .setConfig(ClusterConfig.newBuilder().setCorrelateId("c1").addVoters("voter1").build())
-            .build(),
-            KVRangeStoreDescriptor.newBuilder().setId("voter1").build()
-        ));
+            .build()));
         assertNull(diffBy(expected, new EffectiveRoute(id.getEpoch(), current)));
     }
 
@@ -150,20 +146,20 @@ public class CommandUtilTest {
             ClusterConfig.newBuilder().addVoters("voter1").addLearners("learner1").build());
         expected.put(boundary("a", null), ClusterConfig.newBuilder().addVoters("voter1").build());
 
-        NavigableMap<Boundary, LeaderRange> current = new TreeMap<>(BoundaryUtil::compare);
+        NavigableMap<Boundary, RangeLeader> current = new TreeMap<>(BoundaryUtil::compare);
         KVRangeId id = KVRangeIdUtil.generate();
         KVRangeId id1 = KVRangeIdUtil.next(id);
-        current.put(boundary(null, "a"), new LeaderRange(KVRangeDescriptor
+        current.put(boundary(null, "a"), new RangeLeader("voter1", KVRangeDescriptor
             .newBuilder()
             .setId(id)
             .setVer(1L)
             .setConfig(ClusterConfig.newBuilder().addVoters("voter2").addNextVoters("voter3").build())
-            .build(), KVRangeStoreDescriptor.newBuilder().setId("voter1").build()));
-        current.put(boundary("a", null), new LeaderRange(KVRangeDescriptor
+            .build()));
+        current.put(boundary("a", null), new RangeLeader("voter1", KVRangeDescriptor
             .newBuilder()
             .setId(id1)
             .setConfig(ClusterConfig.newBuilder().addVoters("voter2").build())
-            .build(), KVRangeStoreDescriptor.newBuilder().setId("voter1").build()));
+            .build()));
         assertNull(diffBy(expected, new EffectiveRoute(id.getEpoch(), current)));
     }
 
@@ -174,20 +170,20 @@ public class CommandUtilTest {
             ClusterConfig.newBuilder().addVoters("voter1").addLearners("learner1").build());
         expected.put(boundary("a", null), ClusterConfig.newBuilder().addVoters("voter1").build());
 
-        NavigableMap<Boundary, LeaderRange> current = new TreeMap<>(BoundaryUtil::compare);
+        NavigableMap<Boundary, RangeLeader> current = new TreeMap<>(BoundaryUtil::compare);
         KVRangeId id = KVRangeIdUtil.generate();
         KVRangeId id1 = KVRangeIdUtil.next(id);
-        current.put(boundary(null, "a"), new LeaderRange(KVRangeDescriptor
+        current.put(boundary(null, "a"), new RangeLeader("voter1", KVRangeDescriptor
             .newBuilder()
             .setId(id)
             .setVer(1L)
             .setConfig(ClusterConfig.newBuilder().addVoters("voter2").build())
-            .build(), KVRangeStoreDescriptor.newBuilder().setId("voter1").build()));
-        current.put(boundary("a", null), new LeaderRange(KVRangeDescriptor
+            .build()));
+        current.put(boundary("a", null), new RangeLeader("voter1", KVRangeDescriptor
             .newBuilder()
             .setId(id1)
             .setConfig(ClusterConfig.newBuilder().addVoters("voter2").build())
-            .build(), KVRangeStoreDescriptor.newBuilder().setId("voter1").build()));
+            .build()));
         ChangeConfigCommand command = (ChangeConfigCommand) diffBy(expected,
             new EffectiveRoute(id.getEpoch(), current));
         assertNotNull(command);
@@ -208,20 +204,20 @@ public class CommandUtilTest {
         expected.put(boundary("b", null),
             ClusterConfig.newBuilder().addVoters("voter1").addLearners("learner1").build());
 
-        NavigableMap<Boundary, LeaderRange> current = new TreeMap<>(BoundaryUtil::compare);
+        NavigableMap<Boundary, RangeLeader> current = new TreeMap<>(BoundaryUtil::compare);
         KVRangeId id = KVRangeIdUtil.generate();
         KVRangeId id1 = KVRangeIdUtil.next(id);
-        current.put(boundary(null, "b"), new LeaderRange(KVRangeDescriptor
+        current.put(boundary(null, "b"), new RangeLeader("voter1", KVRangeDescriptor
             .newBuilder()
             .setId(id)
             .setVer(1L)
             .setConfig(ClusterConfig.newBuilder().addVoters("voter1").addLearners("learner1").build())
-            .build(), KVRangeStoreDescriptor.newBuilder().setId("voter1").build()));
-        current.put(boundary("b", null), new LeaderRange(KVRangeDescriptor
+            .build()));
+        current.put(boundary("b", null), new RangeLeader("voter1", KVRangeDescriptor
             .newBuilder()
             .setId(id1)
             .setConfig(ClusterConfig.newBuilder().addVoters("voter1").addLearners("learner1").build())
-            .build(), KVRangeStoreDescriptor.newBuilder().setId("voter1").build()));
+            .build()));
         SplitCommand command = (SplitCommand) diffBy(expected, new EffectiveRoute(id.getEpoch(), current));
         assertNotNull(command);
         assertEquals(command.getToStore(), "voter1");
@@ -238,27 +234,27 @@ public class CommandUtilTest {
         expected.put(boundary("b", null),
             ClusterConfig.newBuilder().addVoters("voter1").addLearners("learner1").build());
 
-        NavigableMap<Boundary, LeaderRange> current = new TreeMap<>(BoundaryUtil::compare);
+        NavigableMap<Boundary, RangeLeader> current = new TreeMap<>(BoundaryUtil::compare);
         KVRangeId id = KVRangeIdUtil.generate();
         KVRangeId id1 = KVRangeIdUtil.next(id);
         KVRangeId id2 = KVRangeIdUtil.next(id1);
-        current.put(boundary(null, "a"), new LeaderRange(KVRangeDescriptor
+        current.put(boundary(null, "a"), new RangeLeader("voter1", KVRangeDescriptor
             .newBuilder()
             .setId(id)
             .setVer(1L)
             .setConfig(ClusterConfig.newBuilder().addVoters("voter1").addLearners("learner1").build())
-            .build(), KVRangeStoreDescriptor.newBuilder().setId("voter1").build()));
-        current.put(boundary("a", "b"), new LeaderRange(KVRangeDescriptor
+            .build()));
+        current.put(boundary("a", "b"), new RangeLeader("voter1", KVRangeDescriptor
             .newBuilder()
             .setId(id1)
             .setVer(2L)
             .setConfig(ClusterConfig.newBuilder().addVoters("voter1").build())
-            .build(), KVRangeStoreDescriptor.newBuilder().setId("voter1").build()));
-        current.put(boundary("b", null), new LeaderRange(KVRangeDescriptor
+            .build()));
+        current.put(boundary("b", null), new RangeLeader("voter1", KVRangeDescriptor
             .newBuilder()
             .setId(id2)
             .setConfig(ClusterConfig.newBuilder().addVoters("voter1").addLearners("learner1").build())
-            .build(), KVRangeStoreDescriptor.newBuilder().setId("voter1").build()));
+            .build()));
         ChangeConfigCommand command = (ChangeConfigCommand) diffBy(expected,
             new EffectiveRoute(id.getEpoch(), current));
         assertNotNull(command);
@@ -277,27 +273,27 @@ public class CommandUtilTest {
         expected.put(boundary("b", null),
             ClusterConfig.newBuilder().addVoters("voter1").addLearners("learner1").build());
 
-        NavigableMap<Boundary, LeaderRange> current = new TreeMap<>(BoundaryUtil::compare);
+        NavigableMap<Boundary, RangeLeader> current = new TreeMap<>(BoundaryUtil::compare);
         KVRangeId id = KVRangeIdUtil.generate();
         KVRangeId id1 = KVRangeIdUtil.next(id);
         KVRangeId id2 = KVRangeIdUtil.next(id1);
-        current.put(boundary(null, "a"), new LeaderRange(KVRangeDescriptor
+        current.put(boundary(null, "a"), new RangeLeader("voter1", KVRangeDescriptor
             .newBuilder()
             .setId(id)
             .setVer(1L)
             .setConfig(ClusterConfig.newBuilder().addVoters("voter1").addLearners("learner1").build())
-            .build(), KVRangeStoreDescriptor.newBuilder().setId("voter1").build()));
-        current.put(boundary("a", "b"), new LeaderRange(KVRangeDescriptor
+            .build()));
+        current.put(boundary("a", "b"), new RangeLeader("voter1", KVRangeDescriptor
             .newBuilder()
             .setId(id1)
             .setVer(2L)
             .setConfig(ClusterConfig.newBuilder().addVoters("voter1").addLearners("learner1").build())
-            .build(), KVRangeStoreDescriptor.newBuilder().setId("voter1").build()));
-        current.put(boundary("b", null), new LeaderRange(KVRangeDescriptor
+            .build()));
+        current.put(boundary("b", null), new RangeLeader("voter1", KVRangeDescriptor
             .newBuilder()
             .setId(id2)
             .setConfig(ClusterConfig.newBuilder().addVoters("voter1").addLearners("learner1").build())
-            .build(), KVRangeStoreDescriptor.newBuilder().setId("voter1").build()));
+            .build()));
         MergeCommand command = (MergeCommand) diffBy(expected, new EffectiveRoute(id.getEpoch(), current));
         assertNotNull(command);
         assertEquals(command.getToStore(), "voter1");
@@ -314,27 +310,27 @@ public class CommandUtilTest {
         expected.put(boundary("b", null),
             ClusterConfig.newBuilder().addVoters("voter1").addLearners("learner1").build());
 
-        NavigableMap<Boundary, LeaderRange> current = new TreeMap<>(BoundaryUtil::compare);
+        NavigableMap<Boundary, RangeLeader> current = new TreeMap<>(BoundaryUtil::compare);
         KVRangeId id = KVRangeIdUtil.generate();
         KVRangeId id1 = KVRangeIdUtil.next(id);
         KVRangeId id2 = KVRangeIdUtil.next(id1);
-        current.put(boundary(null, "a"), new LeaderRange(KVRangeDescriptor
+        current.put(boundary(null, "a"), new RangeLeader("voter1", KVRangeDescriptor
             .newBuilder()
             .setId(id)
             .setVer(1L)
             .setConfig(ClusterConfig.newBuilder().addVoters("voter1").addLearners("learner1").build())
-            .build(), KVRangeStoreDescriptor.newBuilder().setId("voter1").build()));
-        current.put(boundary("a", "b"), new LeaderRange(KVRangeDescriptor
+            .build()));
+        current.put(boundary("a", "b"), new RangeLeader("voter1", KVRangeDescriptor
             .newBuilder()
             .setId(id1)
             .setVer(2L)
             .setConfig(ClusterConfig.newBuilder().addVoters("voter1").addNextVoters("voter2").build())
-            .build(), KVRangeStoreDescriptor.newBuilder().setId("voter1").build()));
-        current.put(boundary("b", null), new LeaderRange(KVRangeDescriptor
+            .build()));
+        current.put(boundary("b", null), new RangeLeader("voter1", KVRangeDescriptor
             .newBuilder()
             .setId(id2)
             .setConfig(ClusterConfig.newBuilder().addVoters("voter1").addLearners("learner1").build())
-            .build(), KVRangeStoreDescriptor.newBuilder().setId("voter1").build()));
+            .build()));
         assertNull(diffBy(expected, new EffectiveRoute(id.getEpoch(), current)));
     }
 
@@ -346,16 +342,13 @@ public class CommandUtilTest {
         expected.put(boundary("a", null), ClusterConfig.newBuilder().addVoters("store1").build());
 
         // effectiveRoute has only ["b", null)
-        NavigableMap<Boundary, LeaderRange> current = new TreeMap<>(BoundaryUtil::compare);
+        NavigableMap<Boundary, RangeLeader> current = new TreeMap<>(BoundaryUtil::compare);
         KVRangeId id = KVRangeIdUtil.generate();
-        current.put(boundary("b", null), new LeaderRange(
-            KVRangeDescriptor.newBuilder()
-                .setId(id)
-                .setVer(1L)
-                .setConfig(ClusterConfig.newBuilder().addVoters("store1").build())
-                .build(),
-            KVRangeStoreDescriptor.newBuilder().setId("store1").build()
-        ));
+        current.put(boundary("b", null), new RangeLeader("store1", KVRangeDescriptor.newBuilder()
+            .setId(id)
+            .setVer(1L)
+            .setConfig(ClusterConfig.newBuilder().addVoters("store1").build())
+            .build()));
 
         BalanceCommand command = CommandUtil.diffBy(expected, new EffectiveRoute(id.getEpoch(), current));
         assertNotNull(command);
@@ -376,21 +369,19 @@ public class CommandUtilTest {
         expected.put(boundary("b", null), ClusterConfig.newBuilder().addVoters("store1").build());
 
         // effectiveRoute missing ["b", null)
-        NavigableMap<Boundary, LeaderRange> current = new TreeMap<>(BoundaryUtil::compare);
+        NavigableMap<Boundary, RangeLeader> current = new TreeMap<>(BoundaryUtil::compare);
         KVRangeId id = KVRangeIdUtil.generate();
         KVRangeId id1 = KVRangeIdUtil.next(id);
-        current.put(boundary(null, "a"), new LeaderRange(KVRangeDescriptor.newBuilder()
+        current.put(boundary(null, "a"), new RangeLeader("store1", KVRangeDescriptor.newBuilder()
             .setId(id)
             .setVer(1L)
             .setConfig(ClusterConfig.newBuilder().addVoters("store1").build())
-            .build(),
-            KVRangeStoreDescriptor.newBuilder().setId("store1").build()));
-        current.put(boundary("a", "b"), new LeaderRange(KVRangeDescriptor.newBuilder()
+            .build()));
+        current.put(boundary("a", "b"), new RangeLeader("store1", KVRangeDescriptor.newBuilder()
             .setId(id1)
             .setVer(1L)
             .setConfig(ClusterConfig.newBuilder().addVoters("store1").build())
-            .build(),
-            KVRangeStoreDescriptor.newBuilder().setId("store1").build()));
+            .build()));
 
         BalanceCommand command = CommandUtil.diffBy(expected, new EffectiveRoute(id.getEpoch(), current));
         assertNotNull(command);
@@ -411,21 +402,19 @@ public class CommandUtilTest {
         expected.put(boundary("c", null), ClusterConfig.newBuilder().addVoters("store1").build());
 
         // effectiveRoute missing ["a", "c")
-        NavigableMap<Boundary, LeaderRange> current = new TreeMap<>(BoundaryUtil::compare);
+        NavigableMap<Boundary, RangeLeader> current = new TreeMap<>(BoundaryUtil::compare);
         KVRangeId id = KVRangeIdUtil.generate();
         KVRangeId id1 = KVRangeIdUtil.next(id);
-        current.put(boundary(null, "a"), new LeaderRange(KVRangeDescriptor.newBuilder()
+        current.put(boundary(null, "a"), new RangeLeader("store1", KVRangeDescriptor.newBuilder()
             .setId(id)
             .setVer(1L)
             .setConfig(ClusterConfig.newBuilder().addVoters("store1").build())
-            .build(),
-            KVRangeStoreDescriptor.newBuilder().setId("store1").build()));
-        current.put(boundary("c", null), new LeaderRange(KVRangeDescriptor.newBuilder()
+            .build()));
+        current.put(boundary("c", null), new RangeLeader("store1", KVRangeDescriptor.newBuilder()
             .setId(id1)
             .setVer(1L)
             .setConfig(ClusterConfig.newBuilder().addVoters("store1").build())
-            .build(),
-            KVRangeStoreDescriptor.newBuilder().setId("store1").build()));
+            .build()));
 
         BalanceCommand command = CommandUtil.diffBy(expected, new EffectiveRoute(id.getEpoch(), current));
         assertNotNull(command);

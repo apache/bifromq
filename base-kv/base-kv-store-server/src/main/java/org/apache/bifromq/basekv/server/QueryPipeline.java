@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 
 package org.apache.bifromq.basekv.server;
@@ -88,18 +88,29 @@ class QueryPipeline extends ResponsePipeline<KVRangeRORequest, KVRangeROReply> {
                             }
                             return replyBuilder.build();
                         }
-                        if (e instanceof KVRangeStoreException.KVRangeNotFoundException
-                            || e instanceof KVRangeException.TryLater) {
+                        if (e instanceof KVRangeException.TryLater tryLater) {
+                            KVRangeROReply.Builder replyBuilder = KVRangeROReply.newBuilder()
+                                .setReqId(request.getReqId())
+                                .setCode(ReplyCode.TryLater);
+                            if (tryLater.latest != null) {
+                                replyBuilder.setLatest(tryLater.latest);
+                            }
+                            return replyBuilder.build();
+                        }
+                        if (e instanceof KVRangeStoreException.KVRangeNotFoundException) {
                             return KVRangeROReply.newBuilder()
                                 .setReqId(request.getReqId())
                                 .setCode(ReplyCode.TryLater)
                                 .build();
                         }
-                        if (e instanceof KVRangeException.BadRequest) {
-                            return KVRangeROReply.newBuilder()
+                        if (e instanceof KVRangeException.BadRequest badRequest) {
+                            KVRangeROReply.Builder replyBuilder = KVRangeROReply.newBuilder()
                                 .setReqId(request.getReqId())
-                                .setCode(ReplyCode.BadRequest)
-                                .build();
+                                .setCode(ReplyCode.BadRequest);
+                            if (badRequest.latest != null) {
+                                replyBuilder.setLatest(badRequest.latest);
+                            }
+                            return replyBuilder.build();
                         }
                         if (e instanceof ReadIndexException) {
                             return KVRangeROReply.newBuilder()

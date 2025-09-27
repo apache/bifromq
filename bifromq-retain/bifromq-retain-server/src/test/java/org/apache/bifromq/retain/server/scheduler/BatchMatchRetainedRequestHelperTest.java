@@ -29,11 +29,6 @@ import static org.mockito.Mockito.when;
 import static org.mockito.MockitoAnnotations.openMocks;
 import static org.testng.Assert.assertEquals;
 
-import org.apache.bifromq.basekv.client.KVRangeSetting;
-import org.apache.bifromq.basekv.proto.KVRangeDescriptor;
-import org.apache.bifromq.retain.rpc.proto.MatchResult;
-import org.apache.bifromq.type.Message;
-import org.apache.bifromq.type.TopicMessage;
 import com.google.protobuf.ByteString;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
@@ -41,6 +36,11 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import lombok.SneakyThrows;
+import org.apache.bifromq.basekv.client.KVRangeSetting;
+import org.apache.bifromq.basekv.proto.KVRangeDescriptor;
+import org.apache.bifromq.retain.rpc.proto.MatchResult;
+import org.apache.bifromq.type.Message;
+import org.apache.bifromq.type.TopicMessage;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.testng.annotations.AfterMethod;
@@ -139,6 +139,10 @@ public class BatchMatchRetainedRequestHelperTest {
     }
 
     private KVRangeSetting rangeSetting(String storeId) {
-        return new KVRangeSetting("clusterId", storeId, KVRangeDescriptor.newBuilder().build());
+        return new KVRangeSetting("clusterId", storeId, new HashMap<>() {
+            {
+                put(storeId, KVRangeDescriptor.newBuilder().build());
+            }
+        });
     }
 }

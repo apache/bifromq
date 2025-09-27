@@ -22,7 +22,9 @@ package org.apache.bifromq.basekv.client;
 import static java.util.Collections.emptyMap;
 import static org.apache.bifromq.basekv.RPCBluePrint.toScopedFullMethodName;
 import static org.apache.bifromq.basekv.RPCServerMetadataUtil.RPC_METADATA_STORE_ID;
-import static org.apache.bifromq.basekv.client.KVRangeRouterUtil.findByBoundary;
+import static org.apache.bifromq.basekv.client.KVRangeRouterUtil.buildClientRoute;
+import static org.apache.bifromq.basekv.client.KVRangeRouterUtil.patchRouteMap;
+import static org.apache.bifromq.basekv.client.KVRangeRouterUtil.refreshRouteMap;
 import static org.apache.bifromq.basekv.store.proto.BaseKVStoreServiceGrpc.getBootstrapMethod;
 import static org.apache.bifromq.basekv.store.proto.BaseKVStoreServiceGrpc.getChangeReplicaConfigMethod;
 import static org.apache.bifromq.basekv.store.proto.BaseKVStoreServiceGrpc.getExecuteMethod;
@@ -33,7 +35,7 @@ import static org.apache.bifromq.basekv.store.proto.BaseKVStoreServiceGrpc.getRe
 import static org.apache.bifromq.basekv.store.proto.BaseKVStoreServiceGrpc.getSplitMethod;
 import static org.apache.bifromq.basekv.store.proto.BaseKVStoreServiceGrpc.getTransferLeadershipMethod;
 import static org.apache.bifromq.basekv.utils.DescriptorUtil.getEffectiveEpoch;
-import static org.apache.bifromq.basekv.utils.DescriptorUtil.getEffectiveRoute;
+import static org.apache.bifromq.basekv.utils.DescriptorUtil.getRangeLeaders;
 
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
@@ -47,7 +49,6 @@ import io.reactivex.rxjava3.schedulers.Schedulers;
 import io.reactivex.rxjava3.subjects.BehaviorSubject;
 import io.reactivex.rxjava3.subjects.Subject;
 import java.util.ArrayList;
-import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
@@ -57,6 +58,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.TreeMap;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutorService;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
@@ -91,8 +93,7 @@ import org.apache.bifromq.basekv.store.proto.TransferLeadershipReply;
 import org.apache.bifromq.basekv.store.proto.TransferLeadershipRequest;
 import org.apache.bifromq.basekv.utils.BoundaryUtil;
 import org.apache.bifromq.basekv.utils.EffectiveEpoch;
-import org.apache.bifromq.basekv.utils.EffectiveRoute;
-import org.apache.bifromq.basekv.utils.LeaderRange;
+import org.apache.bifromq.basekv.utils.RangeLeader;
 import org.apache.bifromq.baserpc.BluePrint;
 import org.apache.bifromq.baserpc.client.IRPCClient;
 import org.apache.bifromq.baserpc.client.exception.ServerNotFoundException;
@@ -100,10 +101,11 @@ import org.apache.bifromq.logger.MDCLogger;
 import org.slf4j.Logger;
 
 final class BaseKVStoreClient implements IBaseKVStoreClient {
-    private static final Scheduler SHARE_CLIENT_SCHEDULER = Schedulers.from(
-        ExecutorServiceMetrics.monitor(Metrics.globalRegistry, new ThreadPoolExecutor(1, 1, 0L, TimeUnit.MILLISECONDS,
-                new LinkedBlockingQueue<>(), EnvProvider.INSTANCE.newThreadFactory("basekv-client-scheduler", true)),
-            "basekv-client-scheduler"));
+    private static final ExecutorService CLIENT_EXECUTOR = ExecutorServiceMetrics.monitor(Metrics.globalRegistry,
+        new ThreadPoolExecutor(1, 1, 0L, TimeUnit.MILLISECONDS,
+            new LinkedBlockingQueue<>(), EnvProvider.INSTANCE.newThreadFactory("basekv-client-scheduler", true)),
+        "basekv-client-scheduler");
+    private static final Scheduler SHARE_CLIENT_SCHEDULER = Schedulers.from(CLIENT_EXECUTOR);
     private final Logger log;
     private final String clusterId;
     private final IRPCClient rpcClient;
@@ -128,6 +130,8 @@ final class BaseKVStoreClient implements IBaseKVStoreClient {
     private final AtomicReference<NavigableMap<Boundary, KVRangeSetting>> effectiveRouter =
         new AtomicReference<>(Collections.unmodifiableNavigableMap(new TreeMap<>(BoundaryUtil::compare)));
 
+    private final AtomicReference<Map<KVRangeId, Map<String, KVRangeDescriptor>>> latestRouteMap =
+        new AtomicReference<>(emptyMap());
     // key: serverId, val: storeId
     private volatile Map<String, String> serverToStoreMap = Maps.newHashMap();
     // key: storeId, value serverId
@@ -243,12 +247,12 @@ final class BaseKVStoreClient implements IBaseKVStoreClient {
                     .setCode(ReplyCode.InternalError)
                     .build();
             })
-            .thenApply(v -> {
+            .thenApplyAsync(v -> {
                 if (v.hasLatest()) {
                     patchRouter(storeId, v.getLatest());
                 }
                 return v;
-            });
+            }, CLIENT_EXECUTOR);
     }
 
     @Override
@@ -267,12 +271,12 @@ final class BaseKVStoreClient implements IBaseKVStoreClient {
                     .setCode(ReplyCode.InternalError)
                     .build();
             })
-            .thenApply(v -> {
+            .thenApplyAsync(v -> {
                 if (v.hasLatest()) {
                     patchRouter(storeId, v.getLatest());
                 }
                 return v;
-            });
+            }, CLIENT_EXECUTOR);
     }
 
     @Override
@@ -290,12 +294,12 @@ final class BaseKVStoreClient implements IBaseKVStoreClient {
                     .setCode(ReplyCode.InternalError)
                     .build();
             })
-            .thenApply(v -> {
+            .thenApplyAsync(v -> {
                 if (v.hasLatest()) {
                     patchRouter(storeId, v.getLatest());
                 }
                 return v;
-            });
+            }, CLIENT_EXECUTOR);
     }
 
     @Override
@@ -313,12 +317,12 @@ final class BaseKVStoreClient implements IBaseKVStoreClient {
                     .setCode(ReplyCode.InternalError)
                     .build();
             })
-            .thenApply(v -> {
+            .thenApplyAsync(v -> {
                 if (v.hasLatest()) {
                     patchRouter(storeId, v.getLatest());
                 }
                 return v;
-            });
+            }, CLIENT_EXECUTOR);
     }
 
     @Override
@@ -396,7 +400,7 @@ final class BaseKVStoreClient implements IBaseKVStoreClient {
                     };
                 }
                 return rpcClient.createRequestPipeline("", serverIdOpt.get(), null, emptyMap(), executeMethod);
-            }), latest -> patchRouter(storeId, latest), log);
+            }), latest -> patchRouter(storeId, latest), CLIENT_EXECUTOR, log);
     }
 
     @Override
@@ -440,7 +444,7 @@ final class BaseKVStoreClient implements IBaseKVStoreClient {
                 } else {
                     return rpcClient.createRequestPipeline("", serverIdOpt.get(), null, emptyMap(), queryMethod);
                 }
-            }), latest -> patchRouter(storeId, latest), log);
+            }), latest -> patchRouter(storeId, latest), CLIENT_EXECUTOR, log);
     }
 
     @Override
@@ -479,12 +483,14 @@ final class BaseKVStoreClient implements IBaseKVStoreClient {
         if (effectiveEpoch.isEmpty()) {
             return false;
         }
-        EffectiveRoute effectiveRoute = getEffectiveRoute(effectiveEpoch.get());
-        NavigableMap<Boundary, KVRangeSetting> router = new TreeMap<>(BoundaryUtil::compare);
-        for (Map.Entry<Boundary, LeaderRange> entry : effectiveRoute.leaderRanges().entrySet()) {
-            router.put(entry.getKey(), new KVRangeSetting(clusterId, entry.getValue().ownerStoreDescriptor().getId(),
-                entry.getValue().descriptor()));
-        }
+        Map<KVRangeId, Map<String, KVRangeDescriptor>> patch = new HashMap<>();
+        effectiveEpoch.get().storeDescriptors().forEach(storeDescriptor ->
+            storeDescriptor.getRangesList().forEach(rangeDescriptor ->
+                patch.computeIfAbsent(rangeDescriptor.getId(), k -> new HashMap<>())
+                    .put(storeDescriptor.getId(), rangeDescriptor)));
+        latestRouteMap.set(refreshRouteMap(latestRouteMap.get(), patch));
+        NavigableMap<Boundary, RangeLeader> rangeLeaders = getRangeLeaders(latestRouteMap.get());
+        NavigableMap<Boundary, KVRangeSetting> router = buildClientRoute(clusterId, rangeLeaders, latestRouteMap.get());
         NavigableMap<Boundary, KVRangeSetting> last = effectiveRouter.get();
         if (!router.equals(last)) {
             effectiveRouter.set(Collections.unmodifiableNavigableMap(router));
@@ -506,21 +512,13 @@ final class BaseKVStoreClient implements IBaseKVStoreClient {
         return true;
     }
 
-    private void patchRouter(String leaderStoreId, KVRangeDescriptor latest) {
-        NavigableMap<Boundary, KVRangeSetting> router = effectiveRouter.get();
-        KVRangeSetting setting = new KVRangeSetting(clusterId, leaderStoreId, latest);
-        Collection<KVRangeSetting> overlaps = findByBoundary(setting.boundary(), router);
-        log.debug("Patching router: clusterId={}, leaderStoreId={}, latest={}, overlaps={}",
-            clusterId, leaderStoreId, latest, overlaps);
-        if (overlaps.stream().allMatch(s -> s.ver() < latest.getVer())) {
-            NavigableMap<Boundary, KVRangeSetting> patched = new TreeMap<>(BoundaryUtil::compare);
-            for (KVRangeSetting s : router.values()) {
-                if (!overlaps.contains(s)) {
-                    patched.put(s.boundary(), s);
-                }
-            }
-            patched.put(setting.boundary(), setting);
-            effectiveRouter.compareAndSet(router, Collections.unmodifiableNavigableMap(patched));
+    private void patchRouter(String storeId, KVRangeDescriptor latest) {
+        latestRouteMap.set(patchRouteMap(storeId, latest, new HashMap<>(latestRouteMap.get())));
+        NavigableMap<Boundary, RangeLeader> rangeLeaders = getRangeLeaders(latestRouteMap.get());
+        NavigableMap<Boundary, KVRangeSetting> router = buildClientRoute(clusterId, rangeLeaders, latestRouteMap.get());
+        NavigableMap<Boundary, KVRangeSetting> last = effectiveRouter.get();
+        if (!router.equals(last)) {
+            effectiveRouter.set(Collections.unmodifiableNavigableMap(router));
         }
     }
 

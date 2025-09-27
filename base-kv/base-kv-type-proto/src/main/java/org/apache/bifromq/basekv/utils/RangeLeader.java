@@ -14,19 +14,18 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 
 package org.apache.bifromq.basekv.utils;
 
 import org.apache.bifromq.basekv.proto.KVRangeDescriptor;
-import org.apache.bifromq.basekv.proto.KVRangeStoreDescriptor;
 
 /**
- * The descriptors of leader range and its hosting store.
+ * The leader replica of a range.
  *
+ * @param storeId              storeId
  * @param descriptor           rangeDescriptor
- * @param ownerStoreDescriptor storeDescriptor
  */
-public record LeaderRange(KVRangeDescriptor descriptor, KVRangeStoreDescriptor ownerStoreDescriptor) {
+public record RangeLeader(String storeId, KVRangeDescriptor descriptor) {
 }

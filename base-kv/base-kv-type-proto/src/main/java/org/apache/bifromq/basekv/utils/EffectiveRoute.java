@@ -14,13 +14,13 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 
 package org.apache.bifromq.basekv.utils;
 
-import org.apache.bifromq.basekv.proto.Boundary;
 import java.util.NavigableMap;
+import org.apache.bifromq.basekv.proto.Boundary;
 
 /**
  * The effective route within effective epoch.
@@ -28,5 +28,5 @@ import java.util.NavigableMap;
  * @param epoch        epoch
  * @param leaderRanges the effective route
  */
-public record EffectiveRoute(long epoch, NavigableMap<Boundary, LeaderRange> leaderRanges) {
+public record EffectiveRoute(long epoch, NavigableMap<Boundary, RangeLeader> leaderRanges) {
 }

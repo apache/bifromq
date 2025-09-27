@@ -501,7 +501,7 @@ public class DescriptorUtilTest {
         EffectiveEpoch effectiveEpoch = new EffectiveEpoch(1, storeDescriptors);
 
         EffectiveRoute effectiveRoute = DescriptorUtil.getEffectiveRoute(effectiveEpoch);
-        NavigableMap<Boundary, LeaderRange> routeMap = effectiveRoute.leaderRanges();
+        NavigableMap<Boundary, RangeLeader> routeMap = effectiveRoute.leaderRanges();
 
         assertEquals(routeMap.size(), 3);
         List<Long> actualIds = routeMap.values().stream()
@@ -544,10 +544,10 @@ public class DescriptorUtilTest {
 
         EffectiveEpoch effectiveEpoch = new EffectiveEpoch(1, storeDescriptors);
         EffectiveRoute effectiveRoute = DescriptorUtil.getEffectiveRoute(effectiveEpoch);
-        NavigableMap<Boundary, LeaderRange> routeMap = effectiveRoute.leaderRanges();
+        NavigableMap<Boundary, RangeLeader> routeMap = effectiveRoute.leaderRanges();
 
         assertEquals(routeMap.size(), 1);
-        LeaderRange selected = routeMap.firstEntry().getValue();
+        RangeLeader selected = routeMap.firstEntry().getValue();
         assertEquals(selected.descriptor().getId().getId(), 1L);
     }
 
@@ -573,7 +573,7 @@ public class DescriptorUtilTest {
 
         EffectiveEpoch effectiveEpoch = new EffectiveEpoch(1, storeDescriptors);
         EffectiveRoute effectiveRoute = DescriptorUtil.getEffectiveRoute(effectiveEpoch);
-        NavigableMap<Boundary, LeaderRange> routeMap = effectiveRoute.leaderRanges();
+        NavigableMap<Boundary, RangeLeader> routeMap = effectiveRoute.leaderRanges();
 
         assertTrue(routeMap.isEmpty());
     }
@@ -634,7 +634,7 @@ public class DescriptorUtilTest {
 
         EffectiveEpoch effectiveEpoch = new EffectiveEpoch(1, storeDescriptors);
         EffectiveRoute effectiveRoute = DescriptorUtil.getEffectiveRoute(effectiveEpoch);
-        NavigableMap<Boundary, LeaderRange> routeMap = effectiveRoute.leaderRanges();
+        NavigableMap<Boundary, RangeLeader> routeMap = effectiveRoute.leaderRanges();
 
         // Only two allowed ranges should be present
         assertEquals(routeMap.size(), 2);
@@ -676,7 +676,7 @@ public class DescriptorUtilTest {
         storeDescriptors.add(storeDescriptor);
 
         EffectiveEpoch effectiveEpoch = new EffectiveEpoch(1, storeDescriptors);
-        NavigableMap<Boundary, LeaderRange> routeMap = DescriptorUtil.getEffectiveRoute(effectiveEpoch).leaderRanges();
+        NavigableMap<Boundary, RangeLeader> routeMap = DescriptorUtil.getEffectiveRoute(effectiveEpoch).leaderRanges();
 
         assertEquals(routeMap.firstEntry().getValue().descriptor().getId(), id1);
     }
@@ -721,7 +721,7 @@ public class DescriptorUtilTest {
         storeDescriptors.add(storeDescriptor);
 
         EffectiveEpoch effectiveEpoch = new EffectiveEpoch(1, storeDescriptors);
-        NavigableMap<Boundary, LeaderRange> routeMap = DescriptorUtil.getEffectiveRoute(effectiveEpoch).leaderRanges();
+        NavigableMap<Boundary, RangeLeader> routeMap = DescriptorUtil.getEffectiveRoute(effectiveEpoch).leaderRanges();
 
         // Should stop at r2 (endKey null)
         assertEquals(routeMap.size(), 2);
@@ -763,7 +763,7 @@ public class DescriptorUtilTest {
         storeDescriptors.add(storeDescriptor);
 
         EffectiveEpoch effectiveEpoch = new EffectiveEpoch(1, storeDescriptors);
-        NavigableMap<Boundary, LeaderRange> routeMap = DescriptorUtil.getEffectiveRoute(effectiveEpoch).leaderRanges();
+        NavigableMap<Boundary, RangeLeader> routeMap = DescriptorUtil.getEffectiveRoute(effectiveEpoch).leaderRanges();
         assertEquals(routeMap.size(), 2);
     }
 

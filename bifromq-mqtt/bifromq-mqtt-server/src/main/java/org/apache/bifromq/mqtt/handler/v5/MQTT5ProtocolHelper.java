@@ -57,6 +57,7 @@ import java.time.Duration;
 import java.util.List;
 import java.util.Optional;
 import org.apache.bifromq.basehlc.HLC;
+import org.apache.bifromq.dist.client.PubResult;
 import org.apache.bifromq.mqtt.handler.IMQTTProtocolHelper;
 import org.apache.bifromq.mqtt.handler.RoutedMessage;
 import org.apache.bifromq.mqtt.handler.TenantSettings;
@@ -74,7 +75,6 @@ import org.apache.bifromq.mqtt.spi.IUserPropsCustomizer;
 import org.apache.bifromq.mqtt.spi.UserProperty;
 import org.apache.bifromq.plugin.authprovider.type.CheckResult;
 import org.apache.bifromq.plugin.eventcollector.Event;
-import org.apache.bifromq.plugin.eventcollector.IEventCollector;
 import org.apache.bifromq.plugin.eventcollector.OutOfTenantResource;
 import org.apache.bifromq.plugin.eventcollector.mqttbroker.clientdisconnect.BadPacket;
 import org.apache.bifromq.plugin.eventcollector.mqttbroker.clientdisconnect.ByServer;
@@ -96,7 +96,6 @@ import org.apache.bifromq.plugin.eventcollector.mqttbroker.clientdisconnect.TooL
 import org.apache.bifromq.plugin.eventcollector.mqttbroker.disthandling.QoS1PubAcked;
 import org.apache.bifromq.plugin.eventcollector.mqttbroker.disthandling.QoS2PubReced;
 import org.apache.bifromq.plugin.resourcethrottler.TenantResourceType;
-import org.apache.bifromq.retain.rpc.proto.RetainReply;
 import org.apache.bifromq.sysprops.props.SanityCheckMqttUtf8String;
 import org.apache.bifromq.type.ClientInfo;
 import org.apache.bifromq.type.Message;
@@ -115,7 +114,6 @@ public class MQTT5ProtocolHelper implements IMQTTProtocolHelper {
     private final ReceiverTopicAliasManager receiverTopicAliasManager;
     private final SenderTopicAliasManager senderTopicAliasManager;
     private final IUserPropsCustomizer userPropertiesCustomizer;
-
 
     public MQTT5ProtocolHelper(MqttConnectMessage connMsg,
                                TenantSettings settings,
@@ -728,18 +726,7 @@ public class MQTT5ProtocolHelper implements IMQTTProtocolHelper {
 
     @Override
     public ProtocolResponse onQoS0PubHandled(PubResult result, MqttPublishMessage message, UserProperties userProps) {
-        if (result.distResult() == org.apache.bifromq.dist.client.PubResult.BACK_PRESSURE_REJECTED
-            || result.retainResult() == RetainReply.Result.BACK_PRESSURE_REJECTED) {
-            String reason =
-                result.retainResult() == RetainReply.Result.BACK_PRESSURE_REJECTED ? "Too many retained qos0 publish" :
-                    "Too many qos0 publish";
-            return ProtocolResponse.responseNothing(
-                getLocal(ServerBusy.class)
-                    .reason(reason)
-                    .clientInfo(clientInfo));
-        } else {
-            return ProtocolResponse.responseNothing();
-        }
+        return responseNothing();
     }
 
     @Override
@@ -773,20 +760,6 @@ public class MQTT5ProtocolHelper implements IMQTTProtocolHelper {
 
     @Override
     public ProtocolResponse onQoS1PubHandled(PubResult result, MqttPublishMessage message, UserProperties userProps) {
-        if (result.distResult() == org.apache.bifromq.dist.client.PubResult.BACK_PRESSURE_REJECTED
-            || result.retainResult() == RetainReply.Result.BACK_PRESSURE_REJECTED) {
-            String reason =
-                result.retainResult() == RetainReply.Result.BACK_PRESSURE_REJECTED ? "Too many retained qos1 publish" :
-                    "Too many qos1 publish";
-            return response(MQTT5MessageBuilders.pubAck(requestProblemInfo)
-                    .packetId(message.variableHeader().packetId())
-                    .reasonCode(MQTT5PubAckReasonCode.ImplementationSpecificError)
-                    .reasonString(reason)
-                    .userProps(userProps).build(),
-                getLocal(ServerBusy.class)
-                    .reason(reason)
-                    .clientInfo(clientInfo));
-        }
         int packetId = message.variableHeader().packetId();
         Event<?>[] debugEvents;
         if (settings.debugMode) {
@@ -797,30 +770,39 @@ public class MQTT5ProtocolHelper implements IMQTTProtocolHelper {
         } else {
             debugEvents = new Event[0];
         }
-        if (result.retainResult() == RetainReply.Result.EXCEED_LIMIT) {
-            return response(MQTT5MessageBuilders.pubAck(requestProblemInfo)
-                .packetId(packetId)
-                .reasonCode(MQTT5PubAckReasonCode.QuotaExceeded).reasonString("Retain resource throttled")
-                .userProps(userProps).build(), debugEvents);
+        switch (result) {
+            case OK -> {
+                return response(MQTT5MessageBuilders.pubAck(requestProblemInfo)
+                    .packetId(packetId)
+                    .reasonCode(MQTT5PubAckReasonCode.Success).userProps(userProps).build(), debugEvents);
+            }
+            case NO_MATCH -> {
+                return response(MQTT5MessageBuilders.pubAck(requestProblemInfo)
+                    .packetId(packetId)
+                    .reasonCode(MQTT5PubAckReasonCode.NoMatchingSubscribers)
+                    .userProps(userProps).build(), debugEvents);
+            }
+            case BACK_PRESSURE_REJECTED -> {
+                return response(MQTT5MessageBuilders.pubAck(requestProblemInfo)
+                    .packetId(packetId)
+                    .reasonCode(MQTT5PubAckReasonCode.ImplementationSpecificError)
+                    .reasonString("ServerBusy")
+                    .userProps(userProps).build(), debugEvents);
+            }
+            case TRY_LATER -> {
+                return response(MQTT5MessageBuilders.pubAck(requestProblemInfo)
+                    .packetId(packetId)
+                    .reasonCode(MQTT5PubAckReasonCode.ImplementationSpecificError)
+                    .reasonString(result.name())
+                    .userProps(userProps).build(), debugEvents);
+            }
+            default -> {
+                return response(MQTT5MessageBuilders.pubAck(requestProblemInfo)
+                    .packetId(packetId)
+                    .reasonCode(MQTT5PubAckReasonCode.UnspecifiedError)
+                    .userProps(userProps).build(), debugEvents);
+            }
         }
-        return switch (result.distResult()) {
-            case OK -> response(MQTT5MessageBuilders.pubAck(requestProblemInfo)
-                .packetId(packetId)
-                .reasonCode(MQTT5PubAckReasonCode.Success).userProps(userProps).build(), debugEvents);
-            case NO_MATCH -> response(MQTT5MessageBuilders.pubAck(requestProblemInfo)
-                .packetId(packetId)
-                .reasonCode(MQTT5PubAckReasonCode.NoMatchingSubscribers)
-                .userProps(userProps).build(), debugEvents);
-            case TRY_LATER -> response(MQTT5MessageBuilders.pubAck(requestProblemInfo)
-                .packetId(packetId)
-                .reasonCode(MQTT5PubAckReasonCode.ImplementationSpecificError)
-                .reasonString(result.distResult().name())
-                .userProps(userProps).build(), debugEvents);
-            default -> response(MQTT5MessageBuilders.pubAck(requestProblemInfo)
-                .packetId(packetId)
-                .reasonCode(MQTT5PubAckReasonCode.UnspecifiedError)
-                .userProps(userProps).build(), debugEvents);
-        };
     }
 
     @Override
@@ -851,20 +833,6 @@ public class MQTT5ProtocolHelper implements IMQTTProtocolHelper {
 
     @Override
     public ProtocolResponse onQoS2PubHandled(PubResult result, MqttPublishMessage message, UserProperties userProps) {
-        if (result.distResult() == org.apache.bifromq.dist.client.PubResult.BACK_PRESSURE_REJECTED
-            || result.retainResult() == RetainReply.Result.BACK_PRESSURE_REJECTED) {
-            String reason =
-                result.retainResult() == RetainReply.Result.BACK_PRESSURE_REJECTED ? "Too many retained qos2 publish" :
-                    "Too many qos2 publish";
-            return response(MQTT5MessageBuilders.pubRec(requestProblemInfo)
-                    .packetId(message.variableHeader().packetId())
-                    .reasonCode(MQTT5PubRecReasonCode.ImplementationSpecificError)
-                    .reasonString(reason)
-                    .userProps(userProps).build(),
-                getLocal(ServerBusy.class)
-                    .reason(reason)
-                    .clientInfo(clientInfo));
-        }
         int packetId = message.variableHeader().packetId();
         Event<?>[] debugEvents;
         if (settings.debugMode) {
@@ -875,22 +843,33 @@ public class MQTT5ProtocolHelper implements IMQTTProtocolHelper {
         } else {
             debugEvents = new Event[0];
         }
-        if (result.retainResult() == RetainReply.Result.EXCEED_LIMIT) {
-            return response(MQTT5MessageBuilders.pubRec(requestProblemInfo).packetId(packetId)
-                .reasonCode(MQTT5PubRecReasonCode.QuotaExceeded).reasonString("Retain resource throttled")
-                .userProps(userProps).build(), debugEvents);
+        switch (result) {
+            case OK -> {
+                return response(MQTT5MessageBuilders.pubRec(requestProblemInfo).packetId(packetId)
+                    .reasonCode(MQTT5PubRecReasonCode.Success).userProps(userProps).build(), debugEvents);
+            }
+            case NO_MATCH -> {
+                return response(MQTT5MessageBuilders.pubRec(requestProblemInfo).packetId(packetId)
+                    .reasonCode(MQTT5PubRecReasonCode.NoMatchingSubscribers).userProps(userProps).build(), debugEvents);
+            }
+            case BACK_PRESSURE_REJECTED -> {
+                return response(MQTT5MessageBuilders.pubRec(requestProblemInfo).packetId(packetId)
+                    .reasonCode(MQTT5PubRecReasonCode.ImplementationSpecificError)
+                    .reasonString("ServerBusy")
+                    .userProps(userProps).build(), debugEvents);
+            }
+            case TRY_LATER -> {
+                return response(MQTT5MessageBuilders.pubRec(requestProblemInfo).packetId(packetId)
+                    .reasonCode(MQTT5PubRecReasonCode.ImplementationSpecificError)
+                    .reasonString(result.name())
+                    .userProps(userProps).build(), debugEvents);
+            }
+            default -> {
+                return response(MQTT5MessageBuilders.pubRec(requestProblemInfo).packetId(packetId)
+                    .reasonCode(MQTT5PubRecReasonCode.UnspecifiedError)
+                    .userProps(userProps).build(), debugEvents);
+            }
         }
-        return switch (result.distResult()) {
-            case OK -> response(MQTT5MessageBuilders.pubRec(requestProblemInfo).packetId(packetId)
-                .reasonCode(MQTT5PubRecReasonCode.Success).userProps(userProps).build(), debugEvents);
-            case NO_MATCH -> response(MQTT5MessageBuilders.pubRec(requestProblemInfo).packetId(packetId)
-                .reasonCode(MQTT5PubRecReasonCode.NoMatchingSubscribers).userProps(userProps).build(), debugEvents);
-            case TRY_LATER -> response(MQTT5MessageBuilders.pubRec(requestProblemInfo).packetId(packetId)
-                .reasonCode(MQTT5PubRecReasonCode.ImplementationSpecificError).reasonString(result.distResult().name())
-                .userProps(userProps).build(), debugEvents);
-            default -> response(MQTT5MessageBuilders.pubRec(requestProblemInfo).packetId(packetId)
-                .reasonCode(MQTT5PubRecReasonCode.UnspecifiedError).userProps(userProps).build(), debugEvents);
-        };
     }
 
     @Override

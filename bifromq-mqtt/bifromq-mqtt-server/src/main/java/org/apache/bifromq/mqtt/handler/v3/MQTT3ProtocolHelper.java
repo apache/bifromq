@@ -35,7 +35,6 @@ import io.netty.handler.codec.mqtt.MqttMessageBuilders;
 import io.netty.handler.codec.mqtt.MqttMessageIdVariableHeader;
 import io.netty.handler.codec.mqtt.MqttPublishMessage;
 import io.netty.handler.codec.mqtt.MqttQoS;
-import io.netty.handler.codec.mqtt.MqttReasonCodes;
 import io.netty.handler.codec.mqtt.MqttSubAckMessage;
 import io.netty.handler.codec.mqtt.MqttSubscribeMessage;
 import io.netty.handler.codec.mqtt.MqttTopicSubscription;
@@ -46,6 +45,7 @@ import java.util.List;
 import java.util.Optional;
 import lombok.AllArgsConstructor;
 import org.apache.bifromq.basehlc.HLC;
+import org.apache.bifromq.dist.client.PubResult;
 import org.apache.bifromq.mqtt.handler.IMQTTProtocolHelper;
 import org.apache.bifromq.mqtt.handler.RoutedMessage;
 import org.apache.bifromq.mqtt.handler.TenantSettings;
@@ -54,7 +54,6 @@ import org.apache.bifromq.mqtt.handler.record.SubTask;
 import org.apache.bifromq.mqtt.handler.record.SubTasks;
 import org.apache.bifromq.mqtt.spi.IUserPropsCustomizer;
 import org.apache.bifromq.plugin.authprovider.type.CheckResult;
-import org.apache.bifromq.plugin.eventcollector.IEventCollector;
 import org.apache.bifromq.plugin.eventcollector.OutOfTenantResource;
 import org.apache.bifromq.plugin.eventcollector.mqttbroker.clientdisconnect.BadPacket;
 import org.apache.bifromq.plugin.eventcollector.mqttbroker.clientdisconnect.ByServer;
@@ -76,7 +75,6 @@ import org.apache.bifromq.plugin.eventcollector.mqttbroker.disthandling.Discard;
 import org.apache.bifromq.plugin.eventcollector.mqttbroker.disthandling.QoS1PubAcked;
 import org.apache.bifromq.plugin.eventcollector.mqttbroker.disthandling.QoS2PubReced;
 import org.apache.bifromq.plugin.resourcethrottler.TenantResourceType;
-import org.apache.bifromq.retain.rpc.proto.RetainReply;
 import org.apache.bifromq.sysprops.props.SanityCheckMqttUtf8String;
 import org.apache.bifromq.type.ClientInfo;
 import org.apache.bifromq.type.Message;
@@ -101,7 +99,6 @@ public class MQTT3ProtocolHelper implements IMQTTProtocolHelper {
         // MQTT3: no user properties
         return UserProperties.getDefaultInstance();
     }
-
 
     @Override
     public boolean checkPacketIdUsage() {
@@ -395,15 +392,7 @@ public class MQTT3ProtocolHelper implements IMQTTProtocolHelper {
 
     @Override
     public ProtocolResponse onQoS0PubHandled(PubResult result, MqttPublishMessage message, UserProperties userProps) {
-        if (result.distResult() == org.apache.bifromq.dist.client.PubResult.BACK_PRESSURE_REJECTED
-            || result.retainResult() == RetainReply.Result.BACK_PRESSURE_REJECTED) {
-            String reason = result.retainResult() == RetainReply.Result.BACK_PRESSURE_REJECTED
-                ? "Too many retained qos0 publish"
-                : "Too many qos0 publish";
-            return responseNothing(getLocal(ServerBusy.class).reason(reason).clientInfo(clientInfo));
-        } else {
-            return responseNothing();
-        }
+        return responseNothing();
     }
 
     @Override
@@ -422,27 +411,26 @@ public class MQTT3ProtocolHelper implements IMQTTProtocolHelper {
 
     @Override
     public ProtocolResponse onQoS1PubHandled(PubResult result, MqttPublishMessage message, UserProperties userProps) {
-        if (result.distResult() == org.apache.bifromq.dist.client.PubResult.BACK_PRESSURE_REJECTED
-            || result.retainResult() == RetainReply.Result.BACK_PRESSURE_REJECTED) {
-            String reason = result.retainResult() == RetainReply.Result.BACK_PRESSURE_REJECTED
-                ? "Too many retained qos1 publish"
-                : "Too many qos1 publish";
-            return responseNothing(getLocal(ServerBusy.class).reason(reason).clientInfo(clientInfo));
-        } else {
-            if (settings.debugMode) {
-                return response(MqttMessageBuilders.pubAck()
+        switch (result) {
+            case OK, NO_MATCH -> {
+                if (settings.debugMode) {
+                    return response(MqttMessageBuilders.pubAck()
+                            .packetId(message.variableHeader().packetId())
+                            .build(),
+                        getLocal(QoS1PubAcked.class)
+                            .reqId(message.variableHeader().packetId())
+                            .isDup(message.fixedHeader().isDup())
+                            .topic(message.variableHeader().topicName())
+                            .size(message.payload().readableBytes())
+                            .clientInfo(clientInfo));
+                } else {
+                    return response(MqttMessageBuilders.pubAck()
                         .packetId(message.variableHeader().packetId())
-                        .build(),
-                    getLocal(QoS1PubAcked.class)
-                        .reqId(message.variableHeader().packetId())
-                        .isDup(message.fixedHeader().isDup())
-                        .topic(message.variableHeader().topicName())
-                        .size(message.payload().readableBytes())
-                        .clientInfo(clientInfo));
-            } else {
-                return response(MqttMessageBuilders.pubAck()
-                    .packetId(message.variableHeader().packetId())
-                    .build());
+                        .build());
+                }
+            }
+            default -> {
+                return responseNothing();
             }
         }
     }
@@ -463,27 +451,26 @@ public class MQTT3ProtocolHelper implements IMQTTProtocolHelper {
 
     @Override
     public ProtocolResponse onQoS2PubHandled(PubResult result, MqttPublishMessage message, UserProperties userProps) {
-        if (result.distResult() == org.apache.bifromq.dist.client.PubResult.BACK_PRESSURE_REJECTED
-            || result.retainResult() == RetainReply.Result.BACK_PRESSURE_REJECTED) {
-            String reason = result.retainResult() == RetainReply.Result.BACK_PRESSURE_REJECTED
-                ? "Too many retained qos2 publish"
-                : "Too many qos2 publish";
-            return responseNothing(getLocal(ServerBusy.class).reason(reason).clientInfo(clientInfo));
-        } else {
-            if (settings.debugMode) {
-                return response(MQTT3MessageBuilders.pubRec()
+        switch (result) {
+            case OK, NO_MATCH -> {
+                if (settings.debugMode) {
+                    return response(MQTT3MessageBuilders.pubRec()
+                            .packetId(message.variableHeader().packetId())
+                            .build(),
+                        getLocal(QoS2PubReced.class)
+                            .reqId(message.variableHeader().packetId())
+                            .isDup(message.fixedHeader().isDup())
+                            .topic(message.variableHeader().topicName())
+                            .size(message.payload().readableBytes())
+                            .clientInfo(clientInfo));
+                } else {
+                    return response(MQTT3MessageBuilders.pubRec()
                         .packetId(message.variableHeader().packetId())
-                        .build(),
-                    getLocal(QoS2PubReced.class)
-                        .reqId(message.variableHeader().packetId())
-                        .isDup(message.fixedHeader().isDup())
-                        .topic(message.variableHeader().topicName())
-                        .size(message.payload().readableBytes())
-                        .clientInfo(clientInfo));
-            } else {
-                return response(MQTT3MessageBuilders.pubRec()
-                    .packetId(message.variableHeader().packetId())
-                    .build());
+                        .build());
+                }
+            }
+            default -> {
+                return responseNothing();
             }
         }
     }

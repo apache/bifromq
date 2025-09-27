@@ -36,7 +36,6 @@ import static org.apache.bifromq.plugin.eventcollector.EventType.PUB_REC_DROPPED
 import static org.apache.bifromq.plugin.eventcollector.EventType.QOS0_DIST_ERROR;
 import static org.apache.bifromq.plugin.eventcollector.EventType.QOS1_DIST_ERROR;
 import static org.apache.bifromq.plugin.eventcollector.EventType.QOS2_DIST_ERROR;
-import static org.apache.bifromq.plugin.eventcollector.EventType.SERVER_BUSY;
 import static org.apache.bifromq.plugin.settingprovider.Setting.MsgPubPerSec;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
@@ -49,9 +48,6 @@ import static org.testng.Assert.assertEquals;
 import static org.testng.Assert.assertFalse;
 import static org.testng.Assert.assertTrue;
 
-import org.apache.bifromq.dist.client.PubResult;
-import org.apache.bifromq.mqtt.utils.MQTTMessageUtils;
-import org.apache.bifromq.type.ClientInfo;
 import io.netty.handler.codec.mqtt.MqttMessage;
 import io.netty.handler.codec.mqtt.MqttMessageIdVariableHeader;
 import io.netty.handler.codec.mqtt.MqttMessageType;
@@ -59,6 +55,9 @@ import io.netty.handler.codec.mqtt.MqttPublishMessage;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.bifromq.dist.client.PubResult;
+import org.apache.bifromq.mqtt.utils.MQTTMessageUtils;
+import org.apache.bifromq.type.ClientInfo;
 import org.testng.annotations.Test;
 
 @Slf4j
@@ -104,7 +103,7 @@ public class MQTTC2SPubTest extends BaseMQTTTest {
         mockDistBackPressure();
         MqttPublishMessage publishMessage = MQTTMessageUtils.publishQoS0Message("testTopic", 123);
         channel.writeInbound(publishMessage);
-        verifyEvent(MQTT_SESSION_START, CLIENT_CONNECTED, QOS0_DIST_ERROR, SERVER_BUSY);
+        verifyEvent(MQTT_SESSION_START, CLIENT_CONNECTED, QOS0_DIST_ERROR);
     }
 
     @Test
@@ -139,7 +138,7 @@ public class MQTTC2SPubTest extends BaseMQTTTest {
         mockDistDist(false);
         MqttPublishMessage publishMessage = MQTTMessageUtils.publishQoS1Message("testTopic", 123);
         channel.writeInbound(publishMessage);
-        verifyEvent(MQTT_SESSION_START, CLIENT_CONNECTED, QOS1_DIST_ERROR, PUB_ACKED);
+        verifyEvent(MQTT_SESSION_START, CLIENT_CONNECTED, QOS1_DIST_ERROR);
     }
 
     @Test
@@ -149,7 +148,7 @@ public class MQTTC2SPubTest extends BaseMQTTTest {
         mockDistBackPressure();
         MqttPublishMessage publishMessage = MQTTMessageUtils.publishQoS1Message("testTopic", 123);
         channel.writeInbound(publishMessage);
-        verifyEvent(MQTT_SESSION_START, CLIENT_CONNECTED, QOS1_DIST_ERROR, SERVER_BUSY);
+        verifyEvent(MQTT_SESSION_START, CLIENT_CONNECTED, QOS1_DIST_ERROR);
     }
 
 
@@ -193,14 +192,12 @@ public class MQTTC2SPubTest extends BaseMQTTTest {
         MqttMessage mqttMessage = channel.readOutbound();
         assertEquals(mqttMessage.fixedHeader().messageType(), MqttMessageType.PUBREC);
         assertEquals(((MqttMessageIdVariableHeader) mqttMessage.variableHeader()).messageId(), 123);
-//        assertTrue(sessionContext.isConfirming(tenantId, channel.id().asLongText(), 123));
         // publish release
         channel.writeInbound(MQTTMessageUtils.publishRelMessage(123));
         mqttMessage = channel.readOutbound();
         assertEquals(mqttMessage.fixedHeader().messageType(), MqttMessageType.PUBCOMP);
         assertEquals(((MqttMessageIdVariableHeader) mqttMessage.variableHeader()).messageId(), 123);
         verifyEvent(MQTT_SESSION_START, CLIENT_CONNECTED, PUB_RECED);
-//        assertFalse(sessionContext.isConfirming(tenantId, channel.id().asLongText(), 123));
     }
 
     @Test
@@ -210,8 +207,7 @@ public class MQTTC2SPubTest extends BaseMQTTTest {
         mockDistDist(false);
         MqttPublishMessage publishMessage = MQTTMessageUtils.publishQoS2Message("testTopic", 123);
         channel.writeInbound(publishMessage);
-        verifyEvent(MQTT_SESSION_START, CLIENT_CONNECTED, QOS2_DIST_ERROR, PUB_RECED);
-//        assertFalse(sessionContext.isConfirming(tenantId, channel.id().asLongText(), 123));
+        verifyEvent(MQTT_SESSION_START, CLIENT_CONNECTED, QOS2_DIST_ERROR);
     }
 
     @Test
@@ -221,8 +217,7 @@ public class MQTTC2SPubTest extends BaseMQTTTest {
         mockDistBackPressure();
         MqttPublishMessage publishMessage = MQTTMessageUtils.publishQoS2Message("testTopic", 123);
         channel.writeInbound(publishMessage);
-        verifyEvent(MQTT_SESSION_START, CLIENT_CONNECTED, QOS2_DIST_ERROR, SERVER_BUSY);
-//        assertFalse(sessionContext.isConfirming(tenantId, channel.id().asLongText(), 123));
+        verifyEvent(MQTT_SESSION_START, CLIENT_CONNECTED, QOS2_DIST_ERROR);
     }
 
 

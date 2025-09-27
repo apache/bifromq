@@ -111,7 +111,7 @@ public class DistWorkerCoProcFactory implements IKVRangeCoProcFactory {
                                        Supplier<IKVCloseableReader> rangeReaderProvider) {
         ISubscriptionCache routeCache = new SubscriptionCache(id, rangeReaderProvider,
             settingProvider, eventCollector, matchExecutor);
-        ITenantsState tenantsState = new TenantsState(rangeReaderProvider.get(),
+        ITenantsStats tenantsState = new TenantsStats(rangeReaderProvider,
             "clusterId", clusterId, "storeId", storeId, "rangeId", KVRangeIdUtil.toString(id));
 
         IDeliverExecutorGroup deliverExecutorGroup = new DeliverExecutorGroup(

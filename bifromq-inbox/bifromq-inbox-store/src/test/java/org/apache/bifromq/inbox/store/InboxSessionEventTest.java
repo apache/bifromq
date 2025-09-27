@@ -27,7 +27,6 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.testng.Assert.assertEquals;
 
-import org.apache.bifromq.plugin.eventcollector.EventType;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import org.apache.bifromq.basehlc.HLC;
@@ -35,6 +34,8 @@ import org.apache.bifromq.inbox.storage.proto.BatchAttachRequest;
 import org.apache.bifromq.inbox.storage.proto.BatchDetachReply;
 import org.apache.bifromq.inbox.storage.proto.BatchDetachRequest;
 import org.apache.bifromq.inbox.storage.proto.InboxVersion;
+import org.apache.bifromq.plugin.eventcollector.EventType;
+import org.apache.bifromq.plugin.eventcollector.session.MQTTSessionStart;
 import org.apache.bifromq.sessiondict.client.type.OnlineCheckResult;
 import org.apache.bifromq.type.ClientInfo;
 import org.testng.annotations.Test;
@@ -56,7 +57,12 @@ public class InboxSessionEventTest extends InboxStoreTest {
             .setNow(now)
             .build();
         requestAttach(attachParams);
-        verify(eventCollector).report(argThat(e -> e.type() == EventType.MQTT_SESSION_START));
+        verify(eventCollector).report(argThat(e -> {
+            if (!(e instanceof MQTTSessionStart sessionStart)) {
+                return false;
+            }
+            return sessionStart.clientInfo().getTenantId().equals(tenantId);
+        }));
     }
 
     @Test(groups = "integration")

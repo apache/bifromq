@@ -59,6 +59,7 @@ public enum TenantMetric {
 
     // subscription related metrics
     MqttRouteSpaceGauge("mqtt.route.space.gauge", Meter.Type.GAUGE),
+    MqttRouteNumGauge("mqtt.route.num.gauge", Meter.Type.GAUGE),
     MqttSharedSubNumGauge("mqtt.shared.sub.num.gauge", Meter.Type.GAUGE),
     MqttTransientSubCount("mqtt.tsub.count", Meter.Type.COUNTER),
     MqttTransientSubLatency("mqtt.tsub.latency", Meter.Type.TIMER),

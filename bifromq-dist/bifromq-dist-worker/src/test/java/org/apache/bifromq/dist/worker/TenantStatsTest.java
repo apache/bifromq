@@ -14,11 +14,12 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 
 package org.apache.bifromq.dist.worker;
 
+import static org.apache.bifromq.metrics.TenantMetric.MqttRouteNumGauge;
 import static org.apache.bifromq.metrics.TenantMetric.MqttRouteSpaceGauge;
 import static org.apache.bifromq.metrics.TenantMetric.MqttSharedSubNumGauge;
 import static org.mockito.Mockito.when;
@@ -29,35 +30,39 @@ import java.util.function.Supplier;
 import org.mockito.Mockito;
 import org.testng.annotations.Test;
 
-public class TenantRouteStateTest extends MeterTest {
+public class TenantStatsTest extends MeterTest {
 
     @Test
     public void testMeterSetupAndDestroy() {
         String tenantId = "tenant" + System.nanoTime();
         assertNoGauge(tenantId, MqttRouteSpaceGauge);
+        assertNoGauge(tenantId, MqttRouteNumGauge);
         assertNoGauge(tenantId, MqttSharedSubNumGauge);
-        TenantRouteState tenantRouteState = new TenantRouteState(tenantId, () -> 0, "tags", "values");
+        TenantStats tenantStats = new TenantStats(tenantId, () -> 0, "tags", "values");
         assertGauge(tenantId, MqttRouteSpaceGauge);
+        assertGauge(tenantId, MqttRouteNumGauge);
         assertGauge(tenantId, MqttSharedSubNumGauge);
-        tenantRouteState.destroy();
+        tenantStats.destroy();
         assertNoGauge(tenantId, MqttRouteSpaceGauge);
+        assertNoGauge(tenantId, MqttRouteNumGauge);
         assertNoGauge(tenantId, MqttSharedSubNumGauge);
     }
 
     @Test
     public void testAdd() {
         String tenantId = "tenant" + System.nanoTime();
-        TenantRouteState tenantRouteState = new TenantRouteState(tenantId, () -> 0, "tags", "values");
-        assertTrue(tenantRouteState.isNoRoutes());
-        tenantRouteState.addNormalRoutes(1);
-        tenantRouteState.addSharedRoutes(1);
+        TenantStats tenantStats = new TenantStats(tenantId, () -> 0, "tags", "values");
+        assertTrue(tenantStats.isNoRoutes());
+        tenantStats.addNormalRoutes(1);
+        tenantStats.addSharedRoutes(1);
         assertGaugeValue(tenantId, MqttSharedSubNumGauge, 1);
-        tenantRouteState.addSharedRoutes(-1);
+        tenantStats.addSharedRoutes(-1);
         assertGaugeValue(tenantId, MqttSharedSubNumGauge, 0);
 
-        assertFalse(tenantRouteState.isNoRoutes());
-        tenantRouteState.addNormalRoutes(-1);
-        assertTrue(tenantRouteState.isNoRoutes());
+        assertFalse(tenantStats.isNoRoutes());
+        assertGaugeValue(tenantId, MqttRouteNumGauge, 1);
+        tenantStats.addNormalRoutes(-1);
+        assertTrue(tenantStats.isNoRoutes());
     }
 
     @Test
@@ -66,7 +71,7 @@ public class TenantRouteStateTest extends MeterTest {
 
         Supplier<Number> routeSpaceProvider = Mockito.mock(Supplier.class);
         when(routeSpaceProvider.get()).thenReturn(3);
-        TenantRouteState tenantRouteState = new TenantRouteState(tenantId, routeSpaceProvider, "tags", "values");
+        TenantStats tenantStats = new TenantStats(tenantId, routeSpaceProvider, "tags", "values");
         assertGaugeValue(tenantId, MqttRouteSpaceGauge, 3);
     }
 }

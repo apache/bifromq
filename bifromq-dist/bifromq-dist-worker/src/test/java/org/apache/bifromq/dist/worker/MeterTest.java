@@ -14,21 +14,22 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 
 package org.apache.bifromq.dist.worker;
 
+import static org.awaitility.Awaitility.await;
 import static org.testng.Assert.assertEquals;
 import static org.testng.Assert.assertTrue;
 
-import org.apache.bifromq.metrics.ITenantMeter;
-import org.apache.bifromq.metrics.TenantMetric;
 import io.micrometer.core.instrument.Gauge;
 import io.micrometer.core.instrument.Meter;
 import io.micrometer.core.instrument.Metrics;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.util.Optional;
+import org.apache.bifromq.metrics.ITenantMeter;
+import org.apache.bifromq.metrics.TenantMetric;
 import org.testng.annotations.AfterMethod;
 import org.testng.annotations.BeforeMethod;
 
@@ -48,21 +49,27 @@ public class MeterTest {
     }
 
     protected void assertGauge(String tenantId, TenantMetric tenantMetric) {
-        Optional<Meter> gauge = getGauge(tenantId, tenantMetric);
-        assertTrue(gauge.isPresent());
-        assertEquals(gauge.get().getId().getType(), Meter.Type.GAUGE);
-        assertEquals(gauge.get().getId().getTag(ITenantMeter.TAG_TENANT_ID), tenantId);
+        await().untilAsserted(() -> {
+            Optional<Meter> gauge = getGauge(tenantId, tenantMetric);
+            assertTrue(gauge.isPresent());
+            assertEquals(gauge.get().getId().getType(), Meter.Type.GAUGE);
+            assertEquals(gauge.get().getId().getTag(ITenantMeter.TAG_TENANT_ID), tenantId);
+        });
     }
 
     protected void assertNoGauge(String tenantId, TenantMetric tenantMetric) {
-        Optional<Meter> gauge = getGauge(tenantId, tenantMetric);
-        gauge.ifPresent(meter -> assertEquals(meter.getId().getTag(ITenantMeter.TAG_TENANT_ID), tenantId));
+        await().untilAsserted(() -> {
+            Optional<Meter> gauge = getGauge(tenantId, tenantMetric);
+            assertTrue(gauge.isEmpty());
+        });
     }
 
     protected void assertGaugeValue(String tenantId, TenantMetric tenantMetric, double value) {
-        Optional<Meter> meter = getGauge(tenantId, tenantMetric);
-        assertTrue(meter.isPresent());
-        assertEquals(((Gauge) meter.get()).value(), value);
+        await().untilAsserted(() -> {
+            Optional<Meter> meter = getGauge(tenantId, tenantMetric);
+            assertTrue(meter.isPresent());
+            assertEquals(((Gauge) meter.get()).value(), value);
+        });
     }
 
     protected Optional<Meter> getGauge(String tenantId, TenantMetric tenantMetric) {

@@ -14,29 +14,21 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 
-package org.apache.bifromq.dist.worker;
+package org.apache.bifromq.sysprops.props;
 
-public interface ITenantsState {
-    void incNormalRoutes(String tenantId);
+import org.apache.bifromq.sysprops.BifroMQSysProp;
+import org.apache.bifromq.sysprops.parser.IntegerParser;
 
-    void incNormalRoutes(String tenantId, int count);
+/**
+ * The timeout seconds to consider persistent session is probably detached from mqtt client.
+ */
+public final class InboxMetaCacheExpirySeconds extends BifroMQSysProp<Integer, IntegerParser> {
+    public static final InboxMetaCacheExpirySeconds INSTANCE = new InboxMetaCacheExpirySeconds();
 
-    void decNormalRoutes(String tenantId);
-
-    void decNormalRoutes(String tenantId, int count);
-
-    void incSharedRoutes(String tenantId);
-
-    void incSharedRoutes(String tenantId, int count);
-
-    void decSharedRoutes(String tenantId);
-
-    void decSharedRoutes(String tenantId, int count);
-
-    void reset();
-
-    void close();
+    private InboxMetaCacheExpirySeconds() {
+        super("inbox_meta_cache_expiry_second", 300, IntegerParser.from(60, Integer.MAX_VALUE));
+    }
 }

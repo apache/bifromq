@@ -20,15 +20,17 @@
 package org.apache.bifromq.dist.worker;
 
 import static org.apache.bifromq.basekv.utils.BoundaryUtil.FULL_BOUNDARY;
+import static org.apache.bifromq.metrics.TenantMetric.MqttRouteNumGauge;
 import static org.apache.bifromq.metrics.TenantMetric.MqttRouteSpaceGauge;
 import static org.apache.bifromq.metrics.TenantMetric.MqttSharedSubNumGauge;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-import org.apache.bifromq.basekv.store.api.IKVCloseableReader;
+import java.util.function.Supplier;
 import lombok.SneakyThrows;
+import org.apache.bifromq.basekv.store.api.IKVCloseableReader;
+import org.apache.bifromq.basekv.store.api.IKVIterator;
 import org.mockito.Mock;
 import org.mockito.MockitoAnnotations;
 import org.testng.annotations.AfterMethod;
@@ -37,14 +39,20 @@ import org.testng.annotations.Test;
 
 public class TenantsStatesTest extends MeterTest {
     @Mock
+    private Supplier<IKVCloseableReader> readerSupplier;
+    @Mock
     private IKVCloseableReader reader;
+    @Mock
+    private IKVIterator iterator;
     private AutoCloseable closeable;
 
     @BeforeMethod
     public void setup() {
         super.setup();
         closeable = MockitoAnnotations.openMocks(this);
+        when(readerSupplier.get()).thenReturn(reader);
         when(reader.boundary()).thenReturn(FULL_BOUNDARY);
+        when(reader.iterator()).thenReturn(iterator);
     }
 
     @SneakyThrows
@@ -58,7 +66,7 @@ public class TenantsStatesTest extends MeterTest {
     public void incShareRoute() {
         when(reader.size(any())).thenReturn(1L);
         String tenantId = "tenant" + System.nanoTime();
-        TenantsState tenantsState = new TenantsState(reader);
+        TenantsStats tenantsState = new TenantsStats(readerSupplier);
         tenantsState.incSharedRoutes(tenantId);
         assertGaugeValue(tenantId, MqttSharedSubNumGauge, 1);
     }
@@ -67,9 +75,10 @@ public class TenantsStatesTest extends MeterTest {
     public void testRemove() {
         when(reader.size(any())).thenReturn(1L);
         String tenantId = "tenant" + System.nanoTime();
-        TenantsState tenantsState = new TenantsState(reader);
+        TenantsStats tenantsState = new TenantsStats(readerSupplier);
         tenantsState.incSharedRoutes(tenantId);
         tenantsState.incNormalRoutes(tenantId);
+        assertGaugeValue(tenantId, MqttRouteNumGauge, 1);
         assertGaugeValue(tenantId, MqttSharedSubNumGauge, 1);
         assertGauge(tenantId, MqttRouteSpaceGauge);
 
@@ -77,6 +86,8 @@ public class TenantsStatesTest extends MeterTest {
         assertGaugeValue(tenantId, MqttSharedSubNumGauge, 0);
         assertGauge(tenantId, MqttRouteSpaceGauge);
         tenantsState.decNormalRoutes(tenantId);
+
+        assertNoGauge(tenantId, MqttRouteNumGauge);
         assertNoGauge(tenantId, MqttRouteSpaceGauge);
         assertNoGauge(tenantId, MqttSharedSubNumGauge);
     }
@@ -85,28 +96,31 @@ public class TenantsStatesTest extends MeterTest {
     public void testReset() {
         when(reader.size(any())).thenReturn(1L);
         String tenantId = "tenant" + System.nanoTime();
-        TenantsState tenantsState = new TenantsState(reader);
+        TenantsStats tenantsState = new TenantsStats(readerSupplier);
         tenantsState.incNormalRoutes(tenantId);
         assertGauge(tenantId, MqttRouteSpaceGauge);
+        assertGauge(tenantId, MqttRouteNumGauge);
         assertGauge(tenantId, MqttSharedSubNumGauge);
 
         tenantsState.reset();
         assertNoGauge(tenantId, MqttRouteSpaceGauge);
+        assertNoGauge(tenantId, MqttRouteNumGauge);
         assertNoGauge(tenantId, MqttSharedSubNumGauge);
-        verify(reader, never()).close();
     }
 
     @Test
     public void testClose() {
         when(reader.size(any())).thenReturn(1L);
         String tenantId = "tenant" + System.nanoTime();
-        TenantsState tenantsState = new TenantsState(reader);
+        TenantsStats tenantsState = new TenantsStats(readerSupplier);
         tenantsState.incNormalRoutes(tenantId);
         assertGauge(tenantId, MqttRouteSpaceGauge);
+        assertGauge(tenantId, MqttRouteNumGauge);
         assertGauge(tenantId, MqttSharedSubNumGauge);
 
         tenantsState.close();
         assertNoGauge(tenantId, MqttRouteSpaceGauge);
+        assertNoGauge(tenantId, MqttRouteNumGauge);
         assertNoGauge(tenantId, MqttSharedSubNumGauge);
         verify(reader).close();
     }

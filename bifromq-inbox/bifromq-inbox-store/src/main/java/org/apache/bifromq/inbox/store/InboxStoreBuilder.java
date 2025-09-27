@@ -14,16 +14,11 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 
 package org.apache.bifromq.inbox.store;
 
-import org.apache.bifromq.baserpc.server.RPCServerBuilder;
-import org.apache.bifromq.plugin.eventcollector.IEventCollector;
-import org.apache.bifromq.plugin.settingprovider.ISettingProvider;
-import org.apache.bifromq.retain.client.IRetainClient;
-import org.apache.bifromq.plugin.resourcethrottler.IResourceThrottler;
 import com.google.protobuf.Struct;
 import java.time.Duration;
 import java.util.HashMap;
@@ -37,9 +32,15 @@ import org.apache.bifromq.basecluster.IAgentHost;
 import org.apache.bifromq.basekv.client.IBaseKVStoreClient;
 import org.apache.bifromq.basekv.metaservice.IBaseKVMetaService;
 import org.apache.bifromq.basekv.store.option.KVRangeStoreOptions;
+import org.apache.bifromq.baserpc.server.RPCServerBuilder;
 import org.apache.bifromq.dist.client.IDistClient;
 import org.apache.bifromq.inbox.client.IInboxClient;
+import org.apache.bifromq.plugin.eventcollector.IEventCollector;
+import org.apache.bifromq.plugin.resourcethrottler.IResourceThrottler;
+import org.apache.bifromq.plugin.settingprovider.ISettingProvider;
+import org.apache.bifromq.retain.client.IRetainClient;
 import org.apache.bifromq.sessiondict.client.ISessionDictClient;
+import org.apache.bifromq.sysprops.props.InboxMetaCacheExpirySeconds;
 import org.apache.bifromq.sysprops.props.PersistentSessionDetachTimeoutSecond;
 
 /**
@@ -70,6 +71,7 @@ public class InboxStoreBuilder {
     Duration balancerRetryDelay = Duration.ofSeconds(5);
     Map<String, Struct> balancerFactoryConfig = new HashMap<>();
     Duration detachTimeout = Duration.ofSeconds(PersistentSessionDetachTimeoutSecond.INSTANCE.get());
+    Duration metaCacheExpireTime = Duration.ofSeconds(InboxMetaCacheExpirySeconds.INSTANCE.get());
     Duration loadEstimateWindow = Duration.ofSeconds(5);
     int expireRateLimit = 1000;
     Duration gcInterval = Duration.ofMinutes(5);

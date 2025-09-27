@@ -24,10 +24,12 @@ import static org.apache.bifromq.dist.worker.schema.KVSchemaUtil.toReceiverUrl;
 import static org.apache.bifromq.util.BSUtil.toByteString;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.Mockito.anySet;
 import static org.mockito.Mockito.eq;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -81,7 +83,7 @@ import org.testng.annotations.Test;
 public class DistWorkerCoProcTest {
 
     private ISubscriptionCache routeCache;
-    private ITenantsState tenantsState;
+    private ITenantsStats tenantsState;
     private IDeliverExecutorGroup deliverExecutorGroup;
     private ISubscriptionCleaner subscriptionChecker;
     private Supplier<IKVCloseableReader> readerProvider;
@@ -94,7 +96,7 @@ public class DistWorkerCoProcTest {
     @BeforeMethod
     public void setUp() {
         routeCache = mock(ISubscriptionCache.class);
-        tenantsState = mock(ITenantsState.class);
+        tenantsState = mock(ITenantsStats.class);
         deliverExecutorGroup = mock(IDeliverExecutorGroup.class);
         subscriptionChecker = mock(ISubscriptionCleaner.class);
         readerProvider = mock(Supplier.class);
@@ -522,6 +524,221 @@ public class DistWorkerCoProcTest {
         verify(tenantsState, times(1)).close();
         verify(routeCache, times(1)).close();
         verify(deliverExecutorGroup, times(1)).shutdown();
+    }
+
+    @Test
+    public void testAddNormalRouteNewRouteWritesRefreshAndInc() {
+        long inc = 1L;
+        String tenantId = "tenantX";
+        String topicFilter = "t/1";
+
+        // Build add route request with one normal route
+        RWCoProcInput rwCoProcInput = RWCoProcInput.newBuilder().setDistService(
+                DistServiceRWCoProcInput.newBuilder()
+                    .setBatchMatch(BatchMatchRequest.newBuilder()
+                        .setReqId(3001)
+                        .putRequests(tenantId,
+                            BatchMatchRequest.TenantBatch.newBuilder()
+                                .setOption(TenantOption.newBuilder().setMaxReceiversPerSharedSubGroup(10).build())
+                                .addRoute(MatchRoute.newBuilder()
+                                    .setMatcher(TopicUtil.from(topicFilter))
+                                    .setBrokerId(1)
+                                    .setReceiverId("inboxX")
+                                    .setDelivererKey("delivererX")
+                                    .setIncarnation(inc)
+                                    .build())
+                                .build())
+                        .build())
+                    .build())
+            .build();
+
+        // route not existed
+        when(reader.get(any(ByteString.class))).thenReturn(Optional.empty());
+
+        Supplier<IKVRangeCoProc.MutationResult> resultSupplier = distWorkerCoProc.mutate(rwCoProcInput, reader, writer);
+        IKVRangeCoProc.MutationResult result = resultSupplier.get();
+
+        // put once, refresh once, inc once
+        verify(writer, times(1)).put(any(ByteString.class), eq(BSUtil.toByteString(inc)));
+        verify(routeCache, times(1)).refresh(any());
+        verify(tenantsState, times(1)).incNormalRoutes(eq(tenantId), eq(1));
+
+        // reply codes should be OK
+        BatchMatchReply reply = result.output().getDistService().getBatchMatch();
+        assertEquals(reply.getReqId(), 3001);
+        assertEquals(reply.getResultsOrThrow(tenantId).getCode(0), BatchMatchReply.TenantBatch.Code.OK);
+    }
+
+    @Test
+    public void testAddNormalRouteDuplicatedInOneBatchOnlyCountOnceAndRefreshOnce() {
+        long inc = 1L;
+        String tenantId = "tenantD";
+        String topicFilter = "dup/topic";
+
+        // Build add route request with duplicated normal route entries
+        BatchMatchRequest.TenantBatch tenantBatch = BatchMatchRequest.TenantBatch.newBuilder()
+            .setOption(TenantOption.newBuilder().setMaxReceiversPerSharedSubGroup(10).build())
+            .addRoute(MatchRoute.newBuilder()
+                .setMatcher(TopicUtil.from(topicFilter))
+                .setBrokerId(1)
+                .setReceiverId("inboxD")
+                .setDelivererKey("delivererD")
+                .setIncarnation(inc)
+                .build())
+            .addRoute(MatchRoute.newBuilder()
+                .setMatcher(TopicUtil.from(topicFilter))
+                .setBrokerId(1)
+                .setReceiverId("inboxD")
+                .setDelivererKey("delivererD")
+                .setIncarnation(inc)
+                .build())
+            .build();
+
+        RWCoProcInput rwCoProcInput = RWCoProcInput.newBuilder().setDistService(
+                DistServiceRWCoProcInput.newBuilder()
+                    .setBatchMatch(BatchMatchRequest.newBuilder()
+                        .setReqId(3002)
+                        .putRequests(tenantId, tenantBatch)
+                        .build())
+                    .build())
+            .build();
+
+        // route not existed for both entries
+        when(reader.get(any(ByteString.class))).thenReturn(Optional.empty());
+
+        Supplier<IKVRangeCoProc.MutationResult> resultSupplier = distWorkerCoProc.mutate(rwCoProcInput, reader, writer);
+        IKVRangeCoProc.MutationResult result = resultSupplier.get();
+
+        // writer.put is called twice for duplicated entries
+        verify(writer, times(2)).put(any(ByteString.class), eq(BSUtil.toByteString(inc)));
+        // but we only refresh once and inc once
+        verify(routeCache, times(1)).refresh(any());
+        verify(tenantsState, times(1)).incNormalRoutes(eq(tenantId), eq(1));
+
+        BatchMatchReply reply = result.output().getDistService().getBatchMatch();
+        assertEquals(reply.getReqId(), 3002);
+        assertEquals(reply.getResultsOrThrow(tenantId).getCode(0), BatchMatchReply.TenantBatch.Code.OK);
+        assertEquals(reply.getResultsOrThrow(tenantId).getCode(1), BatchMatchReply.TenantBatch.Code.OK);
+    }
+
+    @Test
+    public void testAddNormalRouteUpgradeIncNoIncButRefreshCalled() {
+        long oldInc = 1L;
+        long newInc = 2L;
+        String tenantId = "tenantU";
+        String topicFilter = "u/1";
+
+        RWCoProcInput rwCoProcInput = RWCoProcInput.newBuilder().setDistService(
+                DistServiceRWCoProcInput.newBuilder()
+                    .setBatchMatch(BatchMatchRequest.newBuilder()
+                        .setReqId(3003)
+                        .putRequests(tenantId, BatchMatchRequest.TenantBatch.newBuilder()
+                            .setOption(TenantOption.newBuilder().setMaxReceiversPerSharedSubGroup(10).build())
+                            .addRoute(MatchRoute.newBuilder()
+                                .setMatcher(TopicUtil.from(topicFilter))
+                                .setBrokerId(1)
+                                .setReceiverId("inboxU")
+                                .setDelivererKey("delivererU")
+                                .setIncarnation(newInc)
+                                .build())
+                            .build())
+                        .build())
+                    .build())
+            .build();
+
+        // existing route with smaller inc
+        when(reader.get(any(ByteString.class))).thenReturn(Optional.of(BSUtil.toByteString(oldInc)));
+
+        Supplier<IKVRangeCoProc.MutationResult> resultSupplier = distWorkerCoProc.mutate(rwCoProcInput, reader, writer);
+        IKVRangeCoProc.MutationResult result = resultSupplier.get();
+
+        // KV updated, but no inc; no refresh
+        verify(writer, times(1)).put(any(ByteString.class), eq(BSUtil.toByteString(newInc)));
+        verify(routeCache, never()).refresh(any());
+        verify(tenantsState, times(0)).incNormalRoutes(anyString(), anyInt());
+
+        BatchMatchReply reply = result.output().getDistService().getBatchMatch();
+        assertEquals(reply.getReqId(), 3003);
+        assertEquals(reply.getResultsOrThrow(tenantId).getCode(0), BatchMatchReply.TenantBatch.Code.OK);
+    }
+
+    @Test
+    public void testAddNormalRouteNoOpWhenIncEqualOrLowerNoIncButRefreshCalled() {
+        long stored = 2L;
+        long reqInc = 2L; // equal
+        String tenantId = "tenantEQ";
+        String topicFilter = "eq/topic";
+
+        RWCoProcInput rwCoProcInput = RWCoProcInput.newBuilder().setDistService(
+                DistServiceRWCoProcInput.newBuilder()
+                    .setBatchMatch(BatchMatchRequest.newBuilder()
+                        .setReqId(3004)
+                        .putRequests(tenantId, BatchMatchRequest.TenantBatch.newBuilder()
+                            .setOption(TenantOption.newBuilder().setMaxReceiversPerSharedSubGroup(10).build())
+                            .addRoute(MatchRoute.newBuilder()
+                                .setMatcher(TopicUtil.from(topicFilter))
+                                .setBrokerId(1)
+                                .setReceiverId("inboxEQ")
+                                .setDelivererKey("delivererEQ")
+                                .setIncarnation(reqInc)
+                                .build())
+                            .build())
+                        .build())
+                    .build())
+            .build();
+
+        when(reader.get(any(ByteString.class))).thenReturn(Optional.of(BSUtil.toByteString(stored)));
+
+        Supplier<IKVRangeCoProc.MutationResult> resultSupplier = distWorkerCoProc.mutate(rwCoProcInput, reader, writer);
+        IKVRangeCoProc.MutationResult result = resultSupplier.get();
+
+        // No kv write, no inc; no refresh
+        verify(writer, times(0)).put(any(ByteString.class), any(ByteString.class));
+        verify(routeCache, never()).refresh(any());
+        verify(tenantsState, times(0)).incNormalRoutes(anyString(), anyInt());
+
+        BatchMatchReply reply = result.output().getDistService().getBatchMatch();
+        assertEquals(reply.getReqId(), 3004);
+        assertEquals(reply.getResultsOrThrow(tenantId).getCode(0), BatchMatchReply.TenantBatch.Code.OK);
+    }
+
+    @Test
+    public void testRemoveNormalRouteNotExistedWhenRequestIncOlder() {
+        String tenantId = "tenantR";
+        String topicFilter = "r/t";
+        long storedInc = 5L;
+        long reqInc = 3L; // older than stored
+
+        RWCoProcInput rwCoProcInput = RWCoProcInput.newBuilder().setDistService(
+                DistServiceRWCoProcInput.newBuilder()
+                    .setBatchUnmatch(BatchUnmatchRequest.newBuilder()
+                        .setReqId(4001)
+                        .putRequests(tenantId, BatchUnmatchRequest.TenantBatch.newBuilder()
+                            .addRoute(MatchRoute.newBuilder()
+                                .setMatcher(TopicUtil.from(topicFilter))
+                                .setBrokerId(1)
+                                .setReceiverId("inboxR")
+                                .setDelivererKey("delivererR")
+                                .setIncarnation(reqInc)
+                                .build())
+                            .build())
+                        .build())
+                    .build())
+            .build();
+
+        when(reader.get(any(ByteString.class))).thenReturn(Optional.of(BSUtil.toByteString(storedInc)));
+
+        Supplier<IKVRangeCoProc.MutationResult> resultSupplier = distWorkerCoProc.mutate(rwCoProcInput, reader, writer);
+        IKVRangeCoProc.MutationResult result = resultSupplier.get();
+
+        // Should not delete nor refresh nor dec
+        verify(writer, times(0)).delete(any(ByteString.class));
+        verify(routeCache, never()).refresh(any());
+        verify(tenantsState, times(0)).decNormalRoutes(anyString(), anyInt());
+
+        BatchUnmatchReply reply = result.output().getDistService().getBatchUnmatch();
+        assertEquals(reply.getReqId(), 4001);
+        assertEquals(reply.getResultsOrThrow(tenantId).getCode(0), BatchUnmatchReply.TenantBatch.Code.NOT_EXISTED);
     }
 
     private Matching createMatching(String tenantId, MatchRoute route) {

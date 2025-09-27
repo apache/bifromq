@@ -26,10 +26,6 @@ import static org.apache.bifromq.basekv.utils.BoundaryUtil.startKey;
 import static org.apache.bifromq.basekv.utils.BoundaryUtil.upperBound;
 import static org.apache.bifromq.inbox.store.schema.KVSchemaUtil.parseInboxBucketPrefix;
 
-import org.apache.bifromq.plugin.eventcollector.IEventCollector;
-import org.apache.bifromq.plugin.settingprovider.ISettingProvider;
-import org.apache.bifromq.retain.client.IRetainClient;
-import org.apache.bifromq.plugin.resourcethrottler.IResourceThrottler;
 import com.google.protobuf.ByteString;
 import java.time.Duration;
 import java.util.Collections;
@@ -46,6 +42,10 @@ import org.apache.bifromq.basekv.store.range.hinter.MutationKVLoadBasedSplitHint
 import org.apache.bifromq.basekv.utils.KVRangeIdUtil;
 import org.apache.bifromq.dist.client.IDistClient;
 import org.apache.bifromq.inbox.client.IInboxClient;
+import org.apache.bifromq.plugin.eventcollector.IEventCollector;
+import org.apache.bifromq.plugin.resourcethrottler.IResourceThrottler;
+import org.apache.bifromq.plugin.settingprovider.ISettingProvider;
+import org.apache.bifromq.retain.client.IRetainClient;
 import org.apache.bifromq.sessiondict.client.ISessionDictClient;
 
 public class InboxStoreCoProcFactory implements IKVRangeCoProcFactory {
@@ -57,6 +57,7 @@ public class InboxStoreCoProcFactory implements IKVRangeCoProcFactory {
     private final IEventCollector eventCollector;
     private final IResourceThrottler resourceThrottler;
     private final Duration detachTimeout;
+    private final Duration metaCacheExpireTime;
     private final Duration loadEstWindow;
     private final int expireRateLimit;
 
@@ -69,6 +70,7 @@ public class InboxStoreCoProcFactory implements IKVRangeCoProcFactory {
                                    IEventCollector eventCollector,
                                    IResourceThrottler resourceThrottler,
                                    Duration detachTimeout,
+                                   Duration metaCacheExpireTime,
                                    Duration loadEstimateWindow,
                                    int expireRateLimit) {
         this.distClient = distClient;
@@ -79,6 +81,7 @@ public class InboxStoreCoProcFactory implements IKVRangeCoProcFactory {
         this.eventCollector = eventCollector;
         this.resourceThrottler = resourceThrottler;
         this.detachTimeout = detachTimeout;
+        this.metaCacheExpireTime = metaCacheExpireTime;
         this.loadEstWindow = loadEstimateWindow;
         this.expireRateLimit = expireRateLimit;
     }
@@ -119,6 +122,7 @@ public class InboxStoreCoProcFactory implements IKVRangeCoProcFactory {
             resourceThrottler,
             rangeReaderProvider,
             detachTimeout,
+            metaCacheExpireTime,
             expireRateLimit);
     }
 

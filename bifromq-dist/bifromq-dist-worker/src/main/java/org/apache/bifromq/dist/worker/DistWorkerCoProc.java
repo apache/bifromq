@@ -103,7 +103,7 @@ import org.apache.bifromq.util.BSUtil;
 class DistWorkerCoProc implements IKVRangeCoProc {
     private final Supplier<IKVCloseableReader> readerProvider;
     private final ISubscriptionCache routeCache;
-    private final ITenantsState tenantsState;
+    private final ITenantsStats tenantsState;
     private final IDeliverExecutorGroup deliverExecutorGroup;
     private final ISubscriptionCleaner subscriptionChecker;
     private transient Fact fact;
@@ -112,7 +112,7 @@ class DistWorkerCoProc implements IKVRangeCoProc {
     public DistWorkerCoProc(KVRangeId id,
                             Supplier<IKVCloseableReader> readerProvider,
                             ISubscriptionCache routeCache,
-                            ITenantsState tenantsState,
+                            ITenantsStats tenantsState,
                             IDeliverExecutorGroup deliverExecutorGroup,
                             ISubscriptionCleaner subscriptionChecker) {
         this.readerProvider = readerProvider;
@@ -179,12 +179,15 @@ class DistWorkerCoProc implements IKVRangeCoProc {
         }
         RWCoProcOutput output = RWCoProcOutput.newBuilder().setDistService(outputBuilder.build()).build();
         return () -> {
-            routeCache.refresh(Maps.transformValues(updatedMatches, v -> {
-                if (coProcInput.getTypeCase() == DistServiceRWCoProcInput.TypeCase.BATCHMATCH) {
-                    return AddRoutesTask.of(v);
-                }
-                return RemoveRoutesTask.of(v);
-            }));
+            if (!updatedMatches.isEmpty()) {
+
+                routeCache.refresh(Maps.transformValues(updatedMatches, v -> {
+                    if (coProcInput.getTypeCase() == DistServiceRWCoProcInput.TypeCase.BATCHMATCH) {
+                        return AddRoutesTask.of(v);
+                    }
+                    return RemoveRoutesTask.of(v);
+                }));
+            }
             updatedMatches.forEach((tenantId, topicFilters) -> topicFilters.forEach((topicFilter, matchings) -> {
                 if (topicFilter.getType() == RouteMatcher.Type.OrderedShare) {
                     deliverExecutorGroup.refreshOrderedShareSubRoutes(tenantId, topicFilter);
@@ -263,7 +266,12 @@ class DistWorkerCoProc implements IKVRangeCoProc {
     @Override
     public Any reset(Boundary boundary) {
         tenantsState.reset();
-        load();
+        try (IKVCloseableReader reader = readerProvider.get()) {
+            this.boundary = boundary;
+            routeCache.reset(boundary);
+            IKVIterator itr = reader.iterator();
+            setFact(itr);
+        }
         return Any.pack(fact);
     }
 
@@ -299,12 +307,15 @@ class DistWorkerCoProc implements IKVRangeCoProc {
                         Matching normalMatching = buildNormalMatchRoute(routeDetail, incarnation);
                         writer.put(normalRouteKey, BSUtil.toByteString(incarnation));
                         // match record may be duplicated in the request
-                        if (!addedMatches.contains(normalRouteKey)) {
+                        if (!addedMatches.contains(normalRouteKey) && incarOpt.isEmpty()) {
                             normalRoutesAdded.computeIfAbsent(tenantId, k -> new AtomicInteger()).incrementAndGet();
                         }
-                        newMatches.computeIfAbsent(tenantId, k -> new TreeMap<>(RouteMatcherComparator))
-                            .computeIfAbsent(routeDetail.matcher(), k -> new HashSet<>())
-                            .add(normalMatching);
+                        if (incarOpt.isEmpty()) {
+                            // new match record
+                            newMatches.computeIfAbsent(tenantId, k -> new TreeMap<>(RouteMatcherComparator))
+                                .computeIfAbsent(routeDetail.matcher(), k -> new HashSet<>())
+                                .add(normalMatching);
+                        }
                         addedMatches.add(normalRouteKey);
                     }
                     codes[i] = BatchMatchReply.TenantBatch.Code.OK;
@@ -555,24 +566,6 @@ class DistWorkerCoProc implements IKVRangeCoProc {
         }
         return CompletableFuture.allOf(checkFutures.toArray(CompletableFuture[]::new))
             .thenApply(v -> GCReply.newBuilder().setReqId(request.getReqId()).build());
-    }
-
-    private void load() {
-        try (IKVCloseableReader reader = readerProvider.get()) {
-            boundary = reader.boundary();
-            routeCache.reset(boundary);
-            IKVIterator itr = reader.iterator();
-            setFact(itr);
-            for (itr.seekToFirst(); itr.isValid(); ) {
-                RouteDetail routeDetail = RouteDetailCache.get(itr.key());
-                if (routeDetail.matcher().getType() == RouteMatcher.Type.Normal) {
-                    tenantsState.incNormalRoutes(routeDetail.tenantId());
-                } else {
-                    tenantsState.incSharedRoutes(routeDetail.tenantId());
-                }
-                itr.next();
-            }
-        }
     }
 
     private record GlobalTopicFilter(String tenantId, RouteMatcher routeMatcher) {

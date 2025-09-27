@@ -53,7 +53,7 @@ public class InboxStoreGCProcessor implements IInboxStoreGCProcessor {
         Collection<KVRangeSetting> rangeSettingList = Sets.newHashSet(findByBoundary(FULL_BOUNDARY,
             storeClient.latestEffectiveRouter()));
         if (localServerId != null) {
-            rangeSettingList.removeIf(rangeSetting -> !rangeSetting.leader.equals(localServerId));
+            rangeSettingList.removeIf(rangeSetting -> !rangeSetting.leader().equals(localServerId));
         }
         if (rangeSettingList.isEmpty()) {
             return CompletableFuture.completedFuture(Result.OK);
@@ -71,10 +71,10 @@ public class InboxStoreGCProcessor implements IInboxStoreGCProcessor {
     }
 
     private CompletableFuture<GCReply> doGC(long reqId, KVRangeSetting rangeSetting, long now) {
-        return storeClient.query(rangeSetting.leader, KVRangeRORequest.newBuilder()
+        return storeClient.query(rangeSetting.leader(), KVRangeRORequest.newBuilder()
                 .setReqId(reqId)
-                .setKvRangeId(rangeSetting.id)
-                .setVer(rangeSetting.ver)
+                .setKvRangeId(rangeSetting.id())
+                .setVer(rangeSetting.ver())
                 .setRoCoProc(ROCoProcInput.newBuilder()
                     .setInboxService(buildGCRequest(reqId, now))
                     .build())

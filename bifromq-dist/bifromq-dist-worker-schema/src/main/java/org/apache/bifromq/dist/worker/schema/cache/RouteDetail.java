@@ -14,19 +14,30 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 
-package org.apache.bifromq.dist.worker.schema;
+package org.apache.bifromq.dist.worker.schema.cache;
 
+import lombok.EqualsAndHashCode;
+import lombok.Getter;
+import lombok.experimental.Accessors;
 import org.apache.bifromq.type.RouteMatcher;
 
 /**
- * RouteDetail parsed from a match record key.
- *
- * @param tenantId    the tenantId
- * @param matcher     the matcher for the route
- * @param receiverUrl the receiverUrl if the matcher type is normal
+ * The Route Detail must be retrieved from RouteDetailCache.
  */
-public record RouteDetail(String tenantId, RouteMatcher matcher, String receiverUrl) {
+@Accessors(fluent = true)
+@Getter
+@EqualsAndHashCode
+public final class RouteDetail {
+    private final String tenantId;
+    private final RouteMatcher matcher;
+    private final String receiverUrl;
+
+    RouteDetail(String tenantId, RouteMatcher matcher, String receiverUrl) {
+        this.tenantId = tenantId;
+        this.matcher = matcher;
+        this.receiverUrl = receiverUrl;
+    }
 }

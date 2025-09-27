@@ -14,19 +14,19 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 
 package org.apache.bifromq.basekv.client.scheduler;
 
 import static org.apache.bifromq.basekv.client.KVRangeRouterUtil.findByKey;
 
-import org.apache.bifromq.basekv.client.IBaseKVStoreClient;
-import org.apache.bifromq.basekv.client.KVRangeSetting;
-import org.apache.bifromq.basescheduler.BatchCallScheduler;
 import com.google.protobuf.ByteString;
 import java.util.Optional;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.bifromq.basekv.client.IBaseKVStoreClient;
+import org.apache.bifromq.basekv.client.KVRangeSetting;
+import org.apache.bifromq.basescheduler.BatchCallScheduler;
 
 /**
  * The abstract class for base-kv mutation call scheduler.
@@ -50,7 +50,7 @@ public abstract class MutationCallScheduler<ReqT, RespT, BatchCallT extends Batc
     @Override
     protected final Optional<MutationCallBatcherKey> find(ReqT call) {
         Optional<KVRangeSetting> rangeSetting = findByKey(rangeKey(call), storeClient.latestEffectiveRouter());
-        return rangeSetting.map(setting -> new MutationCallBatcherKey(setting.id, setting.leader, setting.ver));
+        return rangeSetting.map(setting -> new MutationCallBatcherKey(setting.id(), setting.leader(), setting.ver()));
     }
 
     protected abstract ByteString rangeKey(ReqT call);

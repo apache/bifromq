@@ -202,8 +202,8 @@ public class RetainStoreTest {
                 RetainMessage.newBuilder().setMessage(message).setPublisher(topicMsg.getPublisher()).build()).build())
             .build();
         RetainServiceRWCoProcInput input = buildRetainRequest(request);
-        KVRangeRWReply reply = storeClient.execute(s.leader,
-            KVRangeRWRequest.newBuilder().setReqId(reqId).setVer(s.ver).setKvRangeId(s.id)
+        KVRangeRWReply reply = storeClient.execute(s.leader(),
+            KVRangeRWRequest.newBuilder().setReqId(reqId).setVer(s.ver()).setKvRangeId(s.id())
                 .setRwCoProc(RWCoProcInput.newBuilder().setRetainService(input).build()).build()).join();
         assertEquals(reply.getReqId(), reqId);
         assertEquals(reply.getCode(), ReplyCode.Ok);
@@ -225,8 +225,8 @@ public class RetainStoreTest {
             .putMatchParams(tenantId, MatchParam.newBuilder().setNow(now).putTopicFilters(topicFilter, limit).build())
             .build();
         RetainServiceROCoProcInput input = buildMatchRequest(request);
-        KVRangeROReply reply = storeClient.query(s.leader,
-            KVRangeRORequest.newBuilder().setReqId(reqId).setVer(s.ver).setKvRangeId(s.id)
+        KVRangeROReply reply = storeClient.query(s.leader(),
+            KVRangeRORequest.newBuilder().setReqId(reqId).setVer(s.ver()).setKvRangeId(s.id())
                 .setRoCoProc(ROCoProcInput.newBuilder().setRetainService(input).build()).build()).join();
         assertEquals(reply.getReqId(), reqId);
         assertEquals(reply.getCode(), ReplyCode.Ok);
@@ -241,8 +241,8 @@ public class RetainStoreTest {
         KVRangeSetting s =
             findByBoundary(FULL_BOUNDARY, storeClient.latestEffectiveRouter()).stream().findFirst().get();
         RetainServiceRWCoProcInput input = buildGCRequest(reqId, now, tenantId, expirySeconds);
-        KVRangeRWReply reply = storeClient.execute(s.leader,
-            KVRangeRWRequest.newBuilder().setReqId(reqId).setVer(s.ver).setKvRangeId(s.id)
+        KVRangeRWReply reply = storeClient.execute(s.leader(),
+            KVRangeRWRequest.newBuilder().setReqId(reqId).setVer(s.ver()).setKvRangeId(s.id())
                 .setRwCoProc(RWCoProcInput.newBuilder().setRetainService(input).build()).build()).join();
         assertEquals(reply.getReqId(), reqId);
         assertEquals(reply.getCode(), ReplyCode.Ok);

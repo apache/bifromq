@@ -38,7 +38,16 @@ class RocksDBKVEngineIterator implements AutoCloseable {
                             Snapshot snapshot,
                             byte[] startKey,
                             byte[] endKey) {
-        ReadOptions readOptions = new ReadOptions().setPinData(true);
+        this(db, cfHandle, snapshot, startKey, endKey, true);
+    }
+
+    RocksDBKVEngineIterator(RocksDB db,
+                            ColumnFamilyHandle cfHandle,
+                            Snapshot snapshot,
+                            byte[] startKey,
+                            byte[] endKey,
+                            boolean fillCache) {
+        ReadOptions readOptions = new ReadOptions().setPinData(true).setFillCache(fillCache);
         Slice lowerSlice = null;
         if (startKey != null) {
             lowerSlice = new Slice(startKey);

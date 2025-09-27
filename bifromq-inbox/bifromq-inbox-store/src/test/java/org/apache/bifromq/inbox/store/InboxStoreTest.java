@@ -285,10 +285,10 @@ abstract class InboxStoreTest {
     }
 
     private InboxServiceROCoProcOutput query(KVRangeSetting s, InboxServiceROCoProcInput input) {
-        KVRangeROReply reply = storeClient.query(s.leader, KVRangeRORequest.newBuilder()
+        KVRangeROReply reply = storeClient.query(s.leader(), KVRangeRORequest.newBuilder()
             .setReqId(input.getReqId())
-            .setVer(s.ver)
-            .setKvRangeId(s.id)
+            .setVer(s.ver())
+            .setKvRangeId(s.id())
             .setRoCoProc(ROCoProcInput.newBuilder().setInboxService(input).build())
             .build()).join();
         assertEquals(reply.getReqId(), input.getReqId());
@@ -299,10 +299,10 @@ abstract class InboxStoreTest {
 
     private InboxServiceRWCoProcOutput mutate(ByteString routeKey, InboxServiceRWCoProcInput input) {
         KVRangeSetting s = findByKey(routeKey, storeClient.latestEffectiveRouter()).get();
-        KVRangeRWReply reply = storeClient.execute(s.leader, KVRangeRWRequest.newBuilder()
+        KVRangeRWReply reply = storeClient.execute(s.leader(), KVRangeRWRequest.newBuilder()
             .setReqId(input.getReqId())
-            .setVer(s.ver)
-            .setKvRangeId(s.id)
+            .setVer(s.ver())
+            .setKvRangeId(s.id())
             .setRwCoProc(RWCoProcInput.newBuilder().setInboxService(input).build())
             .build()).join();
         assertEquals(reply.getReqId(), input.getReqId());
@@ -386,7 +386,7 @@ abstract class InboxStoreTest {
                 .addAllParams(List.of(params))
                 .setLeader(Replica.newBuilder()
                     .setStoreId(testStore.id())
-                    .setRangeId(s.id)
+                    .setRangeId(s.id())
                     .build())
                 .build());
         InboxServiceRWCoProcOutput output = mutate(routeKey, input);

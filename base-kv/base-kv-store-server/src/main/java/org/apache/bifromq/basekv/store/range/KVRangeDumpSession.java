@@ -19,7 +19,7 @@
 
 package org.apache.bifromq.basekv.store.range;
 
-import com.google.common.util.concurrent.RateLimiter;
+import com.google.protobuf.ByteString;
 import io.micrometer.core.instrument.Metrics;
 import io.micrometer.core.instrument.Tags;
 import io.micrometer.core.instrument.binder.jvm.ExecutorServiceMetrics;
@@ -44,6 +44,10 @@ import org.apache.bifromq.logger.MDCLogger;
 import org.slf4j.Logger;
 
 class KVRangeDumpSession {
+    private static final int MIN_CHUNK_BYTES = 128 * 1024;
+    private static final int MAX_CHUNK_BYTES = 2 * 1024 * 1024;
+    private static final double TARGET_ROUND_TRIP_NANOS = Duration.ofMillis(70).toNanos();
+    private static final double EMA_ALPHA = 0.2d;
     private final Logger log;
     private final String follower;
     private final SnapshotSyncRequest request;
@@ -55,10 +59,17 @@ class KVRangeDumpSession {
     private final Duration maxIdleDuration;
     private final CompletableFuture<Result> doneSignal = new CompletableFuture<>();
     private final DumpBytesRecorder recorder;
-    private final RateLimiter rateLimiter;
+    private final SnapshotBandwidthGovernor bandwidthGovernor;
+    private final long startDumpTS = System.nanoTime();
     private IKVCheckpointIterator snapshotDataItr;
+    private long totalEntries = 0;
+    private long totalBytes = 0;
     private volatile KVRangeMessage currentRequest;
     private volatile long lastReplyTS;
+    private volatile long lastSendTS;
+    private volatile double buildTimeEwma = TARGET_ROUND_TRIP_NANOS;
+    private volatile double roundTripEwma = TARGET_ROUND_TRIP_NANOS;
+    private volatile int chunkHint;
 
     KVRangeDumpSession(String follower,
                        SnapshotSyncRequest request,
@@ -66,6 +77,7 @@ class KVRangeDumpSession {
                        IKVRangeMessenger messenger,
                        Duration maxIdleDuration,
                        long bandwidth,
+                       SnapshotBandwidthGovernor bandwidthGovernor,
                        DumpBytesRecorder recorder,
                        String... tags) {
         this.follower = follower;
@@ -79,7 +91,8 @@ class KVRangeDumpSession {
         this.runner = new AsyncRunner("basekv.runner.sessiondump", executor);
         this.maxIdleDuration = maxIdleDuration;
         this.recorder = recorder;
-        rateLimiter = RateLimiter.create(bandwidth);
+        this.bandwidthGovernor = bandwidthGovernor;
+        this.chunkHint = initialChunkHint(bandwidth);
         this.log = MDCLogger.getLogger(KVRangeDumpSession.class, tags);
         if (!request.getSnapshot().hasCheckpointId()) {
             messenger.send(KVRangeMessage.newBuilder()
@@ -164,18 +177,28 @@ class KVRangeDumpSession {
         if (currReq == null) {
             return;
         }
-        SaveSnapshotDataRequest req = currentRequest.getSaveSnapshotDataRequest();
+        SaveSnapshotDataRequest req = currReq.getSaveSnapshotDataRequest();
         lastReplyTS = System.nanoTime();
         if (req.getReqId() == reply.getReqId()) {
+            long ackLatency = lastSendTS > 0 ? lastReplyTS - lastSendTS : 0;
+            if (ackLatency > 0) {
+                roundTripEwma = ema(roundTripEwma, ackLatency);
+            }
             currentRequest = null;
             switch (reply.getResult()) {
                 case OK -> {
                     switch (req.getFlag()) {
                         case More -> nextSaveRequest();
                         case End -> runner.add(() -> doneSignal.complete(Result.OK));
+                        default -> {
+                            // do nothing
+                        }
                     }
                 }
                 case NoSessionFound, Error -> runner.add(() -> doneSignal.complete(Result.Abort));
+                default -> {
+                    // do nothing
+                }
             }
         }
     }
@@ -185,59 +208,113 @@ class KVRangeDumpSession {
             SaveSnapshotDataRequest.Builder reqBuilder = SaveSnapshotDataRequest.newBuilder()
                 .setSessionId(request.getSessionId())
                 .setReqId(reqId.getAndIncrement());
+            long buildStart = System.nanoTime();
+            int dumpEntries = 0;
             int dumpBytes = 0;
-            while (true) {
-                if (!canceled.get()) {
-                    try {
-                        if (snapshotDataItr.isValid()) {
-                            KVPair kvPair = KVPair.newBuilder()
-                                .setKey(snapshotDataItr.key())
-                                .setValue(snapshotDataItr.value())
-                                .build();
-                            reqBuilder.addKv(kvPair);
-                            int bytes = snapshotDataItr.key().size() + snapshotDataItr.value().size();
-                            snapshotDataItr.next();
-                            if (!rateLimiter.tryAcquire(bytes)) {
-                                if (snapshotDataItr.isValid()) {
-                                    reqBuilder.setFlag(SaveSnapshotDataRequest.Flag.More);
-                                } else {
-                                    reqBuilder.setFlag(SaveSnapshotDataRequest.Flag.End);
-                                }
-                                break;
-                            }
-                            dumpBytes += bytes;
-                        } else {
-                            // current iterator finished
-                            reqBuilder.setFlag(SaveSnapshotDataRequest.Flag.End);
+            int maxChunkBytes = chunkHint;
+            if (!canceled.get()) {
+                try {
+                    boolean firstKv = true;
+                    while (!canceled.get()) {
+                        if (!snapshotDataItr.isValid()) {
                             break;
                         }
-                    } catch (Throwable e) {
-                        log.error("DumpSession error: session={}, follower={}",
-                            request.getSessionId(), follower, e);
-                        reqBuilder.clearKv();
-                        reqBuilder.setFlag(SaveSnapshotDataRequest.Flag.Error);
-                        break;
+                        ByteString key = snapshotDataItr.key();
+                        ByteString value = snapshotDataItr.value();
+                        int kvBytes = key.size() + value.size();
+                        if (!firstKv && dumpBytes + kvBytes > maxChunkBytes) {
+                            break;
+                        }
+                        reqBuilder.addKv(KVPair.newBuilder()
+                            .setKey(key)
+                            .setValue(value)
+                            .build());
+                        dumpBytes += kvBytes;
+                        dumpEntries++;
+                        firstKv = false;
+                        snapshotDataItr.next();
                     }
-                } else {
-                    log.debug("DumpSession has been canceled: session={}, follower={}",
-                        request.getSessionId(), follower);
+                } catch (Throwable e) {
+                    log.error("DumpSession error: session={}, follower={}", request.getSessionId(), follower, e);
                     reqBuilder.clearKv();
                     reqBuilder.setFlag(SaveSnapshotDataRequest.Flag.Error);
-                    break;
                 }
+            }
+            if (canceled.get() && reqBuilder.getFlag() != SaveSnapshotDataRequest.Flag.Error) {
+                log.debug("DumpSession has been canceled: session={}, follower={}", request.getSessionId(), follower);
+                reqBuilder.clearKv();
+                reqBuilder.setFlag(SaveSnapshotDataRequest.Flag.Error);
+            }
+            if (reqBuilder.getFlag() != SaveSnapshotDataRequest.Flag.Error) {
+                if (dumpBytes == 0) {
+                    if (!snapshotDataItr.isValid()) {
+                        reqBuilder.setFlag(SaveSnapshotDataRequest.Flag.End);
+                    } else {
+                        reqBuilder.setFlag(SaveSnapshotDataRequest.Flag.More);
+                    }
+                } else {
+                    reqBuilder.setFlag(snapshotDataItr.isValid()
+                        ? SaveSnapshotDataRequest.Flag.More
+                        : SaveSnapshotDataRequest.Flag.End);
+                }
+            }
+            if (dumpBytes > 0 && reqBuilder.getFlag() != SaveSnapshotDataRequest.Flag.Error) {
+                bandwidthGovernor.acquire(dumpBytes);
+                long buildCost = System.nanoTime() - buildStart;
+                adjustChunkHint(buildCost);
             }
             currentRequest = KVRangeMessage.newBuilder()
                 .setRangeId(request.getSnapshot().getId())
                 .setHostStoreId(follower)
                 .setSaveSnapshotDataRequest(reqBuilder.build())
                 .build();
-            lastReplyTS = System.nanoTime();
+            long now = System.nanoTime();
+            lastReplyTS = now;
+            lastSendTS = now;
             recorder.record(dumpBytes);
+            totalEntries += dumpEntries;
+            totalBytes += dumpBytes;
+            if (reqBuilder.getFlag() == SaveSnapshotDataRequest.Flag.End) {
+                log.info(
+                    "Dump snapshot completed: sessionId={}, follower={}, totalEntries={}, totalBytes={}, cost={}ms",
+                    request.getSessionId(), follower, totalEntries, totalBytes,
+                    TimeUnit.NANOSECONDS.toMillis(now - startDumpTS));
+            } else {
+                log.info("Dump snapshot data: sessionId={}, follower={}, entries={}, bytes={}",
+                    request.getSessionId(), follower, reqBuilder.getKvCount(), dumpBytes);
+            }
             messenger.send(currentRequest);
             if (currentRequest.getSaveSnapshotDataRequest().getFlag() == SaveSnapshotDataRequest.Flag.Error) {
                 doneSignal.complete(Result.Error);
             }
         });
+    }
+
+    private int initialChunkHint(long bandwidth) {
+        if (bandwidth <= 0) {
+            return MIN_CHUNK_BYTES * 2;
+        }
+        long suggested = bandwidth / 20;
+        if (suggested <= 0) {
+            suggested = MIN_CHUNK_BYTES;
+        }
+        return (int) Math.max(MIN_CHUNK_BYTES, Math.min(MAX_CHUNK_BYTES, suggested));
+    }
+
+    private void adjustChunkHint(long buildCostNanos) {
+        buildTimeEwma = ema(buildTimeEwma, buildCostNanos);
+        double dominant = Math.max(buildTimeEwma, roundTripEwma);
+        int current = chunkHint;
+        if (dominant < TARGET_ROUND_TRIP_NANOS / 2 && current < MAX_CHUNK_BYTES) {
+            int increased = current + Math.max(MIN_CHUNK_BYTES / 4, (int) (current * 0.2));
+            chunkHint = Math.min(MAX_CHUNK_BYTES, increased);
+        } else if (dominant > TARGET_ROUND_TRIP_NANOS * 2 && current > MIN_CHUNK_BYTES) {
+            chunkHint = Math.max(MIN_CHUNK_BYTES, current / 2);
+        }
+    }
+
+    private double ema(double current, long sample) {
+        return current + EMA_ALPHA * (sample - current);
     }
 
     enum Result {

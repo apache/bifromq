@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 
 package org.apache.bifromq.dist.worker;
@@ -22,6 +22,15 @@ package org.apache.bifromq.dist.worker;
 import static org.apache.bifromq.basekv.client.KVRangeRouterUtil.findByBoundary;
 import static org.apache.bifromq.basekv.utils.BoundaryUtil.FULL_BOUNDARY;
 
+import java.time.Duration;
+import java.util.Collection;
+import java.util.List;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
+import lombok.extern.slf4j.Slf4j;
 import org.apache.bifromq.basehlc.HLC;
 import org.apache.bifromq.basekv.client.IBaseKVStoreClient;
 import org.apache.bifromq.basekv.client.KVRangeSetting;
@@ -35,15 +44,6 @@ import org.apache.bifromq.basekv.utils.KVRangeIdUtil;
 import org.apache.bifromq.dist.rpc.proto.DistServiceROCoProcInput;
 import org.apache.bifromq.dist.rpc.proto.GCReply;
 import org.apache.bifromq.dist.rpc.proto.GCRequest;
-import java.time.Duration;
-import java.util.Collection;
-import java.util.List;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.ScheduledFuture;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicBoolean;
-import lombok.extern.slf4j.Slf4j;
 
 @Slf4j
 class DistWorkerCleaner {
@@ -89,7 +89,7 @@ class DistWorkerCleaner {
     private CompletableFuture<Void> doGC(String storeId) {
         Collection<KVRangeSetting> rangeSettingList =
             findByBoundary(FULL_BOUNDARY, distWorkerClient.latestEffectiveRouter());
-        rangeSettingList.removeIf(rangeSetting -> !rangeSetting.leader.equals(storeId));
+        rangeSettingList.removeIf(rangeSetting -> !rangeSetting.leader().equals(storeId));
         long reqId = HLC.INST.getPhysical();
         List<CompletableFuture<GCReply>> replyFutures = rangeSettingList.stream()
             .map(rangeSetting -> doGC(reqId, rangeSetting))
@@ -102,11 +102,11 @@ class DistWorkerCleaner {
     }
 
     private CompletableFuture<GCReply> doGC(long reqId, KVRangeSetting rangeSetting) {
-        log.debug("[DistWorker] gc: rangeId={}", KVRangeIdUtil.toString(rangeSetting.id));
-        return distWorkerClient.query(rangeSetting.leader, KVRangeRORequest.newBuilder()
+        log.debug("[DistWorker] gc: rangeId={}", KVRangeIdUtil.toString(rangeSetting.id()));
+        return distWorkerClient.query(rangeSetting.leader(), KVRangeRORequest.newBuilder()
                 .setReqId(reqId)
-                .setKvRangeId(rangeSetting.id)
-                .setVer(rangeSetting.ver)
+                .setKvRangeId(rangeSetting.id())
+                .setVer(rangeSetting.ver())
                 .setRoCoProc(ROCoProcInput.newBuilder()
                     .setDistService(DistServiceROCoProcInput.newBuilder()
                         .setGc(GCRequest.newBuilder()

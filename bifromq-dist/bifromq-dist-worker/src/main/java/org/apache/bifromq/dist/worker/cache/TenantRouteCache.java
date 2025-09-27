@@ -26,6 +26,7 @@ import static org.apache.bifromq.plugin.settingprovider.Setting.MaxPersistentFan
 import com.github.benmanes.caffeine.cache.AsyncCacheLoader;
 import com.github.benmanes.caffeine.cache.AsyncLoadingCache;
 import com.github.benmanes.caffeine.cache.Caffeine;
+import com.github.benmanes.caffeine.cache.RemovalCause;
 import com.github.benmanes.caffeine.cache.Scheduler;
 import com.github.benmanes.caffeine.cache.Ticker;
 import com.github.benmanes.caffeine.cache.Weigher;
@@ -38,7 +39,10 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentLinkedDeque;
 import java.util.concurrent.Executor;
 import java.util.concurrent.atomic.AtomicBoolean;
+import lombok.extern.slf4j.Slf4j;
 import org.apache.bifromq.basekv.proto.Boundary;
+import org.apache.bifromq.basekv.proto.KVRangeId;
+import org.apache.bifromq.basekv.utils.KVRangeIdUtil;
 import org.apache.bifromq.dist.worker.TopicIndex;
 import org.apache.bifromq.dist.worker.cache.task.AddRoutesTask;
 import org.apache.bifromq.dist.worker.cache.task.LoadEntryTask;
@@ -46,9 +50,9 @@ import org.apache.bifromq.dist.worker.cache.task.RefreshEntriesTask;
 import org.apache.bifromq.dist.worker.cache.task.ReloadEntryTask;
 import org.apache.bifromq.dist.worker.cache.task.RemoveRoutesTask;
 import org.apache.bifromq.dist.worker.cache.task.TenantRouteCacheTask;
-import org.apache.bifromq.dist.worker.schema.GroupMatching;
-import org.apache.bifromq.dist.worker.schema.Matching;
-import org.apache.bifromq.dist.worker.schema.NormalMatching;
+import org.apache.bifromq.dist.worker.schema.cache.GroupMatching;
+import org.apache.bifromq.dist.worker.schema.cache.Matching;
+import org.apache.bifromq.dist.worker.schema.cache.NormalMatching;
 import org.apache.bifromq.metrics.ITenantMeter;
 import org.apache.bifromq.metrics.TenantMetric;
 import org.apache.bifromq.plugin.settingprovider.ISettingProvider;
@@ -57,6 +61,7 @@ import org.apache.bifromq.type.RouteMatcher;
 import org.checkerframework.checker.index.qual.NonNegative;
 import org.jspecify.annotations.NonNull;
 
+@Slf4j
 class TenantRouteCache implements ITenantRouteCache {
     private final String tenantId;
     private final ISettingProvider settingProvider;
@@ -66,18 +71,21 @@ class TenantRouteCache implements ITenantRouteCache {
     private final Executor matchExecutor;
     private final ConcurrentLinkedDeque<TenantRouteCacheTask> tasks = new ConcurrentLinkedDeque<>();
     private final AtomicBoolean taskRunning = new AtomicBoolean(false);
+    private final String[] tags;
 
-    TenantRouteCache(String tenantId,
+    TenantRouteCache(KVRangeId rangeId,
+                     String tenantId,
                      ITenantRouteMatcher matcher,
                      ISettingProvider settingProvider,
                      Duration expiryAfterAccess,
                      Duration fanoutCheckInterval,
                      Executor matchExecutor) {
-        this(tenantId, matcher, settingProvider, expiryAfterAccess, fanoutCheckInterval, Ticker.systemTicker(),
+        this(rangeId, tenantId, matcher, settingProvider, expiryAfterAccess, fanoutCheckInterval, Ticker.systemTicker(),
             matchExecutor);
     }
 
-    TenantRouteCache(String tenantId,
+    TenantRouteCache(KVRangeId rangeId,
+                     String tenantId,
                      ITenantRouteMatcher matcher,
                      ISettingProvider settingProvider,
                      Duration expiryAfterAccess,
@@ -102,11 +110,8 @@ class TenantRouteCache implements ITenantRouteCache {
             })
             .expireAfterAccess(expiryAfterAccess)
             .refreshAfterWrite(fanoutCheckInterval)
-            .evictionListener((key, value, cause) -> {
-                if (key != null) {
-                    index.remove(key.topic, key);
-                }
-            })
+            .evictionListener((RouteCacheKey key, IMatchedRoutes value, RemovalCause cause) ->
+                index.remove(key.topic, key))
             .recordStats()
             .buildAsync(new AsyncCacheLoader<>() {
                 @Override
@@ -132,13 +137,14 @@ class TenantRouteCache implements ITenantRouteCache {
                     return CompletableFuture.completedFuture(oldValue);
                 }
             });
+        tags = new String[] {"id", KVRangeIdUtil.toString(rangeId)};
         ITenantMeter.counting(tenantId, TenantMetric.MqttRouteCacheHitCount, routesCache.synchronous(),
-            cache -> cache.stats().hitCount());
+            cache -> cache.stats().hitCount(), tags);
         ITenantMeter.counting(tenantId, TenantMetric.MqttRouteCacheMissCount, routesCache.synchronous(),
-            cache -> cache.stats().missCount());
+            cache -> cache.stats().missCount(), tags);
         ITenantMeter.counting(tenantId, TenantMetric.MqttRouteCacheEvictCount, routesCache.synchronous(),
-            cache -> cache.stats().evictionCount());
-        ITenantMeter.gauging(tenantId, TenantMetric.MqttRouteCacheSize, routesCache.synchronous()::estimatedSize);
+            cache -> cache.stats().evictionCount(), tags);
+        ITenantMeter.gauging(tenantId, TenantMetric.MqttRouteCacheSize, routesCache.synchronous()::estimatedSize, tags);
     }
 
     @Override
@@ -166,24 +172,23 @@ class TenantRouteCache implements ITenantRouteCache {
     private void runTaskLoop() {
         TenantRouteCacheTask task;
         List<CompletableFuture<Void>> loadFutures = new ArrayList<>(tasks.size());
+        int maxPersistentFanouts = settingProvider.provide(MaxPersistentFanout, tenantId);
+        int maxGroupFanouts = settingProvider.provide(MaxGroupFanout, tenantId);
         outer:
         while ((task = tasks.poll()) != null) {
             switch (task.type()) {
                 case Load -> {
                     LoadEntryTask loadEntryTask = (LoadEntryTask) task;
                     loadFutures.add(CompletableFuture.runAsync(() -> {
-                        int maxPersistentFanouts = settingProvider.provide(MaxPersistentFanout, tenantId);
-                        int maxGroupFanouts = settingProvider.provide(MaxGroupFanout, tenantId);
                         String topic = loadEntryTask.topic;
                         RouteCacheKey cacheKey = loadEntryTask.cacheKey;
-                        Map<String, IMatchedRoutes> results = matcher.matchAll(singleton(topic), maxPersistentFanouts,
-                            maxGroupFanouts);
-
-                        IMatchedRoutes matchedRoutes = results.get(loadEntryTask.topic);
+                        Map<String, IMatchedRoutes> results = matcher.matchAll(singleton(topic),
+                            maxPersistentFanouts, maxGroupFanouts);
+                        IMatchedRoutes matchedRoutes = results.get(topic);
                         // update reference
                         cacheKey.cachedMatchedRoutes.set(matchedRoutes);
                         // sync index
-                        index.add(topic, cacheKey);
+                        index.add(cacheKey.topic, cacheKey);
                         loadEntryTask.future.complete(matchedRoutes);
                     }, matchExecutor));
                 }
@@ -281,7 +286,7 @@ class TenantRouteCache implements ITenantRouteCache {
                 }
             }
         }
-        CompletableFuture.allOf(loadFutures.toArray(CompletableFuture[]::new))
+        CompletableFuture.allOf(loadFutures.toArray(new CompletableFuture[0]))
             .whenComplete((v, e) -> {
                 taskRunning.set(false);
                 if (!tasks.isEmpty()) {
@@ -297,9 +302,11 @@ class TenantRouteCache implements ITenantRouteCache {
 
     @Override
     public void destroy() {
-        ITenantMeter.stopCounting(tenantId, TenantMetric.MqttRouteCacheMissCount);
-        ITenantMeter.stopCounting(tenantId, TenantMetric.MqttRouteCacheHitCount);
-        ITenantMeter.stopCounting(tenantId, TenantMetric.MqttRouteCacheEvictCount);
-        ITenantMeter.stopGauging(tenantId, TenantMetric.MqttRouteCacheSize);
+        routesCache.synchronous().asMap().keySet().forEach(key -> index.remove(key.topic, key));
+        routesCache.synchronous().invalidateAll();
+        ITenantMeter.stopCounting(tenantId, TenantMetric.MqttRouteCacheMissCount, tags);
+        ITenantMeter.stopCounting(tenantId, TenantMetric.MqttRouteCacheHitCount, tags);
+        ITenantMeter.stopCounting(tenantId, TenantMetric.MqttRouteCacheEvictCount, tags);
+        ITenantMeter.stopGauging(tenantId, TenantMetric.MqttRouteCacheSize, tags);
     }
 }

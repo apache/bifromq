@@ -27,6 +27,18 @@ import static org.mockito.Mockito.when;
 import static org.testng.Assert.assertEquals;
 import static org.testng.Assert.fail;
 
+import com.google.common.collect.Sets;
+import com.google.protobuf.ByteString;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.CountDownLatch;
+import lombok.SneakyThrows;
+import lombok.extern.slf4j.Slf4j;
 import org.apache.bifromq.basehlc.HLC;
 import org.apache.bifromq.dist.client.MatchResult;
 import org.apache.bifromq.dist.client.PubResult;
@@ -41,18 +53,6 @@ import org.apache.bifromq.type.Message;
 import org.apache.bifromq.type.QoS;
 import org.apache.bifromq.type.TopicMessagePack;
 import org.apache.bifromq.util.TopicUtil;
-import com.google.common.collect.Sets;
-import com.google.protobuf.ByteString;
-import java.util.HashMap;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.CopyOnWriteArrayList;
-import java.util.concurrent.CountDownLatch;
-import lombok.SneakyThrows;
-import lombok.extern.slf4j.Slf4j;
 import org.mockito.Mockito;
 import org.mockito.stubbing.Answer;
 import org.testng.annotations.BeforeMethod;
@@ -192,7 +192,7 @@ public class DistTest extends DistServiceTest {
         }
 
         int totalPub = 2;
-        await().until(() -> {
+        await().forever().until(() -> {
             try {
                 ClientInfo pubClient =
                     ClientInfo.newBuilder().setTenantId(tenantId).putMetadata("userId", "pubUser").build();

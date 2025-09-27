@@ -21,10 +21,11 @@ package org.apache.bifromq.dist.worker.cache;
 
 import static com.google.common.util.concurrent.MoreExecutors.directExecutor;
 import static org.apache.bifromq.basekv.utils.BoundaryUtil.FULL_BOUNDARY;
-import static org.apache.bifromq.dist.worker.schema.Matchings.normalMatching;
-import static org.apache.bifromq.dist.worker.schema.Matchings.receiverUrl;
-import static org.apache.bifromq.dist.worker.schema.Matchings.unorderedGroupMatching;
+import static org.apache.bifromq.dist.worker.schema.cache.Matchings.normalMatching;
+import static org.apache.bifromq.dist.worker.schema.cache.Matchings.receiverUrl;
+import static org.apache.bifromq.dist.worker.schema.cache.Matchings.unorderedGroupMatching;
 import static org.awaitility.Awaitility.await;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
@@ -49,13 +50,15 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
+import org.apache.bifromq.basekv.proto.KVRangeId;
+import org.apache.bifromq.basekv.utils.KVRangeIdUtil;
 import org.apache.bifromq.dist.worker.Comparators;
 import org.apache.bifromq.dist.worker.MeterTest;
 import org.apache.bifromq.dist.worker.cache.task.AddRoutesTask;
 import org.apache.bifromq.dist.worker.cache.task.RemoveRoutesTask;
-import org.apache.bifromq.dist.worker.schema.GroupMatching;
-import org.apache.bifromq.dist.worker.schema.Matching;
-import org.apache.bifromq.dist.worker.schema.NormalMatching;
+import org.apache.bifromq.dist.worker.schema.cache.GroupMatching;
+import org.apache.bifromq.dist.worker.schema.cache.Matching;
+import org.apache.bifromq.dist.worker.schema.cache.NormalMatching;
 import org.apache.bifromq.metrics.TenantMetric;
 import org.apache.bifromq.plugin.eventcollector.IEventCollector;
 import org.apache.bifromq.plugin.settingprovider.ISettingProvider;
@@ -67,6 +70,7 @@ import org.testng.annotations.BeforeMethod;
 import org.testng.annotations.Test;
 
 public class TenantRouteCacheTest extends MeterTest {
+    private static final KVRangeId RANGE_ID = KVRangeIdUtil.generate();
     private static final String TENANT_ID = "tenantA";
     private static final String TOPIC = "sensor/temperature";
     private static final Duration EXPIRY = Duration.ofMinutes(1);
@@ -286,7 +290,8 @@ public class TenantRouteCacheTest extends MeterTest {
 
     @Test
     public void shouldDestroyMeters() {
-        TenantRouteCache cache = new TenantRouteCache(TENANT_ID, matcher, settingProvider, EXPIRY, FANOUT_CHECK,
+        TenantRouteCache cache = new TenantRouteCache(RANGE_ID, TENANT_ID, matcher, settingProvider, EXPIRY,
+            FANOUT_CHECK,
             directExecutor());
         caches.add(cache);
         assertGauge(TENANT_ID, TenantMetric.MqttRouteCacheSize);
@@ -295,8 +300,62 @@ public class TenantRouteCacheTest extends MeterTest {
         assertNoGauge(TENANT_ID, TenantMetric.MqttRouteCacheSize);
     }
 
+    @Test
+    public void shouldClampPersistentFanoutOnDecreaseNoReload() {
+        TenantRouteCache cache = newCache(directExecutor());
+
+        NormalMatching p1 = normalMatching(TENANT_ID, TOPIC, 1, "receiverA", "delivererA", 1);
+        NormalMatching p2 = normalMatching(TENANT_ID, TOPIC, 1, "receiverB", "delivererB", 2);
+        IMatchedRoutes initial = mockRoutesWithBackingSet(2, 5, Set.of(p1, p2));
+
+        when(settingProvider.provide(eq(Setting.MaxPersistentFanout), eq(TENANT_ID))).thenReturn(2, 1);
+        when(settingProvider.provide(eq(Setting.MaxGroupFanout), eq(TENANT_ID))).thenReturn(5, 5);
+        when(matcher.matchAll(eq(Set.of(TOPIC)), anyInt(), anyInt())).thenReturn(Map.of(TOPIC, initial));
+
+        Set<Matching> first = cache.getMatch(TOPIC, FULL_BOUNDARY).join();
+        // Start with 2 persistent routes
+        long persistentCount = first.stream().filter(m -> m instanceof NormalMatching nm && nm.subBrokerId() == 1)
+            .count();
+        assertEquals(persistentCount, 2);
+
+        ticker.advance(FANOUT_CHECK.plusMillis(1));
+        Set<Matching> afterClamp = cache.getMatch(TOPIC, FULL_BOUNDARY).join();
+        long clampedCount = afterClamp.stream().filter(m -> m instanceof NormalMatching nm && nm.subBrokerId() == 1)
+            .count();
+        assertEquals(clampedCount, 1);
+
+        // No reload triggered
+        verify(matcher, times(1)).matchAll(any(), anyInt(), anyInt());
+    }
+
+    @Test
+    public void shouldClampGroupFanoutOnDecreaseNoReload() {
+        TenantRouteCache cache = newCache(directExecutor());
+
+        GroupMatching g1 = unorderedGroupMatching(TENANT_ID, "sensor/#", "g1",
+            Map.of(receiverUrl(1, "r1", "d1"), 1L));
+        GroupMatching g2 = unorderedGroupMatching(TENANT_ID, "sensor/#", "g2",
+            Map.of(receiverUrl(1, "r2", "d2"), 1L));
+        IMatchedRoutes initial = mockRoutesWithBackingSet(10, 2, Set.of(g1, g2));
+
+        when(settingProvider.provide(eq(Setting.MaxPersistentFanout), eq(TENANT_ID))).thenReturn(10, 10);
+        when(settingProvider.provide(eq(Setting.MaxGroupFanout), eq(TENANT_ID))).thenReturn(2, 1);
+        when(matcher.matchAll(eq(Set.of(TOPIC)), anyInt(), anyInt())).thenReturn(Map.of(TOPIC, initial));
+
+        Set<Matching> first = cache.getMatch(TOPIC, FULL_BOUNDARY).join();
+        long groupCount = first.stream().filter(m -> m instanceof GroupMatching).count();
+        assertEquals(groupCount, 2);
+
+        ticker.advance(FANOUT_CHECK.plusMillis(1));
+        Set<Matching> afterClamp = cache.getMatch(TOPIC, FULL_BOUNDARY).join();
+        long clampedCount = afterClamp.stream().filter(m -> m instanceof GroupMatching).count();
+        assertEquals(clampedCount, 1);
+
+        verify(matcher, times(1)).matchAll(any(), anyInt(), anyInt());
+    }
+
     private TenantRouteCache newCache(Executor executor) {
-        TenantRouteCache cache = new TenantRouteCache(TENANT_ID, matcher, settingProvider,
+        TenantRouteCache cache = new TenantRouteCache(RANGE_ID, TENANT_ID, matcher, settingProvider,
             EXPIRY, FANOUT_CHECK, ticker, executor);
         caches.add(cache);
         return cache;

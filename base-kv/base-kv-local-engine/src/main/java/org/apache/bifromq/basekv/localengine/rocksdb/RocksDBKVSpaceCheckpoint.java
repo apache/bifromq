@@ -14,19 +14,16 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 
 package org.apache.bifromq.basekv.localengine.rocksdb;
 
+import static com.google.protobuf.UnsafeByteOperations.unsafeWrap;
 import static org.apache.bifromq.basekv.localengine.IKVEngine.DEFAULT_NS;
 import static org.apache.bifromq.basekv.localengine.rocksdb.Keys.toMetaKey;
 import static org.apache.bifromq.basekv.localengine.rocksdb.RocksDBKVSpace.deleteDir;
-import static com.google.protobuf.UnsafeByteOperations.unsafeWrap;
 
-import org.apache.bifromq.basekv.localengine.ISyncContext;
-import org.apache.bifromq.basekv.localengine.KVEngineException;
-import org.apache.bifromq.basekv.localengine.metrics.KVSpaceOpMeters;
 import com.google.protobuf.ByteString;
 import java.io.File;
 import java.io.IOException;
@@ -36,6 +33,11 @@ import java.util.List;
 import java.util.Optional;
 import java.util.function.Predicate;
 import java.util.function.Supplier;
+import org.apache.bifromq.basekv.localengine.IKVSpaceIterator;
+import org.apache.bifromq.basekv.localengine.ISyncContext;
+import org.apache.bifromq.basekv.localengine.KVEngineException;
+import org.apache.bifromq.basekv.localengine.metrics.KVSpaceOpMeters;
+import org.apache.bifromq.basekv.proto.Boundary;
 import org.rocksdb.BlockBasedTableConfig;
 import org.rocksdb.ColumnFamilyDescriptor;
 import org.rocksdb.ColumnFamilyHandle;
@@ -136,6 +138,16 @@ class RocksDBKVSpaceCheckpoint extends RocksDBKVSpaceReader implements IRocksDBK
                 return supplier.get();
             }
         };
+    }
+
+    @Override
+    protected IKVSpaceIterator doNewIterator() {
+        return new RocksDBKVSpaceIterator(db(), cfHandle(), null, Boundary.getDefaultInstance(), newRefresher(), false);
+    }
+
+    @Override
+    protected IKVSpaceIterator doNewIterator(Boundary subBoundary) {
+        return new RocksDBKVSpaceIterator(db(), cfHandle(), null, subBoundary, newRefresher(), false);
     }
 
     private record ClosableResources(

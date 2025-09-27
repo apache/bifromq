@@ -164,6 +164,7 @@ public class KVRangeFSM implements IKVRangeFSM {
     private final IKVRangeQueryRunner queryRunner;
     private final Map<String, CompletableFuture<?>> cmdFutures = new ConcurrentHashMap<>();
     private final Map<String, KVRangeDumpSession> dumpSessions = Maps.newConcurrentMap();
+    private final SnapshotBandwidthGovernor snapshotBandwidthGovernor;
     private final AtomicInteger taskSeqNo = new AtomicInteger();
     private final BehaviorSubject<KVRangeDescriptor> descriptorSubject = BehaviorSubject.create();
     private final Subject<List<SplitHint>> splitHintsSubject = BehaviorSubject.<List<SplitHint>>create().toSerialized();
@@ -217,6 +218,7 @@ public class KVRangeFSM implements IKVRangeFSM {
             new AsyncRunner("basekv.runner.rangemanager", mgmtExecutor, "rangeId", KVRangeIdUtil.toString(id));
         this.splitHinters = coProcFactory.createHinters(clusterId, hostStoreId, id, this.kvRange::newDataReader);
         this.coProc = coProcFactory.createCoProc(clusterId, hostStoreId, id, this.kvRange::newDataReader);
+        this.snapshotBandwidthGovernor = new SnapshotBandwidthGovernor(opts.getSnapshotSyncBytesPerSec());
 
         long lastAppliedIndex = this.kvRange.lastAppliedIndex();
         this.linearizer = new KVRangeQueryLinearizer(wal::readIndex, queryExecutor, lastAppliedIndex, tags);
@@ -268,7 +270,8 @@ public class KVRangeFSM implements IKVRangeFSM {
                 // start the wal
                 wal.start();
                 this.restorer = new KVRangeRestorer(wal.latestSnapshot(), kvRange, messenger,
-                    metricManager, fsmExecutor, opts.getSnapshotSyncIdleTimeoutSec(), tags);
+                    metricManager, fsmExecutor, opts.getSnapshotSyncIdleTimeoutSec(),
+                    tags);
                 disposables.add(wal.peerMessages().observeOn(Schedulers.io())
                     .subscribe((messages) -> {
                         for (String peerId : messages.keySet()) {
@@ -1065,7 +1068,7 @@ public class KVRangeFSM implements IKVRangeFSM {
                             finishCommand(taskId);
                         }
                         messenger.once(KVRangeMessage::hasEnsureRangeReply)
-                            .orTimeout(5, TimeUnit.SECONDS)
+                            .orTimeout(300, TimeUnit.SECONDS)
                             .whenCompleteAsync((v, e) -> {
                                 if (e != null || v.getEnsureRangeReply().getResult() != EnsureRangeReply.Result.OK) {
                                     log.error("Failed to load rhs range[taskId={}]: newRangeId={}",
@@ -1089,7 +1092,6 @@ public class KVRangeFSM implements IKVRangeFSM {
                                     .build())
                                 .build()).build());
                     });
-
                 } else {
                     onDone.complete(() -> finishCommandWithError(taskId,
                         new KVRangeException.BadRequest("Invalid split key")));
@@ -1520,6 +1522,7 @@ public class KVRangeFSM implements IKVRangeFSM {
                         }
                     } else {
                         linearizer.afterLogApplied(snapshot.getLastAppliedIndex());
+                        metricManager.reportLastAppliedIndex(snapshot.getLastAppliedIndex());
                         // reset the co-proc
                         factSubject.onNext(reset(snapshot.getBoundary()));
                         // finish all pending tasks
@@ -1672,7 +1675,7 @@ public class KVRangeFSM implements IKVRangeFSM {
             request.getSessionId(), follower, request.getSnapshot());
         KVRangeDumpSession session = new KVRangeDumpSession(follower, request, kvRange, messenger,
             Duration.ofSeconds(opts.getSnapshotSyncIdleTimeoutSec()),
-            opts.getSnapshotSyncBytesPerSec(), metricManager::reportDump, tags);
+            opts.getSnapshotSyncBytesPerSec(), snapshotBandwidthGovernor, metricManager::reportDump, tags);
         dumpSessions.put(session.id(), session);
         session.awaitDone().whenComplete((result, e) -> {
             switch (result) {

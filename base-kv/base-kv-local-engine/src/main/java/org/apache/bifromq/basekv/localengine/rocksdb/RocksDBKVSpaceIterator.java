@@ -19,19 +19,19 @@
 
 package org.apache.bifromq.basekv.localengine.rocksdb;
 
+import static com.google.protobuf.UnsafeByteOperations.unsafeWrap;
 import static org.apache.bifromq.basekv.localengine.rocksdb.Keys.DATA_SECTION_END;
 import static org.apache.bifromq.basekv.localengine.rocksdb.Keys.DATA_SECTION_START;
 import static org.apache.bifromq.basekv.localengine.rocksdb.Keys.fromDataKey;
 import static org.apache.bifromq.basekv.localengine.rocksdb.Keys.toDataKey;
 import static org.apache.bifromq.basekv.utils.BoundaryUtil.endKeyBytes;
 import static org.apache.bifromq.basekv.utils.BoundaryUtil.startKeyBytes;
-import static com.google.protobuf.UnsafeByteOperations.unsafeWrap;
 
+import com.google.protobuf.ByteString;
+import java.lang.ref.Cleaner;
 import org.apache.bifromq.basekv.localengine.IKVSpaceIterator;
 import org.apache.bifromq.basekv.localengine.ISyncContext;
 import org.apache.bifromq.basekv.proto.Boundary;
-import com.google.protobuf.ByteString;
-import java.lang.ref.Cleaner;
 import org.rocksdb.ColumnFamilyHandle;
 import org.rocksdb.RocksDB;
 import org.rocksdb.Snapshot;
@@ -41,6 +41,7 @@ class RocksDBKVSpaceIterator implements IKVSpaceIterator {
     private final RocksDBKVEngineIterator rocksItr;
     private final ISyncContext.IRefresher refresher;
     private final Cleaner.Cleanable onClose;
+
     public RocksDBKVSpaceIterator(RocksDB db,
                                   ColumnFamilyHandle cfHandle,
                                   Boundary boundary,
@@ -53,11 +54,20 @@ class RocksDBKVSpaceIterator implements IKVSpaceIterator {
                                   Snapshot snapshot,
                                   Boundary boundary,
                                   ISyncContext.IRefresher refresher) {
+        this(db, cfHandle, snapshot, boundary, refresher, true);
+    }
+
+    public RocksDBKVSpaceIterator(RocksDB db,
+                                  ColumnFamilyHandle cfHandle,
+                                  Snapshot snapshot,
+                                  Boundary boundary,
+                                  ISyncContext.IRefresher refresher,
+                                  boolean fillCache) {
         byte[] startKey = startKeyBytes(boundary);
         byte[] endKey = endKeyBytes(boundary);
         startKey = startKey != null ? toDataKey(startKey) : DATA_SECTION_START;
         endKey = endKey != null ? toDataKey(endKey) : DATA_SECTION_END;
-        this.rocksItr = new RocksDBKVEngineIterator(db, cfHandle, snapshot, startKey, endKey);
+        this.rocksItr = new RocksDBKVEngineIterator(db, cfHandle, snapshot, startKey, endKey, fillCache);
         this.refresher = refresher;
         onClose = CLEANER.register(this, new State(rocksItr));
     }

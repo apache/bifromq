@@ -42,9 +42,9 @@ import org.apache.bifromq.basekv.store.api.IKVReader;
 import org.apache.bifromq.dist.trie.ITopicFilterIterator;
 import org.apache.bifromq.dist.trie.ThreadLocalTopicFilterIterator;
 import org.apache.bifromq.dist.trie.TopicTrieNode;
-import org.apache.bifromq.dist.worker.schema.GroupMatching;
-import org.apache.bifromq.dist.worker.schema.Matching;
-import org.apache.bifromq.dist.worker.schema.NormalMatching;
+import org.apache.bifromq.dist.worker.schema.cache.GroupMatching;
+import org.apache.bifromq.dist.worker.schema.cache.Matching;
+import org.apache.bifromq.dist.worker.schema.cache.NormalMatching;
 import org.apache.bifromq.plugin.eventcollector.IEventCollector;
 import org.apache.bifromq.util.TopicUtil;
 

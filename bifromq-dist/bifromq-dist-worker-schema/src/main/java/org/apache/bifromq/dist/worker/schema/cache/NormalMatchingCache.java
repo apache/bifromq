@@ -22,23 +22,22 @@ package org.apache.bifromq.dist.worker.schema.cache;
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
 import com.github.benmanes.caffeine.cache.Interner;
-import org.apache.bifromq.dist.worker.schema.Matching;
-import org.apache.bifromq.dist.worker.schema.NormalMatching;
-import org.apache.bifromq.dist.worker.schema.RouteDetail;
-import org.apache.bifromq.type.RouteMatcher;
 
 public class NormalMatchingCache {
     private static final Interner<CacheKey> CACHE_KEY_INTERNER = Interner.newWeakInterner();
-    private static final Cache<CacheKey, Matching> NORMAL_MATCHING_CACHE = Caffeine.newBuilder().weakKeys()
+    private static final Interner<NormalMatching> NORMAL_MATCHING_INTERNER = Interner.newWeakInterner();
+    private static final Cache<CacheKey, Matching> NORMAL_MATCHING_CACHE = Caffeine.newBuilder()
+        .weakKeys()
+        .weakValues()
         .build();
-    private static final Interner<Matching> MATCHING_INTERNER = Interner.newWeakInterner();
 
     public static Matching get(RouteDetail routeDetail, long incarnation) {
-        assert routeDetail.matcher().getType() == RouteMatcher.Type.Normal;
         CacheKey key = CACHE_KEY_INTERNER.intern(new CacheKey(routeDetail, incarnation));
-        return NORMAL_MATCHING_CACHE.get(key, k -> MATCHING_INTERNER.intern(new NormalMatching(k.routeDetail.tenantId(),
+        return NORMAL_MATCHING_CACHE.get(key, k -> NORMAL_MATCHING_INTERNER.intern(new NormalMatching(
+            k.routeDetail.tenantId(),
             k.routeDetail.matcher(),
-            k.routeDetail.receiverUrl(), k.incarnation)));
+            k.routeDetail.receiverUrl(),
+            k.incarnation)));
     }
 
     private record CacheKey(RouteDetail routeDetail, long incarnation) {

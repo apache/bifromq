@@ -23,23 +23,21 @@ import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
 import com.github.benmanes.caffeine.cache.Interner;
 import org.apache.bifromq.dist.rpc.proto.RouteGroup;
-import org.apache.bifromq.dist.worker.schema.GroupMatching;
-import org.apache.bifromq.dist.worker.schema.Matching;
-import org.apache.bifromq.dist.worker.schema.RouteDetail;
-import org.apache.bifromq.type.RouteMatcher;
 
 public class GroupMatchingCache {
     private static final Interner<CacheKey> CACHE_KEY_INTERNER = Interner.newWeakInterner();
-    private static final Cache<CacheKey, Matching> GROUP_MATCHING_CACHE = Caffeine.newBuilder().weakKeys()
+    private static final Interner<GroupMatching> GROUP_MATCHING_INTERNER = Interner.newWeakInterner();
+    private static final Cache<CacheKey, Matching> GROUP_MATCHING_CACHE = Caffeine.newBuilder()
+        .weakKeys()
+        .weakValues()
         .build();
-    private static final Interner<Matching> MATCHING_INTERNER = Interner.newWeakInterner();
 
     public static Matching get(RouteDetail routeDetail, RouteGroup group) {
-        assert routeDetail.matcher().getType() != RouteMatcher.Type.Normal;
         CacheKey key = CACHE_KEY_INTERNER.intern(new CacheKey(routeDetail, group));
-        return GROUP_MATCHING_CACHE.get(key, k ->
-            MATCHING_INTERNER.intern(new GroupMatching(k.routeDetail().tenantId(), k.routeDetail.matcher(),
-                k.routeGroup().getMembersMap())));
+        return GROUP_MATCHING_CACHE.get(key, k -> GROUP_MATCHING_INTERNER.intern(new GroupMatching(
+            k.routeDetail.tenantId(),
+            k.routeDetail.matcher(),
+            k.routeGroup().getMembersMap())));
     }
 
     private record CacheKey(RouteDetail routeDetail, RouteGroup routeGroup) {

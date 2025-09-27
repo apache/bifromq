@@ -29,11 +29,13 @@ import org.apache.bifromq.dist.rpc.proto.RouteGroup;
 public class RouteGroupCache {
     private static final Interner<ByteString> ROUTE_GROUP_BYTES_INTERNER = Interner.newWeakInterner();
     private static final Interner<RouteGroup> ROUTE_GROUP_INTERNER = Interner.newWeakInterner();
-    private static final Cache<ByteString, RouteGroup> ROUTE_GROUP_CACHE = Caffeine.newBuilder().weakKeys().build();
+    private static final Cache<ByteString, RouteGroup> ROUTE_GROUP_CACHE = Caffeine.newBuilder()
+        .weakKeys()
+        .weakValues()
+        .build();
 
     public static RouteGroup get(ByteString routeGroupBytes) {
-        routeGroupBytes = ROUTE_GROUP_BYTES_INTERNER.intern(routeGroupBytes);
-        return ROUTE_GROUP_CACHE.get(routeGroupBytes, k -> {
+        return ROUTE_GROUP_CACHE.get(ROUTE_GROUP_BYTES_INTERNER.intern(routeGroupBytes), k -> {
             try {
                 return ROUTE_GROUP_INTERNER.intern(RouteGroup.parseFrom(k));
             } catch (InvalidProtocolBufferException e) {

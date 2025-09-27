@@ -17,8 +17,21 @@
  * under the License.
  */
 
-package org.apache.bifromq.dist.worker.schema;
+package org.apache.bifromq.basekv.store.range;
 
-public record Receiver(int subBrokerId, String receiverId, String delivererKey) {
+import com.google.common.util.concurrent.RateLimiter;
 
+final class SnapshotBandwidthGovernor {
+    private final RateLimiter rateLimiter;
+
+    SnapshotBandwidthGovernor(long bytesPerSec) {
+        rateLimiter = bytesPerSec > 0 ? RateLimiter.create(bytesPerSec) : null;
+    }
+
+    void acquire(int bytes) {
+        if (rateLimiter == null || bytes <= 0) {
+            return;
+        }
+        rateLimiter.acquire(bytes);
+    }
 }

@@ -22,6 +22,7 @@ package org.apache.bifromq.basekv.store.range;
 import static org.awaitility.Awaitility.await;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.timeout;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -30,6 +31,12 @@ import static org.testng.Assert.assertEquals;
 import static org.testng.Assert.assertFalse;
 import static org.testng.Assert.assertTrue;
 
+import com.google.protobuf.ByteString;
+import io.reactivex.rxjava3.subjects.PublishSubject;
+import java.time.Duration;
+import java.util.concurrent.atomic.AtomicInteger;
+import lombok.SneakyThrows;
+import lombok.extern.slf4j.Slf4j;
 import org.apache.bifromq.basekv.MockableTest;
 import org.apache.bifromq.basekv.proto.KVRangeId;
 import org.apache.bifromq.basekv.proto.KVRangeMessage;
@@ -38,11 +45,6 @@ import org.apache.bifromq.basekv.proto.SaveSnapshotDataReply;
 import org.apache.bifromq.basekv.proto.SaveSnapshotDataRequest;
 import org.apache.bifromq.basekv.proto.SnapshotSyncRequest;
 import org.apache.bifromq.basekv.utils.KVRangeIdUtil;
-import com.google.protobuf.ByteString;
-import io.reactivex.rxjava3.subjects.PublishSubject;
-import java.time.Duration;
-import lombok.SneakyThrows;
-import lombok.extern.slf4j.Slf4j;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.testng.annotations.Test;
@@ -76,7 +78,7 @@ public class KVRangeDumpSessionTest extends MockableTest {
             .build();
         when(rangeAccessor.id()).thenReturn(rangeId);
         KVRangeDumpSession dumpSession = new KVRangeDumpSession(peerStoreId, request, rangeAccessor, messenger,
-            Duration.ofSeconds(5), 1024, dumpBytesRecorder);
+            Duration.ofSeconds(5), 1024, new SnapshotBandwidthGovernor(0), dumpBytesRecorder);
         await().until(() -> dumpSession.awaitDone().toCompletableFuture().isDone());
         ArgumentCaptor<KVRangeMessage> messageCap = ArgumentCaptor.forClass(KVRangeMessage.class);
         verify(messenger).send(messageCap.capture());
@@ -103,7 +105,7 @@ public class KVRangeDumpSessionTest extends MockableTest {
         when(rangeAccessor.id()).thenReturn(rangeId);
         when(rangeAccessor.hasCheckpoint(snapshot)).thenReturn(false);
         KVRangeDumpSession dumpSession = new KVRangeDumpSession(peerStoreId, request, rangeAccessor, messenger,
-            Duration.ofSeconds(5), 1024, dumpBytesRecorder);
+            Duration.ofSeconds(5), 1024, new SnapshotBandwidthGovernor(0), dumpBytesRecorder);
         await().until(() -> dumpSession.awaitDone().toCompletableFuture().isDone());
         ArgumentCaptor<KVRangeMessage> messageCap = ArgumentCaptor.forClass(KVRangeMessage.class);
         verify(messenger).send(messageCap.capture());
@@ -156,7 +158,7 @@ public class KVRangeDumpSessionTest extends MockableTest {
         when(rangeCPDataItr.key()).thenReturn(ByteString.copyFromUtf8("key"));
         when(rangeCPDataItr.value()).thenReturn(ByteString.copyFromUtf8("value"));
         KVRangeDumpSession dumpSession = new KVRangeDumpSession(peerStoreId, request, rangeAccessor, messenger,
-            Duration.ofSeconds(5), 1024, dumpBytesRecorder);
+            Duration.ofSeconds(5), 1024, new SnapshotBandwidthGovernor(0), dumpBytesRecorder);
         assertEquals(dumpSession.checkpointId(), checkpointId);
         verify(rangeCPDataItr, timeout(100)).seekToFirst();
         verify(rangeCPDataItr, timeout(100)).next();
@@ -202,14 +204,30 @@ public class KVRangeDumpSessionTest extends MockableTest {
 
         when(messenger.receive()).thenReturn(incomingMsgs);
 
-        when(rangeCPDataItr.isValid()).thenReturn(true);
-        when(rangeCPDataItr.key()).thenReturn(ByteString.copyFromUtf8("key"));
-        when(rangeCPDataItr.value()).thenReturn(ByteString.copyFromUtf8("value"));
+        AtomicInteger index = new AtomicInteger();
+        ByteString[] keys = new ByteString[] {
+            ByteString.copyFromUtf8("key0"),
+            ByteString.copyFromUtf8("key1")
+        };
+        ByteString[] values = new ByteString[] {
+            ByteString.copyFrom(new byte[200_000]),
+            ByteString.copyFrom(new byte[200_000])
+        };
+        when(rangeCPDataItr.isValid()).thenAnswer(invocation -> index.get() < values.length);
+        when(rangeCPDataItr.key()).thenAnswer(invocation -> keys[index.get()]);
+        when(rangeCPDataItr.value()).thenAnswer(invocation -> values[index.get()]);
+        doAnswer(invocation -> {
+            index.incrementAndGet();
+            return null;
+        }).when(rangeCPDataItr).next();
+
         KVRangeDumpSession dumpSession = new KVRangeDumpSession(peerStoreId, request, rangeAccessor, messenger,
-            Duration.ofMillis(100), 5, dumpBytesRecorder);
+            Duration.ofMillis(100), 0, new SnapshotBandwidthGovernor(0), dumpBytesRecorder);
         ArgumentCaptor<KVRangeMessage> messageCap = ArgumentCaptor.forClass(KVRangeMessage.class);
         verify(messenger, timeout(100).times(1)).send(messageCap.capture());
-        assertEquals(messageCap.getValue().getSaveSnapshotDataRequest().getFlag(), SaveSnapshotDataRequest.Flag.More);
+        SaveSnapshotDataRequest firstReq = messageCap.getValue().getSaveSnapshotDataRequest();
+        assertEquals(firstReq.getKvCount(), 1);
+        assertEquals(firstReq.getFlag(), SaveSnapshotDataRequest.Flag.More);
     }
 
     @SneakyThrows
@@ -241,7 +259,7 @@ public class KVRangeDumpSessionTest extends MockableTest {
         when(rangeCPDataItr.key()).thenReturn(ByteString.copyFromUtf8("key"));
         when(rangeCPDataItr.value()).thenReturn(ByteString.copyFromUtf8("value"));
         KVRangeDumpSession dumpSession = new KVRangeDumpSession(peerStoreId, request, rangeAccessor, messenger,
-            Duration.ofMillis(100), 1024, dumpBytesRecorder);
+            Duration.ofMillis(100), 1024, new SnapshotBandwidthGovernor(0), dumpBytesRecorder);
         Thread.sleep(60);
         dumpSession.tick();
         ArgumentCaptor<KVRangeMessage> messageCap = ArgumentCaptor.forClass(KVRangeMessage.class);
@@ -278,7 +296,7 @@ public class KVRangeDumpSessionTest extends MockableTest {
         when(rangeCPDataItr.key()).thenReturn(ByteString.copyFromUtf8("key"));
         when(rangeCPDataItr.value()).thenReturn(ByteString.copyFromUtf8("value"));
         KVRangeDumpSession dumpSession = new KVRangeDumpSession(peerStoreId, request, rangeAccessor, messenger,
-            Duration.ofMillis(10), 1024, dumpBytesRecorder);
+            Duration.ofMillis(10), 1024, new SnapshotBandwidthGovernor(0), dumpBytesRecorder);
         Thread.sleep(20);
         dumpSession.tick();
         verify(messenger, timeout(100).times(1)).send(any());
@@ -314,7 +332,7 @@ public class KVRangeDumpSessionTest extends MockableTest {
         when(rangeCPDataItr.key()).thenReturn(ByteString.copyFromUtf8("key"));
         when(rangeCPDataItr.value()).thenReturn(ByteString.copyFromUtf8("value"));
         KVRangeDumpSession dumpSession = new KVRangeDumpSession(peerStoreId, request, rangeAccessor, messenger,
-            Duration.ofMillis(10), 1024, dumpBytesRecorder);
+            Duration.ofMillis(10), 1024, new SnapshotBandwidthGovernor(0), dumpBytesRecorder);
         assertFalse(dumpSession.awaitDone().toCompletableFuture().isDone());
         dumpSession.cancel();
         verify(messenger, timeout(100).times(1)).send(any());

@@ -14,18 +14,18 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 
 package org.apache.bifromq.basekv.client.scheduler;
 
 import static org.apache.bifromq.basekv.client.KVRangeRouterUtil.findByKey;
 
+import com.google.protobuf.ByteString;
+import java.util.Optional;
 import org.apache.bifromq.basekv.client.IBaseKVStoreClient;
 import org.apache.bifromq.basekv.client.KVRangeSetting;
 import org.apache.bifromq.basescheduler.BatchCallScheduler;
-import com.google.protobuf.ByteString;
-import java.util.Optional;
 
 /**
  * The abstract class for base-kv query call scheduler.
@@ -46,7 +46,7 @@ public abstract class QueryCallScheduler<ReqT, RespT, BatchCallT extends BatchQu
     }
 
     protected String selectStore(KVRangeSetting setting, ReqT request) {
-        return setting.leader;
+        return setting.leader();
     }
 
     protected abstract int selectQueue(ReqT request);
@@ -58,7 +58,7 @@ public abstract class QueryCallScheduler<ReqT, RespT, BatchCallT extends BatchQu
     @Override
     protected final Optional<QueryCallBatcherKey> find(ReqT req) {
         return findByKey(rangeKey(req), storeClient.latestEffectiveRouter())
-            .map(range -> new QueryCallBatcherKey(range.id, selectStore(range, req),
-                selectQueue(req), range.ver, isLinearizable(req)));
+            .map(range -> new QueryCallBatcherKey(range.id(), selectStore(range, req),
+                selectQueue(req), range.ver(), isLinearizable(req)));
     }
 }

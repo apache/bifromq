@@ -17,16 +17,23 @@
  * under the License.
  */
 
-package org.apache.bifromq.basekv.store.range;
+package org.apache.bifromq.dist.worker.schema.cache;
 
-import com.google.protobuf.ByteString;
+import lombok.EqualsAndHashCode;
+import lombok.Getter;
+import lombok.experimental.Accessors;
 
-public interface IKVReseter {
-    void put(ByteString key, ByteString value);
+@Accessors(fluent = true)
+@Getter
+@EqualsAndHashCode
+public final class Receiver {
+    private final int subBrokerId;
+    private final String receiverId;
+    private final String delivererKey;
 
-    void flush();
-
-    IKVRange abort();
-
-    IKVRange done();
+    Receiver(int subBrokerId, String receiverId, String delivererKey) {
+        this.subBrokerId = subBrokerId;
+        this.receiverId = receiverId;
+        this.delivererKey = delivererKey;
+    }
 }

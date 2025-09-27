@@ -21,7 +21,7 @@ package org.apache.bifromq.dist.worker.cache.task;
 
 import java.util.NavigableMap;
 import java.util.Set;
-import org.apache.bifromq.dist.worker.schema.Matching;
+import org.apache.bifromq.dist.worker.schema.cache.Matching;
 import org.apache.bifromq.type.RouteMatcher;
 
 public abstract class RefreshEntriesTask extends TenantRouteCacheTask {

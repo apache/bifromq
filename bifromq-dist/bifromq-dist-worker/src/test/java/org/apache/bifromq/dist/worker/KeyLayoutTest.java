@@ -38,6 +38,7 @@ import org.apache.bifromq.dist.rpc.proto.MatchRoute;
 import org.apache.bifromq.dist.trie.TopicFilterIterator;
 import org.apache.bifromq.dist.trie.TopicTrieNode;
 import org.apache.bifromq.dist.worker.schema.KVSchemaUtil;
+import org.apache.bifromq.dist.worker.schema.cache.RouteDetailCache;
 import org.apache.bifromq.util.TopicUtil;
 import org.testng.annotations.Test;
 
@@ -72,7 +73,7 @@ public class KeyLayoutTest {
                 route -> keys.add(
                     KVSchemaUtil.toNormalRouteKey("t", TopicUtil.from(tf), KVSchemaUtil.toReceiverUrl(route)))));
         LinkedHashSet<String> parsed = new LinkedHashSet<>();
-        keys.forEach(k -> parsed.add(KVSchemaUtil.parseRouteDetail(k).matcher().getMqttTopicFilter()));
+        keys.forEach(k -> parsed.add(RouteDetailCache.get(k).matcher().getMqttTopicFilter()));
         assertEquals(generated, new ArrayList<>(parsed));
     }
 }

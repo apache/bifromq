@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 
 package org.apache.bifromq.retain.store.gc;
@@ -63,7 +63,7 @@ public class RetainStoreGCProcessor implements IRetainStoreGCProcessor {
         }
         CompletableFuture<?>[] gcFutures = findByBoundary(boundary, storeClient.latestEffectiveRouter())
             .stream()
-            .filter(k -> localServerId == null || k.leader.equals(localServerId))
+            .filter(k -> localServerId == null || k.leader().equals(localServerId))
             .map(rangeSetting -> gcRange(reqId, rangeSetting, tenantId, expirySeconds, now))
             .toArray(CompletableFuture[]::new);
         return CompletableFuture.allOf(gcFutures)
@@ -99,10 +99,10 @@ public class RetainStoreGCProcessor implements IRetainStoreGCProcessor {
         if (expirySeconds != null) {
             reqBuilder.setExpirySeconds(expirySeconds);
         }
-        return storeClient.execute(rangeSetting.leader, KVRangeRWRequest.newBuilder()
+        return storeClient.execute(rangeSetting.leader(), KVRangeRWRequest.newBuilder()
                 .setReqId(reqId)
-                .setKvRangeId(rangeSetting.id)
-                .setVer(rangeSetting.ver)
+                .setKvRangeId(rangeSetting.id())
+                .setVer(rangeSetting.ver())
                 .setRwCoProc(RWCoProcInput.newBuilder()
                     .setRetainService(RetainServiceRWCoProcInput.newBuilder()
                         .setGc(reqBuilder.build())
@@ -113,7 +113,7 @@ public class RetainStoreGCProcessor implements IRetainStoreGCProcessor {
                 switch (reply.getCode()) {
                     case Ok -> {
                         log.debug("Range gc succeed: serverId={}, rangeId={}, ver={}",
-                            rangeSetting.leader, rangeSetting.id, rangeSetting.ver);
+                            rangeSetting.leader(), rangeSetting.id(), rangeSetting.ver());
                         return reply.getRwCoProcResult().getRetainService().getGc();
                     }
                     case TryLater -> throw new TryLaterException();

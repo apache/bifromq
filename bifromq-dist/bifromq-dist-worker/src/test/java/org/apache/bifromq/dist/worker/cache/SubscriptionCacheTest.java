@@ -50,10 +50,11 @@ import java.util.function.Supplier;
 import org.apache.bifromq.basekv.proto.Boundary;
 import org.apache.bifromq.basekv.proto.KVRangeId;
 import org.apache.bifromq.basekv.store.api.IKVCloseableReader;
+import org.apache.bifromq.basekv.utils.KVRangeIdUtil;
 import org.apache.bifromq.dist.worker.Comparators;
 import org.apache.bifromq.dist.worker.cache.task.AddRoutesTask;
 import org.apache.bifromq.dist.worker.cache.task.RefreshEntriesTask;
-import org.apache.bifromq.dist.worker.schema.Matching;
+import org.apache.bifromq.dist.worker.schema.cache.Matching;
 import org.apache.bifromq.type.RouteMatcher;
 import org.apache.bifromq.util.TopicUtil;
 import org.testng.annotations.BeforeMethod;
@@ -61,11 +62,11 @@ import org.testng.annotations.Test;
 
 public class SubscriptionCacheTest {
 
+    private KVRangeId rangeId = KVRangeIdUtil.generate();
     private SubscriptionCache cache;
     private ITenantRouteCacheFactory tenantRouteCacheFactoryMock;
     private ITenantRouteCache tenantRouteCacheMock;
     private Supplier<IKVCloseableReader> readerSupplierMock;
-    private KVRangeId kvRangeIdMock;
     private Executor matchExecutor;
     private Ticker tickerMock;
 
@@ -74,14 +75,13 @@ public class SubscriptionCacheTest {
         tenantRouteCacheFactoryMock = mock(ITenantRouteCacheFactory.class);
         tenantRouteCacheMock = mock(ITenantRouteCache.class);
         readerSupplierMock = mock(Supplier.class);
-        kvRangeIdMock = mock(KVRangeId.class);
         matchExecutor = Executors.newSingleThreadExecutor();
         tickerMock = mock(Ticker.class);
 
-        when(tenantRouteCacheFactoryMock.create(anyString())).thenReturn(tenantRouteCacheMock);
+        when(tenantRouteCacheFactoryMock.create(eq(rangeId), anyString())).thenReturn(tenantRouteCacheMock);
         when(tenantRouteCacheFactoryMock.expiry()).thenReturn(Duration.ofMinutes(10));
 
-        cache = new SubscriptionCache(kvRangeIdMock, tenantRouteCacheFactoryMock, tickerMock);
+        cache = new SubscriptionCache(rangeId, tenantRouteCacheFactoryMock, tickerMock);
         cache.reset(FULL_BOUNDARY);
     }
 
@@ -109,7 +109,7 @@ public class SubscriptionCacheTest {
         Set<Matching> mockMatchings = new HashSet<>();
         when(tenantRouteCacheMock.getMatch(eq(topic), any(Boundary.class))).thenReturn(
             CompletableFuture.completedFuture(mockMatchings));
-        when(tenantRouteCacheFactoryMock.create(eq(tenantId))).thenReturn(tenantRouteCacheMock);
+        when(tenantRouteCacheFactoryMock.create(eq(rangeId), eq(tenantId))).thenReturn(tenantRouteCacheMock);
         // load cache
         cache.get(tenantId, topic).join();
 
@@ -127,7 +127,7 @@ public class SubscriptionCacheTest {
         Map<String, RefreshEntriesTask> matchesByTenant = new HashMap<>();
         matchesByTenant.put(tenantId, refreshEntriesTask);
 
-        when(tenantRouteCacheFactoryMock.create(tenantId)).thenReturn(tenantRouteCacheMock);
+        when(tenantRouteCacheFactoryMock.create(eq(rangeId), eq(tenantId))).thenReturn(tenantRouteCacheMock);
         cache.refresh(matchesByTenant);
 
         verify(tenantRouteCacheMock, never()).refresh(refreshEntriesTask);

@@ -26,6 +26,9 @@ import static org.apache.bifromq.basekv.utils.BoundaryUtil.upperBound;
 import static org.apache.bifromq.inbox.store.schema.KVSchemaUtil.tenantBeginKeyPrefix;
 import static org.reflections.Reflections.log;
 
+import com.google.protobuf.ByteString;
+import java.util.Collection;
+import java.util.concurrent.CompletableFuture;
 import org.apache.bifromq.basekv.client.IBaseKVStoreClient;
 import org.apache.bifromq.basekv.client.KVRangeSetting;
 import org.apache.bifromq.basekv.client.exception.BadRequestException;
@@ -40,9 +43,6 @@ import org.apache.bifromq.inbox.rpc.proto.ExpireAllRequest;
 import org.apache.bifromq.inbox.storage.proto.ExpireTenantReply;
 import org.apache.bifromq.inbox.storage.proto.ExpireTenantRequest;
 import org.apache.bifromq.inbox.storage.proto.InboxServiceROCoProcInput;
-import com.google.protobuf.ByteString;
-import java.util.Collection;
-import java.util.concurrent.CompletableFuture;
 
 public class TenantGCRunner implements ITenantGCRunner {
     private final IBaseKVStoreClient storeClient;
@@ -94,10 +94,10 @@ public class TenantGCRunner implements ITenantGCRunner {
                                                         Integer expirySeconds,
                                                         long now) {
         long reqId = System.nanoTime();
-        return storeClient.query(rangeSetting.leader, KVRangeRORequest.newBuilder()
+        return storeClient.query(rangeSetting.leader(), KVRangeRORequest.newBuilder()
                 .setReqId(reqId)
-                .setKvRangeId(rangeSetting.id)
-                .setVer(rangeSetting.ver)
+                .setKvRangeId(rangeSetting.id())
+                .setVer(rangeSetting.ver())
                 .setRoCoProc(ROCoProcInput.newBuilder()
                     .setInboxService(buildRequest(reqId, tenantId, expirySeconds, now))
                     .build())

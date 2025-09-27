@@ -14,12 +14,13 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 
 package org.apache.bifromq.dist.worker.cache;
 
 import java.time.Duration;
+import org.apache.bifromq.basekv.proto.KVRangeId;
 
 /**
  * The factory for building {@link ITenantRouteCache} for given tenant.
@@ -27,7 +28,7 @@ import java.time.Duration;
 public interface ITenantRouteCacheFactory {
     Duration expiry();
 
-    ITenantRouteCache create(String tenant);
+    ITenantRouteCache create(KVRangeId rangeId, String tenant);
 
     void close();
 }

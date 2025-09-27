@@ -19,9 +19,9 @@
 
 package org.apache.bifromq.dist.worker.cache;
 
-import static org.apache.bifromq.dist.worker.schema.Matchings.normalMatching;
-import static org.apache.bifromq.dist.worker.schema.Matchings.receiverUrl;
-import static org.apache.bifromq.dist.worker.schema.Matchings.unorderedGroupMatching;
+import static org.apache.bifromq.dist.worker.schema.cache.Matchings.normalMatching;
+import static org.apache.bifromq.dist.worker.schema.cache.Matchings.receiverUrl;
+import static org.apache.bifromq.dist.worker.schema.cache.Matchings.unorderedGroupMatching;
 import static org.apache.bifromq.plugin.eventcollector.EventType.GROUP_FANOUT_THROTTLED;
 import static org.apache.bifromq.plugin.eventcollector.EventType.PERSISTENT_FANOUT_THROTTLED;
 import static org.mockito.ArgumentMatchers.any;
@@ -35,9 +35,9 @@ import static org.testng.Assert.assertFalse;
 import static org.testng.Assert.assertTrue;
 
 import java.util.Map;
-import org.apache.bifromq.dist.worker.schema.GroupMatching;
-import org.apache.bifromq.dist.worker.schema.Matching;
-import org.apache.bifromq.dist.worker.schema.NormalMatching;
+import org.apache.bifromq.dist.worker.schema.cache.GroupMatching;
+import org.apache.bifromq.dist.worker.schema.cache.Matching;
+import org.apache.bifromq.dist.worker.schema.cache.NormalMatching;
 import org.apache.bifromq.plugin.eventcollector.IEventCollector;
 import org.apache.bifromq.plugin.eventcollector.distservice.GroupFanoutThrottled;
 import org.apache.bifromq.plugin.eventcollector.distservice.PersistentFanoutThrottled;

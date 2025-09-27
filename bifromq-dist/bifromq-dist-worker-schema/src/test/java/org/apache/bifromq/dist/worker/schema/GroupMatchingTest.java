@@ -23,9 +23,11 @@ import static org.apache.bifromq.dist.worker.schema.KVSchemaUtil.toReceiverUrl;
 import static org.testng.Assert.assertEquals;
 import static org.testng.Assert.assertNotEquals;
 
-import org.apache.bifromq.dist.rpc.proto.RouteGroup;
-import org.apache.bifromq.util.TopicUtil;
 import com.google.protobuf.ByteString;
+import org.apache.bifromq.dist.rpc.proto.RouteGroup;
+import org.apache.bifromq.dist.worker.schema.cache.GroupMatching;
+import org.apache.bifromq.dist.worker.schema.cache.NormalMatching;
+import org.apache.bifromq.util.TopicUtil;
 import org.testng.annotations.Test;
 
 public class GroupMatchingTest {

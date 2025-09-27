@@ -20,10 +20,12 @@
 package org.apache.bifromq.dist.worker.cache;
 
 import io.micrometer.core.instrument.Metrics;
+import io.micrometer.core.instrument.Tags;
 import io.micrometer.core.instrument.Timer;
 import java.time.Duration;
 import java.util.concurrent.Executor;
 import java.util.function.Supplier;
+import org.apache.bifromq.basekv.proto.KVRangeId;
 import org.apache.bifromq.basekv.store.api.IKVCloseableReader;
 import org.apache.bifromq.plugin.eventcollector.IEventCollector;
 import org.apache.bifromq.plugin.settingprovider.ISettingProvider;
@@ -51,7 +53,7 @@ class TenantRouteCacheFactory implements ITenantRouteCacheFactory {
         this.expiry = expiry;
         this.fanoutCheckInterval = fanoutCheckInterval;
         internalMatchTimer = Timer.builder("dist.match.internal")
-            .tags(tags)
+            .tags(Tags.of(tags))
             .register(Metrics.globalRegistry);
     }
 
@@ -62,8 +64,8 @@ class TenantRouteCacheFactory implements ITenantRouteCacheFactory {
     }
 
     @Override
-    public ITenantRouteCache create(String tenantId) {
-        return new TenantRouteCache(tenantId,
+    public ITenantRouteCache create(KVRangeId rangeId, String tenantId) {
+        return new TenantRouteCache(rangeId, tenantId,
             new TenantRouteMatcher(tenantId, threadLocalReader, eventCollector, internalMatchTimer),
             settingProvider, expiry, fanoutCheckInterval, matchExecutor);
     }

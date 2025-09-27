@@ -17,7 +17,7 @@
  * under the License.
  */
 
-package org.apache.bifromq.dist.worker.schema;
+package org.apache.bifromq.dist.worker.schema.cache;
 
 import lombok.EqualsAndHashCode;
 import lombok.ToString;

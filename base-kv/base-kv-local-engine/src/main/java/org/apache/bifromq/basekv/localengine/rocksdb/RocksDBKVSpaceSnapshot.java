@@ -14,26 +14,26 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 
 package org.apache.bifromq.basekv.localengine.rocksdb;
 
+import static com.google.protobuf.UnsafeByteOperations.unsafeWrap;
 import static org.apache.bifromq.basekv.localengine.rocksdb.Keys.toDataKey;
 import static org.apache.bifromq.basekv.localengine.rocksdb.Keys.toMetaKey;
 import static org.apache.bifromq.basekv.utils.BoundaryUtil.isValid;
-import static com.google.protobuf.UnsafeByteOperations.unsafeWrap;
 
+import com.google.protobuf.ByteString;
+import java.lang.ref.Cleaner;
+import java.util.Optional;
+import java.util.function.Supplier;
 import org.apache.bifromq.basekv.localengine.AbstractKVSpaceReader;
 import org.apache.bifromq.basekv.localengine.IKVSpaceIterator;
 import org.apache.bifromq.basekv.localengine.ISyncContext;
 import org.apache.bifromq.basekv.localengine.KVEngineException;
 import org.apache.bifromq.basekv.localengine.metrics.KVSpaceOpMeters;
 import org.apache.bifromq.basekv.proto.Boundary;
-import com.google.protobuf.ByteString;
-import java.lang.ref.Cleaner;
-import java.util.Optional;
-import java.util.function.Supplier;
 import org.rocksdb.ColumnFamilyHandle;
 import org.rocksdb.ReadOptions;
 import org.rocksdb.RocksDB;
@@ -119,8 +119,7 @@ class RocksDBKVSpaceSnapshot extends AbstractKVSpaceReader implements IRocksDBKV
 
     @Override
     protected IKVSpaceIterator doNewIterator() {
-        return new RocksDBKVSpaceIterator(db, cfHandle, snapshot, Boundary.getDefaultInstance(), DUMMY_REFRESHER
-        );
+        return new RocksDBKVSpaceIterator(db, cfHandle, snapshot, Boundary.getDefaultInstance(), DUMMY_REFRESHER);
     }
 
     @Override

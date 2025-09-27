@@ -14,17 +14,13 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 
 package org.apache.bifromq.basekv.client;
 
 import static org.apache.bifromq.basekv.InProcStores.getInProcStores;
 
-import org.apache.bifromq.basekv.proto.Boundary;
-import org.apache.bifromq.basekv.proto.KVRangeDescriptor;
-import org.apache.bifromq.basekv.proto.KVRangeId;
-import org.apache.bifromq.basekv.raft.proto.RaftNodeSyncState;
 import com.google.common.collect.Iterables;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
@@ -38,22 +34,36 @@ import java.util.Set;
 import java.util.TreeSet;
 import java.util.concurrent.ThreadLocalRandom;
 import lombok.EqualsAndHashCode;
+import lombok.Getter;
 import lombok.ToString;
+import lombok.experimental.Accessors;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.bifromq.basekv.proto.Boundary;
+import org.apache.bifromq.basekv.proto.KVRangeDescriptor;
+import org.apache.bifromq.basekv.proto.KVRangeId;
+import org.apache.bifromq.basekv.raft.proto.RaftNodeSyncState;
 
-@EqualsAndHashCode
+@EqualsAndHashCode(cacheStrategy = EqualsAndHashCode.CacheStrategy.LAZY)
 @ToString
+@Accessors(fluent = true)
 @Slf4j
 public class KVRangeSetting {
-    public final KVRangeId id;
-    public final long ver;
-    public final Boundary boundary;
-    public final String leader;
-    public final List<String> voters;
-    public final List<String> followers;
-    public final List<String> allReplicas;
     private final Any fact;
     private final String clusterId;
+    @Getter
+    private final KVRangeId id;
+    @Getter
+    private final long ver;
+    @Getter
+    private final Boundary boundary;
+    @Getter
+    private final String leader;
+    @Getter
+    private final List<String> voters;
+    @Getter
+    private final List<String> followers;
+    @Getter
+    private final List<String> allReplicas;
     private final List<String> inProcVoters;
     private final List<String> inProcFollowers;
     private final List<String> inProcReplicas;
@@ -118,7 +128,12 @@ public class KVRangeSetting {
             synchronized (this) {
                 if (factObject == null) {
                     try {
-                        factObject = fact.unpack(factType);
+                        // Only unpack when the embedded type matches; otherwise treat as absent
+                        if (fact.is(factType)) {
+                            factObject = fact.unpack(factType);
+                        } else {
+                            return Optional.empty();
+                        }
                     } catch (InvalidProtocolBufferException e) {
                         log.error("parse fact error", e);
                         return Optional.empty();

@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 
 package org.apache.bifromq.retain.server.scheduler;
@@ -27,10 +27,6 @@ import static org.apache.bifromq.retain.store.schema.KVSchemaUtil.retainMessageK
 import static org.testng.Assert.assertEquals;
 import static org.testng.Assert.assertTrue;
 
-import org.apache.bifromq.basekv.client.KVRangeSetting;
-import org.apache.bifromq.basekv.proto.Boundary;
-import org.apache.bifromq.basekv.proto.KVRangeDescriptor;
-import org.apache.bifromq.basekv.utils.BoundaryUtil;
 import com.google.protobuf.ByteString;
 import java.util.Iterator;
 import java.util.Map;
@@ -39,6 +35,10 @@ import java.util.Set;
 import java.util.TreeMap;
 import java.util.stream.Collectors;
 import lombok.SneakyThrows;
+import org.apache.bifromq.basekv.client.KVRangeSetting;
+import org.apache.bifromq.basekv.proto.Boundary;
+import org.apache.bifromq.basekv.proto.KVRangeDescriptor;
+import org.apache.bifromq.basekv.utils.BoundaryUtil;
 import org.mockito.Mock;
 import org.mockito.MockitoAnnotations;
 import org.testng.annotations.AfterMethod;
@@ -79,7 +79,7 @@ public class MatchRetainedRequestRangeRouterTest {
         // Verify
         assertEquals(result.size(), 1);
         for (Map.Entry<KVRangeSetting, Set<String>> entry : result.entrySet()) {
-            assertEquals(entry.getKey().boundary, FULL_BOUNDARY);
+            assertEquals(entry.getKey().boundary(), FULL_BOUNDARY);
             assertEquals(entry.getValue().size(), 1);
             assertTrue(entry.getValue().contains(topic));
         }
@@ -95,7 +95,7 @@ public class MatchRetainedRequestRangeRouterTest {
 
         assertTrue(result.keySet()
             .stream()
-            .map(setting -> setting.boundary)
+            .map(KVRangeSetting::boundary)
             .anyMatch(boundary -> inRange(retainMessageKey(tenantId, "a/a/c"), boundary)
                 || inRange(retainMessageKey(tenantId, "a/c/c"), boundary)));
     }
@@ -109,7 +109,7 @@ public class MatchRetainedRequestRangeRouterTest {
         Map<KVRangeSetting, Set<String>> result = rangeLookup(tenantId, Set.of(topicFilter), effectiveRouter);
 
         assertEquals(result.keySet().stream()
-            .map(setting -> setting.boundary)
+            .map(KVRangeSetting::boundary)
             .collect(Collectors.toSet()), effectiveRouter.keySet());
     }
 
@@ -125,7 +125,7 @@ public class MatchRetainedRequestRangeRouterTest {
         assertEquals(result.size(), 2);
         assertTrue(result.keySet()
             .stream()
-            .map(setting -> setting.boundary)
+            .map(KVRangeSetting::boundary)
             .anyMatch(boundary -> inRange(retainMessageKey(tenantId, "a/b"), boundary)
                 || inRange(retainMessageKey(tenantId, "a/b/c"), boundary)));
 

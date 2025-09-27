@@ -22,11 +22,14 @@ package org.apache.bifromq.dist.worker.schema.cache;
 import static org.apache.bifromq.dist.worker.schema.KVSchemaUtil.toGroupRouteKey;
 import static org.apache.bifromq.dist.worker.schema.KVSchemaUtil.toNormalRouteKey;
 import static org.apache.bifromq.dist.worker.schema.KVSchemaUtil.toReceiverUrl;
+import static org.awaitility.Awaitility.await;
 import static org.testng.Assert.assertEquals;
 import static org.testng.Assert.assertNotSame;
 import static org.testng.Assert.assertSame;
+import static org.testng.Assert.assertTrue;
 
 import com.google.protobuf.ByteString;
+import java.lang.ref.WeakReference;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
@@ -34,7 +37,6 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
-import org.apache.bifromq.dist.worker.schema.RouteDetail;
 import org.apache.bifromq.type.RouteMatcher;
 import org.apache.bifromq.util.TopicUtil;
 import org.testng.annotations.Test;
@@ -141,6 +143,39 @@ public class RouteDetailCacheTest {
 
         // Should throw UnsupportedOperationException
         RouteDetailCache.get(invalidKey);
+    }
+
+    @Test
+    public void routeMatcherCacheShrinksAfterDroppingFilters() {
+        String tenantId = "tenant-" + UUID.randomUUID();
+        String receiverUrl = toReceiverUrl(1, "inbox-" + UUID.randomUUID(), "d-" + UUID.randomUUID());
+        int total = 512;
+
+        List<RouteDetail> details = new ArrayList<>(total);
+        List<WeakReference<RouteDetail>> weakRefs = new ArrayList<>(total);
+        for (int i = 0; i < total; i++) {
+            String topicFilter = "/stress/" + i;
+            RouteMatcher matcher = TopicUtil.from(topicFilter);
+            ByteString routeKey = toNormalRouteKey(tenantId, matcher, receiverUrl);
+            details.add(RouteDetailCache.get(routeKey));
+            weakRefs.add(new WeakReference<>(details.get(i)));
+        }
+
+        RouteDetailCache.drainCaches();
+        long populatedSize = RouteDetailCache.routeMatcherCacheSize();
+        assertTrue(populatedSize >= total);
+
+        details = null;
+        await().forever().until(() -> {
+            System.gc();
+            RouteDetailCache.drainCaches();
+            for (WeakReference<RouteDetail> ref : weakRefs) {
+                if (ref.get() != null) {
+                    return false;
+                }
+            }
+            return true;
+        });
     }
 
     @Test

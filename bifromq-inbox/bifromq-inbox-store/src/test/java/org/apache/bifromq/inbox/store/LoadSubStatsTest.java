@@ -74,6 +74,7 @@ public class LoadSubStatsTest extends InboxStoreTest {
         restartStoreServer();
 
         await().forever().until(() -> BoundaryUtil.isValidSplitSet(storeClient.latestEffectiveRouter().keySet()));
+
         Gauge newSubCountGauge = getSubCountGauge(tenantId);
         Gauge newPSessionGauge = getPSessionGauge(tenantId);
         Gauge newPSessionSpaceGauge = getPSessionSpaceGauge(tenantId);

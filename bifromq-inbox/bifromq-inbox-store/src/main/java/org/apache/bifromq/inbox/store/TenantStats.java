@@ -34,11 +34,11 @@ public class TenantStats {
     private final String tenantId;
     private final String[] tags;
 
+    private boolean isLeader;
+
     TenantStats(String tenantId, Supplier<Number> usedSpaceGetter, String... tagValuePair) {
         this.tenantId = tenantId;
         this.tags = tagValuePair;
-        ITenantMeter.gauging(tenantId, MqttPersistentSubCountGauge, subCount::sum, tags);
-        ITenantMeter.gauging(tenantId, MqttPersistentSessionNumGauge, sessionCount::sum, tags);
         ITenantMeter.gauging(tenantId, MqttPersistentSessionSpaceGauge, usedSpaceGetter, tags);
     }
 
@@ -52,6 +52,18 @@ public class TenantStats {
 
     boolean isNoSession() {
         return sessionCount.sum() == 0;
+    }
+
+    void toggleMetering(boolean isLeader) {
+        if (!this.isLeader && isLeader) {
+            ITenantMeter.gauging(tenantId, MqttPersistentSubCountGauge, subCount::sum, tags);
+            ITenantMeter.gauging(tenantId, MqttPersistentSessionNumGauge, sessionCount::sum, tags);
+            this.isLeader = true;
+        } else if (this.isLeader && !isLeader) {
+            ITenantMeter.stopGauging(tenantId, MqttPersistentSubCountGauge, tags);
+            ITenantMeter.stopGauging(tenantId, MqttPersistentSessionNumGauge, tags);
+            this.isLeader = false;
+        }
     }
 
     void destroy() {

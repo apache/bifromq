@@ -19,6 +19,13 @@
 
 package org.apache.bifromq.inbox.server.scheduler;
 
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.Map;
+import java.util.Queue;
+import java.util.Set;
+import lombok.extern.slf4j.Slf4j;
 import org.apache.bifromq.basehlc.HLC;
 import org.apache.bifromq.basekv.client.IMutationPipeline;
 import org.apache.bifromq.basekv.client.exception.BadVersionException;
@@ -33,14 +40,6 @@ import org.apache.bifromq.inbox.rpc.proto.AttachReply;
 import org.apache.bifromq.inbox.rpc.proto.AttachRequest;
 import org.apache.bifromq.inbox.storage.proto.BatchAttachRequest;
 import org.apache.bifromq.inbox.storage.proto.InboxServiceRWCoProcInput;
-import org.apache.bifromq.inbox.storage.proto.Replica;
-import java.util.Collections;
-import java.util.HashMap;
-import java.util.HashSet;
-import java.util.Map;
-import java.util.Queue;
-import java.util.Set;
-import lombok.extern.slf4j.Slf4j;
 
 @Slf4j
 class BatchAttachCall extends BatchMutationCall<AttachRequest, AttachReply> {
@@ -58,11 +57,7 @@ class BatchAttachCall extends BatchMutationCall<AttachRequest, AttachReply> {
     @Override
     protected RWCoProcInput makeBatch(
         Iterable<ICallTask<AttachRequest, AttachReply, MutationCallBatcherKey>> callTasks) {
-        BatchAttachRequest.Builder reqBuilder = BatchAttachRequest.newBuilder()
-            .setLeader(Replica.newBuilder()
-                .setRangeId(batcherKey.id)
-                .setStoreId(batcherKey.leaderStoreId)
-                .build());
+        BatchAttachRequest.Builder reqBuilder = BatchAttachRequest.newBuilder();
         callTasks.forEach(call -> {
             AttachRequest request = call.call();
             BatchAttachRequest.Params.Builder paramsBuilder = BatchAttachRequest.Params.newBuilder()

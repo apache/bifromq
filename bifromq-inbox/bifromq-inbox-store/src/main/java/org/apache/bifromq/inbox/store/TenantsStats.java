@@ -75,6 +75,12 @@ public class TenantsStats implements ITenantStats {
     }
 
     @Override
+    public void toggleMetering(boolean isLeader) {
+        taskQueue.offer(() -> tenantStatsMap.values().forEach(s -> s.toggleMetering(isLeader)));
+        trigger();
+    }
+
+    @Override
     public void reset(Boundary boundary) {
         taskQueue.offer(() -> doReset(boundary));
         trigger();

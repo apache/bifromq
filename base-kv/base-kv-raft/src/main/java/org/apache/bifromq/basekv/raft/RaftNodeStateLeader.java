@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 
 package org.apache.bifromq.basekv.raft;
@@ -23,6 +23,19 @@ import static org.apache.bifromq.base.util.CompletableFutureUtil.unwrap;
 import static org.apache.bifromq.basekv.raft.RaftConfigChanger.State.JointConfigCommitting;
 import static org.apache.bifromq.basekv.raft.RaftConfigChanger.State.TargetConfigCommitting;
 
+import com.google.protobuf.ByteString;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.Iterator;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import java.util.Set;
+import java.util.concurrent.CompletableFuture;
+import java.util.stream.Collectors;
 import org.apache.bifromq.basekv.raft.exception.ClusterConfigChangeException;
 import org.apache.bifromq.basekv.raft.exception.DropProposalException;
 import org.apache.bifromq.basekv.raft.exception.LeaderTransferException;
@@ -43,19 +56,6 @@ import org.apache.bifromq.basekv.raft.proto.RequestReadIndex;
 import org.apache.bifromq.basekv.raft.proto.RequestReadIndexReply;
 import org.apache.bifromq.basekv.raft.proto.Snapshot;
 import org.apache.bifromq.basekv.raft.proto.TimeoutNow;
-import com.google.protobuf.ByteString;
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.HashMap;
-import java.util.HashSet;
-import java.util.Iterator;
-import java.util.LinkedHashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.Optional;
-import java.util.Set;
-import java.util.concurrent.CompletableFuture;
-import java.util.stream.Collectors;
 
 class RaftNodeStateLeader extends RaftNodeState {
     private final QuorumTracker activityTracker;
@@ -726,7 +726,7 @@ class RaftNodeStateLeader extends RaftNodeState {
             }
         }
         if (needNotify) {
-            notifyCommit();
+            notifyCommit(true);
         }
         return nextState;
     }

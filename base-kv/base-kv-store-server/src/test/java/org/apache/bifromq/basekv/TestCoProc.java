@@ -19,6 +19,10 @@
 
 package org.apache.bifromq.basekv;
 
+import com.google.protobuf.ByteString;
+import java.util.Optional;
+import java.util.concurrent.CompletableFuture;
+import java.util.function.Supplier;
 import org.apache.bifromq.basekv.proto.KVRangeId;
 import org.apache.bifromq.basekv.store.api.IKVCloseableReader;
 import org.apache.bifromq.basekv.store.api.IKVRangeCoProc;
@@ -28,10 +32,6 @@ import org.apache.bifromq.basekv.store.proto.ROCoProcInput;
 import org.apache.bifromq.basekv.store.proto.ROCoProcOutput;
 import org.apache.bifromq.basekv.store.proto.RWCoProcInput;
 import org.apache.bifromq.basekv.store.proto.RWCoProcOutput;
-import com.google.protobuf.ByteString;
-import java.util.Optional;
-import java.util.concurrent.CompletableFuture;
-import java.util.function.Supplier;
 
 public class TestCoProc implements IKVRangeCoProc {
     private final Supplier<IKVCloseableReader> rangeReaderProvider;
@@ -48,7 +48,7 @@ public class TestCoProc implements IKVRangeCoProc {
     }
 
     @Override
-    public Supplier<MutationResult> mutate(RWCoProcInput input, IKVReader reader, IKVWriter client) {
+    public Supplier<MutationResult> mutate(RWCoProcInput input, IKVReader reader, IKVWriter client, boolean isLeader) {
         String[] str = input.getRaw().toStringUtf8().split("_");
         ByteString key = ByteString.copyFromUtf8(str[0]);
         ByteString value = ByteString.copyFromUtf8(str[1]);

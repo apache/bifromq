@@ -20,7 +20,6 @@ syntax = "proto3";
 import "commontype/ClientInfo.proto";
 import "commontype/TopicFilterOption.proto";
 import "commontype/TopicMessage.proto";
-import "inboxservice/Replica.proto";
 import "inboxservice/LWT.proto";
 import "inboxservice/InboxFetched.proto";
 
@@ -75,7 +74,6 @@ message BatchAttachRequest{
     uint64 now = 8;
   }
   repeated Params params = 1;
-  Replica leader = 2; // the leader replica
 }
 
 message InboxVersion{
@@ -97,7 +95,6 @@ message BatchDetachRequest{
     uint64 now = 6;
   }
   repeated Params params = 1;
-  Replica leader = 2; // the leader replica
 }
 
 message BatchDetachReply{

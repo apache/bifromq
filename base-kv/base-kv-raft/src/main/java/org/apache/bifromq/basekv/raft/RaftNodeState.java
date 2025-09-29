@@ -14,11 +14,24 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 
 package org.apache.bifromq.basekv.raft;
 
+import com.google.protobuf.ByteString;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.Iterator;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import java.util.Set;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ThreadLocalRandom;
+import java.util.stream.Collectors;
 import org.apache.bifromq.basekv.raft.event.CommitEvent;
 import org.apache.bifromq.basekv.raft.event.ElectionEvent;
 import org.apache.bifromq.basekv.raft.event.SnapshotRestoredEvent;
@@ -34,19 +47,6 @@ import org.apache.bifromq.basekv.raft.proto.RequestPreVoteReply;
 import org.apache.bifromq.basekv.raft.proto.RequestVoteReply;
 import org.apache.bifromq.basekv.raft.proto.Snapshot;
 import org.apache.bifromq.basekv.raft.proto.Voting;
-import com.google.protobuf.ByteString;
-import java.util.Collections;
-import java.util.HashMap;
-import java.util.HashSet;
-import java.util.Iterator;
-import java.util.LinkedHashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.Optional;
-import java.util.Set;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ThreadLocalRandom;
-import java.util.stream.Collectors;
 import org.slf4j.Logger;
 
 abstract class RaftNodeState implements IRaftNodeState {
@@ -248,7 +248,7 @@ abstract class RaftNodeState implements IRaftNodeState {
             (installed, ex) -> onSnapshotInstalled.done(requested, installed, ex));
     }
 
-    protected void notifyCommit() {
+    protected void notifyCommit(boolean isLeader) {
         log.trace("Notify commit index[{}]", commitIndex);
         for (Iterator<Map.Entry<Long, ProposeTask>> it = uncommittedProposals.entrySet().iterator(); it.hasNext(); ) {
             Map.Entry<Long, ProposeTask> entry = it.next();
@@ -282,7 +282,7 @@ abstract class RaftNodeState implements IRaftNodeState {
                 task.future.completeExceptionally(DropProposalException.overridden());
             }
         }
-        listener.onEvent(new CommitEvent(id, commitIndex));
+        listener.onEvent(new CommitEvent(id, commitIndex, isLeader));
     }
 
     protected void notifyLeaderElected(String leaderId, long term) {

@@ -36,6 +36,7 @@ import static org.testng.Assert.assertEquals;
 import static org.testng.Assert.assertFalse;
 import static org.testng.Assert.assertTrue;
 
+import com.github.benmanes.caffeine.cache.AsyncLoadingCache;
 import com.github.benmanes.caffeine.cache.Ticker;
 import java.time.Duration;
 import java.util.Map;
@@ -54,6 +55,7 @@ import org.apache.bifromq.basekv.proto.KVRangeId;
 import org.apache.bifromq.basekv.utils.KVRangeIdUtil;
 import org.apache.bifromq.dist.worker.Comparators;
 import org.apache.bifromq.dist.worker.MeterTest;
+import org.apache.bifromq.dist.worker.TopicIndex;
 import org.apache.bifromq.dist.worker.cache.task.AddRoutesTask;
 import org.apache.bifromq.dist.worker.cache.task.RemoveRoutesTask;
 import org.apache.bifromq.dist.worker.schema.cache.GroupMatching;
@@ -352,6 +354,118 @@ public class TenantRouteCacheTest extends MeterTest {
         assertEquals(clampedCount, 1);
 
         verify(matcher, times(1)).matchAll(any(), anyInt(), anyInt());
+    }
+
+    @Test
+    public void shouldBoundZeroRouteTopicsByMaxWeight() {
+        // Configure a small max cached routes to validate bounding behavior
+        String propKey = org.apache.bifromq.sysprops.props.DistMaxCachedRoutesPerTenant.INSTANCE.propKey();
+        String original = System.getProperty(propKey);
+        try {
+            System.setProperty(propKey, String.valueOf(10));
+            org.apache.bifromq.sysprops.props.DistMaxCachedRoutesPerTenant.INSTANCE.resolve();
+
+            TenantRouteCache cache = newCache(directExecutor());
+
+            // All topics have no matching routes (weight should be at least 1 after fix)
+            IMatchedRoutes emptyRoutes = mockRoutesWithBackingSet(10, 10, Set.of());
+            when(settingProvider.provide(eq(Setting.MaxPersistentFanout), eq(TENANT_ID))).thenReturn(10);
+            when(settingProvider.provide(eq(Setting.MaxGroupFanout), eq(TENANT_ID))).thenReturn(10);
+            when(matcher.matchAll(any(), anyInt(), anyInt())).thenAnswer(invocation -> {
+                @SuppressWarnings("unchecked")
+                Set<String> topics = (Set<String>) invocation.getArgument(0);
+                String t = topics.iterator().next();
+                return Map.of(t, emptyRoutes);
+            });
+
+            // Access many distinct topics rapidly; cache should stay bounded by max weight
+            int total = 100;
+            for (int i = 0; i < total; i++) {
+                String topic = "sensor/t" + i;
+                cache.getMatch(topic, FULL_BOUNDARY).join();
+            }
+
+            // Inspect internal cache size and index coverage
+            var routesCacheField = TenantRouteCache.class.getDeclaredField("routesCache");
+            routesCacheField.setAccessible(true);
+            @SuppressWarnings("unchecked")
+            com.github.benmanes.caffeine.cache.AsyncLoadingCache<RouteCacheKey, IMatchedRoutes> routesCache =
+                (com.github.benmanes.caffeine.cache.AsyncLoadingCache<RouteCacheKey, IMatchedRoutes>)
+                    routesCacheField.get(cache);
+            long cached = routesCache.synchronous().estimatedSize();
+            // With weight=1 per entry, estimated size should be bounded by 10 (allow small overhead for race) 
+            assertTrue(cached <= 12, "Cache size should be bounded by max weight");
+
+            var indexField = TenantRouteCache.class.getDeclaredField("index");
+            indexField.setAccessible(true);
+            @SuppressWarnings("unchecked")
+            org.apache.bifromq.dist.worker.TopicIndex<RouteCacheKey> index =
+                (org.apache.bifromq.dist.worker.TopicIndex<RouteCacheKey>) indexField.get(cache);
+
+            Set<RouteCacheKey> indexed = index.match("#");
+            assertTrue(indexed.size() <= 12, "Index entries should be bounded along with cache");
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        } finally {
+            if (original == null) {
+                System.clearProperty(propKey);
+            } else {
+                System.setProperty(propKey, original);
+            }
+            org.apache.bifromq.sysprops.props.DistMaxCachedRoutesPerTenant.INSTANCE.resolve();
+        }
+    }
+
+    @Test
+    public void shouldCleanupIndexOnExpiryAndExplicitInvalidation() throws Exception {
+        TenantRouteCache cache = newCache(directExecutor());
+
+        NormalMatching existing = normalMatching(TENANT_ID, TOPIC, 1, "receiverA", "delivererA", 1);
+        IMatchedRoutes matchedRoutes = mockRoutesWithBackingSet(10, 5, Set.of(existing));
+
+        when(settingProvider.provide(eq(Setting.MaxPersistentFanout), eq(TENANT_ID))).thenReturn(10);
+        when(settingProvider.provide(eq(Setting.MaxGroupFanout), eq(TENANT_ID))).thenReturn(5);
+        when(matcher.matchAll(eq(Set.of(TOPIC)), eq(10), eq(5))).thenReturn(Map.of(TOPIC, matchedRoutes));
+
+        // 1) Initial load adds key into index
+        assertTrue(cache.getMatch(TOPIC, FULL_BOUNDARY).join().contains(existing));
+
+        // Reflect to access private fields: routesCache and index
+        var routesCacheField = TenantRouteCache.class.getDeclaredField("routesCache");
+        routesCacheField.setAccessible(true);
+        @SuppressWarnings("unchecked")
+        AsyncLoadingCache<RouteCacheKey, IMatchedRoutes> routesCache = (AsyncLoadingCache<RouteCacheKey, IMatchedRoutes>)
+            routesCacheField.get(cache);
+
+        var indexField = TenantRouteCache.class.getDeclaredField("index");
+        indexField.setAccessible(true);
+        @SuppressWarnings("unchecked")
+        TopicIndex<RouteCacheKey> index = (TopicIndex<RouteCacheKey>) indexField.get(cache);
+
+        // Ensure index has exactly one key for the topic
+        Set<RouteCacheKey> initialKeys = index.get(TOPIC);
+        assertEquals(initialKeys.size(), 1);
+        RouteCacheKey firstKey = initialKeys.iterator().next();
+
+        // 2) Expire by advancing ticker and forcing cleanup
+        ticker.advance(EXPIRY.plusMillis(1));
+        routesCache.synchronous().cleanUp();
+
+        // After expiry cleanup, the old key should be removed from both cache and index
+        assertFalse(routesCache.synchronous().asMap().containsKey(firstKey));
+        assertFalse(index.get(TOPIC).contains(firstKey));
+
+        // 3) Load again to have a fresh key, then explicitly invalidate it
+        cache.getMatch(TOPIC, FULL_BOUNDARY).join();
+        Set<RouteCacheKey> afterReloadKeys = index.get(TOPIC);
+        assertEquals(afterReloadKeys.size(), 1);
+        RouteCacheKey secondKey = afterReloadKeys.iterator().next();
+
+        // Explicit invalidation should trigger removalListener and clean index
+        routesCache.synchronous().invalidate(secondKey);
+
+        // Ensure explicit invalidation cleaned the index entry
+        assertFalse(index.get(TOPIC).contains(secondKey));
     }
 
     private TenantRouteCache newCache(Executor executor) {

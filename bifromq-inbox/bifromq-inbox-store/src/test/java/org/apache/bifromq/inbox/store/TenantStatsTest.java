@@ -56,7 +56,8 @@ public class TenantStatsTest {
         AtomicReference<Integer> usedSpace = new AtomicReference<>(100);
         TenantStats stats = new TenantStats(tenantId, usedSpace::get, "clusterId", "c1", "storeId", "s1", "rangeId", "r1");
 
-        // initially zero session/sub gauges, and space gauge from supplier
+        // promote to leader to register session/sub gauges; space gauge comes from supplier
+        stats.toggleMetering(true);
         assertEquals(findGaugeValue(MqttPersistentSessionNumGauge.metricName, tenantId), 0.0, 0.0001);
         assertEquals(findGaugeValue(MqttPersistentSubCountGauge.metricName, tenantId), 0.0, 0.0001);
         assertEquals(findGaugeValue(MqttPersistentSessionSpaceGauge.metricName, tenantId), 100.0, 0.0001);
@@ -93,5 +94,54 @@ public class TenantStatsTest {
                 && tenantId.equals(m.getId().getTag(ITenantMeter.TAG_TENANT_ID)))
             .findFirst().orElse(null);
     }
-}
 
+    @Test
+    public void testTogglePromotionAndDemotion() {
+        String tenantId = "tenant-toggle-" + System.nanoTime();
+        AtomicReference<Integer> usedSpace = new AtomicReference<>(10);
+        TenantStats stats = new TenantStats(tenantId, usedSpace::get, "clusterId", "c1", "storeId", "s1", "rangeId", "r1");
+
+        // before promotion, only space gauge should exist
+        assertNotNull(findGauge(MqttPersistentSessionSpaceGauge.metricName, tenantId));
+        assertNull(findGauge(MqttPersistentSessionNumGauge.metricName, tenantId));
+        assertNull(findGauge(MqttPersistentSubCountGauge.metricName, tenantId));
+
+        stats.addSessionCount(3);
+        stats.addSubCount(5);
+
+        // promote registers session/sub gauges reflecting counts
+        stats.toggleMetering(true);
+        assertEquals(findGaugeValue(MqttPersistentSessionNumGauge.metricName, tenantId), 3.0, 0.0001);
+        assertEquals(findGaugeValue(MqttPersistentSubCountGauge.metricName, tenantId), 5.0, 0.0001);
+
+        // demote unregisters session/sub gauges, but space gauge remains
+        stats.toggleMetering(false);
+        assertNull(findGauge(MqttPersistentSessionNumGauge.metricName, tenantId));
+        assertNull(findGauge(MqttPersistentSubCountGauge.metricName, tenantId));
+        assertNotNull(findGauge(MqttPersistentSessionSpaceGauge.metricName, tenantId));
+    }
+
+    @Test
+    public void testToggleIdempotentAndRePromotion() {
+        String tenantId = "tenant-toggle-idem-" + System.nanoTime();
+        AtomicReference<Integer> usedSpace = new AtomicReference<>(10);
+        TenantStats stats = new TenantStats(tenantId, usedSpace::get, "clusterId", "c1", "storeId", "s1", "rangeId", "r1");
+
+        stats.addSessionCount(2);
+        stats.addSubCount(7);
+
+        // double promotion should be idempotent
+        stats.toggleMetering(true);
+        stats.toggleMetering(true);
+        assertEquals(findGaugeValue(MqttPersistentSessionNumGauge.metricName, tenantId), 2.0, 0.0001);
+        assertEquals(findGaugeValue(MqttPersistentSubCountGauge.metricName, tenantId), 7.0, 0.0001);
+
+        // demote then promote again should restore gauges
+        stats.toggleMetering(false);
+        assertNull(findGauge(MqttPersistentSessionNumGauge.metricName, tenantId));
+        assertNull(findGauge(MqttPersistentSubCountGauge.metricName, tenantId));
+        stats.toggleMetering(true);
+        assertEquals(findGaugeValue(MqttPersistentSessionNumGauge.metricName, tenantId), 2.0, 0.0001);
+        assertEquals(findGaugeValue(MqttPersistentSubCountGauge.metricName, tenantId), 7.0, 0.0001);
+    }
+}

@@ -19,11 +19,27 @@
 
 package org.apache.bifromq.retain.store;
 
+import static java.util.Collections.emptyList;
 import static org.apache.bifromq.retain.store.schema.KVSchemaUtil.parseTenantId;
 import static org.apache.bifromq.retain.store.schema.KVSchemaUtil.retainMessageKey;
 import static org.apache.bifromq.util.TopicConst.MULTI_WILDCARD;
-import static java.util.Collections.emptyList;
 
+import com.google.protobuf.Any;
+import com.google.protobuf.ByteString;
+import com.google.protobuf.InvalidProtocolBufferException;
+import java.time.Duration;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.LinkedList;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import java.util.Set;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Supplier;
+import lombok.SneakyThrows;
+import lombok.extern.slf4j.Slf4j;
 import org.apache.bifromq.basehlc.HLC;
 import org.apache.bifromq.basekv.proto.Boundary;
 import org.apache.bifromq.basekv.proto.KVRangeId;
@@ -55,27 +71,11 @@ import org.apache.bifromq.retain.store.index.RetainTopicIndex;
 import org.apache.bifromq.retain.store.index.RetainedMsgInfo;
 import org.apache.bifromq.type.Message;
 import org.apache.bifromq.type.TopicMessage;
-import com.google.protobuf.Any;
-import com.google.protobuf.ByteString;
-import com.google.protobuf.InvalidProtocolBufferException;
-import java.time.Duration;
-import java.util.HashMap;
-import java.util.HashSet;
-import java.util.LinkedList;
-import java.util.List;
-import java.util.Map;
-import java.util.Optional;
-import java.util.Set;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.atomic.AtomicReference;
-import java.util.function.Supplier;
-import lombok.SneakyThrows;
-import lombok.extern.slf4j.Slf4j;
 
 @Slf4j
 class RetainStoreCoProc implements IKVRangeCoProc {
     private final Supplier<IKVCloseableReader> rangeReaderProvider;
-    private final TenantsState tenantsState;
+    private final TenantsStats tenantsStats;
     private final String[] tags;
     private RetainTopicIndex index;
 
@@ -85,7 +85,7 @@ class RetainStoreCoProc implements IKVRangeCoProc {
                       Supplier<IKVCloseableReader> rangeReaderProvider) {
         this.tags = new String[] {"clusterId", clusterId, "storeId", storeId, "rangeId", KVRangeIdUtil.toString(id)};
         this.rangeReaderProvider = rangeReaderProvider;
-        this.tenantsState = new TenantsState(rangeReaderProvider.get(), tags);
+        this.tenantsStats = new TenantsStats(rangeReaderProvider.get(), tags);
     }
 
     @Override
@@ -106,19 +106,19 @@ class RetainStoreCoProc implements IKVRangeCoProc {
 
     @SneakyThrows
     @Override
-    public Supplier<MutationResult> mutate(RWCoProcInput input, IKVReader reader, IKVWriter writer) {
+    public Supplier<MutationResult> mutate(RWCoProcInput input, IKVReader reader, IKVWriter writer, boolean isLeader) {
         RetainServiceRWCoProcInput coProcInput = input.getRetainService();
         RetainServiceRWCoProcOutput.Builder outputBuilder = RetainServiceRWCoProcOutput.newBuilder();
         AtomicReference<Runnable> afterMutate = new AtomicReference<>();
         switch (coProcInput.getTypeCase()) {
             case BATCHRETAIN -> {
                 BatchRetainReply.Builder replyBuilder = BatchRetainReply.newBuilder();
-                afterMutate.set(batchRetain(coProcInput.getBatchRetain(), replyBuilder, writer));
+                afterMutate.set(batchRetain(coProcInput.getBatchRetain(), replyBuilder, isLeader, writer));
                 outputBuilder.setBatchRetain(replyBuilder);
             }
             case GC -> {
                 GCReply.Builder replyBuilder = GCReply.newBuilder();
-                afterMutate.set(gc(coProcInput.getGc(), replyBuilder, writer));
+                afterMutate.set(gc(coProcInput.getGc(), replyBuilder, isLeader, writer));
                 outputBuilder.setGc(replyBuilder);
             }
         }
@@ -136,9 +136,14 @@ class RetainStoreCoProc implements IKVRangeCoProc {
     }
 
     @Override
+    public void onLeader(boolean isLeader) {
+        tenantsStats.toggleMetering(isLeader);
+    }
+
+    @Override
     public void close() {
         index = null;
-        tenantsState.destroy();
+        tenantsStats.destroy();
     }
 
     private CompletableFuture<BatchMatchReply> batchMatch(BatchMatchRequest request, IKVReader reader) {
@@ -186,6 +191,7 @@ class RetainStoreCoProc implements IKVRangeCoProc {
 
     private Runnable batchRetain(BatchRetainRequest request,
                                  BatchRetainReply.Builder replyBuilder,
+                                 boolean isLeader,
                                  IKVWriter writer) {
         replyBuilder.setReqId(request.getReqId());
         Map<String, Map<String, Message>> addTopics = new HashMap<>();
@@ -234,7 +240,7 @@ class RetainStoreCoProc implements IKVRangeCoProc {
             addTopics.forEach((tenantId, topics) -> {
                 topics.forEach(
                     (topic, msg) -> index.add(tenantId, topic, msg.getTimestamp(), msg.getExpiryInterval()));
-                tenantsState.increaseTopicCount(tenantId, topics.size());
+                tenantsStats.increaseTopicCount(tenantId, topics.size());
             });
             updateTopics.forEach((tenantId, topics) -> {
                 topics.forEach((topic, msg) -> index.remove(tenantId, topic));
@@ -242,12 +248,13 @@ class RetainStoreCoProc implements IKVRangeCoProc {
             });
             removeTopics.forEach((tenantId, topics) -> {
                 topics.forEach(topic -> index.remove(tenantId, topic));
-                tenantsState.increaseTopicCount(tenantId, -topics.size());
+                tenantsStats.increaseTopicCount(tenantId, -topics.size());
             });
+            tenantsStats.toggleMetering(isLeader);
         };
     }
 
-    private Runnable gc(GCRequest request, GCReply.Builder replyBuilder, IKVWriter writer) {
+    private Runnable gc(GCRequest request, GCReply.Builder replyBuilder, boolean isLeader, IKVWriter writer) {
         replyBuilder.setReqId(request.getReqId());
         long now = request.getNow();
         Map<String, Set<String>> removedTopics = new HashMap<>();
@@ -263,13 +270,14 @@ class RetainStoreCoProc implements IKVRangeCoProc {
         }
         return () -> {
             removedTopics.forEach((tenantId, topics) -> topics.forEach(topic -> index.remove(tenantId, topic)));
-            removedTopics.forEach((tenantId, topics) -> tenantsState.increaseTopicCount(tenantId, -topics.size()));
+            removedTopics.forEach((tenantId, topics) -> tenantsStats.increaseTopicCount(tenantId, -topics.size()));
+            tenantsStats.toggleMetering(isLeader);
         };
     }
 
     private void load() {
         index = new RetainTopicIndex();
-        tenantsState.destroy();
+        tenantsStats.destroy();
 
         try (IKVCloseableReader reader = rangeReaderProvider.get()) {
             IKVIterator itr = reader.iterator();
@@ -279,7 +287,7 @@ class RetainStoreCoProc implements IKVRangeCoProc {
                     TopicMessage topicMessage = TopicMessage.parseFrom(itr.value());
                     index.add(tenantId, topicMessage.getTopic(), topicMessage.getMessage().getTimestamp(),
                         topicMessage.getMessage().getExpiryInterval());
-                    tenantsState.increaseTopicCount(tenantId, 1);
+                    tenantsStats.increaseTopicCount(tenantId, 1);
                 } catch (InvalidProtocolBufferException e) {
                     log.error("Failed to parse retained message", e);
                 }

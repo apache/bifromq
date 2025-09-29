@@ -14,21 +14,21 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 
 package org.apache.bifromq.retain.store;
 
-import org.apache.bifromq.basekv.store.api.IKVReader;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import org.apache.bifromq.basekv.store.api.IKVReader;
 
-class TenantsState {
-    private final Map<String, TenantRetainedSet> retainedSet = new ConcurrentHashMap<>();
+class TenantsStats {
+    private final Map<String, TenantStats> retainedSet = new ConcurrentHashMap<>();
     private final IKVReader reader;
     private final String[] tags;
 
-    TenantsState(IKVReader reader, String... tags) {
+    TenantsStats(IKVReader reader, String... tags) {
         this.reader = reader;
         this.tags = tags;
     }
@@ -36,7 +36,7 @@ class TenantsState {
     void increaseTopicCount(String tenantId, int delta) {
         retainedSet.compute(tenantId, (k, v) -> {
             if (v == null) {
-                v = new TenantRetainedSet(tenantId, reader, tags);
+                v = new TenantStats(tenantId, reader, tags);
             }
             if (v.incrementTopicCount(delta) == 0) {
                 v.destroy();
@@ -46,8 +46,12 @@ class TenantsState {
         });
     }
 
+    public void toggleMetering(boolean isLeader) {
+        retainedSet.values().forEach(s -> s.toggleMetering(isLeader));
+    }
+
     void destroy() {
-        retainedSet.values().forEach(TenantRetainedSet::destroy);
+        retainedSet.values().forEach(TenantStats::destroy);
         retainedSet.clear();
     }
 }

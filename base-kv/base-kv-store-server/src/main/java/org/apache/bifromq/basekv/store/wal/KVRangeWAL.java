@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 
 package org.apache.bifromq.basekv.store.wal;
@@ -64,7 +64,7 @@ public class KVRangeWAL implements IKVRangeWAL, IRaftNode.ISnapshotInstaller {
     private final Logger log;
     private final long maxFetchBytes;
     private final PublishSubject<SnapshotRestoredEvent> snapRestoreEventPublisher = PublishSubject.create();
-    private final BehaviorSubject<Long> commitIndexSubject = BehaviorSubject.create();
+    private final BehaviorSubject<CommitEvent> commitIndexSubject = BehaviorSubject.create();
     private final PublishSubject<RestoreSnapshotTask> snapRestoreTaskPublisher = PublishSubject.create();
     private final BehaviorSubject<ElectionEvent> electionPublisher = BehaviorSubject.create();
     private final BehaviorSubject<RaftNodeStatus> statusPublisher = BehaviorSubject.create();
@@ -153,7 +153,7 @@ public class KVRangeWAL implements IKVRangeWAL, IRaftNode.ISnapshotInstaller {
             new KVRangeWALSubscription(maxFetchBytes, this, commitIndexSubject, lastFetchedIndex,
                 new IKVRangeWALSubscriber() {
                     @Override
-                    public CompletableFuture<Void> apply(LogEntry log) {
+                    public CompletableFuture<Void> apply(LogEntry log, boolean isLeader) {
                         try {
                             if (condition.test(log)) {
                                 onDone.complete(log);
@@ -181,7 +181,7 @@ public class KVRangeWAL implements IKVRangeWAL, IRaftNode.ISnapshotInstaller {
     }
 
     @Override
-    public Observable<Long> commitIndex() {
+    public Observable<CommitEvent> commitIndex() {
         return commitIndexSubject;
     }
 
@@ -292,7 +292,7 @@ public class KVRangeWAL implements IKVRangeWAL, IRaftNode.ISnapshotInstaller {
 
     void onRaftEvent(RaftEvent event) {
         switch (event.type) {
-            case COMMIT -> commitIndexSubject.onNext(((CommitEvent) event).index);
+            case COMMIT -> commitIndexSubject.onNext(((CommitEvent) event));
             case ELECTION -> electionPublisher.onNext((ElectionEvent) event);
             case STATUS_CHANGED -> statusPublisher.onNext(((StatusChangedEvent) event).status);
             case SNAPSHOT_RESTORED -> snapRestoreEventPublisher.onNext((SnapshotRestoredEvent) event);

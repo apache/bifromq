@@ -19,16 +19,6 @@
 
 package org.apache.bifromq.basekv.store.wal;
 
-import org.apache.bifromq.basekv.proto.KVRangeCommand;
-import org.apache.bifromq.basekv.proto.KVRangeId;
-import org.apache.bifromq.basekv.proto.KVRangeSnapshot;
-import org.apache.bifromq.basekv.raft.IRaftNode;
-import org.apache.bifromq.basekv.raft.event.ElectionEvent;
-import org.apache.bifromq.basekv.raft.proto.ClusterConfig;
-import org.apache.bifromq.basekv.raft.proto.LogEntry;
-import org.apache.bifromq.basekv.raft.proto.RaftMessage;
-import org.apache.bifromq.basekv.raft.proto.RaftNodeStatus;
-import org.apache.bifromq.basekv.raft.proto.RaftNodeSyncState;
 import com.google.protobuf.ByteString;
 import com.google.protobuf.InvalidProtocolBufferException;
 import io.reactivex.rxjava3.core.Observable;
@@ -40,6 +30,17 @@ import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
 import java.util.function.Predicate;
+import org.apache.bifromq.basekv.proto.KVRangeCommand;
+import org.apache.bifromq.basekv.proto.KVRangeId;
+import org.apache.bifromq.basekv.proto.KVRangeSnapshot;
+import org.apache.bifromq.basekv.raft.IRaftNode;
+import org.apache.bifromq.basekv.raft.event.CommitEvent;
+import org.apache.bifromq.basekv.raft.event.ElectionEvent;
+import org.apache.bifromq.basekv.raft.proto.ClusterConfig;
+import org.apache.bifromq.basekv.raft.proto.LogEntry;
+import org.apache.bifromq.basekv.raft.proto.RaftMessage;
+import org.apache.bifromq.basekv.raft.proto.RaftNodeStatus;
+import org.apache.bifromq.basekv.raft.proto.RaftNodeSyncState;
 
 public interface IKVRangeWAL {
     String storeId();
@@ -68,7 +69,7 @@ public interface IKVRangeWAL {
 
     CompletableFuture<LogEntry> once(long lastFetchedIndex, Predicate<LogEntry> condition, Executor executor);
 
-    Observable<Long> commitIndex();
+    Observable<CommitEvent> commitIndex();
 
     CompletableFuture<Iterator<LogEntry>> retrieveCommitted(long fromIndex, long maxSize);
 

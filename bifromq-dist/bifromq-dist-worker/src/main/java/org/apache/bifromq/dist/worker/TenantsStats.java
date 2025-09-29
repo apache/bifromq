@@ -108,6 +108,12 @@ class TenantsStats implements ITenantsStats {
     }
 
     @Override
+    public void toggleMetering(boolean isLeader) {
+        taskQueue.offer(() -> tenantStatsMap.values().forEach(s -> s.toggleMetering(isLeader)));
+        trigger();
+    }
+
+    @Override
     public void reset() {
         taskQueue.offer(this::doReset);
         trigger();

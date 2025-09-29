@@ -105,13 +105,13 @@ class TenantRouteCache implements ITenantRouteCache {
             .weigher(new Weigher<RouteCacheKey, IMatchedRoutes>() {
                 @Override
                 public @NonNegative int weigh(RouteCacheKey key, IMatchedRoutes value) {
-                    return value.routes().size();
+                    return Math.max(1, value.routes().size());
                 }
             })
             .expireAfterAccess(expiryAfterAccess)
             .refreshAfterWrite(fanoutCheckInterval)
-            .evictionListener((RouteCacheKey key, IMatchedRoutes value, RemovalCause cause) ->
-                index.remove(key.topic, key))
+            .removalListener(
+                (RouteCacheKey key, IMatchedRoutes value, RemovalCause cause) -> index.remove(key.topic, key))
             .recordStats()
             .buildAsync(new AsyncCacheLoader<>() {
                 @Override

@@ -14,20 +14,20 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 
 package org.apache.bifromq.basekv.store.api;
 
+import com.google.protobuf.Any;
+import java.util.Optional;
+import java.util.concurrent.CompletableFuture;
+import java.util.function.Supplier;
 import org.apache.bifromq.basekv.proto.Boundary;
 import org.apache.bifromq.basekv.store.proto.ROCoProcInput;
 import org.apache.bifromq.basekv.store.proto.ROCoProcOutput;
 import org.apache.bifromq.basekv.store.proto.RWCoProcInput;
 import org.apache.bifromq.basekv.store.proto.RWCoProcOutput;
-import com.google.protobuf.Any;
-import java.util.Optional;
-import java.util.concurrent.CompletableFuture;
-import java.util.function.Supplier;
 
 /**
  * The interface of range co-processor.
@@ -48,9 +48,10 @@ public interface IKVRangeCoProc {
      * @param input  the mutation input
      * @param reader the range data reader
      * @param writer the range data writer
+     * @param isLeader indicating whether current node was the leader committing the log
      * @return the future of mutation result
      */
-    Supplier<MutationResult> mutate(RWCoProcInput input, IKVReader reader, IKVWriter writer);
+    Supplier<MutationResult> mutate(RWCoProcInput input, IKVReader reader, IKVWriter writer, boolean isLeader);
 
     /**
      * This method will be called whenever owner range is restored from a snapshot or boundary changed via split/merge.
@@ -64,6 +65,15 @@ public interface IKVRangeCoProc {
     }
 
     /**
+     * Notify when leadership changed.
+     *
+     * @param isLeader true if the instance is now the leader, false if it steps down from being the leader
+     */
+    default void onLeader(boolean isLeader) {
+
+    }
+
+    /**
      * Close the co-proc instance, and release all related resources.
      */
     void close();
@@ -72,6 +82,5 @@ public interface IKVRangeCoProc {
      * The result of mutation co-proc. The output will be returned as the reply to the client, and the fact(if present)
      * will be included in the next KVRangeDescriptor.
      */
-    record MutationResult(RWCoProcOutput output, Optional<Any> fact) {
-    }
+    record MutationResult(RWCoProcOutput output, Optional<Any> fact) {}
 }

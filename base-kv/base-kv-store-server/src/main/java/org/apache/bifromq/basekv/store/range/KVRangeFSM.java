@@ -231,8 +231,8 @@ public class KVRangeFSM implements IKVRangeFSM {
         this.walSubscription = wal.subscribe(lastAppliedIndex,
             new IKVRangeWALSubscriber() {
                 @Override
-                public CompletableFuture<Void> apply(LogEntry log) {
-                    return metricManager.recordLogApply(() -> KVRangeFSM.this.apply(log));
+                public CompletableFuture<Void> apply(LogEntry log, boolean isLeader) {
+                    return metricManager.recordLogApply(() -> KVRangeFSM.this.apply(log, isLeader));
                 }
 
                 @Override
@@ -332,6 +332,9 @@ public class KVRangeFSM implements IKVRangeFSM {
                     .subscribe(descriptorSubject::onNext));
                 disposables.add(messenger.receive().subscribe(this::handleMessage));
                 disposables.add(descriptorSubject.subscribe(this::detectZombieState));
+                disposables.add(wal.state()
+                    .observeOn(Schedulers.from(mgmtExecutor))
+                    .subscribe(role -> coProc.onLeader(role == RaftNodeStatus.Leader)));
                 lifecycle.set(Open);
                 metricManager.reportLastAppliedIndex(kvRange.lastAppliedIndex());
                 log.info("Range opened: appliedIndex={}, state={}, ver={}",
@@ -652,7 +655,7 @@ public class KVRangeFSM implements IKVRangeFSM {
         }
     }
 
-    private CompletableFuture<Void> apply(LogEntry entry) {
+    private CompletableFuture<Void> apply(LogEntry entry, boolean isLeader) {
         CompletableFuture<Void> onDone = new CompletableFuture<>();
         if (kvRange.lastAppliedIndex() > entry.getIndex()) {
             // skip already applied log
@@ -696,7 +699,7 @@ public class KVRangeFSM implements IKVRangeFSM {
                     State state = kvRange.state();
                     Boundary boundary = kvRange.boundary();
                     ClusterConfig clusterConfig = kvRange.clusterConfig();
-                    applyCommand(version, state, boundary, clusterConfig,
+                    applyCommand(isLeader, version, state, boundary, clusterConfig,
                         entry.getTerm(), entry.getIndex(), command, recordableReader, rangeWriter)
                         .whenComplete((callback, e) -> {
                             if (onDone.isCancelled()) {
@@ -856,7 +859,8 @@ public class KVRangeFSM implements IKVRangeFSM {
         }
     }
 
-    private CompletableFuture<Runnable> applyCommand(long ver,
+    private CompletableFuture<Runnable> applyCommand(boolean isLeader,
+                                                     long ver,
                                                      State state,
                                                      Boundary boundary,
                                                      ClusterConfig clusterConfig,
@@ -1471,7 +1475,7 @@ public class KVRangeFSM implements IKVRangeFSM {
                         }
                         case RWCOPROC -> {
                             Supplier<IKVRangeCoProc.MutationResult> resultSupplier =
-                                coProc.mutate(command.getRwCoProc(), dataReader, rangeWriter.kvWriter());
+                                coProc.mutate(command.getRwCoProc(), dataReader, rangeWriter.kvWriter(), isLeader);
                             onDone.complete(() -> {
                                 IKVRangeCoProc.MutationResult result = resultSupplier.get();
                                 result.fact().ifPresent(factSubject::onNext);

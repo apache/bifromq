@@ -40,6 +40,10 @@ public class TenantStatsTest extends MeterTest {
         assertNoGauge(tenantId, MqttSharedSubNumGauge);
         TenantStats tenantStats = new TenantStats(tenantId, () -> 0, "tags", "values");
         assertGauge(tenantId, MqttRouteSpaceGauge);
+        assertNoGauge(tenantId, MqttRouteNumGauge);
+        assertNoGauge(tenantId, MqttSharedSubNumGauge);
+        tenantStats.toggleMetering(true);
+        assertGauge(tenantId, MqttRouteSpaceGauge);
         assertGauge(tenantId, MqttRouteNumGauge);
         assertGauge(tenantId, MqttSharedSubNumGauge);
         tenantStats.destroy();
@@ -52,6 +56,7 @@ public class TenantStatsTest extends MeterTest {
     public void testAdd() {
         String tenantId = "tenant" + System.nanoTime();
         TenantStats tenantStats = new TenantStats(tenantId, () -> 0, "tags", "values");
+        tenantStats.toggleMetering(true);
         assertTrue(tenantStats.isNoRoutes());
         tenantStats.addNormalRoutes(1);
         tenantStats.addSharedRoutes(1);

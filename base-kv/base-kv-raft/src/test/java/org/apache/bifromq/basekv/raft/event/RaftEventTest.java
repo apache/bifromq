@@ -14,22 +14,22 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 
 package org.apache.bifromq.basekv.raft.event;
 
 import static org.testng.Assert.assertEquals;
 
+import java.util.Collections;
 import org.apache.bifromq.basekv.raft.proto.RaftNodeStatus;
 import org.apache.bifromq.basekv.raft.proto.Snapshot;
-import java.util.Collections;
 import org.testng.annotations.Test;
 
 public class RaftEventTest {
     @Test
     public void typeMatch() {
-        CommitEvent commitEvent = new CommitEvent("S1", 1);
+        CommitEvent commitEvent = new CommitEvent("S1", 1, true);
         assertEquals(commitEvent.type, RaftEventType.COMMIT);
 
         ElectionEvent electionEvent = new ElectionEvent("S1", "S2", 0);
@@ -47,7 +47,7 @@ public class RaftEventTest {
 
     @Test
     public void equals() {
-        assertEquals(new CommitEvent("S1", 1), new CommitEvent("S1", 1));
+        assertEquals(new CommitEvent("S1", 1, true), new CommitEvent("S1", 1, true));
         assertEquals(new ElectionEvent("S1", "S2", 0), new ElectionEvent("S1", "S2", 0));
         assertEquals(new SnapshotRestoredEvent("S1", Snapshot.getDefaultInstance()),
             new SnapshotRestoredEvent("S1", Snapshot.getDefaultInstance()));

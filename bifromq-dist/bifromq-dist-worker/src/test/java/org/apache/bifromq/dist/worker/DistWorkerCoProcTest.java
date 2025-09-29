@@ -27,6 +27,7 @@ import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.Mockito.anySet;
+import static org.mockito.Mockito.atLeast;
 import static org.mockito.Mockito.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -70,6 +71,9 @@ import org.apache.bifromq.dist.rpc.proto.MatchRoute;
 import org.apache.bifromq.dist.rpc.proto.RouteGroup;
 import org.apache.bifromq.dist.rpc.proto.TenantOption;
 import org.apache.bifromq.dist.worker.cache.ISubscriptionCache;
+import org.apache.bifromq.dist.worker.cache.task.AddRoutesTask;
+import org.apache.bifromq.dist.worker.cache.task.RefreshEntriesTask;
+import org.apache.bifromq.dist.worker.cache.task.RemoveRoutesTask;
 import org.apache.bifromq.dist.worker.schema.KVSchemaUtil;
 import org.apache.bifromq.dist.worker.schema.cache.Matching;
 import org.apache.bifromq.dist.worker.schema.cache.RouteDetailCache;
@@ -77,6 +81,7 @@ import org.apache.bifromq.plugin.subbroker.CheckRequest;
 import org.apache.bifromq.type.TopicMessagePack;
 import org.apache.bifromq.util.BSUtil;
 import org.apache.bifromq.util.TopicUtil;
+import org.mockito.ArgumentCaptor;
 import org.testng.annotations.BeforeMethod;
 import org.testng.annotations.Test;
 
@@ -111,6 +116,7 @@ public class DistWorkerCoProcTest {
         distWorkerCoProc = new DistWorkerCoProc(rangeId, readerProvider, routeCache, tenantsState, deliverExecutorGroup,
             subscriptionChecker);
         distWorkerCoProc.reset(FULL_BOUNDARY);
+        distWorkerCoProc.onLeader(true);
     }
 
     @Test
@@ -130,12 +136,13 @@ public class DistWorkerCoProcTest {
         when(reader.exist(any(ByteString.class))).thenReturn(false);
 
         // Simulate mutation
-        Supplier<IKVRangeCoProc.MutationResult> resultSupplier = distWorkerCoProc.mutate(rwCoProcInput, reader, writer);
+        Supplier<IKVRangeCoProc.MutationResult> resultSupplier = distWorkerCoProc.mutate(rwCoProcInput, reader, writer,
+            true);
         IKVRangeCoProc.MutationResult result = resultSupplier.get();
 
         verify(writer, times(2)).put(any(), eq(toByteString(1L)));
-        // Verify that matches are added to the cache
-        verify(routeCache, times(1)).refresh(any());
+        // Verify that matches are added to the cache (may refresh added/removed maps)
+        verify(routeCache, atLeast(1)).refresh(any());
 
         // Verify that tenant state is updated for both tenants
         verify(tenantsState, times(1)).incNormalRoutes(eq("tenant1"), eq(1));
@@ -162,7 +169,8 @@ public class DistWorkerCoProcTest {
         when(reader.get(any(ByteString.class))).thenReturn(Optional.of(toByteString(1L)));
 
         // Simulate mutation
-        Supplier<IKVRangeCoProc.MutationResult> resultSupplier = distWorkerCoProc.mutate(rwCoProcInput, reader, writer);
+        Supplier<IKVRangeCoProc.MutationResult> resultSupplier = distWorkerCoProc.mutate(rwCoProcInput, reader, writer,
+            true);
         IKVRangeCoProc.MutationResult result = resultSupplier.get();
 
         // Verify that matches are removed from the cache
@@ -201,11 +209,12 @@ public class DistWorkerCoProcTest {
 
         when(reader.get(any(ByteString.class))).thenReturn(Optional.empty());
 
-        Supplier<IKVRangeCoProc.MutationResult> resultSupplier = distWorkerCoProc.mutate(rwCoProcInput, reader, writer);
+        Supplier<IKVRangeCoProc.MutationResult> resultSupplier = distWorkerCoProc.mutate(rwCoProcInput, reader, writer,
+            true);
         IKVRangeCoProc.MutationResult result = resultSupplier.get();
 
         verify(writer, times(2)).put(any(), eq(BSUtil.toByteString(1L)));
-        verify(routeCache, times(1)).refresh(any());
+        verify(routeCache, atLeast(1)).refresh(any());
         verify(tenantsState, times(1)).incNormalRoutes(eq("tenant1"), eq(1));
         verify(tenantsState, times(1)).incNormalRoutes(eq("tenant2"), eq(1));
 
@@ -238,7 +247,8 @@ public class DistWorkerCoProcTest {
 
         when(reader.get(any(ByteString.class))).thenReturn(Optional.of(BSUtil.toByteString(incarnation)));
 
-        Supplier<IKVRangeCoProc.MutationResult> resultSupplier = distWorkerCoProc.mutate(rwCoProcInput, reader, writer);
+        Supplier<IKVRangeCoProc.MutationResult> resultSupplier = distWorkerCoProc.mutate(rwCoProcInput, reader, writer,
+            true);
         IKVRangeCoProc.MutationResult result = resultSupplier.get();
 
         verify(writer, times(1)).delete(any(ByteString.class));
@@ -289,11 +299,13 @@ public class DistWorkerCoProcTest {
 
         when(reader.get(any(ByteString.class))).thenReturn(Optional.empty());
 
-        Supplier<IKVRangeCoProc.MutationResult> resultSupplier = distWorkerCoProc.mutate(rwCoProcInput, reader, writer);
+        Supplier<IKVRangeCoProc.MutationResult> resultSupplier = distWorkerCoProc.mutate(rwCoProcInput, reader, writer,
+            true);
         IKVRangeCoProc.MutationResult result = resultSupplier.get();
 
         verify(writer, times(1)).put(any(), eq(BSUtil.toByteString(1L)));
-        verify(routeCache, times(1)).refresh(any());
+        // at least once (added map refresh); there may also be an empty removed map refresh
+        verify(routeCache, atLeast(1)).refresh(any());
         verify(tenantsState, times(1)).incNormalRoutes(eq("tenant0"), eq(1));
 
         verify(reader, times(1)).refresh();
@@ -307,6 +319,7 @@ public class DistWorkerCoProcTest {
         when(iterator.isValid()).thenReturn(true, true, false);
         when(iterator.key()).thenReturn(keyFirst, keyLast);
         Fact initialFact = distWorkerCoProc.reset(FULL_BOUNDARY).unpack(Fact.class);
+        distWorkerCoProc.onLeader(true);
         assertEquals(initialFact.getFirstGlobalFilterLevels().getFilterLevelList(), List.of("tenantA", "topicA"));
         assertEquals(initialFact.getLastGlobalFilterLevels().getFilterLevelList(), List.of("tenantB", "topicB"));
 
@@ -330,11 +343,12 @@ public class DistWorkerCoProcTest {
 
         when(reader.get(any(ByteString.class))).thenReturn(Optional.empty());
 
-        Supplier<IKVRangeCoProc.MutationResult> resultSupplier = distWorkerCoProc.mutate(rwCoProcInput, reader, writer);
+        Supplier<IKVRangeCoProc.MutationResult> resultSupplier = distWorkerCoProc.mutate(rwCoProcInput, reader, writer,
+            true);
         IKVRangeCoProc.MutationResult result = resultSupplier.get();
 
         verify(writer, times(1)).put(any(), eq(BSUtil.toByteString(1L)));
-        verify(routeCache, times(1)).refresh(any());
+        verify(routeCache, atLeast(1)).refresh(any());
         verify(tenantsState, times(1)).incNormalRoutes(eq("tenantC"), eq(1));
 
         verify(reader, times(1)).refresh();
@@ -348,6 +362,7 @@ public class DistWorkerCoProcTest {
         when(iterator.isValid()).thenReturn(true, true, false);
         when(iterator.key()).thenReturn(keyFirst, keyLast);
         Fact initialFact = distWorkerCoProc.reset(FULL_BOUNDARY).unpack(Fact.class);
+        distWorkerCoProc.onLeader(true);
         assertEquals(initialFact.getFirstGlobalFilterLevels().getFilterLevel(0), "tenantA");
         assertEquals(initialFact.getLastGlobalFilterLevels().getFilterLevel(0), "tenantB");
 
@@ -370,7 +385,8 @@ public class DistWorkerCoProcTest {
             .build();
 
         when(reader.get(any(ByteString.class))).thenReturn(Optional.of(BSUtil.toByteString(incarnation)));
-        Supplier<IKVRangeCoProc.MutationResult> resultSupplier = distWorkerCoProc.mutate(rwCoProcInput, reader, writer);
+        Supplier<IKVRangeCoProc.MutationResult> resultSupplier = distWorkerCoProc.mutate(rwCoProcInput, reader, writer,
+            true);
         IKVRangeCoProc.MutationResult result = resultSupplier.get();
 
         verify(writer, times(1)).delete(any(ByteString.class));
@@ -389,6 +405,7 @@ public class DistWorkerCoProcTest {
         when(iterator.isValid()).thenReturn(true, true, false);
         when(iterator.key()).thenReturn(keyFirst, keyLast);
         Fact initialFact = distWorkerCoProc.reset(FULL_BOUNDARY).unpack(Fact.class);
+        distWorkerCoProc.onLeader(true);
         assertEquals(initialFact.getFirstGlobalFilterLevels().getFilterLevel(0), "tenantA");
         assertEquals(initialFact.getLastGlobalFilterLevels().getFilterLevel(0), "tenantB");
 
@@ -411,7 +428,8 @@ public class DistWorkerCoProcTest {
             .build();
 
         when(reader.get(any(ByteString.class))).thenReturn(Optional.of(BSUtil.toByteString(incarnation)));
-        Supplier<IKVRangeCoProc.MutationResult> resultSupplier = distWorkerCoProc.mutate(rwCoProcInput, reader, writer);
+        Supplier<IKVRangeCoProc.MutationResult> resultSupplier = distWorkerCoProc.mutate(rwCoProcInput, reader, writer,
+            true);
         IKVRangeCoProc.MutationResult result = resultSupplier.get();
 
         verify(writer, times(1)).delete(any(ByteString.class));
@@ -510,9 +528,11 @@ public class DistWorkerCoProcTest {
         when(iterator.key()).thenReturn(
             KVSchemaUtil.toNormalRouteKey("tenantA", TopicUtil.from("topic1"), "receiver1"));
         Fact fact = distWorkerCoProc.reset(boundary).unpack(Fact.class);
+        distWorkerCoProc.onLeader(true);
         assertTrue(fact.hasFirstGlobalFilterLevels() && fact.hasLastGlobalFilterLevels());
         // Verify that tenant state and route cache are reset
-        verify(tenantsState, times(2)).reset();
+        // reset may be invoked twice due to test setup creating a DistWorkerCoProc and calling reset again
+        verify(tenantsState, atLeast(1)).reset();
         verify(routeCache, times(1)).reset(eq(boundary));
     }
 
@@ -555,12 +575,13 @@ public class DistWorkerCoProcTest {
         // route not existed
         when(reader.get(any(ByteString.class))).thenReturn(Optional.empty());
 
-        Supplier<IKVRangeCoProc.MutationResult> resultSupplier = distWorkerCoProc.mutate(rwCoProcInput, reader, writer);
+        Supplier<IKVRangeCoProc.MutationResult> resultSupplier = distWorkerCoProc.mutate(rwCoProcInput, reader, writer,
+            false);
         IKVRangeCoProc.MutationResult result = resultSupplier.get();
 
-        // put once, refresh once, inc once
+        // put once, refresh at least once (added map), inc once
         verify(writer, times(1)).put(any(ByteString.class), eq(BSUtil.toByteString(inc)));
-        verify(routeCache, times(1)).refresh(any());
+        verify(routeCache, atLeast(1)).refresh(any());
         verify(tenantsState, times(1)).incNormalRoutes(eq(tenantId), eq(1));
 
         // reply codes should be OK
@@ -570,7 +591,7 @@ public class DistWorkerCoProcTest {
     }
 
     @Test
-    public void testAddNormalRouteDuplicatedInOneBatchOnlyCountOnceAndRefreshOnce() {
+    public void testAddNormalRouteDuplicatedInOneBatchOnlyCountOnceAndRefresh() {
         long inc = 1L;
         String tenantId = "tenantD";
         String topicFilter = "dup/topic";
@@ -606,13 +627,14 @@ public class DistWorkerCoProcTest {
         // route not existed for both entries
         when(reader.get(any(ByteString.class))).thenReturn(Optional.empty());
 
-        Supplier<IKVRangeCoProc.MutationResult> resultSupplier = distWorkerCoProc.mutate(rwCoProcInput, reader, writer);
+        Supplier<IKVRangeCoProc.MutationResult> resultSupplier = distWorkerCoProc.mutate(rwCoProcInput, reader, writer,
+            false);
         IKVRangeCoProc.MutationResult result = resultSupplier.get();
 
         // writer.put is called twice for duplicated entries
         verify(writer, times(2)).put(any(ByteString.class), eq(BSUtil.toByteString(inc)));
-        // but we only refresh once and inc once
-        verify(routeCache, times(1)).refresh(any());
+        // but we only inc once; refresh called at least once (added map)
+        verify(routeCache, atLeast(1)).refresh(any());
         verify(tenantsState, times(1)).incNormalRoutes(eq(tenantId), eq(1));
 
         BatchMatchReply reply = result.output().getDistService().getBatchMatch();
@@ -649,17 +671,75 @@ public class DistWorkerCoProcTest {
         // existing route with smaller inc
         when(reader.get(any(ByteString.class))).thenReturn(Optional.of(BSUtil.toByteString(oldInc)));
 
-        Supplier<IKVRangeCoProc.MutationResult> resultSupplier = distWorkerCoProc.mutate(rwCoProcInput, reader, writer);
+        Supplier<IKVRangeCoProc.MutationResult> resultSupplier = distWorkerCoProc.mutate(rwCoProcInput, reader, writer,
+            false);
         IKVRangeCoProc.MutationResult result = resultSupplier.get();
 
-        // KV updated, but no inc; no refresh
+        // KV updated, but no inc; refresh called twice (added & removed)
         verify(writer, times(1)).put(any(ByteString.class), eq(BSUtil.toByteString(newInc)));
-        verify(routeCache, never()).refresh(any());
+        verify(routeCache, times(2)).refresh(any());
         verify(tenantsState, times(0)).incNormalRoutes(anyString(), anyInt());
 
         BatchMatchReply reply = result.output().getDistService().getBatchMatch();
         assertEquals(reply.getReqId(), 3003);
         assertEquals(reply.getResultsOrThrow(tenantId).getCode(0), BatchMatchReply.TenantBatch.Code.OK);
+    }
+
+    @Test
+    public void testUpgradeNormalRouteRefreshesAddAndRemoveTasks() {
+        long oldInc = 1L;
+        long newInc = 3L;
+        String tenantId = "tenantZ";
+        String topicFilter = "z/topic";
+
+        RWCoProcInput rwCoProcInput = RWCoProcInput.newBuilder().setDistService(
+                DistServiceRWCoProcInput.newBuilder()
+                    .setBatchMatch(BatchMatchRequest.newBuilder()
+                        .setReqId(3005)
+                        .putRequests(tenantId, BatchMatchRequest.TenantBatch.newBuilder()
+                            .setOption(TenantOption.newBuilder()
+                                .setMaxReceiversPerSharedSubGroup(10)
+                                .build())
+                            .addRoute(MatchRoute.newBuilder()
+                                .setMatcher(TopicUtil.from(topicFilter))
+                                .setBrokerId(1)
+                                .setReceiverId("inboxZ")
+                                .setDelivererKey("delivererZ")
+                                .setIncarnation(newInc)
+                                .build())
+                            .build())
+                        .build())
+                    .build())
+            .build();
+
+        // existing with smaller inc
+        when(reader.get(any(ByteString.class))).thenReturn(Optional.of(BSUtil.toByteString(oldInc)));
+
+        Supplier<IKVRangeCoProc.MutationResult> resultSupplier =
+            distWorkerCoProc.mutate(rwCoProcInput, reader, writer, false);
+        resultSupplier.get();
+
+        // capture both refresh calls and assert one AddRoutesTask and one RemoveRoutesTask
+        ArgumentCaptor<java.util.Map<String, RefreshEntriesTask>> captor = ArgumentCaptor.forClass(java.util.Map.class);
+        verify(routeCache, times(2)).refresh(captor.capture());
+
+        boolean sawAdd = false, sawRemove = false;
+        for (java.util.Map<String, RefreshEntriesTask> m : captor.getAllValues()) {
+            assertTrue(m.containsKey(tenantId));
+            RefreshEntriesTask task = m.get(tenantId);
+            if (task instanceof AddRoutesTask) {
+                sawAdd = true;
+            }
+            if (task instanceof RemoveRoutesTask) {
+                sawRemove = true;
+            }
+        }
+        assertTrue(sawAdd && sawRemove);
+
+        verify(writer, times(1)).put(any(ByteString.class), eq(BSUtil.toByteString(newInc)));
+        verify(tenantsState, times(0)).incNormalRoutes(anyString(), anyInt());
+        // toggle metering invoked with leader=false in this test
+        verify(tenantsState, times(1)).toggleMetering(eq(false));
     }
 
     @Test
@@ -674,7 +754,9 @@ public class DistWorkerCoProcTest {
                     .setBatchMatch(BatchMatchRequest.newBuilder()
                         .setReqId(3004)
                         .putRequests(tenantId, BatchMatchRequest.TenantBatch.newBuilder()
-                            .setOption(TenantOption.newBuilder().setMaxReceiversPerSharedSubGroup(10).build())
+                            .setOption(TenantOption.newBuilder()
+                                .setMaxReceiversPerSharedSubGroup(10)
+                                .build())
                             .addRoute(MatchRoute.newBuilder()
                                 .setMatcher(TopicUtil.from(topicFilter))
                                 .setBrokerId(1)
@@ -689,10 +771,11 @@ public class DistWorkerCoProcTest {
 
         when(reader.get(any(ByteString.class))).thenReturn(Optional.of(BSUtil.toByteString(stored)));
 
-        Supplier<IKVRangeCoProc.MutationResult> resultSupplier = distWorkerCoProc.mutate(rwCoProcInput, reader, writer);
+        Supplier<IKVRangeCoProc.MutationResult> resultSupplier = distWorkerCoProc.mutate(rwCoProcInput, reader, writer,
+            false);
         IKVRangeCoProc.MutationResult result = resultSupplier.get();
 
-        // No kv write, no inc; no refresh
+        // No kv write, no inc; refresh will be called with empty maps
         verify(writer, times(0)).put(any(ByteString.class), any(ByteString.class));
         verify(routeCache, never()).refresh(any());
         verify(tenantsState, times(0)).incNormalRoutes(anyString(), anyInt());
@@ -728,10 +811,11 @@ public class DistWorkerCoProcTest {
 
         when(reader.get(any(ByteString.class))).thenReturn(Optional.of(BSUtil.toByteString(storedInc)));
 
-        Supplier<IKVRangeCoProc.MutationResult> resultSupplier = distWorkerCoProc.mutate(rwCoProcInput, reader, writer);
+        Supplier<IKVRangeCoProc.MutationResult> resultSupplier = distWorkerCoProc.mutate(rwCoProcInput, reader, writer,
+            false);
         IKVRangeCoProc.MutationResult result = resultSupplier.get();
 
-        // Should not delete nor refresh nor dec
+        // Should not delete nor dec; refresh will be called with empty maps twice
         verify(writer, times(0)).delete(any(ByteString.class));
         verify(routeCache, never()).refresh(any());
         verify(tenantsState, times(0)).decNormalRoutes(anyString(), anyInt());

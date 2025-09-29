@@ -88,6 +88,8 @@ public class TenantsStatsTest {
         String tenant = "tenantA-" + System.nanoTime();
         // async add session & sub
         stats.addSessionCount(tenant, 1);
+        // register gauges by promoting to leader
+        stats.toggleMetering(true);
         await().atMost(2, TimeUnit.SECONDS)
             .until(() -> findGaugeValue(MqttPersistentSessionNumGauge.metricName, tenant) == 1.0);
 
@@ -130,12 +132,18 @@ public class TenantsStatsTest {
 
         stats.reset(Boundary.getDefaultInstance());
 
+        // wait until space gauges appear indicating tenants are loaded
         await().pollDelay(Duration.ofMillis(10)).atMost(2, TimeUnit.SECONDS).until(() ->
+            findGauge(MqttPersistentSessionSpaceGauge.metricName, tenantA) != null
+                && findGauge(MqttPersistentSessionSpaceGauge.metricName, tenantB) != null);
+
+        // now promote to leader to register session/sub gauges and verify values
+        stats.toggleMetering(true);
+        await().atMost(2, TimeUnit.SECONDS).until(() ->
             findGaugeValue(MqttPersistentSessionNumGauge.metricName, tenantA) == 2.0
                 && findGaugeValue(MqttPersistentSubCountGauge.metricName, tenantA) == 5.0
                 && findGaugeValue(MqttPersistentSessionNumGauge.metricName, tenantB) == 1.0
-                && findGaugeValue(MqttPersistentSubCountGauge.metricName, tenantB) == 4.0
-        );
+                && findGaugeValue(MqttPersistentSubCountGauge.metricName, tenantB) == 4.0);
     }
 
     @Test
@@ -156,6 +164,8 @@ public class TenantsStatsTest {
         stats.addSessionCount(tenant2, 3);
         stats.addSubCount(tenant2, 4);
 
+        // register gauges by promoting to leader
+        stats.toggleMetering(true);
         await().atMost(2, TimeUnit.SECONDS)
             .until(() -> findGauge(MqttPersistentSessionNumGauge.metricName, tenant1) != null
                 && findGauge(MqttPersistentSubCountGauge.metricName, tenant1) != null
@@ -172,6 +182,74 @@ public class TenantsStatsTest {
         assertNull(findGauge(MqttPersistentSessionNumGauge.metricName, tenant2));
         assertNull(findGauge(MqttPersistentSubCountGauge.metricName, tenant2));
         assertNull(findGauge(MqttPersistentSessionSpaceGauge.metricName, tenant2));
+    }
+
+    @Test
+    public void testToggleBroadcastToMultipleTenants() {
+        IKVCloseableReader reader = Mockito.mock(IKVCloseableReader.class);
+        Mockito.when(reader.boundary()).thenReturn(Boundary.getDefaultInstance());
+        Mockito.when(reader.iterator()).thenReturn(new EmptyIterator());
+        TenantsStats stats = new TenantsStats(() -> reader, "clusterId", "c1", "storeId", "s1", "rangeId", "r1");
+
+        String tenantA = "toggleA-" + System.nanoTime();
+        String tenantB = "toggleB-" + System.nanoTime();
+
+        stats.addSessionCount(tenantA, 2);
+        stats.addSubCount(tenantA, 3);
+        stats.addSessionCount(tenantB, 5);
+        stats.addSubCount(tenantB, 7);
+
+        // before promotion, gauges for session/sub should be absent
+        await().atMost(2, TimeUnit.SECONDS).until(() ->
+            findGauge(MqttPersistentSessionNumGauge.metricName, tenantA) == null
+                && findGauge(MqttPersistentSubCountGauge.metricName, tenantA) == null
+                && findGauge(MqttPersistentSessionNumGauge.metricName, tenantB) == null
+                && findGauge(MqttPersistentSubCountGauge.metricName, tenantB) == null);
+
+        stats.toggleMetering(true);
+
+        await().atMost(2, TimeUnit.SECONDS).until(() ->
+            findGaugeValue(MqttPersistentSessionNumGauge.metricName, tenantA) == 2.0
+                && findGaugeValue(MqttPersistentSubCountGauge.metricName, tenantA) == 3.0
+                && findGaugeValue(MqttPersistentSessionNumGauge.metricName, tenantB) == 5.0
+                && findGaugeValue(MqttPersistentSubCountGauge.metricName, tenantB) == 7.0);
+
+        stats.toggleMetering(false);
+
+        await().atMost(2, TimeUnit.SECONDS).until(() ->
+            findGauge(MqttPersistentSessionNumGauge.metricName, tenantA) == null
+                && findGauge(MqttPersistentSubCountGauge.metricName, tenantA) == null
+                && findGauge(MqttPersistentSessionNumGauge.metricName, tenantB) == null
+                && findGauge(MqttPersistentSubCountGauge.metricName, tenantB) == null);
+
+        // space gauges should still be present due to creation per-tenant
+        assertNotNull(findGauge(MqttPersistentSessionSpaceGauge.metricName, tenantA));
+        assertNotNull(findGauge(MqttPersistentSessionSpaceGauge.metricName, tenantB));
+    }
+
+    @Test
+    public void testDemotionKeepsSpaceGauge() {
+        IKVCloseableReader reader = Mockito.mock(IKVCloseableReader.class);
+        Mockito.when(reader.boundary()).thenReturn(Boundary.getDefaultInstance());
+        Mockito.when(reader.iterator()).thenReturn(new EmptyIterator());
+        TenantsStats stats = new TenantsStats(() -> reader, "clusterId", "c1", "storeId", "s1", "rangeId", "r1");
+
+        String tenant = "toggleSpace-" + System.nanoTime();
+        stats.addSessionCount(tenant, 1);
+        stats.addSubCount(tenant, 1);
+
+        stats.toggleMetering(true);
+        await().atMost(2, TimeUnit.SECONDS)
+            .until(() -> findGauge(MqttPersistentSessionNumGauge.metricName, tenant) != null
+                && findGauge(MqttPersistentSubCountGauge.metricName, tenant) != null);
+
+        stats.toggleMetering(false);
+        await().atMost(2, TimeUnit.SECONDS)
+            .until(() -> findGauge(MqttPersistentSessionNumGauge.metricName, tenant) == null
+                && findGauge(MqttPersistentSubCountGauge.metricName, tenant) == null);
+
+        // space gauge should remain
+        assertNotNull(findGauge(MqttPersistentSessionSpaceGauge.metricName, tenant));
     }
 
     private Double findGaugeValue(String metricName, String tenantId) {

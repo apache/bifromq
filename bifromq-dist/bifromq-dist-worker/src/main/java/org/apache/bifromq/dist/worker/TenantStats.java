@@ -32,25 +32,38 @@ class TenantStats {
     private final LongAdder sharedRoutes = new LongAdder();
     private final String tenantId;
     private final String[] tags;
+    private boolean isLeader;
 
     TenantStats(String tenantId, Supplier<Number> spaceUsageProvider, String... tags) {
         this.tenantId = tenantId;
         this.tags = tags;
         ITenantMeter.gauging(tenantId, MqttRouteSpaceGauge, spaceUsageProvider, tags);
-        ITenantMeter.gauging(tenantId, MqttRouteNumGauge, normalRoutes::sum, tags);
-        ITenantMeter.gauging(tenantId, MqttSharedSubNumGauge, sharedRoutes::sum, tags);
     }
 
     void addNormalRoutes(int delta) {
         normalRoutes.add(delta);
+        toggleMetering(isLeader);
     }
 
     void addSharedRoutes(int delta) {
         sharedRoutes.add(delta);
+        toggleMetering(isLeader);
     }
 
     boolean isNoRoutes() {
         return normalRoutes.sum() == 0 && sharedRoutes.sum() == 0;
+    }
+
+    void toggleMetering(boolean isLeader) {
+        if (!this.isLeader && isLeader) {
+            ITenantMeter.gauging(tenantId, MqttRouteNumGauge, normalRoutes::sum, tags);
+            ITenantMeter.gauging(tenantId, MqttSharedSubNumGauge, sharedRoutes::sum, tags);
+            this.isLeader = true;
+        } else if (this.isLeader && !isLeader) {
+            ITenantMeter.stopGauging(tenantId, MqttRouteNumGauge, tags);
+            ITenantMeter.stopGauging(tenantId, MqttSharedSubNumGauge, tags);
+            this.isLeader = false;
+        }
     }
 
     void destroy() {

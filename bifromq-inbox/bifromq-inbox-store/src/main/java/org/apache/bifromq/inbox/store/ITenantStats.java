@@ -28,5 +28,7 @@ public interface ITenantStats {
 
     void reset(Boundary boundary);
 
+    void toggleMetering(boolean isLeader);
+
     void close();
 }

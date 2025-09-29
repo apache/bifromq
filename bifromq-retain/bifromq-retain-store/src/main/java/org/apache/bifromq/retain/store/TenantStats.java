@@ -27,18 +27,19 @@ import static org.apache.bifromq.metrics.TenantMetric.MqttRetainNumGauge;
 import static org.apache.bifromq.metrics.TenantMetric.MqttRetainSpaceGauge;
 import static org.apache.bifromq.retain.store.schema.KVSchemaUtil.tenantBeginKey;
 
+import com.google.protobuf.ByteString;
+import java.util.concurrent.atomic.AtomicLong;
 import org.apache.bifromq.basekv.proto.Boundary;
 import org.apache.bifromq.basekv.store.api.IKVReader;
 import org.apache.bifromq.metrics.ITenantMeter;
-import com.google.protobuf.ByteString;
-import java.util.concurrent.atomic.AtomicLong;
 
-public class TenantRetainedSet {
+public class TenantStats {
     private final AtomicLong topicCount = new AtomicLong();
     private final String tenantId;
     private final String[] tags;
+    private boolean isLeader;
 
-    public TenantRetainedSet(String tenantId, IKVReader reader, String... tags) {
+    public TenantStats(String tenantId, IKVReader reader, String... tags) {
         this.tenantId = tenantId;
         this.tags = tags;
         ITenantMeter.gauging(tenantId, MqttRetainSpaceGauge, () -> {
@@ -50,11 +51,20 @@ public class TenantRetainedSet {
             }
             return reader.size(tenantBoundary);
         }, tags);
-        ITenantMeter.gauging(tenantId, MqttRetainNumGauge, topicCount::get, tags);
     }
 
     public long incrementTopicCount(int delta) {
         return topicCount.addAndGet(delta);
+    }
+
+    void toggleMetering(boolean isLeader) {
+        if (!this.isLeader && isLeader) {
+            ITenantMeter.gauging(tenantId, MqttRetainNumGauge, topicCount::get, tags);
+            this.isLeader = true;
+        } else if (this.isLeader && !isLeader) {
+            ITenantMeter.stopGauging(tenantId, MqttRetainNumGauge, tags);
+            this.isLeader = false;
+        }
     }
 
     void destroy() {

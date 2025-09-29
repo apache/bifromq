@@ -14,28 +14,28 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 
 package org.apache.bifromq.basekv.store.wal;
 
+import java.util.concurrent.CompletableFuture;
 import org.apache.bifromq.basekv.proto.KVRangeSnapshot;
 import org.apache.bifromq.basekv.raft.proto.LogEntry;
-import java.util.concurrent.CompletableFuture;
 
 public interface IKVRangeWALSubscriber {
     default void onSubscribe(IKVRangeWALSubscription subscription) {
 
     }
 
-    CompletableFuture<Void> apply(LogEntry log);
-
     /**
-     * Callback after snapshot restored.
+     * Callback method to apply log.
+     *
+     * @param log the committed log
+     * @param isLeader if the node was leader when the log committed
+     * @return the future to indicate when the log has been applied
      */
-    interface IAfterRestoredCallback {
-        CompletableFuture<Void> call(KVRangeSnapshot snapshot, Throwable ex);
-    }
+    CompletableFuture<Void> apply(LogEntry log, boolean isLeader);
 
     /**
      * Install snapshot to kv range asynchronously and the returned snapshot will be used for WAL compaction.
@@ -45,4 +45,11 @@ public interface IKVRangeWALSubscriber {
      * @param callback  the callback to notify the result of snapshot installation
      */
     CompletableFuture<Void> restore(KVRangeSnapshot requested, String leader, IAfterRestoredCallback callback);
+
+    /**
+     * Callback after snapshot restored.
+     */
+    interface IAfterRestoredCallback {
+        CompletableFuture<Void> call(KVRangeSnapshot snapshot, Throwable ex);
+    }
 }

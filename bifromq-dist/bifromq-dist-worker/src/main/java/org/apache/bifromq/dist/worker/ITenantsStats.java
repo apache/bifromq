@@ -36,6 +36,8 @@ public interface ITenantsStats {
 
     void decSharedRoutes(String tenantId, int count);
 
+    void toggleMetering(boolean isLeader);
+
     void reset();
 
     void close();

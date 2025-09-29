@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 
 package org.apache.bifromq.retain.store;
@@ -23,18 +23,18 @@ import static org.mockito.Mockito.mock;
 import static org.testng.Assert.assertEquals;
 import static org.testng.Assert.assertTrue;
 
-import org.apache.bifromq.basekv.store.api.IKVReader;
-import org.apache.bifromq.metrics.ITenantMeter;
-import org.apache.bifromq.metrics.TenantMetric;
 import io.micrometer.core.instrument.Meter;
 import io.micrometer.core.instrument.Metrics;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.util.Optional;
+import org.apache.bifromq.basekv.store.api.IKVReader;
+import org.apache.bifromq.metrics.ITenantMeter;
+import org.apache.bifromq.metrics.TenantMetric;
 import org.testng.annotations.AfterMethod;
 import org.testng.annotations.BeforeMethod;
 import org.testng.annotations.Test;
 
-public class TenantsStateTest {
+public class TenantsStatsTest {
     String tenantId = "tenant-" + System.nanoTime();
     private SimpleMeterRegistry meterRegistry;
     private IKVReader reader;
@@ -55,22 +55,24 @@ public class TenantsStateTest {
 
     @Test
     public void increaseTopicCount() {
-        TenantsState tenantsState = new TenantsState(reader);
+        TenantsStats tenantsStats = new TenantsStats(reader);
         assertNoGauge(tenantId, TenantMetric.MqttRetainNumGauge);
         assertNoGauge(tenantId, TenantMetric.MqttRetainSpaceGauge);
-        tenantsState.increaseTopicCount(tenantId, 1);
+        tenantsStats.increaseTopicCount(tenantId, 1);
+        tenantsStats.toggleMetering(true);
         assertGauge(tenantId, TenantMetric.MqttRetainNumGauge);
         assertGauge(tenantId, TenantMetric.MqttRetainSpaceGauge);
     }
 
     @Test
     public void decreaseTopicCount() {
-        TenantsState tenantsState = new TenantsState(reader);
-        tenantsState.increaseTopicCount(tenantId, 1);
+        TenantsStats tenantsStats = new TenantsStats(reader);
+        tenantsStats.increaseTopicCount(tenantId, 1);
+        tenantsStats.toggleMetering(true);
         assertGauge(tenantId, TenantMetric.MqttRetainNumGauge);
         assertGauge(tenantId, TenantMetric.MqttRetainSpaceGauge);
 
-        tenantsState.increaseTopicCount(tenantId, -1);
+        tenantsStats.increaseTopicCount(tenantId, -1);
 
         assertNoGauge(tenantId, TenantMetric.MqttRetainNumGauge);
         assertNoGauge(tenantId, TenantMetric.MqttRetainSpaceGauge);
@@ -78,12 +80,13 @@ public class TenantsStateTest {
 
     @Test
     public void destroy() {
-        TenantsState tenantsState = new TenantsState(reader);
-        tenantsState.increaseTopicCount(tenantId, 1);
+        TenantsStats tenantsStats = new TenantsStats(reader);
+        tenantsStats.increaseTopicCount(tenantId, 1);
+        tenantsStats.toggleMetering(true);
         assertGauge(tenantId, TenantMetric.MqttRetainNumGauge);
         assertGauge(tenantId, TenantMetric.MqttRetainSpaceGauge);
 
-        tenantsState.destroy();
+        tenantsStats.destroy();
         assertNoGauge(tenantId, TenantMetric.MqttRetainNumGauge);
         assertNoGauge(tenantId, TenantMetric.MqttRetainSpaceGauge);
     }

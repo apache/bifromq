@@ -262,7 +262,7 @@ class RaftNodeStateFollower extends RaftNodeState {
                 if (task.committed) {
                     commitIndex = index;
                     log.trace("Advanced commitIndex[{}]", commitIndex);
-                    notifyCommit();
+                    notifyCommit(false);
                 }
                 toRemove.add(index);
             } else {
@@ -531,7 +531,7 @@ class RaftNodeStateFollower extends RaftNodeState {
                         log.trace("Advanced commitIndex[from:{},to:{}]", commitIndex, newCommitIndex);
                         commitIndex = newCommitIndex;
                         // report to application
-                        notifyCommit();
+                        notifyCommit(false);
                     } else {
                         // entries between lastIndex and newCommitIndex missing, probably because the channel between
                         // leader and follower is lossy.
@@ -554,7 +554,7 @@ class RaftNodeStateFollower extends RaftNodeState {
                         stabilizingIndexes.firstKey(), commitIndex, newCommitIndex);
                     commitIndex = newCommitIndex;
                     // report to application
-                    notifyCommit();
+                    notifyCommit(false);
                 } else {
                     if (newCommitIndex > stabilizingIndexes.lastKey()) {
                         // if the newCommitIndex is greater than the largest local stabilizing index

@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 
 package org.apache.bifromq.basekv.raft.event;
@@ -26,9 +26,11 @@ import lombok.ToString;
 @ToString(callSuper = true)
 public class CommitEvent extends RaftEvent {
     public final long index;
+    public final boolean isLeader; // indicating whether the node is leader when commit
 
-    public CommitEvent(String nodeId, long index) {
+    public CommitEvent(String nodeId, long index, boolean isLeader) {
         super(nodeId, RaftEventType.COMMIT);
         this.index = index;
+        this.isLeader = isLeader;
     }
 }

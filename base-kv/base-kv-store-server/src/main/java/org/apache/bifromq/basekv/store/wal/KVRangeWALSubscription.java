@@ -21,13 +21,17 @@ package org.apache.bifromq.basekv.store.wal;
 
 import io.reactivex.rxjava3.core.Observable;
 import io.reactivex.rxjava3.disposables.CompositeDisposable;
+import java.util.Map;
+import java.util.NavigableMap;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentSkipListMap;
 import java.util.concurrent.Executor;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Supplier;
 import org.apache.bifromq.base.util.AsyncRunner;
 import org.apache.bifromq.basekv.proto.KVRangeSnapshot;
+import org.apache.bifromq.basekv.raft.event.CommitEvent;
 import org.apache.bifromq.basekv.raft.proto.LogEntry;
 import org.apache.bifromq.basekv.utils.KVRangeIdUtil;
 import org.apache.bifromq.logger.MDCLogger;
@@ -45,11 +49,11 @@ class KVRangeWALSubscription implements IKVRangeWALSubscription {
     private final AtomicBoolean fetching = new AtomicBoolean();
     private final AtomicBoolean stopped = new AtomicBoolean();
     private final AtomicLong lastFetchedIdx = new AtomicLong();
-    private final AtomicLong commitIdx = new AtomicLong(-1);
+    private final ConcurrentSkipListMap<Long, Boolean> pendingApplies = new ConcurrentSkipListMap<>();
 
     KVRangeWALSubscription(long maxFetchBytes,
                            IKVRangeWAL wal,
-                           Observable<Long> commitIndex,
+                           Observable<CommitEvent> commitIndex,
                            long lastFetchedIndex,
                            IKVRangeWALSubscriber subscriber,
                            Executor executor,
@@ -77,12 +81,16 @@ class KVRangeWALSubscription implements IKVRangeWALSubscription {
                         }
                         log.debug("Snapshot installed\n{}", snap);
                         lastFetchedIdx.set(snap.getLastAppliedIndex());
-                        commitIdx.set(-1);
+                        pendingApplies.clear();
                     }));
             })));
         disposables.add(commitIndex
             .subscribe(c -> fetchRunner.add(() -> {
-                commitIdx.set(c);
+                Map.Entry<Long, Boolean> prevCommitIdx = pendingApplies.floorEntry(c.index);
+                if (prevCommitIdx != null && prevCommitIdx.getValue() == c.isLeader) {
+                    pendingApplies.remove(prevCommitIdx.getKey());
+                }
+                pendingApplies.put(c.index, c.isLeader);
                 scheduleFetchWAL();
             })));
     }
@@ -103,7 +111,8 @@ class KVRangeWALSubscription implements IKVRangeWALSubscription {
     }
 
     private CompletableFuture<Void> fetchWAL() {
-        if (lastFetchedIdx.get() < commitIdx.get()) {
+        NavigableMap<Long, Boolean> toFetch = shouldFetch();
+        if (!toFetch.isEmpty()) {
             return wal.retrieveCommitted(lastFetchedIdx.get() + 1, maxFetchBytes)
                 .handleAsync((logEntries, e) -> {
                     if (e != null) {
@@ -115,16 +124,29 @@ class KVRangeWALSubscription implements IKVRangeWALSubscription {
                     } else {
                         fetchRunner.add(() -> {
                             LogEntry entry = null;
+                            boolean hasMore = false;
                             while (logEntries.hasNext()) {
                                 // no restore task interrupted
                                 entry = logEntries.next();
-                                applyRunner.add(applyLog(entry));
+                                Map.Entry<Long, Boolean> commitIdx = toFetch.ceilingEntry(entry.getIndex());
+                                if (commitIdx != null) {
+                                    boolean isLeader = commitIdx.getValue();
+                                    applyRunner.add(applyLog(entry, isLeader));
+                                } else {
+                                    // fetch beyond the observed commit index
+                                    hasMore = true;
+                                    break;
+                                }
                             }
                             if (entry != null) {
-                                lastFetchedIdx.set(Math.max(entry.getIndex(), lastFetchedIdx.get()));
+                                if (hasMore) {
+                                    lastFetchedIdx.set(Math.max(entry.getIndex() - 1, lastFetchedIdx.get()));
+                                } else {
+                                    lastFetchedIdx.set(Math.max(entry.getIndex(), lastFetchedIdx.get()));
+                                }
                             }
                             fetching.set(false);
-                            if (lastFetchedIdx.get() < commitIdx.get()) {
+                            if (!shouldFetch().isEmpty()) {
                                 scheduleFetchWAL();
                             }
                         });
@@ -133,17 +155,22 @@ class KVRangeWALSubscription implements IKVRangeWALSubscription {
                 }, executor);
         } else {
             fetching.set(false);
-            if (lastFetchedIdx.get() < commitIdx.get()) {
+            if (!shouldFetch().isEmpty()) {
                 scheduleFetchWAL();
             }
             return CompletableFuture.completedFuture(null);
         }
     }
 
-    private Supplier<CompletableFuture<Void>> applyLog(LogEntry logEntry) {
+    private NavigableMap<Long, Boolean> shouldFetch() {
+        pendingApplies.headMap(lastFetchedIdx.get(), true).clear();
+        return pendingApplies.tailMap(lastFetchedIdx.get() + 1);
+    }
+
+    private Supplier<CompletableFuture<Void>> applyLog(LogEntry logEntry, boolean isLeader) {
         return () -> {
             CompletableFuture<Void> onDone = new CompletableFuture<>();
-            CompletableFuture<Void> applyFuture = subscriber.apply(logEntry);
+            CompletableFuture<Void> applyFuture = subscriber.apply(logEntry, isLeader);
             onDone.whenComplete((v, e) -> {
                 if (onDone.isCancelled()) {
                     applyFuture.cancel(true);
@@ -154,7 +181,7 @@ class KVRangeWALSubscription implements IKVRangeWALSubscription {
                 if (!onDone.isCancelled()) {
                     if (e != null) {
                         // reapply
-                        applyRunner.addFirst(applyLog(logEntry));
+                        applyRunner.addFirst(applyLog(logEntry, isLeader));
                     }
                 }
                 onDone.complete(null);

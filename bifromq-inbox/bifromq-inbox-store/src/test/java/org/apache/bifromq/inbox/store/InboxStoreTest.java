@@ -110,7 +110,6 @@ import org.apache.bifromq.inbox.storage.proto.InboxServiceRWCoProcOutput;
 import org.apache.bifromq.inbox.storage.proto.InboxVersion;
 import org.apache.bifromq.inbox.storage.proto.InsertRequest;
 import org.apache.bifromq.inbox.storage.proto.InsertResult;
-import org.apache.bifromq.inbox.storage.proto.Replica;
 import org.apache.bifromq.metrics.TenantMetric;
 import org.apache.bifromq.plugin.eventcollector.IEventCollector;
 import org.apache.bifromq.plugin.resourcethrottler.IResourceThrottler;
@@ -381,13 +380,8 @@ abstract class InboxStoreTest {
         long reqId = ThreadLocalRandom.current().nextInt();
         ByteString routeKey = inboxStartKeyPrefix(params[0].getTenantId(), params[0].getInboxId());
         KVRangeSetting s = findByKey(routeKey, storeClient.latestEffectiveRouter()).get();
-        InboxServiceRWCoProcInput input = MessageUtil.buildDetachRequest(reqId,
-            BatchDetachRequest.newBuilder()
+        InboxServiceRWCoProcInput input = MessageUtil.buildDetachRequest(reqId, BatchDetachRequest.newBuilder()
                 .addAllParams(List.of(params))
-                .setLeader(Replica.newBuilder()
-                    .setStoreId(testStore.id())
-                    .setRangeId(s.id())
-                    .build())
                 .build());
         InboxServiceRWCoProcOutput output = mutate(routeKey, input);
         assertTrue(output.hasBatchDetach());

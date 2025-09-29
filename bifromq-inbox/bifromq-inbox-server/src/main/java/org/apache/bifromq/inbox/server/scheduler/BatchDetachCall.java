@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 
 package org.apache.bifromq.inbox.server.scheduler;
@@ -42,7 +42,6 @@ import org.apache.bifromq.inbox.storage.proto.BatchDetachReply;
 import org.apache.bifromq.inbox.storage.proto.BatchDetachRequest;
 import org.apache.bifromq.inbox.storage.proto.InboxServiceRWCoProcInput;
 import org.apache.bifromq.inbox.storage.proto.InboxVersion;
-import org.apache.bifromq.inbox.storage.proto.Replica;
 
 @Slf4j
 class BatchDetachCall extends BatchMutationCall<DetachRequest, DetachReply> {
@@ -59,11 +58,7 @@ class BatchDetachCall extends BatchMutationCall<DetachRequest, DetachReply> {
     @Override
     protected RWCoProcInput makeBatch(
         Iterable<ICallTask<DetachRequest, DetachReply, MutationCallBatcherKey>> callTasks) {
-        BatchDetachRequest.Builder reqBuilder = BatchDetachRequest.newBuilder()
-            .setLeader(Replica.newBuilder()
-                .setRangeId(batcherKey.id)
-                .setStoreId(batcherKey.leaderStoreId)
-                .build());
+        BatchDetachRequest.Builder reqBuilder = BatchDetachRequest.newBuilder();
         for (ICallTask<DetachRequest, DetachReply, MutationCallBatcherKey> callTask : callTasks) {
             DetachRequest request = callTask.call();
             BatchDetachRequest.Params.Builder paramsBuilder = BatchDetachRequest.Params.newBuilder()

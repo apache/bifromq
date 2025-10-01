@@ -46,4 +46,6 @@ message InboxMetadata{
   uint64 sendBufferNextSeq = 14;
 
   optional uint64 detachedAt = 15;
+
+  uint64 createdAt = 16;
 }

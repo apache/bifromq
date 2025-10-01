@@ -132,6 +132,10 @@ import org.apache.bifromq.plugin.eventcollector.OutOfTenantResource;
 import org.apache.bifromq.plugin.eventcollector.inboxservice.Overflowed;
 import org.apache.bifromq.plugin.eventcollector.mqttbroker.disthandling.WillDistError;
 import org.apache.bifromq.plugin.eventcollector.mqttbroker.disthandling.WillDisted;
+import org.apache.bifromq.plugin.eventcollector.mqttbroker.pushhandling.DropReason;
+import org.apache.bifromq.plugin.eventcollector.mqttbroker.pushhandling.QoS0Dropped;
+import org.apache.bifromq.plugin.eventcollector.mqttbroker.pushhandling.QoS1Dropped;
+import org.apache.bifromq.plugin.eventcollector.mqttbroker.pushhandling.QoS2Dropped;
 import org.apache.bifromq.plugin.eventcollector.mqttbroker.retainhandling.MsgRetained;
 import org.apache.bifromq.plugin.eventcollector.mqttbroker.retainhandling.MsgRetainedError;
 import org.apache.bifromq.plugin.eventcollector.mqttbroker.retainhandling.RetainMsgCleared;
@@ -658,7 +662,8 @@ final class InboxStoreCoProc implements IKVRangeCoProc {
                         .setLimit(params.getLimit())
                         .setDropOldest(params.getDropOldest())
                         .setClient(params.getClient())
-                        .setLastActiveTime(params.getNow());
+                        .setLastActiveTime(params.getNow())
+                        .setCreatedAt(params.getNow());
                     if (params.hasLwt()) {
                         metadataBuilder.setLwt(params.getLwt());
                     }
@@ -843,6 +848,8 @@ final class InboxStoreCoProc implements IKVRangeCoProc {
         Map<String, Set<InboxMetadata>> toBeRemoved = new HashMap<>();
         reader.refresh();
         IKVIterator itr = reader.iterator();
+        Map<InboxMetadata, List<InboxMessage>> dropedQoS0Msgs = new HashMap<>();
+        Map<InboxMetadata, List<InboxMessage>> dropedBufferedMsg = new HashMap<>();
         for (BatchDeleteRequest.Params params : request.getParamsList()) {
             Optional<InboxMetadata> metadataOpt = inboxMetaCache.get(params.getTenantId(), params.getInboxId(),
                 params.getVersion().getIncarnation(), reader);
@@ -857,12 +864,74 @@ final class InboxStoreCoProc implements IKVRangeCoProc {
                 continue;
             }
             InboxMetadata metadata = metadataOpt.get();
-            clearInboxInstance(metadata, itr, writer);
+            clearInboxInstance(metadata, itr, reader, writer, isLeader,
+                dropedQoS0Msgs.computeIfAbsent(metadata, k -> new LinkedList<>()),
+                dropedBufferedMsg.computeIfAbsent(metadata, k -> new LinkedList<>()));
             toBeRemoved.computeIfAbsent(params.getTenantId(), k -> new HashSet<>()).add(metadata);
             replyBuilder.addResult(BatchDeleteReply.Result.newBuilder().setCode(BatchDeleteReply.Code.OK)
                 .putAllTopicFilters(metadata.getTopicFiltersMap()).build());
         }
-        return () -> removeTenantStates(toBeRemoved, reader, isLeader);
+        return () -> {
+            if (isLeader) {
+                for (InboxMetadata inboxMetadata : dropedQoS0Msgs.keySet()) {
+                    List<InboxMessage> dropedQoS0MsgList = dropedQoS0Msgs.get(inboxMetadata);
+                    for (InboxMessage inboxMsg : dropedQoS0MsgList) {
+                        TopicMessage topicMsg = inboxMsg.getMsg();
+                        Message msg = topicMsg.getMessage();
+                        for (String topicFilter : inboxMsg.getMatchedTopicFilterMap().keySet()) {
+                            TopicFilterOption option = inboxMsg.getMatchedTopicFilterMap().get(topicFilter);
+                            boolean isRetain = topicMsg.getMessage().getIsRetained() || option.getRetainAsPublished()
+                                && msg.getIsRetain();
+                            eventCollector.report(getLocal(QoS0Dropped.class)
+                                .reason(DropReason.SessionClosed)
+                                .reqId(msg.getMessageId())
+                                .isRetain(isRetain)
+                                .sender(topicMsg.getPublisher())
+                                .topic(topicMsg.getTopic())
+                                .matchedFilter(topicFilter)
+                                .size(msg.getPayload().size())
+                                .clientInfo(inboxMetadata.getClient()));
+                        }
+                    }
+                }
+                for (InboxMetadata inboxMetadata : dropedBufferedMsg.keySet()) {
+                    List<InboxMessage> dropedBufferedMsgList = dropedBufferedMsg.get(inboxMetadata);
+                    for (InboxMessage inboxMsg : dropedBufferedMsgList) {
+                        TopicMessage topicMsg = inboxMsg.getMsg();
+                        Message msg = topicMsg.getMessage();
+                        for (String topicFilter : inboxMsg.getMatchedTopicFilterMap().keySet()) {
+                            TopicFilterOption option = inboxMsg.getMatchedTopicFilterMap().get(topicFilter);
+                            QoS finalQos = QoS.forNumber(Math.min(topicMsg.getMessage().getPubQoS().getNumber(),
+                                option.getQos().getNumber()));
+                            boolean isRetain = topicMsg.getMessage().getIsRetained() || option.getRetainAsPublished()
+                                && msg.getIsRetain();
+                            if (finalQos == QoS.AT_LEAST_ONCE) {
+                                eventCollector.report(getLocal(QoS1Dropped.class)
+                                    .reason(DropReason.SessionClosed)
+                                    .reqId(msg.getMessageId())
+                                    .isRetain(isRetain)
+                                    .sender(topicMsg.getPublisher())
+                                    .topic(topicMsg.getTopic())
+                                    .matchedFilter(topicFilter)
+                                    .size(msg.getPayload().size())
+                                    .clientInfo(inboxMetadata.getClient()));
+                            } else if (finalQos == QoS.EXACTLY_ONCE) {
+                                eventCollector.report(getLocal(QoS2Dropped.class)
+                                    .reason(DropReason.SessionClosed)
+                                    .reqId(msg.getMessageId())
+                                    .isRetain(isRetain)
+                                    .sender(topicMsg.getPublisher())
+                                    .topic(topicMsg.getTopic())
+                                    .matchedFilter(topicFilter)
+                                    .size(msg.getPayload().size())
+                                    .clientInfo(inboxMetadata.getClient()));
+                            }
+                        }
+                    }
+                }
+            }
+            removeTenantStates(toBeRemoved, reader, isLeader);
+        };
     }
 
     private Runnable batchSub(BatchSubRequest request,
@@ -957,7 +1026,13 @@ final class InboxStoreCoProc implements IKVRangeCoProc {
         };
     }
 
-    private void clearInboxInstance(InboxMetadata metadata, IKVIterator itr, IKVWriter writer) {
+    private void clearInboxInstance(InboxMetadata metadata,
+                                    IKVIterator itr,
+                                    IKVReader reader,
+                                    IKVWriter writer,
+                                    boolean isLeader,
+                                    List<InboxMessage> dropedQoS0MsgList,
+                                    List<InboxMessage> dropedBufferedMsgList) {
         ByteString startKey = inboxInstanceStartKey(metadata.getClient().getTenantId(), metadata.getInboxId(),
             metadata.getIncarnation());
         if (metadata.getQos0NextSeq() > 0) {
@@ -965,7 +1040,19 @@ final class InboxStoreCoProc implements IKVRangeCoProc {
             itr.seek(qos0QueuePrefix(startKey));
             if (itr.isValid() && itr.key().startsWith(startKey)) {
                 for (long s = parseSeq(startKey, itr.key()); s < metadata.getQos0NextSeq(); s++) {
-                    writer.delete(qos0MsgKey(startKey, s));
+                    ByteString qos0MsgKey = qos0MsgKey(startKey, s);
+                    if (isLeader) {
+                        Optional<ByteString> inboxMsgListBytes = reader.get(qos0MsgKey);
+                        if (inboxMsgListBytes.isEmpty()) {
+                            log.warn(
+                                "Inconsistent state: empty qos0 msg list: tenantId={}, inboxId={}, incar={}, seq={}",
+                                metadata.getClient().getTenantId(), metadata.getInboxId(), metadata.getIncarnation(),
+                                s);
+                            continue;
+                        }
+                        dropedQoS0MsgList.addAll(parseInboxMessageList(inboxMsgListBytes.get()).getMessageList());
+                    }
+                    writer.delete(qos0MsgKey);
                 }
             }
         }
@@ -973,11 +1060,32 @@ final class InboxStoreCoProc implements IKVRangeCoProc {
             itr.seek(sendBufferPrefix(startKey));
             if (itr.isValid() && itr.key().startsWith(startKey)) {
                 for (long s = parseSeq(startKey, itr.key()); s < metadata.getSendBufferNextSeq(); s++) {
+                    if (isLeader) {
+                        ByteString bufferedMsgKey = bufferedMsgKey(startKey, s);
+                        Optional<ByteString> inboxMsgListBytes = reader.get(bufferedMsgKey);
+                        if (inboxMsgListBytes.isEmpty()) {
+                            log.warn(
+                                "Inconsistent state: empty buffer msg list: tenantId={}, inboxId={}, incar={}, seq={}",
+                                metadata.getClient().getTenantId(), metadata.getInboxId(), metadata.getIncarnation(),
+                                s);
+                            continue;
+                        }
+                        dropedBufferedMsgList.addAll(parseInboxMessageList(inboxMsgListBytes.get()).getMessageList());
+                    }
                     writer.delete(bufferedMsgKey(startKey, s));
                 }
             }
         }
         writer.delete(startKey);
+    }
+
+    private InboxMessageList parseInboxMessageList(ByteString value) {
+        try {
+            return ZeroCopyParser.parse(value, InboxMessageList.parser());
+        } catch (InvalidProtocolBufferException e) {
+            log.error("Failed to parse InboxMessageList", e);
+            return InboxMessageList.getDefaultInstance();
+        }
     }
 
     @SneakyThrows

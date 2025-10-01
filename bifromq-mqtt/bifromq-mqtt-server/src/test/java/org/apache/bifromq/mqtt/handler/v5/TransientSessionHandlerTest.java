@@ -36,6 +36,7 @@ import static org.apache.bifromq.plugin.eventcollector.EventType.EXCEED_RECEIVIN
 import static org.apache.bifromq.plugin.eventcollector.EventType.INVALID_TOPIC;
 import static org.apache.bifromq.plugin.eventcollector.EventType.INVALID_TOPIC_FILTER;
 import static org.apache.bifromq.plugin.eventcollector.EventType.MALFORMED_TOPIC;
+import static org.apache.bifromq.plugin.eventcollector.EventType.MATCH_RETAIN_ERROR;
 import static org.apache.bifromq.plugin.eventcollector.EventType.MQTT_SESSION_START;
 import static org.apache.bifromq.plugin.eventcollector.EventType.MQTT_SESSION_STOP;
 import static org.apache.bifromq.plugin.eventcollector.EventType.MSG_RETAINED;
@@ -57,6 +58,7 @@ import static org.apache.bifromq.plugin.eventcollector.EventType.QOS2_DROPPED;
 import static org.apache.bifromq.plugin.eventcollector.EventType.QOS2_PUSHED;
 import static org.apache.bifromq.plugin.eventcollector.EventType.QOS2_RECEIVED;
 import static org.apache.bifromq.plugin.eventcollector.EventType.RETAIN_MSG_CLEARED;
+import static org.apache.bifromq.plugin.eventcollector.EventType.RETAIN_MSG_MATCHED;
 import static org.apache.bifromq.plugin.eventcollector.EventType.SUB_ACKED;
 import static org.apache.bifromq.plugin.eventcollector.EventType.UNSUB_ACKED;
 import static org.apache.bifromq.plugin.eventcollector.EventType.UNSUB_ACTION_DISALLOW;
@@ -128,6 +130,7 @@ import org.apache.bifromq.mqtt.utils.MQTTMessageUtils;
 import org.apache.bifromq.plugin.authprovider.type.CheckResult;
 import org.apache.bifromq.plugin.authprovider.type.Granted;
 import org.apache.bifromq.plugin.authprovider.type.MQTTAction;
+import org.apache.bifromq.plugin.eventcollector.EventType;
 import org.apache.bifromq.plugin.eventcollector.mqttbroker.clientdisconnect.ExceedReceivingLimit;
 import org.apache.bifromq.plugin.eventcollector.mqttbroker.pushhandling.DropReason;
 import org.apache.bifromq.plugin.eventcollector.mqttbroker.pushhandling.QoS1Dropped;
@@ -220,7 +223,9 @@ public class TransientSessionHandlerTest extends BaseSessionHandlerTest {
         channel.writeInbound(subMessage);
         MqttSubAckMessage subAckMessage = channel.readOutbound();
         verifySubAck(subAckMessage, new int[] {0, MQTT5SubAckReasonCode.TopicFilterInvalid.value(), 2});
-        verifyEvent(MQTT_SESSION_START, INVALID_TOPIC_FILTER, SUB_ACKED);
+        verifyEvent(MQTT_SESSION_START, INVALID_TOPIC_FILTER,
+            RETAIN_MSG_MATCHED, RETAIN_MSG_MATCHED,
+            SUB_ACKED);
         shouldCleanSubs = true;
     }
 
@@ -236,7 +241,7 @@ public class TransientSessionHandlerTest extends BaseSessionHandlerTest {
         channel.writeInbound(subMessage);
         MqttSubAckMessage subAckMessage = channel.readOutbound();
         verifySubAck(subAckMessage, new int[] {0, 1, 128});
-        verifyEvent(MQTT_SESSION_START, SUB_ACKED);
+        verifyEvent(MQTT_SESSION_START, RETAIN_MSG_MATCHED, RETAIN_MSG_MATCHED, SUB_ACKED);
         shouldCleanSubs = true;
     }
 
@@ -261,7 +266,10 @@ public class TransientSessionHandlerTest extends BaseSessionHandlerTest {
         channel.writeInbound(subMessage);
         subAckMessage = channel.readOutbound();
         verifySubAck(subAckMessage, new int[] {MQTT5SubAckReasonCode.QuotaExceeded.value()});
-        verifyEvent(MQTT_SESSION_START, SUB_ACKED, SUB_ACKED);
+        verifyEvent(MQTT_SESSION_START,
+            RETAIN_MSG_MATCHED, RETAIN_MSG_MATCHED, RETAIN_MSG_MATCHED, RETAIN_MSG_MATCHED, RETAIN_MSG_MATCHED,
+            RETAIN_MSG_MATCHED, RETAIN_MSG_MATCHED, RETAIN_MSG_MATCHED, RETAIN_MSG_MATCHED, RETAIN_MSG_MATCHED,
+            SUB_ACKED, SUB_ACKED);
         shouldCleanSubs = true;
     }
 
@@ -293,6 +301,59 @@ public class TransientSessionHandlerTest extends BaseSessionHandlerTest {
         verifyMQTT5UnSubAck(unsubAckMessage,
             new int[] {NoSubscriptionExisted.value(), NoSubscriptionExisted.value(), NoSubscriptionExisted.value()});
         verifyEvent(MQTT_SESSION_START, UNSUB_ACKED);
+    }
+
+    @Test
+    public void retainMatchErrorDoesNotBlockSubV5() {
+        mockCheckPermission(true);
+        mockDistMatch(true);
+        when(retainClient.match(any()))
+            .thenReturn(CompletableFuture.completedFuture(
+                org.apache.bifromq.retain.rpc.proto.MatchReply.newBuilder()
+                    .setResult(org.apache.bifromq.retain.rpc.proto.MatchReply.Result.TRY_LATER)
+                    .build()));
+        int[] qos = {0, 1, 2};
+        MqttSubscribeMessage subMessage = MQTTMessageUtils.qoSMqttSubMessages(qos);
+        channel.writeInbound(subMessage);
+        MqttSubAckMessage subAckMessage = channel.readOutbound();
+        verifySubAck(subAckMessage, qos);
+        verifyEvent(MQTT_SESSION_START, MATCH_RETAIN_ERROR, MATCH_RETAIN_ERROR, MATCH_RETAIN_ERROR, SUB_ACKED);
+        shouldCleanSubs = true;
+    }
+
+    @Test
+    public void retainDisabledNoMatchEventV5() {
+        mockCheckPermission(true);
+        mockDistMatch(true);
+        // ensure retain disabled is applied before handler constructed
+        when(settingProvider.provide(eq(RetainEnabled), anyString())).thenReturn(false);
+
+        // rebuild channel with new handler so settings take effect
+        if (channel != null && channel.isOpen()) {
+            channel.close();
+        }
+        ChannelDuplexHandler sessionHandlerAdder = buildChannelHandler();
+        channel = new EmbeddedChannel(true, true, new ChannelInitializer<>() {
+            @Override
+            protected void initChannel(Channel ch) {
+                ch.attr(ChannelAttrs.MQTT_SESSION_CTX).set(sessionContext);
+                ch.attr(ChannelAttrs.PEER_ADDR).set(new InetSocketAddress(remoteIp, remotePort));
+                ChannelPipeline pipeline = ch.pipeline();
+                pipeline.addLast(new ChannelTrafficShapingHandler(512 * 1024, 512 * 1024));
+                pipeline.addLast(MqttDecoder.class.getName(), new MqttDecoder(256 * 1024));
+                pipeline.addLast(sessionHandlerAdder);
+            }
+        });
+
+        reset(eventCollector);
+        int[] qos = {0, 1, 2};
+        MqttSubscribeMessage subMessage = MQTTMessageUtils.qoSMqttSubMessages(qos);
+        channel.writeInbound(subMessage);
+        channel.runPendingTasks();
+        MqttSubAckMessage subAckMessage = channel.readOutbound();
+        verifySubAck(subAckMessage, qos);
+        verify(eventCollector, atLeast(1)).report(argThat(e -> e.type() == EventType.SUB_ACKED));
+        shouldCleanSubs = true;
     }
 
     @Test

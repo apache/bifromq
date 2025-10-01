@@ -49,6 +49,7 @@ import static org.apache.bifromq.plugin.eventcollector.EventType.QOS2_DROPPED;
 import static org.apache.bifromq.plugin.eventcollector.EventType.QOS2_PUSHED;
 import static org.apache.bifromq.plugin.eventcollector.EventType.QOS2_RECEIVED;
 import static org.apache.bifromq.plugin.eventcollector.EventType.RETAIN_MSG_CLEARED;
+import static org.apache.bifromq.plugin.eventcollector.EventType.RETAIN_MSG_MATCHED;
 import static org.apache.bifromq.plugin.eventcollector.EventType.SUB_ACKED;
 import static org.apache.bifromq.plugin.eventcollector.EventType.TOO_LARGE_UNSUBSCRIPTION;
 import static org.apache.bifromq.plugin.eventcollector.EventType.UNSUB_ACKED;
@@ -219,7 +220,9 @@ public class MQTT3TransientSessionHandlerTest extends BaseSessionHandlerTest {
         channel.writeInbound(subMessage);
         MqttSubAckMessage subAckMessage = channel.readOutbound();
         verifySubAck(subAckMessage, qos);
-        verifyEvent(MQTT_SESSION_START, SUB_ACKED);
+        verifyEvent(MQTT_SESSION_START,
+            RETAIN_MSG_MATCHED, RETAIN_MSG_MATCHED, RETAIN_MSG_MATCHED,
+            SUB_ACKED);
         shouldCleanSubs = true;
         boolean hasSub =
             transientSessionHandler.hasSubscribed(subMessage.payload().topicSubscriptions().get(0).topicFilter());
@@ -236,7 +239,9 @@ public class MQTT3TransientSessionHandlerTest extends BaseSessionHandlerTest {
         channel.writeInbound(subMessage);
         MqttSubAckMessage subAckMessage = channel.readOutbound();
         verifySubAck(subAckMessage, qos);
-        verifyEvent(MQTT_SESSION_START, SUB_ACKED);
+        verifyEvent(MQTT_SESSION_START,
+            RETAIN_MSG_MATCHED, RETAIN_MSG_MATCHED, RETAIN_MSG_MATCHED,
+            SUB_ACKED);
         shouldCleanSubs = true;
     }
 
@@ -250,7 +255,9 @@ public class MQTT3TransientSessionHandlerTest extends BaseSessionHandlerTest {
         channel.writeInbound(subMessage);
         MqttSubAckMessage subAckMessage = channel.readOutbound();
         verifySubAck(subAckMessage, qos);
-        verifyEvent(MQTT_SESSION_START, SUB_ACKED);
+        verifyEvent(MQTT_SESSION_START,
+            RETAIN_MSG_MATCHED, RETAIN_MSG_MATCHED, RETAIN_MSG_MATCHED,
+            SUB_ACKED);
         shouldCleanSubs = true;
     }
 
@@ -264,7 +271,9 @@ public class MQTT3TransientSessionHandlerTest extends BaseSessionHandlerTest {
         channel.writeInbound(subMessage);
         MqttSubAckMessage subAckMessage = channel.readOutbound();
         verifySubAck(subAckMessage, qos);
-        verifyEvent(MQTT_SESSION_START, SUB_ACKED);
+        verifyEvent(MQTT_SESSION_START,
+            RETAIN_MSG_MATCHED, RETAIN_MSG_MATCHED, RETAIN_MSG_MATCHED,
+            SUB_ACKED);
         shouldCleanSubs = true;
     }
 
@@ -280,7 +289,7 @@ public class MQTT3TransientSessionHandlerTest extends BaseSessionHandlerTest {
         channel.writeInbound(subMessage);
         MqttSubAckMessage subAckMessage = channel.readOutbound();
         verifySubAck(subAckMessage, new int[] {0, 1, 128});
-        verifyEvent(MQTT_SESSION_START, SUB_ACKED);
+        verifyEvent(MQTT_SESSION_START, RETAIN_MSG_MATCHED, RETAIN_MSG_MATCHED, SUB_ACKED);
         shouldCleanSubs = true;
     }
 

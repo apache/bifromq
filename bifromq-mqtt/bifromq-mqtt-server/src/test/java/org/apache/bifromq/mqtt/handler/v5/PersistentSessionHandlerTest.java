@@ -32,6 +32,7 @@ import static org.apache.bifromq.plugin.eventcollector.EventType.QOS1_DROPPED;
 import static org.apache.bifromq.plugin.eventcollector.EventType.QOS1_PUSHED;
 import static org.apache.bifromq.plugin.eventcollector.EventType.QOS2_CONFIRMED;
 import static org.apache.bifromq.plugin.eventcollector.EventType.QOS2_DROPPED;
+import static org.apache.bifromq.plugin.eventcollector.EventType.RETAIN_MSG_MATCHED;
 import static org.apache.bifromq.plugin.eventcollector.EventType.SUB_ACKED;
 import static org.apache.bifromq.plugin.eventcollector.EventType.UNSUB_ACKED;
 import static org.apache.bifromq.type.QoS.AT_LEAST_ONCE;
@@ -182,7 +183,7 @@ public class PersistentSessionHandlerTest extends BaseSessionHandlerTest {
         channel.runPendingTasks();
         MqttSubAckMessage subAckMessage = channel.readOutbound();
         verifySubAck(subAckMessage, qos);
-        verifyEvent(SUB_ACKED);
+        verifyEvent(RETAIN_MSG_MATCHED, RETAIN_MSG_MATCHED, RETAIN_MSG_MATCHED, SUB_ACKED);
     }
 
     @Test
@@ -196,7 +197,7 @@ public class PersistentSessionHandlerTest extends BaseSessionHandlerTest {
         channel.runPendingTasks();
         MqttSubAckMessage subAckMessage = channel.readOutbound();
         verifySubAck(subAckMessage, qos);
-        verifyEvent(SUB_ACKED);
+        verifyEvent(RETAIN_MSG_MATCHED, RETAIN_MSG_MATCHED, RETAIN_MSG_MATCHED, SUB_ACKED);
     }
 
     @Test
@@ -210,7 +211,7 @@ public class PersistentSessionHandlerTest extends BaseSessionHandlerTest {
         channel.runPendingTasks();
         MqttSubAckMessage subAckMessage = channel.readOutbound();
         verifySubAck(subAckMessage, qos);
-        verifyEvent(SUB_ACKED);
+        verifyEvent(RETAIN_MSG_MATCHED, RETAIN_MSG_MATCHED, RETAIN_MSG_MATCHED, SUB_ACKED);
     }
 
     @Test
@@ -226,7 +227,7 @@ public class PersistentSessionHandlerTest extends BaseSessionHandlerTest {
         channel.runPendingTasks();
         MqttSubAckMessage subAckMessage = channel.readOutbound();
         verifySubAck(subAckMessage, qos);
-        verifyEvent(SUB_ACKED);
+        verifyEvent(RETAIN_MSG_MATCHED, RETAIN_MSG_MATCHED, RETAIN_MSG_MATCHED, SUB_ACKED);
     }
 
 

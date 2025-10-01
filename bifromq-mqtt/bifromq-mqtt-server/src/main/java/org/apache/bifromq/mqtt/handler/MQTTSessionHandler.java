@@ -138,6 +138,7 @@ import org.apache.bifromq.plugin.eventcollector.mqttbroker.retainhandling.MatchR
 import org.apache.bifromq.plugin.eventcollector.mqttbroker.retainhandling.MsgRetained;
 import org.apache.bifromq.plugin.eventcollector.mqttbroker.retainhandling.MsgRetainedError;
 import org.apache.bifromq.plugin.eventcollector.mqttbroker.retainhandling.RetainMsgCleared;
+import org.apache.bifromq.plugin.eventcollector.mqttbroker.retainhandling.RetainMsgMatched;
 import org.apache.bifromq.plugin.eventcollector.mqttbroker.subhandling.SubAcked;
 import org.apache.bifromq.plugin.eventcollector.mqttbroker.subhandling.UnsubAcked;
 import org.apache.bifromq.plugin.resourcethrottler.IResourceThrottler;
@@ -604,29 +605,17 @@ public abstract class MQTTSessionHandler extends MQTTMessageHandler implements I
                                             }
                                             return addFgTask(matchRetainedMessage(reqId, topicFilter, tfOption))
                                                 .thenApply(matchReply -> {
-                                                    switch (matchReply.getResult()) {
-                                                        case OK -> {
-                                                            return IMQTTProtocolHelper.SubResult.OK;
-                                                        }
-                                                        case TRY_LATER -> {
-                                                            eventCollector.report(getLocal(MatchRetainError.class)
-                                                                .reason(matchReply.getResult().name())
-                                                                .clientInfo(clientInfo));
-                                                            return IMQTTProtocolHelper.SubResult.TRY_LATER;
-                                                        }
-                                                        case BACK_PRESSURE_REJECTED -> {
-                                                            eventCollector.report(getLocal(MatchRetainError.class)
-                                                                .reason(matchReply.getResult().name())
-                                                                .clientInfo(clientInfo));
-                                                            return IMQTTProtocolHelper.SubResult.BACK_PRESSURE_REJECTED;
-                                                        }
-                                                        default -> {
-                                                            eventCollector.report(getLocal(MatchRetainError.class)
-                                                                .reason(matchReply.getResult().name())
-                                                                .clientInfo(clientInfo));
-                                                            return IMQTTProtocolHelper.SubResult.ERROR;
-                                                        }
+                                                    if (matchReply.getResult() == MatchReply.Result.OK) {
+                                                        eventCollector.report(getLocal(RetainMsgMatched.class)
+                                                            .topicFilter(topicFilter)
+                                                            .qos(tfOption.getQos())
+                                                            .clientInfo(clientInfo));
+                                                    } else {
+                                                        eventCollector.report(getLocal(MatchRetainError.class)
+                                                            .reason(matchReply.getResult().name())
+                                                            .clientInfo(clientInfo));
                                                     }
+                                                    return IMQTTProtocolHelper.SubResult.OK;
                                                 });
                                         }
                                         return CompletableFuture.completedFuture(subResult);

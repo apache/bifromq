@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 
 package org.apache.bifromq.mqtt.handler.v3;
@@ -22,8 +22,10 @@ package org.apache.bifromq.mqtt.handler.v3;
 import static org.apache.bifromq.plugin.eventcollector.EventType.CLIENT_CONNECTED;
 import static org.apache.bifromq.plugin.eventcollector.EventType.INVALID_TOPIC_FILTER;
 import static org.apache.bifromq.plugin.eventcollector.EventType.MALFORMED_TOPIC_FILTER;
+import static org.apache.bifromq.plugin.eventcollector.EventType.MATCH_RETAIN_ERROR;
 import static org.apache.bifromq.plugin.eventcollector.EventType.MQTT_SESSION_START;
 import static org.apache.bifromq.plugin.eventcollector.EventType.PROTOCOL_VIOLATION;
+import static org.apache.bifromq.plugin.eventcollector.EventType.RETAIN_MSG_MATCHED;
 import static org.apache.bifromq.plugin.eventcollector.EventType.SUB_ACKED;
 import static org.apache.bifromq.plugin.eventcollector.EventType.SUB_ACTION_DISALLOW;
 import static org.apache.bifromq.plugin.eventcollector.EventType.TOO_LARGE_SUBSCRIPTION;
@@ -36,8 +38,6 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.testng.Assert.assertEquals;
 
-import org.apache.bifromq.mqtt.utils.MQTTMessageUtils;
-import org.apache.bifromq.type.QoS;
 import io.netty.handler.codec.mqtt.MqttSubAckMessage;
 import io.netty.handler.codec.mqtt.MqttSubscribeMessage;
 import java.util.Arrays;
@@ -45,6 +45,8 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 import lombok.SneakyThrows;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.bifromq.mqtt.utils.MQTTMessageUtils;
+import org.apache.bifromq.type.QoS;
 import org.testng.annotations.AfterMethod;
 import org.testng.annotations.Test;
 
@@ -81,7 +83,9 @@ public class MQTTSubTest extends BaseMQTTTest {
         channel.writeInbound(subMessage);
         MqttSubAckMessage subAckMessage = channel.readOutbound();
         verifySubAck(subAckMessage, qos);
-        verifyEvent(MQTT_SESSION_START, CLIENT_CONNECTED, SUB_ACKED);
+        verifyEvent(MQTT_SESSION_START, CLIENT_CONNECTED,
+            RETAIN_MSG_MATCHED, RETAIN_MSG_MATCHED, RETAIN_MSG_MATCHED,
+            SUB_ACKED);
         shouldCleanSubs = true;
     }
 
@@ -97,7 +101,9 @@ public class MQTTSubTest extends BaseMQTTTest {
         channel.writeInbound(subMessage);
         MqttSubAckMessage subAckMessage = channel.readOutbound();
         verifySubAck(subAckMessage, qos);
-        verifyEvent(MQTT_SESSION_START, CLIENT_CONNECTED, SUB_ACKED);
+        verifyEvent(MQTT_SESSION_START, CLIENT_CONNECTED,
+            RETAIN_MSG_MATCHED, RETAIN_MSG_MATCHED, RETAIN_MSG_MATCHED,
+            SUB_ACKED);
         shouldCleanSubs = true;
     }
 
@@ -113,7 +119,9 @@ public class MQTTSubTest extends BaseMQTTTest {
         channel.writeInbound(subMessage);
         MqttSubAckMessage subAckMessage = channel.readOutbound();
         verifySubAck(subAckMessage, qos);
-        verifyEvent(MQTT_SESSION_START, CLIENT_CONNECTED, SUB_ACKED);
+        verifyEvent(MQTT_SESSION_START, CLIENT_CONNECTED,
+            RETAIN_MSG_MATCHED, RETAIN_MSG_MATCHED, RETAIN_MSG_MATCHED,
+            SUB_ACKED);
         shouldCleanSubs = true;
     }
 
@@ -131,7 +139,9 @@ public class MQTTSubTest extends BaseMQTTTest {
         channel.writeInbound(subMessage);
         MqttSubAckMessage subAckMessage = channel.readOutbound();
         verifySubAck(subAckMessage, qos);
-        verifyEvent(MQTT_SESSION_START, CLIENT_CONNECTED, SUB_ACKED);
+        verifyEvent(MQTT_SESSION_START, CLIENT_CONNECTED,
+            RETAIN_MSG_MATCHED, RETAIN_MSG_MATCHED, RETAIN_MSG_MATCHED,
+            SUB_ACKED);
         shouldCleanSubs = true;
     }
 
@@ -149,7 +159,9 @@ public class MQTTSubTest extends BaseMQTTTest {
         channel.writeInbound(subMessage);
         MqttSubAckMessage subAckMessage = channel.readOutbound();
         verifySubAck(subAckMessage, new int[] {0, 1, 128});
-        verifyEvent(MQTT_SESSION_START, CLIENT_CONNECTED, SUB_ACKED);
+        verifyEvent(MQTT_SESSION_START, CLIENT_CONNECTED,
+            RETAIN_MSG_MATCHED, RETAIN_MSG_MATCHED,
+            SUB_ACKED);
         shouldCleanSubs = true;
     }
 
@@ -165,7 +177,9 @@ public class MQTTSubTest extends BaseMQTTTest {
         channel.writeInbound(subMessage);
         MqttSubAckMessage subAckMessage = channel.readOutbound();
         verifySubAck(subAckMessage, qos);
-        verifyEvent(CLIENT_CONNECTED, SUB_ACKED);
+        verifyEvent(CLIENT_CONNECTED,
+            RETAIN_MSG_MATCHED, RETAIN_MSG_MATCHED, RETAIN_MSG_MATCHED,
+            SUB_ACKED);
     }
 
     @Test
@@ -180,7 +194,9 @@ public class MQTTSubTest extends BaseMQTTTest {
         channel.writeInbound(subMessage);
         MqttSubAckMessage subAckMessage = channel.readOutbound();
         verifySubAck(subAckMessage, qos);
-        verifyEvent(CLIENT_CONNECTED, SUB_ACKED);
+        verifyEvent(CLIENT_CONNECTED,
+            RETAIN_MSG_MATCHED, RETAIN_MSG_MATCHED, RETAIN_MSG_MATCHED,
+            SUB_ACKED);
     }
 
     @Test
@@ -195,7 +211,9 @@ public class MQTTSubTest extends BaseMQTTTest {
         channel.writeInbound(subMessage);
         MqttSubAckMessage subAckMessage = channel.readOutbound();
         verifySubAck(subAckMessage, qos);
-        verifyEvent(CLIENT_CONNECTED, SUB_ACKED);
+        verifyEvent(CLIENT_CONNECTED,
+            RETAIN_MSG_MATCHED, RETAIN_MSG_MATCHED, RETAIN_MSG_MATCHED,
+            SUB_ACKED);
     }
 
     @Test
@@ -212,7 +230,9 @@ public class MQTTSubTest extends BaseMQTTTest {
         channel.writeInbound(subMessage);
         MqttSubAckMessage subAckMessage = channel.readOutbound();
         verifySubAck(subAckMessage, qos);
-        verifyEvent(CLIENT_CONNECTED, SUB_ACKED);
+        verifyEvent(CLIENT_CONNECTED,
+            RETAIN_MSG_MATCHED, RETAIN_MSG_MATCHED, RETAIN_MSG_MATCHED,
+            SUB_ACKED);
     }
 
     @Test
@@ -273,6 +293,45 @@ public class MQTTSubTest extends BaseMQTTTest {
         verifySubAck(subAckMessage, new int[] {128, 128, 128});
         verifyEvent(MQTT_SESSION_START, CLIENT_CONNECTED, SUB_ACTION_DISALLOW, SUB_ACTION_DISALLOW, SUB_ACTION_DISALLOW,
             SUB_ACKED);
+    }
+
+    @Test
+    public void retainMatchErrorDoesNotBlockSub() {
+        setupTransientSession();
+
+        mockAuthCheck(true);
+        mockDistMatch(QoS.AT_LEAST_ONCE, true);
+        // make retain match return non-OK for all
+        when(retainClient.match(any()))
+            .thenReturn(CompletableFuture.completedFuture(
+                org.apache.bifromq.retain.rpc.proto.MatchReply.newBuilder()
+                    .setResult(org.apache.bifromq.retain.rpc.proto.MatchReply.Result.TRY_LATER)
+                    .build()));
+
+        int[] qos = {1, 1, 1};
+        MqttSubscribeMessage subMessage = MQTTMessageUtils.qoSMqttSubMessages(qos);
+        channel.writeInbound(subMessage);
+        MqttSubAckMessage subAckMessage = channel.readOutbound();
+        verifySubAck(subAckMessage, qos);
+        verifyEvent(MQTT_SESSION_START, CLIENT_CONNECTED,
+            MATCH_RETAIN_ERROR, MATCH_RETAIN_ERROR, MATCH_RETAIN_ERROR,
+            SUB_ACKED);
+        shouldCleanSubs = true;
+    }
+
+    @Test
+    public void sharedSubNoRetainMatch() {
+        setupTransientSession();
+
+        mockAuthCheck(true);
+        mockDistMatch(QoS.AT_MOST_ONCE, true);
+        // shared subscription should not trigger retain match
+        MqttSubscribeMessage subMessage = MQTTMessageUtils.topicMqttSubMessages("$share/g/t1");
+        channel.writeInbound(subMessage);
+        MqttSubAckMessage subAckMessage = channel.readOutbound();
+        verifySubAck(subAckMessage, new int[] {0});
+        verifyEvent(MQTT_SESSION_START, CLIENT_CONNECTED, SUB_ACKED);
+        shouldCleanSubs = true;
     }
 
     private void verifySubAck(MqttSubAckMessage subAckMessage, int[] expectedQos) {

@@ -14,21 +14,21 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 
 package org.apache.bifromq.mqtt.handler.v3;
 
 
+import static io.netty.handler.codec.mqtt.MqttConnectReturnCode.CONNECTION_ACCEPTED;
+import static io.netty.handler.codec.mqtt.MqttConnectReturnCode.CONNECTION_REFUSED_BAD_USER_NAME_OR_PASSWORD;
+import static io.netty.handler.codec.mqtt.MqttConnectReturnCode.CONNECTION_REFUSED_NOT_AUTHORIZED;
+import static io.netty.handler.codec.mqtt.MqttConnectReturnCode.CONNECTION_REFUSED_SERVER_UNAVAILABLE;
 import static org.apache.bifromq.plugin.eventcollector.EventType.CLIENT_CONNECTED;
 import static org.apache.bifromq.plugin.eventcollector.EventType.INBOX_TRANSIENT_ERROR;
 import static org.apache.bifromq.plugin.eventcollector.EventType.MQTT_SESSION_START;
 import static org.apache.bifromq.plugin.eventcollector.EventType.PING_REQ;
 import static org.apache.bifromq.type.MQTTClientInfoConstants.MQTT_PROTOCOL_VER_KEY;
-import static io.netty.handler.codec.mqtt.MqttConnectReturnCode.CONNECTION_ACCEPTED;
-import static io.netty.handler.codec.mqtt.MqttConnectReturnCode.CONNECTION_REFUSED_BAD_USER_NAME_OR_PASSWORD;
-import static io.netty.handler.codec.mqtt.MqttConnectReturnCode.CONNECTION_REFUSED_NOT_AUTHORIZED;
-import static io.netty.handler.codec.mqtt.MqttConnectReturnCode.CONNECTION_REFUSED_SERVER_UNAVAILABLE;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.testng.Assert.assertEquals;
@@ -36,6 +36,11 @@ import static org.testng.Assert.assertNotEquals;
 import static org.testng.Assert.assertNull;
 import static org.testng.Assert.assertTrue;
 
+import io.netty.handler.codec.mqtt.MqttConnAckMessage;
+import io.netty.handler.codec.mqtt.MqttConnectMessage;
+import io.netty.handler.codec.mqtt.MqttMessage;
+import java.util.concurrent.TimeUnit;
+import lombok.extern.slf4j.Slf4j;
 import org.apache.bifromq.inbox.rpc.proto.AttachReply;
 import org.apache.bifromq.inbox.rpc.proto.DetachReply;
 import org.apache.bifromq.mqtt.utils.MQTTMessageUtils;
@@ -43,11 +48,6 @@ import org.apache.bifromq.plugin.authprovider.type.Reject;
 import org.apache.bifromq.plugin.eventcollector.Event;
 import org.apache.bifromq.plugin.eventcollector.EventType;
 import org.apache.bifromq.plugin.eventcollector.mqttbroker.clientconnected.ClientConnected;
-import io.netty.handler.codec.mqtt.MqttConnAckMessage;
-import io.netty.handler.codec.mqtt.MqttConnectMessage;
-import io.netty.handler.codec.mqtt.MqttMessage;
-import java.util.concurrent.TimeUnit;
-import lombok.extern.slf4j.Slf4j;
 import org.mockito.ArgumentCaptor;
 import org.testng.Assert;
 import org.testng.annotations.Test;
@@ -201,6 +201,33 @@ public class MQTTConnectTest extends BaseMQTTTest {
         ClientConnected clientConnected = eventArgumentCaptor.getValue();
         assertTrue(clientConnected.clientInfo().containsMetadata(attrKey));
         assertNotEquals(clientConnected.clientInfo().getMetadataMap().get(attrKey), attrVal);
+    }
+
+    @Test
+    public void clientConnectedHasConnTs() {
+        mockAuthPass();
+        mockSessionReg();
+        mockInboxExist(true);
+        mockInboxDetach(DetachReply.Code.OK);
+
+        MqttConnectMessage connectMessage = MQTTMessageUtils.mqttConnectMessage(true);
+        channel.writeInbound(connectMessage);
+        channel.advanceTimeBy(disconnectDelay, TimeUnit.MILLISECONDS);
+        channel.runPendingTasks();
+        MqttConnAckMessage ackMessage = channel.readOutbound();
+        assertEquals(ackMessage.variableHeader().connectReturnCode(), CONNECTION_ACCEPTED);
+
+        ArgumentCaptor<ClientConnected> eventArgumentCaptor = ArgumentCaptor.forClass(ClientConnected.class);
+        verify(eventCollector).report(eventArgumentCaptor.capture());
+        ClientConnected clientConnected = eventArgumentCaptor.getValue();
+        assertTrue(clientConnected.clientInfo().containsMetadata("connTs"));
+        String connTs = clientConnected.clientInfo().getMetadataMap().get("connTs");
+        try {
+            long ts = Long.parseLong(connTs);
+            assertTrue(ts > 0);
+        } catch (NumberFormatException e) {
+            assertTrue(false, "connTs should be a numeric timestamp");
+        }
     }
 
     @Test

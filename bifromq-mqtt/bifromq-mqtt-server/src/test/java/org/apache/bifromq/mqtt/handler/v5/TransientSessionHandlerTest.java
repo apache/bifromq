@@ -49,9 +49,11 @@ import static org.apache.bifromq.plugin.eventcollector.EventType.QOS0_DROPPED;
 import static org.apache.bifromq.plugin.eventcollector.EventType.QOS0_PUSHED;
 import static org.apache.bifromq.plugin.eventcollector.EventType.QOS1_CONFIRMED;
 import static org.apache.bifromq.plugin.eventcollector.EventType.QOS1_DIST_ERROR;
+import static org.apache.bifromq.plugin.eventcollector.EventType.QOS1_DROPPED;
 import static org.apache.bifromq.plugin.eventcollector.EventType.QOS1_PUSHED;
 import static org.apache.bifromq.plugin.eventcollector.EventType.QOS2_CONFIRMED;
 import static org.apache.bifromq.plugin.eventcollector.EventType.QOS2_DIST_ERROR;
+import static org.apache.bifromq.plugin.eventcollector.EventType.QOS2_DROPPED;
 import static org.apache.bifromq.plugin.eventcollector.EventType.QOS2_PUSHED;
 import static org.apache.bifromq.plugin.eventcollector.EventType.QOS2_RECEIVED;
 import static org.apache.bifromq.plugin.eventcollector.EventType.RETAIN_MSG_CLEARED;
@@ -95,9 +97,11 @@ import io.netty.handler.codec.mqtt.MqttMessageType;
 import io.netty.handler.codec.mqtt.MqttProperties;
 import io.netty.handler.codec.mqtt.MqttPubReplyMessageVariableHeader;
 import io.netty.handler.codec.mqtt.MqttPublishMessage;
+import io.netty.handler.codec.mqtt.MqttQoS;
 import io.netty.handler.codec.mqtt.MqttReasonCodeAndPropertiesVariableHeader;
 import io.netty.handler.codec.mqtt.MqttSubAckMessage;
 import io.netty.handler.codec.mqtt.MqttSubscribeMessage;
+import io.netty.handler.codec.mqtt.MqttSubscriptionOption;
 import io.netty.handler.codec.mqtt.MqttUnsubAckMessage;
 import io.netty.handler.codec.mqtt.MqttVersion;
 import io.netty.handler.traffic.ChannelTrafficShapingHandler;
@@ -125,6 +129,9 @@ import org.apache.bifromq.plugin.authprovider.type.CheckResult;
 import org.apache.bifromq.plugin.authprovider.type.Granted;
 import org.apache.bifromq.plugin.authprovider.type.MQTTAction;
 import org.apache.bifromq.plugin.eventcollector.mqttbroker.clientdisconnect.ExceedReceivingLimit;
+import org.apache.bifromq.plugin.eventcollector.mqttbroker.pushhandling.DropReason;
+import org.apache.bifromq.plugin.eventcollector.mqttbroker.pushhandling.QoS1Dropped;
+import org.apache.bifromq.plugin.eventcollector.mqttbroker.pushhandling.QoS2Dropped;
 import org.apache.bifromq.type.ClientInfo;
 import org.apache.bifromq.type.MQTTClientInfoConstants;
 import org.apache.bifromq.type.Message;
@@ -1035,5 +1042,113 @@ public class TransientSessionHandlerTest extends BaseSessionHandlerTest {
 
         verifyEvent(MQTT_SESSION_START, QOS0_PUSHED, QOS0_PUSHED);
 
+    }
+
+    @Test
+    public void noLocalDropQoS1() {
+        mockCheckPermission(true);
+        mockDistMatch(true);
+        mockDistUnMatch(true);
+        MqttSubscriptionOption opt = new MqttSubscriptionOption(MqttQoS.AT_LEAST_ONCE, true, false,
+            MqttSubscriptionOption.RetainedHandlingPolicy.SEND_AT_SUBSCRIBE);
+        MqttSubscribeMessage subMsg = MqttMessageBuilders.subscribe().messageId(901)
+            .addSubscription(topicFilter, opt).build();
+        channel.writeInbound(subMsg);
+        channel.readOutbound();
+
+        ArgumentCaptor<Long> cap = ArgumentCaptor.forClass(Long.class);
+        verify(localDistService).match(anyLong(), eq(topicFilter), cap.capture(), any());
+
+        TopicMessagePack pack = TopicMessagePack.newBuilder().setTopic(topic).addMessage(
+                TopicMessagePack.PublisherPack.newBuilder().setPublisher(clientInfo)
+                    .addMessage(Message.newBuilder().setMessageId(1).setTimestamp(HLC.INST.get())
+                        .setPayload(ByteString.EMPTY).setPubQoS(QoS.AT_LEAST_ONCE).build()))
+            .build();
+        transientSessionHandler.publish(pack,
+            Collections.singleton(new IMQTTTransientSession.MatchedTopicFilter(topicFilter, cap.getValue())));
+        channel.runPendingTasks();
+
+        verify(eventCollector).report(
+            argThat(e -> e.type() == QOS1_DROPPED && ((QoS1Dropped) e).reason() == DropReason.NoLocal));
+    }
+
+    @Test
+    public void noLocalDropQoS2() {
+        mockCheckPermission(true);
+        mockDistMatch(true);
+        mockDistUnMatch(true);
+        MqttSubscriptionOption opt = new MqttSubscriptionOption(MqttQoS.EXACTLY_ONCE, true, false,
+            MqttSubscriptionOption.RetainedHandlingPolicy.SEND_AT_SUBSCRIBE);
+        MqttSubscribeMessage subMsg = MqttMessageBuilders.subscribe().messageId(902)
+            .addSubscription(topicFilter, opt).build();
+        channel.writeInbound(subMsg);
+        channel.readOutbound();
+
+        ArgumentCaptor<Long> cap = ArgumentCaptor.forClass(Long.class);
+        verify(localDistService).match(anyLong(), eq(topicFilter), cap.capture(), any());
+
+        TopicMessagePack pack = TopicMessagePack.newBuilder().setTopic(topic).addMessage(
+                TopicMessagePack.PublisherPack.newBuilder().setPublisher(clientInfo)
+                    .addMessage(Message.newBuilder().setMessageId(1).setTimestamp(HLC.INST.get())
+                        .setPayload(ByteString.EMPTY).setPubQoS(QoS.EXACTLY_ONCE).build()))
+            .build();
+        transientSessionHandler.publish(pack,
+            Collections.singleton(new IMQTTTransientSession.MatchedTopicFilter(topicFilter, cap.getValue())));
+        channel.runPendingTasks();
+
+        verify(eventCollector).report(
+            argThat(e -> e.type() == QOS2_DROPPED && ((QoS2Dropped) e).reason() == DropReason.NoLocal));
+    }
+
+    @Test
+    public void expiredDropQoS1() {
+        mockCheckPermission(true);
+        mockDistMatch(true);
+        mockDistUnMatch(true);
+        transientSessionHandler.subscribe(System.nanoTime(), topicFilter, QoS.AT_LEAST_ONCE);
+        channel.runPendingTasks();
+        ArgumentCaptor<Long> cap = ArgumentCaptor.forClass(Long.class);
+        verify(localDistService).match(anyLong(), eq(topicFilter), cap.capture(), any());
+
+        long oldMillis = HLC.INST.getPhysical() - 10_000; // 10s earlier in ms
+        long oldTs = (oldMillis << 16); // compose HLC with past physical time
+        TopicMessagePack pack = TopicMessagePack.newBuilder().setTopic(topic).addMessage(
+                TopicMessagePack.PublisherPack.newBuilder().setPublisher(ClientInfo.newBuilder().build())
+                    .addMessage(Message.newBuilder().setMessageId(1).setTimestamp(oldTs)
+                        .setExpiryInterval(1)
+                        .setPayload(ByteString.EMPTY).setPubQoS(QoS.AT_LEAST_ONCE).build()))
+            .build();
+        transientSessionHandler.publish(pack,
+            Collections.singleton(new IMQTTTransientSession.MatchedTopicFilter(topicFilter, cap.getValue())));
+        channel.runPendingTasks();
+
+        verify(eventCollector).report(
+            argThat(e -> e.type() == QOS1_DROPPED && ((QoS1Dropped) e).reason() == DropReason.Expired));
+    }
+
+    @Test
+    public void expiredDropQoS2() {
+        mockCheckPermission(true);
+        mockDistMatch(true);
+        mockDistUnMatch(true);
+        transientSessionHandler.subscribe(System.nanoTime(), topicFilter, QoS.EXACTLY_ONCE);
+        channel.runPendingTasks();
+        ArgumentCaptor<Long> cap = ArgumentCaptor.forClass(Long.class);
+        verify(localDistService).match(anyLong(), eq(topicFilter), cap.capture(), any());
+
+        long oldMillis = HLC.INST.getPhysical() - 10_000; // 10s earlier in ms
+        long oldTs = (oldMillis << 16); // compose HLC with past physical time
+        TopicMessagePack pack = TopicMessagePack.newBuilder().setTopic(topic).addMessage(
+                TopicMessagePack.PublisherPack.newBuilder().setPublisher(ClientInfo.newBuilder().build())
+                    .addMessage(Message.newBuilder().setMessageId(1).setTimestamp(oldTs)
+                        .setExpiryInterval(1)
+                        .setPayload(ByteString.EMPTY).setPubQoS(QoS.EXACTLY_ONCE).build()))
+            .build();
+        transientSessionHandler.publish(pack,
+            Collections.singleton(new IMQTTTransientSession.MatchedTopicFilter(topicFilter, cap.getValue())));
+        channel.runPendingTasks();
+
+        verify(eventCollector).report(
+            argThat(e -> e.type() == QOS2_DROPPED && ((QoS2Dropped) e).reason() == DropReason.Expired));
     }
 }

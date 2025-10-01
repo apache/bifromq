@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 
 package org.apache.bifromq.type;
@@ -33,4 +33,5 @@ public class MQTTClientInfoConstants {
     public static final String MQTT_CLIENT_SESSION_TYPE = "sessionType";
     public static final String MQTT_CLIENT_SESSION_TYPE_T_VALUE = "t";
     public static final String MQTT_CLIENT_SESSION_TYPE_P_VALUE = "p";
+    public static final String MQTT_CLIENT_CONN_TS = "connTs";
 }

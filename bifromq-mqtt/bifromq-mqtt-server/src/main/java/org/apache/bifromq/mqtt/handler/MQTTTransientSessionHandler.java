@@ -72,6 +72,9 @@ import org.apache.bifromq.mqtt.session.IMQTTTransientSession;
 import org.apache.bifromq.plugin.authprovider.type.CheckResult;
 import org.apache.bifromq.plugin.eventcollector.OutOfTenantResource;
 import org.apache.bifromq.plugin.eventcollector.mqttbroker.clientdisconnect.ByClient;
+import org.apache.bifromq.plugin.eventcollector.mqttbroker.pushhandling.DropReason;
+import org.apache.bifromq.plugin.eventcollector.mqttbroker.pushhandling.QoS1Dropped;
+import org.apache.bifromq.plugin.eventcollector.mqttbroker.pushhandling.QoS2Dropped;
 import org.apache.bifromq.plugin.eventcollector.session.MQTTSessionStart;
 import org.apache.bifromq.plugin.eventcollector.session.MQTTSessionStop;
 import org.apache.bifromq.retain.rpc.proto.MatchReply;
@@ -127,8 +130,30 @@ public abstract class MQTTTransientSessionHandler extends MQTTSessionHandler imp
         if (!topicFilters.isEmpty()) {
             topicFilters.forEach((topicFilter, option) -> addBgTask(unsubTopicFilter(System.nanoTime(), topicFilter)));
         }
-        int remainInboxSize = inbox.values().stream().reduce(0, (acc, msg) -> acc + msg.estBytes(), Integer::sum);
-        memUsage.addAndGet(-remainInboxSize);
+        for (RoutedMessage msg : inbox.values()) {
+            memUsage.addAndGet(-msg.estBytes());
+            if (msg.qos() == QoS.AT_LEAST_ONCE) {
+                eventCollector.report(getLocal(QoS1Dropped.class)
+                    .reason(DropReason.SessionClosed)
+                    .reqId(msg.message().getMessageId())
+                    .isRetain(msg.isRetain())
+                    .sender(msg.publisher())
+                    .topic(msg.topic())
+                    .matchedFilter(msg.topicFilter())
+                    .size(msg.message().getPayload().size())
+                    .clientInfo(clientInfo()));
+            } else if (msg.qos() == QoS.EXACTLY_ONCE) {
+                eventCollector.report(getLocal(QoS2Dropped.class)
+                    .reason(DropReason.SessionClosed)
+                    .reqId(msg.message().getMessageId())
+                    .isRetain(msg.isRetain())
+                    .sender(msg.publisher())
+                    .topic(msg.topic())
+                    .matchedFilter(msg.topicFilter())
+                    .size(msg.message().getPayload().size())
+                    .clientInfo(clientInfo()));
+            }
+        }
         // Transient session lifetime is bounded by the channel lifetime
         eventCollector.report(getLocal(MQTTSessionStop.class).sessionId(userSessionId).clientInfo(clientInfo));
         ctx.fireChannelInactive();
@@ -148,10 +173,12 @@ public abstract class MQTTTransientSessionHandler extends MQTTSessionHandler imp
 
     @Override
     protected final void onConfirm(long seq) {
-        RoutedMessage msg = inbox.remove(seq);
-        if (msg != null) {
+        java.util.NavigableMap<Long, RoutedMessage> confirmed = inbox.headMap(seq, true);
+        for (RoutedMessage msg : confirmed.values()) {
             memUsage.addAndGet(-msg.estBytes());
         }
+        confirmed.clear();
+        send();
     }
 
     @Override
@@ -337,8 +364,35 @@ public abstract class MQTTTransientSessionHandler extends MQTTSessionHandler imp
                 if (subMsg.qos() == QoS.AT_MOST_ONCE) {
                     sendQoS0SubMessage(subMsg);
                 } else {
-                    inbox.put(msgSeqNo++, subMsg);
-                    totalMsgBytesSize.addAndGet(subMsg.estBytes());
+                    if (inbox.size() < settings.inboxQueueLength) {
+                        inbox.put(msgSeqNo++, subMsg);
+                        totalMsgBytesSize.addAndGet(subMsg.estBytes());
+                    } else {
+                        switch (subMsg.qos()) {
+                            case AT_LEAST_ONCE -> eventCollector.report(getLocal(QoS1Dropped.class)
+                                .reason(DropReason.Overflow)
+                                .reqId(subMsg.message().getMessageId())
+                                .isRetain(subMsg.isRetain())
+                                .sender(subMsg.publisher())
+                                .topic(subMsg.topic())
+                                .matchedFilter(subMsg.topicFilter())
+                                .size(subMsg.message().getPayload().size())
+                                .clientInfo(clientInfo()));
+                            case EXACTLY_ONCE -> eventCollector.report(getLocal(QoS2Dropped.class)
+                                .reason(DropReason.Overflow)
+                                .reqId(subMsg.message().getMessageId())
+                                .isRetain(subMsg.isRetain())
+                                .sender(subMsg.publisher())
+                                .topic(subMsg.topic())
+                                .matchedFilter(subMsg.topicFilter())
+                                .size(subMsg.message().getPayload().size())
+                                .clientInfo(clientInfo()));
+                            default -> {
+                                // do nothing
+                            }
+                        }
+
+                    }
                 }
             }
         }

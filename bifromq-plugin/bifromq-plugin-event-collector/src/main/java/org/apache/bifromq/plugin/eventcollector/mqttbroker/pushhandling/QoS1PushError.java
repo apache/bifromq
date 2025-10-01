@@ -19,9 +19,27 @@
 
 package org.apache.bifromq.plugin.eventcollector.mqttbroker.pushhandling;
 
-/**
- * The reason why a message is dropped before publishing to subscriber.
- */
-public enum DropReason {
-    SessionClosed, Overflow, NoSubPermission, NoLocal, ChannelError, Expired, ResourceExhausted, Duplicated, MaxRetried
+import lombok.Getter;
+import lombok.Setter;
+import lombok.ToString;
+import lombok.experimental.Accessors;
+import org.apache.bifromq.plugin.eventcollector.EventType;
+
+@Getter
+@Setter
+@Accessors(fluent = true, chain = true)
+@ToString(callSuper = true)
+public final class QoS1PushError extends PushEvent<QoS1PushError> {
+    private String detail;
+
+    @Override
+    public EventType type() {
+        return EventType.QOS1_PUSH_ERROR;
+    }
+
+    @Override
+    public void clone(QoS1PushError orig) {
+        super.clone(orig);
+        this.detail = orig.detail;
+    }
 }

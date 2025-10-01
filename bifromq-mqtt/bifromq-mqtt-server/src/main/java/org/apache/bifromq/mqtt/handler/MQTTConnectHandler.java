@@ -26,6 +26,7 @@ import static org.apache.bifromq.plugin.eventcollector.ThreadLocalEventPool.getL
 import static org.apache.bifromq.plugin.resourcethrottler.TenantResourceType.TotalConnectPerSecond;
 import static org.apache.bifromq.plugin.resourcethrottler.TenantResourceType.TotalConnections;
 import static org.apache.bifromq.plugin.resourcethrottler.TenantResourceType.TotalSessionMemoryBytes;
+import static org.apache.bifromq.type.MQTTClientInfoConstants.MQTT_CLIENT_CONN_TS;
 import static org.apache.bifromq.type.MQTTClientInfoConstants.MQTT_CLIENT_SESSION_TYPE;
 import static org.apache.bifromq.type.MQTTClientInfoConstants.MQTT_CLIENT_SESSION_TYPE_P_VALUE;
 import static org.apache.bifromq.type.MQTTClientInfoConstants.MQTT_CLIENT_SESSION_TYPE_T_VALUE;
@@ -495,6 +496,7 @@ public abstract class MQTTConnectHandler extends ChannelDuplexHandler {
         ClientInfo clientInfo = successInfo.clientInfo;
         clientInfo = clientInfo.toBuilder()
             .putMetadata(MQTT_CLIENT_SESSION_TYPE, MQTT_CLIENT_SESSION_TYPE_T_VALUE)
+            .putMetadata(MQTT_CLIENT_CONN_TS, String.valueOf(HLC.INST.getPhysical()))
             .build();
         ctx.pipeline().addBefore(ctx.executor(), MqttDecoder.class.getName(), MQTTPacketFilter.NAME,
             new MQTTPacketFilter(maxPacketSize, settings, clientInfo, eventCollector));
@@ -553,6 +555,7 @@ public abstract class MQTTConnectHandler extends ChannelDuplexHandler {
         ClientInfo clientInfo = successInfo.clientInfo;
         clientInfo = clientInfo.toBuilder()
             .putMetadata(MQTT_CLIENT_SESSION_TYPE, MQTT_CLIENT_SESSION_TYPE_P_VALUE)
+            .putMetadata(MQTT_CLIENT_CONN_TS, String.valueOf(HLC.INST.getPhysical()))
             .build();
         ctx.pipeline().addBefore(ctx.executor(), MqttDecoder.class.getName(), MQTTPacketFilter.NAME,
             new MQTTPacketFilter(maxPacketSize, settings, clientInfo, eventCollector));

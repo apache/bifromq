@@ -19,11 +19,11 @@
 
 package org.apache.bifromq.plugin.eventcollector.mqttbroker.pushhandling;
 
-import org.apache.bifromq.plugin.eventcollector.EventType;
 import lombok.Getter;
 import lombok.Setter;
 import lombok.ToString;
 import lombok.experimental.Accessors;
+import org.apache.bifromq.plugin.eventcollector.EventType;
 
 @Getter
 @Setter

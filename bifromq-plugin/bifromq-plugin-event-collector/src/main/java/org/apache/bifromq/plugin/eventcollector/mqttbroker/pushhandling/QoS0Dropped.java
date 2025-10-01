@@ -19,11 +19,11 @@
 
 package org.apache.bifromq.plugin.eventcollector.mqttbroker.pushhandling;
 
-import org.apache.bifromq.plugin.eventcollector.EventType;
 import lombok.Getter;
 import lombok.Setter;
 import lombok.ToString;
 import lombok.experimental.Accessors;
+import org.apache.bifromq.plugin.eventcollector.EventType;
 
 @Getter
 @Setter
@@ -31,6 +31,7 @@ import lombok.experimental.Accessors;
 @ToString(callSuper = true)
 public final class QoS0Dropped extends PushEvent<QoS0Dropped> {
     private DropReason reason;
+    private String detail;
 
     @Override
     public EventType type() {
@@ -41,5 +42,6 @@ public final class QoS0Dropped extends PushEvent<QoS0Dropped> {
     public void clone(QoS0Dropped orig) {
         super.clone(orig);
         this.reason = orig.reason;
+        this.detail = orig.detail;
     }
 }

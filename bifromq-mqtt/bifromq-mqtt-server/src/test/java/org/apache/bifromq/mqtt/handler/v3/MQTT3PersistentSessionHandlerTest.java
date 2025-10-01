@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 
 package org.apache.bifromq.mqtt.handler.v3;
@@ -451,8 +451,8 @@ public class MQTT3PersistentSessionHandlerTest extends BaseSessionHandlerTest {
             MqttPublishMessage message = channel.readOutbound();
             assertNull(message);
         }
-        verifyEvent(QOS1_DROPPED, QOS1_DROPPED, QOS1_DROPPED, QOS1_CONFIRMED, QOS1_CONFIRMED);
-        verify(eventCollector, times(5)).report(argThat(e -> {
+        verifyEvent(QOS1_DROPPED, QOS1_DROPPED, QOS1_DROPPED, QOS1_CONFIRMED, QOS1_CONFIRMED, QOS1_CONFIRMED);
+        verify(eventCollector, times(6)).report(argThat(e -> {
             if (e instanceof QoS1Confirmed evt) {
                 return !evt.delivered();
             }
@@ -503,8 +503,8 @@ public class MQTT3PersistentSessionHandlerTest extends BaseSessionHandlerTest {
             MqttPublishMessage message = channel.readOutbound();
             assertNull(message);
         }
-        verifyEvent(QOS2_DROPPED, QOS2_DROPPED, QOS2_DROPPED, QOS2_CONFIRMED, QOS2_CONFIRMED);
-        verify(eventCollector, times(5)).report(argThat(e -> {
+        verifyEvent(QOS2_DROPPED, QOS2_DROPPED, QOS2_DROPPED, QOS2_CONFIRMED, QOS2_CONFIRMED, QOS2_CONFIRMED);
+        verify(eventCollector, times(6)).report(argThat(e -> {
             if (e instanceof QoS2Confirmed evt) {
                 return !evt.delivered();
             }

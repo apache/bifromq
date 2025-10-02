@@ -14,11 +14,13 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 
 package org.apache.bifromq.inbox.client;
 
+import java.util.concurrent.CompletableFuture;
+import java.util.function.Consumer;
 import org.apache.bifromq.baserpc.client.IConnectable;
 import org.apache.bifromq.inbox.rpc.proto.AttachReply;
 import org.apache.bifromq.inbox.rpc.proto.AttachRequest;
@@ -32,6 +34,7 @@ import org.apache.bifromq.inbox.rpc.proto.ExistReply;
 import org.apache.bifromq.inbox.rpc.proto.ExistRequest;
 import org.apache.bifromq.inbox.rpc.proto.ExpireAllReply;
 import org.apache.bifromq.inbox.rpc.proto.ExpireAllRequest;
+import org.apache.bifromq.inbox.rpc.proto.InboxStateReply;
 import org.apache.bifromq.inbox.rpc.proto.SendLWTReply;
 import org.apache.bifromq.inbox.rpc.proto.SendLWTRequest;
 import org.apache.bifromq.inbox.rpc.proto.SubReply;
@@ -40,8 +43,6 @@ import org.apache.bifromq.inbox.rpc.proto.UnsubReply;
 import org.apache.bifromq.inbox.rpc.proto.UnsubRequest;
 import org.apache.bifromq.inbox.storage.proto.Fetched;
 import org.apache.bifromq.plugin.subbroker.ISubBroker;
-import java.util.concurrent.CompletableFuture;
-import java.util.function.Consumer;
 
 public interface IInboxClient extends ISubBroker, IConnectable, AutoCloseable {
 
@@ -53,6 +54,8 @@ public interface IInboxClient extends ISubBroker, IConnectable, AutoCloseable {
     default int id() {
         return 1;
     }
+
+    CompletableFuture<InboxStateReply> state(long reqId, String tenantId, String userId, String clientId);
 
     CompletableFuture<ExistReply> exist(ExistRequest request);
 

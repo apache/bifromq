@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 
 package org.apache.bifromq.inbox;
@@ -28,6 +28,7 @@ import org.apache.bifromq.inbox.rpc.proto.DeleteRequest;
 import org.apache.bifromq.inbox.rpc.proto.DetachRequest;
 import org.apache.bifromq.inbox.rpc.proto.ExistRequest;
 import org.apache.bifromq.inbox.rpc.proto.InboxServiceGrpc;
+import org.apache.bifromq.inbox.rpc.proto.InboxStateRequest;
 import org.apache.bifromq.inbox.rpc.proto.SendLWTRequest;
 import org.apache.bifromq.inbox.rpc.proto.SubRequest;
 import org.apache.bifromq.inbox.rpc.proto.UnsubRequest;
@@ -43,6 +44,8 @@ public class RPCBluePrint {
         .methodSemantic(InboxServiceGrpc.getCheckSubscriptionsMethod(), BluePrint.WCHUnaryMethod.<CheckRequest>builder()
             .keyHashFunc(CheckRequest::getDelivererKey).build())
         // both broker and reader client rpc
+        .methodSemantic(InboxServiceGrpc.getStateMethod(), BluePrint.WCHUnaryMethod.<InboxStateRequest>builder()
+            .keyHashFunc(request -> getDelivererKey(request.getTenantId(), request.getInboxId())).build())
         .methodSemantic(InboxServiceGrpc.getExistMethod(), BluePrint.WCHUnaryMethod.<ExistRequest>builder()
             .keyHashFunc(request -> getDelivererKey(request.getTenantId(), request.getInboxId())).build())
         // reader client rpc

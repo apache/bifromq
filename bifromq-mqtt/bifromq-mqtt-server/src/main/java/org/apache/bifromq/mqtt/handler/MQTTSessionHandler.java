@@ -166,6 +166,7 @@ public abstract class MQTTSessionHandler extends MQTTMessageHandler implements I
     protected final TenantSettings settings;
     protected final String userSessionId;
     protected final int keepAliveTimeSeconds;
+    protected final long createdAt;
     protected final ClientInfo clientInfo;
     protected final AtomicLong memUsage;
     protected final ITenantMeter tenantMeter;
@@ -207,6 +208,7 @@ public abstract class MQTTSessionHandler extends MQTTMessageHandler implements I
         this.oomCondition = oomCondition;
         this.userSessionId = userSessionId;
         this.keepAliveTimeSeconds = keepAliveTimeSeconds;
+        this.createdAt = HLC.INST.getPhysical();
         this.clientInfo = clientInfo;
         this.noDelayLWT = noDelayLWT;
         this.tenantMeter = tenantMeter;

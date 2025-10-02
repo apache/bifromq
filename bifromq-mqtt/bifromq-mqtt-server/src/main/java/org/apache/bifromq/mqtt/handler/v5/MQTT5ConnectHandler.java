@@ -59,7 +59,6 @@ import static org.apache.bifromq.plugin.eventcollector.ThreadLocalEventPool.getL
 import static org.apache.bifromq.type.MQTTClientInfoConstants.MQTT_CHANNEL_ID_KEY;
 import static org.apache.bifromq.type.MQTTClientInfoConstants.MQTT_CLIENT_ADDRESS_KEY;
 import static org.apache.bifromq.type.MQTTClientInfoConstants.MQTT_CLIENT_BROKER_KEY;
-import static org.apache.bifromq.type.MQTTClientInfoConstants.MQTT_CLIENT_CONN_TS;
 import static org.apache.bifromq.type.MQTTClientInfoConstants.MQTT_CLIENT_ID_KEY;
 import static org.apache.bifromq.type.MQTTClientInfoConstants.MQTT_PROTOCOL_VER_5_VALUE;
 import static org.apache.bifromq.type.MQTTClientInfoConstants.MQTT_PROTOCOL_VER_KEY;
@@ -80,7 +79,6 @@ import java.net.InetSocketAddress;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import lombok.extern.slf4j.Slf4j;
-import org.apache.bifromq.basehlc.HLC;
 import org.apache.bifromq.inbox.storage.proto.InboxVersion;
 import org.apache.bifromq.inbox.storage.proto.LWT;
 import org.apache.bifromq.metrics.ITenantMeter;
@@ -453,8 +451,7 @@ public class MQTT5ConnectHandler extends MQTTConnectHandler {
             .putMetadata(MQTT_CHANNEL_ID_KEY, ctx.channel().id().asLongText())
             .putMetadata(MQTT_CLIENT_ADDRESS_KEY,
                 Optional.ofNullable(clientAddress).map(InetSocketAddress::toString).orElse(""))
-            .putMetadata(MQTT_CLIENT_BROKER_KEY, ChannelAttrs.mqttSessionContext(ctx).serverId)
-            .putMetadata(MQTT_CLIENT_CONN_TS, String.valueOf(HLC.INST.getPhysical()));
+            .putMetadata(MQTT_CLIENT_BROKER_KEY, ChannelAttrs.mqttSessionContext(ctx).serverId);
         return clientInfoBuilder.build();
     }
 

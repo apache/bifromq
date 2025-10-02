@@ -33,5 +33,4 @@ public class MQTTClientInfoConstants {
     public static final String MQTT_CLIENT_SESSION_TYPE = "sessionType";
     public static final String MQTT_CLIENT_SESSION_TYPE_T_VALUE = "t";
     public static final String MQTT_CLIENT_SESSION_TYPE_P_VALUE = "p";
-    public static final String MQTT_CLIENT_CONN_TS = "connTs";
 }

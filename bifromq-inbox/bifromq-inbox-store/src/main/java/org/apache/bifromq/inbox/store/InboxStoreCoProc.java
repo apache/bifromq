@@ -94,6 +94,8 @@ import org.apache.bifromq.inbox.storage.proto.BatchDetachReply;
 import org.apache.bifromq.inbox.storage.proto.BatchDetachRequest;
 import org.apache.bifromq.inbox.storage.proto.BatchExistReply;
 import org.apache.bifromq.inbox.storage.proto.BatchExistRequest;
+import org.apache.bifromq.inbox.storage.proto.BatchFetchInboxStateReply;
+import org.apache.bifromq.inbox.storage.proto.BatchFetchInboxStateRequest;
 import org.apache.bifromq.inbox.storage.proto.BatchFetchReply;
 import org.apache.bifromq.inbox.storage.proto.BatchFetchRequest;
 import org.apache.bifromq.inbox.storage.proto.BatchInsertReply;
@@ -149,6 +151,8 @@ import org.apache.bifromq.sessiondict.client.ISessionDictClient;
 import org.apache.bifromq.sessiondict.client.type.OnlineCheckRequest;
 import org.apache.bifromq.sessiondict.client.type.OnlineCheckResult;
 import org.apache.bifromq.type.ClientInfo;
+import org.apache.bifromq.type.InboxState;
+import org.apache.bifromq.type.LastWillInfo;
 import org.apache.bifromq.type.Message;
 import org.apache.bifromq.type.QoS;
 import org.apache.bifromq.type.TopicFilterOption;
@@ -158,8 +162,6 @@ import org.apache.bifromq.type.TopicMessagePack;
 @Slf4j
 final class InboxStoreCoProc implements IKVRangeCoProc {
     private static final int UINT_MAX = 0xFFFFFFFF;
-    private final KVRangeId id;
-    private final String storeId;
     private final IDistClient distClient;
     private final IRetainClient retainClient;
     private final IInboxClient inboxClient;
@@ -186,8 +188,6 @@ final class InboxStoreCoProc implements IKVRangeCoProc {
                      Duration detachTimeout,
                      Duration metaCacheExpireTime,
                      int expireRateLimit) {
-        this.id = id;
-        this.storeId = storeId;
         this.distClient = distClient;
         this.retainClient = retainClient;
         this.inboxClient = inboxClient;
@@ -241,6 +241,8 @@ final class InboxStoreCoProc implements IKVRangeCoProc {
                     .thenApply(outputBuilder::setGc);
                 case EXPIRETENANT -> outputFuture = expireTenant(coProcInput.getExpireTenant(), reader)
                     .thenApply(outputBuilder::setExpireTenant);
+                case FETCHINBOXSTATE -> outputFuture = batchFetchInboxState(coProcInput.getFetchInboxState(), reader)
+                    .thenApply(outputBuilder::setFetchInboxState);
                 default -> outputFuture = batchSendLWT(coProcInput.getBatchSendLWT(), reader).thenApply(
                     outputBuilder::setBatchSendLWT);
             }
@@ -429,6 +431,62 @@ final class InboxStoreCoProc implements IKVRangeCoProc {
                 startSeq = lastSeq + 1;
             }
         }
+    }
+
+    private CompletableFuture<BatchFetchInboxStateReply> batchFetchInboxState(BatchFetchInboxStateRequest request,
+                                                                              IKVReader reader) {
+        BatchFetchInboxStateReply.Builder replyBuilder = BatchFetchInboxStateReply.newBuilder();
+        for (BatchFetchInboxStateRequest.Params params : request.getParamsList()) {
+            SortedMap<Long, InboxMetadata> inboxInstances =
+                inboxMetaCache.get(params.getTenantId(), params.getInboxId(), reader);
+            if (inboxInstances.isEmpty()) {
+                replyBuilder.addResult(BatchFetchInboxStateReply.Result.newBuilder()
+                    .setCode(BatchFetchInboxStateReply.Result.Code.NO_INBOX)
+                    .build());
+            } else {
+                InboxMetadata latestIncar = inboxInstances.get(inboxInstances.lastKey());
+                if (hasExpired(latestIncar, params.getNow())) {
+                    replyBuilder.addResult(BatchFetchInboxStateReply.Result.newBuilder()
+                        .setCode(BatchFetchInboxStateReply.Result.Code.EXPIRED)
+                        .build());
+                } else {
+                    replyBuilder.addResult(BatchFetchInboxStateReply.Result.newBuilder()
+                        .setCode(BatchFetchInboxStateReply.Result.Code.OK)
+                        .setState(toInboxState(latestIncar))
+                        .build());
+                }
+            }
+        }
+        return CompletableFuture.completedFuture(replyBuilder.build());
+    }
+
+    private InboxState toInboxState(InboxMetadata metadata) {
+        InboxState.Builder stateBuilder = InboxState.newBuilder()
+            .setCreatedAt(metadata.getCreatedAt())
+            .setExpirySeconds(metadata.getExpirySeconds())
+            .setLimit(metadata.getLimit())
+            .putAllTopicFilters(metadata.getTopicFiltersMap())
+            .setUndeliveredMsgCount(metadata.getSendBufferNextSeq() - metadata.getSendBufferStartSeq())
+            .setLastActiveAt(metadata.getLastActiveTime());
+        if (metadata.getDropOldest()) {
+            stateBuilder.setDropOldest(true);
+        }
+        if (metadata.getQos0NextSeq() - metadata.getQos0StartSeq() > 0) {
+            stateBuilder.setUnfetchedQoS0MsgCount(metadata.getQos0NextSeq() - metadata.getQos0StartSeq());
+        }
+        if (metadata.hasDetachedAt()) {
+            stateBuilder.setDetachedAt(metadata.getDetachedAt());
+        }
+        if (metadata.hasLwt()) {
+            LWT lwt = metadata.getLwt();
+            stateBuilder.setWill(LastWillInfo.newBuilder()
+                .setTopic(lwt.getTopic())
+                .setQos(lwt.getMessage().getPubQoS())
+                .setIsRetain(lwt.getMessage().getIsRetain())
+                .setDelaySeconds(lwt.getDelaySeconds())
+                .build());
+        }
+        return stateBuilder.build();
     }
 
     private CompletableFuture<BatchSendLWTReply> batchSendLWT(BatchSendLWTRequest request, IKVReader reader) {

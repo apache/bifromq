@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 
 package org.apache.bifromq.starter.module;
@@ -26,6 +26,7 @@ import com.google.inject.TypeLiteral;
 import jakarta.inject.Singleton;
 import java.util.Optional;
 import org.apache.bifromq.baserpc.server.RPCServerBuilder;
+import org.apache.bifromq.inbox.client.IInboxClient;
 import org.apache.bifromq.mqtt.inbox.IMqttBrokerClient;
 import org.apache.bifromq.sessiondict.server.ISessionDictServer;
 import org.apache.bifromq.starter.config.StandaloneConfig;
@@ -58,6 +59,7 @@ public class SessionDictServiceModule extends AbstractModule {
             return Optional.of(ISessionDictServer.builder()
                 .rpcServerBuilder(injector.getInstance(RPCServerBuilder.class))
                 .mqttBrokerClient(injector.getInstance(IMqttBrokerClient.class))
+                .inboxClient(injector.getInstance(IInboxClient.class))
                 .workerThreads(serverConfig.getWorkerThreads())
                 .attributes(serverConfig.getAttributes())
                 .defaultGroupTags(serverConfig.getDefaultGroups())

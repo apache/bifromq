@@ -19,17 +19,21 @@
 
 package org.apache.bifromq.mqtt.inbox;
 
-import org.apache.bifromq.baserpc.client.IConnectable;
-import org.apache.bifromq.plugin.subbroker.ISubBroker;
 import java.util.concurrent.CompletableFuture;
+import org.apache.bifromq.baserpc.client.IConnectable;
+import org.apache.bifromq.mqtt.inbox.rpc.proto.InboxStateReply;
 import org.apache.bifromq.mqtt.inbox.rpc.proto.SubReply;
 import org.apache.bifromq.mqtt.inbox.rpc.proto.UnsubReply;
+import org.apache.bifromq.plugin.subbroker.ISubBroker;
 import org.apache.bifromq.type.QoS;
 
 public interface IMqttBrokerClient extends ISubBroker, IConnectable, AutoCloseable {
     static MqttBrokerClientBuilder newBuilder() {
         return new MqttBrokerClientBuilder();
     }
+
+
+    CompletableFuture<InboxStateReply> inboxState(long reqId, String tenantId, String sessionId, String brokerServerId);
 
     CompletableFuture<SubReply> sub(long reqId,
                                     String tenantId,

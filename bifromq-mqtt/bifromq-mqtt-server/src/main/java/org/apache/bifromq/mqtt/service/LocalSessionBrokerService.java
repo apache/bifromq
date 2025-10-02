@@ -25,6 +25,8 @@ import io.grpc.stub.StreamObserver;
 import java.util.concurrent.CompletableFuture;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.bifromq.mqtt.inbox.rpc.proto.BrokerServiceGrpc;
+import org.apache.bifromq.mqtt.inbox.rpc.proto.InboxStateReply;
+import org.apache.bifromq.mqtt.inbox.rpc.proto.InboxStateRequest;
 import org.apache.bifromq.mqtt.inbox.rpc.proto.SubReply;
 import org.apache.bifromq.mqtt.inbox.rpc.proto.SubRequest;
 import org.apache.bifromq.mqtt.inbox.rpc.proto.UnsubReply;
@@ -32,6 +34,7 @@ import org.apache.bifromq.mqtt.inbox.rpc.proto.UnsubRequest;
 import org.apache.bifromq.mqtt.inbox.rpc.proto.WriteReply;
 import org.apache.bifromq.mqtt.inbox.rpc.proto.WriteRequest;
 import org.apache.bifromq.mqtt.session.IMQTTSession;
+import org.apache.bifromq.mqtt.session.IMQTTTransientSession;
 import org.apache.bifromq.plugin.subbroker.CheckReply;
 import org.apache.bifromq.plugin.subbroker.CheckRequest;
 import org.apache.bifromq.type.MatchInfo;
@@ -44,6 +47,25 @@ final class LocalSessionBrokerService extends BrokerServiceGrpc.BrokerServiceImp
     public LocalSessionBrokerService(ILocalSessionRegistry registry, ILocalDistService service) {
         this.localSessionRegistry = registry;
         this.localDistService = service;
+    }
+
+    @Override
+    public void state(InboxStateRequest request, StreamObserver<InboxStateReply> responseObserver) {
+        response(tenantId -> {
+            IMQTTSession session = localSessionRegistry.get(request.getSessionId());
+            if (session instanceof IMQTTTransientSession transientSession) {
+                return CompletableFuture.completedFuture(InboxStateReply.newBuilder()
+                    .setReqId(request.getReqId())
+                    .setCode(InboxStateReply.Code.OK)
+                    .setState(transientSession.inboxState())
+                    .build());
+            } else {
+                return CompletableFuture.completedFuture(InboxStateReply.newBuilder()
+                    .setReqId(request.getReqId())
+                    .setCode(InboxStateReply.Code.NO_INBOX)
+                    .build());
+            }
+        }, responseObserver);
     }
 
     @Override

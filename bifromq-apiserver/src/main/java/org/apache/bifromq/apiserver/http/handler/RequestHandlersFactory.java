@@ -70,6 +70,7 @@ public final class RequestHandlersFactory implements IHTTPRequestHandlersFactory
         register(new SubHandler(settingProvider, sessionDictClient));
         register(new UnsubHandler(settingProvider, sessionDictClient));
         register(new ExpireSessionHandler(settingProvider, inboxClient));
+        register(new GetSessionInboxStateHandler(settingProvider, sessionDictClient));
     }
 
     @Override

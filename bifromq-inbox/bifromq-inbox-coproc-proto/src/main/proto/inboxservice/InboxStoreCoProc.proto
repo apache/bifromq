@@ -18,8 +18,10 @@
 
 syntax = "proto3";
 import "commontype/ClientInfo.proto";
+import "commontype/InboxState.proto";
 import "commontype/TopicFilterOption.proto";
 import "commontype/TopicMessage.proto";
+import "inboxservice/InboxMetadata.proto";
 import "inboxservice/LWT.proto";
 import "inboxservice/InboxFetched.proto";
 
@@ -28,6 +30,28 @@ option java_package = "org.apache.bifromq.inbox.storage.proto";
 option java_outer_classname = "InboxCoProcProtos";
 
 package inboxservice;
+
+message BatchFetchInboxStateRequest{
+  message Params{
+    string tenantId = 1;
+    string inboxId = 2;
+    uint64 now = 3;
+  }
+  repeated Params params = 1;
+}
+
+message BatchFetchInboxStateReply{
+  message Result{
+    enum Code{
+      OK = 0;
+      NO_INBOX = 1;
+      EXPIRED = 2;
+    }
+    Code code = 1;
+    optional commontype.InboxState state = 2; // when code is OK
+  }
+  repeated Result result = 1;
+}
 
 message BatchExistRequest{
   message Params{
@@ -324,6 +348,7 @@ message InboxServiceROCoProcInput{
     BatchSendLWTRequest batchSendLWT = 5;
     ExpireTenantRequest expireTenant = 6;
     GCRequest gc = 7;
+    BatchFetchInboxStateRequest fetchInboxState = 8;
   }
 }
 
@@ -336,5 +361,6 @@ message InboxServiceROCoProcOutput{
     BatchSendLWTReply batchSendLWT = 5;
     ExpireTenantReply expireTenant = 6;
     GCReply gc = 7;
+    BatchFetchInboxStateReply fetchInboxState = 8;
   }
 }

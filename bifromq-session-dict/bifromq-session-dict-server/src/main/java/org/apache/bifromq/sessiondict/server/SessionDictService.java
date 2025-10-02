@@ -22,14 +22,19 @@ package org.apache.bifromq.sessiondict.server;
 import static org.apache.bifromq.baserpc.server.UnaryResponse.response;
 import static org.apache.bifromq.type.MQTTClientInfoConstants.MQTT_CHANNEL_ID_KEY;
 import static org.apache.bifromq.type.MQTTClientInfoConstants.MQTT_CLIENT_BROKER_KEY;
+import static org.apache.bifromq.type.MQTTClientInfoConstants.MQTT_CLIENT_SESSION_TYPE;
+import static org.apache.bifromq.type.MQTTClientInfoConstants.MQTT_CLIENT_SESSION_TYPE_P_VALUE;
 
 import io.grpc.stub.StreamObserver;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.bifromq.inbox.client.IInboxClient;
 import org.apache.bifromq.mqtt.inbox.IMqttBrokerClient;
 import org.apache.bifromq.sessiondict.rpc.proto.ExistReply;
 import org.apache.bifromq.sessiondict.rpc.proto.ExistRequest;
+import org.apache.bifromq.sessiondict.rpc.proto.GetInboxStateReply;
+import org.apache.bifromq.sessiondict.rpc.proto.GetInboxStateRequest;
 import org.apache.bifromq.sessiondict.rpc.proto.GetReply;
 import org.apache.bifromq.sessiondict.rpc.proto.GetRequest;
 import org.apache.bifromq.sessiondict.rpc.proto.KillAllReply;
@@ -49,9 +54,11 @@ import org.apache.bifromq.type.ClientInfo;
 class SessionDictService extends SessionDictServiceGrpc.SessionDictServiceImplBase {
     private final ISessionRegistry sessionRegistry;
     private final IMqttBrokerClient mqttBrokerClient;
+    private final IInboxClient inboxClient;
 
-    SessionDictService(IMqttBrokerClient mqttBrokerClient) {
+    SessionDictService(IMqttBrokerClient mqttBrokerClient, IInboxClient inboxClient) {
         this.mqttBrokerClient = mqttBrokerClient;
+        this.inboxClient = inboxClient;
         this.sessionRegistry = new SessionRegistry();
     }
 
@@ -128,6 +135,96 @@ class SessionDictService extends SessionDictServiceGrpc.SessionDictServiceImplBa
     @Override
     public StreamObserver<ExistRequest> exist(StreamObserver<ExistReply> responseObserver) {
         return new SessionExistPipeline(sessionRegistry, responseObserver);
+    }
+
+    @Override
+    public void inboxState(GetInboxStateRequest request, StreamObserver<GetInboxStateReply> responseObserver) {
+        response(tenantId -> {
+            Optional<ClientInfo> sessionOwner =
+                sessionRegistry.get(tenantId, request.getUserId(), request.getClientId());
+            if (sessionOwner.isEmpty()
+                || sessionOwner.get().getMetadataOrDefault(MQTT_CLIENT_SESSION_TYPE, "")
+                .equals(MQTT_CLIENT_SESSION_TYPE_P_VALUE)) {
+                return inboxClient.state(request.getReqId(), request.getTenantId(), request.getUserId(),
+                        request.getClientId())
+                    .thenApply(r -> {
+                        switch (r.getCode()) {
+                            case OK -> {
+                                return GetInboxStateReply.newBuilder()
+                                    .setReqId(request.getReqId())
+                                    .setCode(GetInboxStateReply.Code.OK)
+                                    .setState(r.getState())
+                                    .build();
+                            }
+                            case NO_INBOX -> {
+                                return GetInboxStateReply.newBuilder()
+                                    .setReqId(request.getReqId())
+                                    .setCode(GetInboxStateReply.Code.NO_INBOX)
+                                    .build();
+                            }
+                            case TRY_LATER -> {
+                                return GetInboxStateReply.newBuilder()
+                                    .setReqId(request.getReqId())
+                                    .setCode(GetInboxStateReply.Code.TRY_LATER)
+                                    .build();
+                            }
+                            case BACK_PRESSURE_REJECTED -> {
+                                return GetInboxStateReply.newBuilder()
+                                    .setReqId(request.getReqId())
+                                    .setCode(GetInboxStateReply.Code.BACK_PRESSURE_REJECTED)
+                                    .build();
+                            }
+                            default -> {
+                                return GetInboxStateReply.newBuilder()
+                                    .setReqId(request.getReqId())
+                                    .setCode(GetInboxStateReply.Code.ERROR)
+                                    .build();
+                            }
+                        }
+                    });
+            } else {
+                return mqttBrokerClient.inboxState(request.getReqId(),
+                        request.getTenantId(),
+                        sessionOwner.get().getMetadataOrDefault(MQTT_CHANNEL_ID_KEY, ""),
+                        sessionOwner.get().getMetadataOrDefault(MQTT_CLIENT_BROKER_KEY, ""))
+                    .thenApply(r -> {
+                        switch (r.getCode()) {
+                            case OK -> {
+                                return GetInboxStateReply.newBuilder()
+                                    .setReqId(request.getReqId())
+                                    .setCode(GetInboxStateReply.Code.OK)
+                                    .setState(r.getState())
+                                    .build();
+                            }
+                            case NO_INBOX -> {
+                                return GetInboxStateReply.newBuilder()
+                                    .setReqId(request.getReqId())
+                                    .setCode(GetInboxStateReply.Code.NO_INBOX)
+                                    .build();
+                            }
+                            case TRY_LATER -> {
+                                return GetInboxStateReply.newBuilder()
+                                    .setReqId(request.getReqId())
+                                    .setCode(GetInboxStateReply.Code.TRY_LATER)
+                                    .build();
+                            }
+                            case BACK_PRESSURE_REJECTED -> {
+                                return GetInboxStateReply.newBuilder()
+                                    .setReqId(request.getReqId())
+                                    .setCode(GetInboxStateReply.Code.BACK_PRESSURE_REJECTED)
+                                    .build();
+                            }
+                            default -> {
+                                return GetInboxStateReply.newBuilder()
+                                    .setReqId(request.getReqId())
+                                    .setCode(GetInboxStateReply.Code.ERROR)
+                                    .build();
+                            }
+                        }
+                    });
+            }
+        }, responseObserver);
+
     }
 
     @Override

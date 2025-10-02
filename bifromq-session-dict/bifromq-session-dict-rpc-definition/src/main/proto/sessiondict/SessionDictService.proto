@@ -18,8 +18,9 @@
 
 syntax = "proto3";
 
-import "commontype/QoS.proto";
 import "commontype/ClientInfo.proto";
+import "commontype/InboxState.proto";
+import "commontype/QoS.proto";
 
 package sessiondict;
 
@@ -34,6 +35,7 @@ service SessionDictService {
   rpc killAll (KillAllRequest) returns(KillAllReply);
   rpc get(GetRequest) returns(GetReply);
   rpc exist(stream ExistRequest) returns(stream ExistReply);
+  rpc inboxState(GetInboxStateRequest) returns(GetInboxStateReply); // inbox state of transient session
   rpc sub(SubRequest) returns(SubReply);
   rpc unsub(UnsubRequest) returns(UnsubReply);
 }
@@ -131,6 +133,26 @@ message ExistReply {
   uint64 reqId = 1;
   Code code = 2;
   repeated bool exist = 3;
+}
+
+message GetInboxStateRequest {
+  uint64 reqId = 1;
+  string tenantId = 2;
+  string userId = 3;
+  string clientId = 4;
+}
+
+message GetInboxStateReply {
+  enum Code{
+    OK = 0;
+    NO_INBOX = 1;
+    TRY_LATER = 2;
+    BACK_PRESSURE_REJECTED = 3;
+    ERROR = 4;
+  }
+  uint64 reqId = 1;
+  Code code = 2;
+  optional commontype.InboxState state = 3; // available when code = OK
 }
 
 message SubRequest {

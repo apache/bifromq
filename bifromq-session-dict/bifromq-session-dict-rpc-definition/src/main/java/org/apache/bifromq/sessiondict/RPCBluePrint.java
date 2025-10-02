@@ -20,6 +20,7 @@
 package org.apache.bifromq.sessiondict;
 
 import org.apache.bifromq.baserpc.BluePrint;
+import org.apache.bifromq.sessiondict.rpc.proto.GetInboxStateRequest;
 import org.apache.bifromq.sessiondict.rpc.proto.GetRequest;
 import org.apache.bifromq.sessiondict.rpc.proto.KillRequest;
 import org.apache.bifromq.sessiondict.rpc.proto.SessionDictServiceGrpc;
@@ -45,5 +46,9 @@ public class RPCBluePrint {
         .methodSemantic(SessionDictServiceGrpc.getUnsubMethod(), BluePrint.WCHUnaryMethod.<UnsubRequest>builder()
             .keyHashFunc(r -> SessionRegisterKeyUtil.toRegisterKey(r.getTenantId(), r.getUserId(), r.getClientId()))
             .build())
+        .methodSemantic(SessionDictServiceGrpc.getInboxStateMethod(),
+            BluePrint.WCHUnaryMethod.<GetInboxStateRequest>builder()
+                .keyHashFunc(r -> SessionRegisterKeyUtil.toRegisterKey(r.getTenantId(), r.getUserId(), r.getClientId()))
+                .build())
         .build();
 }

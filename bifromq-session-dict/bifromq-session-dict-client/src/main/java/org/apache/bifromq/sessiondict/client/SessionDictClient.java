@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 
 package org.apache.bifromq.sessiondict.client;
@@ -34,6 +34,8 @@ import org.apache.bifromq.sessiondict.client.scheduler.IOnlineCheckScheduler;
 import org.apache.bifromq.sessiondict.client.scheduler.OnlineCheckScheduler;
 import org.apache.bifromq.sessiondict.client.type.OnlineCheckRequest;
 import org.apache.bifromq.sessiondict.client.type.OnlineCheckResult;
+import org.apache.bifromq.sessiondict.rpc.proto.GetInboxStateReply;
+import org.apache.bifromq.sessiondict.rpc.proto.GetInboxStateRequest;
 import org.apache.bifromq.sessiondict.rpc.proto.GetReply;
 import org.apache.bifromq.sessiondict.rpc.proto.GetRequest;
 import org.apache.bifromq.sessiondict.rpc.proto.KillAllReply;
@@ -160,6 +162,19 @@ final class SessionDictClient implements ISessionDictClient {
     @Override
     public CompletableFuture<OnlineCheckResult> exist(OnlineCheckRequest clientId) {
         return sessionExistScheduler.schedule(clientId);
+    }
+
+    @Override
+    public CompletableFuture<GetInboxStateReply> inboxState(GetInboxStateRequest request) {
+        return rpcClient.invoke(request.getTenantId(), null, request,
+                SessionDictServiceGrpc.getInboxStateMethod())
+            .exceptionally(e -> {
+                log.debug("Failed to handle InboxStateRequest", e);
+                return GetInboxStateReply.newBuilder()
+                    .setReqId(request.getReqId())
+                    .setCode(GetInboxStateReply.Code.ERROR)
+                    .build();
+            });
     }
 
     @Override

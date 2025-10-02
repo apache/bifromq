@@ -14,13 +14,14 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 
 package org.apache.bifromq.mqtt.session;
 
-import org.apache.bifromq.type.TopicMessagePack;
 import java.util.Set;
+import org.apache.bifromq.type.InboxState;
+import org.apache.bifromq.type.TopicMessagePack;
 
 /**
  * The interface of transient session.
@@ -37,6 +38,19 @@ public interface IMQTTTransientSession extends IMQTTSession {
      */
     Set<MatchedTopicFilter> publish(TopicMessagePack messagePack, Set<MatchedTopicFilter> matchedTopicFilters);
 
+    /**
+     * Get the inbox state of the session.
+     *
+     * @return The inbox state of the session.
+     */
+    InboxState inboxState();
+
+    /**
+     * Check if the session has subscribed to the topic filter.
+     *
+     * @param topicFilter The topic filter.
+     * @return True if the session has subscribed to the topic filter, false otherwise.
+     */
     boolean hasSubscribed(String topicFilter);
 
     /**

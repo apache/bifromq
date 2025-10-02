@@ -25,7 +25,10 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import io.grpc.stub.StreamObserver;
+import java.util.concurrent.CompletableFuture;
 import org.apache.bifromq.basehlc.HLC;
+import org.apache.bifromq.basescheduler.exception.BackPressureException;
 import org.apache.bifromq.basescheduler.exception.BatcherUnavailableException;
 import org.apache.bifromq.inbox.rpc.proto.AttachReply;
 import org.apache.bifromq.inbox.rpc.proto.AttachRequest;
@@ -33,8 +36,8 @@ import org.apache.bifromq.inbox.rpc.proto.DetachReply;
 import org.apache.bifromq.inbox.rpc.proto.DetachRequest;
 import org.apache.bifromq.inbox.rpc.proto.ExistReply;
 import org.apache.bifromq.inbox.rpc.proto.ExistRequest;
-import io.grpc.stub.StreamObserver;
-import java.util.concurrent.CompletableFuture;
+import org.apache.bifromq.inbox.rpc.proto.InboxStateReply;
+import org.apache.bifromq.inbox.rpc.proto.InboxStateRequest;
 import org.testng.annotations.Test;
 
 public class MockedInboxAdminTest extends MockedInboxService {
@@ -42,7 +45,7 @@ public class MockedInboxAdminTest extends MockedInboxService {
     @Test
     public void existInboxThrowsException() {
         long reqId = HLC.INST.getPhysical();
-        when(getScheduler.schedule(any())).thenReturn(
+        when(existScheduler.schedule(any())).thenReturn(
             CompletableFuture.failedFuture(new BatcherUnavailableException("Mocked")));
         StreamObserver<ExistReply> streamObserver = mock(StreamObserver.class);
 
@@ -79,5 +82,44 @@ public class MockedInboxAdminTest extends MockedInboxService {
         verify(streamObserver).onNext(argThat(reply ->
             reply.getReqId() == reqId && reply.getCode() == DetachReply.Code.TRY_LATER));
         verify(streamObserver).onCompleted();
+    }
+
+    @Test
+    public void stateInboxThrowsBatcherUnavailable() {
+        long reqId = HLC.INST.getPhysical();
+        when(fetchStateScheduler.schedule(any())).thenReturn(
+            CompletableFuture.failedFuture(new BatcherUnavailableException("Mocked")));
+        StreamObserver<InboxStateReply> observer = mock(StreamObserver.class);
+        inboxService.state(InboxStateRequest.newBuilder().setReqId(reqId).build(), observer);
+        verify(observer).onNext(argThat(reply ->
+            reply.getReqId() == reqId && reply.getCode() == InboxStateReply.Code.TRY_LATER));
+        verify(observer).onCompleted();
+    }
+
+    @Test
+    public void stateInboxThrowsBackPressure() {
+        long reqId = HLC.INST.getPhysical();
+        when(fetchStateScheduler.schedule(any())).thenReturn(
+            CompletableFuture.failedFuture(new BackPressureException("busy")));
+        StreamObserver<InboxStateReply> observer = mock(StreamObserver.class);
+        inboxService.state(InboxStateRequest.newBuilder().setReqId(reqId).build(), observer);
+        verify(observer).onNext(argThat(reply ->
+            reply.getReqId() == reqId && reply.getCode() == InboxStateReply.Code.BACK_PRESSURE_REJECTED));
+        verify(observer).onCompleted();
+    }
+
+    @Test
+    public void stateInboxOK() {
+        long reqId = HLC.INST.getPhysical();
+        when(fetchStateScheduler.schedule(any())).thenReturn(
+            CompletableFuture.completedFuture(InboxStateReply.newBuilder()
+                .setReqId(reqId)
+                .setCode(InboxStateReply.Code.OK)
+                .build()));
+        StreamObserver<InboxStateReply> observer = mock(StreamObserver.class);
+        inboxService.state(InboxStateRequest.newBuilder().setReqId(reqId).build(), observer);
+        verify(observer).onNext(argThat(reply ->
+            reply.getReqId() == reqId && reply.getCode() == InboxStateReply.Code.OK));
+        verify(observer).onCompleted();
     }
 }

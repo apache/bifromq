@@ -17,6 +17,7 @@
  */
 
 syntax = "proto3";
+import "commontype/InboxState.proto";
 import "commontype/QoS.proto";
 import "subbroker/type.proto";
 
@@ -27,10 +28,31 @@ option java_outer_classname = "MessageReceiverProtos";
 package mqttbroker;
 
 service BrokerService {
+  rpc state (InboxStateRequest) returns (InboxStateReply);
   rpc write (stream WriteRequest) returns (stream WriteReply);
   rpc sub(SubRequest) returns (SubReply);
   rpc unsub(UnsubRequest) returns (UnsubReply);
   rpc checkSubscriptions(subbroker.CheckRequest) returns (subbroker.CheckReply);
+}
+
+message InboxStateRequest {
+  uint64 reqId = 1;
+  string tenantId = 2;
+  string sessionId = 3;
+  uint64 now = 4;
+}
+
+message InboxStateReply {
+  enum Code{
+    OK = 0;
+    NO_INBOX = 1;
+    TRY_LATER = 2;
+    BACK_PRESSURE_REJECTED = 3;
+    ERROR = 4;
+  }
+  uint64 reqId = 1;
+  Code code = 2;
+  optional commontype.InboxState state = 3; // available when code = OK
 }
 
 message WriteRequest {

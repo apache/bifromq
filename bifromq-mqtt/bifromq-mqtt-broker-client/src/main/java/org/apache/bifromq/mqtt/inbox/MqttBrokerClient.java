@@ -30,9 +30,12 @@ import io.reactivex.rxjava3.core.Observable;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicBoolean;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.bifromq.basehlc.HLC;
 import org.apache.bifromq.baserpc.client.IRPCClient;
 import org.apache.bifromq.baserpc.client.exception.ServerNotFoundException;
 import org.apache.bifromq.mqtt.inbox.rpc.proto.BrokerServiceGrpc;
+import org.apache.bifromq.mqtt.inbox.rpc.proto.InboxStateReply;
+import org.apache.bifromq.mqtt.inbox.rpc.proto.InboxStateRequest;
 import org.apache.bifromq.mqtt.inbox.rpc.proto.SubReply;
 import org.apache.bifromq.mqtt.inbox.rpc.proto.SubRequest;
 import org.apache.bifromq.mqtt.inbox.rpc.proto.UnsubReply;
@@ -59,7 +62,7 @@ final class MqttBrokerClient implements IMqttBrokerClient {
         return rpcClient.invoke(request.getTenantId(), parseServerId(request.getDelivererKey()), request,
                 BrokerServiceGrpc.getCheckSubscriptionsMethod())
             .exceptionally(unwrap(e -> {
-                log.debug("Failed to check subscription", e);
+                log.debug("Failed to handle CheckRequest", e);
                 CheckReply.Builder replyBuilder = CheckReply.newBuilder();
                 CheckReply.Code code =
                     e instanceof ServerNotFoundException ? CheckReply.Code.NO_RECEIVER : CheckReply.Code.ERROR;
@@ -94,13 +97,33 @@ final class MqttBrokerClient implements IMqttBrokerClient {
     }
 
     @Override
+    public CompletableFuture<InboxStateReply> inboxState(long reqId,
+                                                         String tenantId,
+                                                         String sessionId,
+                                                         String brokerServerId) {
+        return rpcClient.invoke(tenantId, brokerServerId, InboxStateRequest.newBuilder()
+                .setReqId(reqId)
+                .setTenantId(tenantId)
+                .setSessionId(sessionId)
+                .setNow(HLC.INST.getPhysical()).build(), BrokerServiceGrpc.getStateMethod())
+            .exceptionally(e -> {
+                log.debug("Failed to handle InboxStateRequest", e);
+                return InboxStateReply.newBuilder().setReqId(reqId).setCode(InboxStateReply.Code.ERROR).build();
+            });
+    }
+
+    @Override
     public CompletableFuture<SubReply> sub(long reqId, String tenantId, String sessionId, String topicFilter, QoS qos,
                                            String brokerServerId) {
-        return rpcClient.invoke(tenantId, brokerServerId,
-                SubRequest.newBuilder().setReqId(reqId).setTenantId(tenantId).setSessionId(sessionId)
-                    .setTopicFilter(topicFilter).setSubQoS(qos).build(), BrokerServiceGrpc.getSubMethod())
+        return rpcClient.invoke(tenantId, brokerServerId, SubRequest.newBuilder()
+                .setReqId(reqId)
+                .setTenantId(tenantId)
+                .setSessionId(sessionId)
+                .setTopicFilter(topicFilter)
+                .setSubQoS(qos)
+                .build(), BrokerServiceGrpc.getSubMethod())
             .exceptionally(e -> {
-                log.debug("Failed to sub", e);
+                log.debug("Failed to handle SubRequest", e);
                 return SubReply.newBuilder().setReqId(reqId).setResult(ERROR).build();
             });
     }
@@ -108,11 +131,15 @@ final class MqttBrokerClient implements IMqttBrokerClient {
     @Override
     public CompletableFuture<UnsubReply> unsub(long reqId, String tenantId, String sessionId, String topicFilter,
                                                String brokerServerId) {
-        return rpcClient.invoke(tenantId, brokerServerId,
-            UnsubRequest.newBuilder().setReqId(reqId).setTenantId(tenantId).setSessionId(sessionId)
-                .setTopicFilter(topicFilter).build(), BrokerServiceGrpc.getUnsubMethod()).exceptionally(e -> {
-            log.debug("Failed to unsub", e);
-            return UnsubReply.newBuilder().setResult(UnsubReply.Result.ERROR).build();
-        });
+        return rpcClient.invoke(tenantId, brokerServerId, UnsubRequest.newBuilder()
+                .setReqId(reqId)
+                .setTenantId(tenantId)
+                .setSessionId(sessionId)
+                .setTopicFilter(topicFilter)
+                .build(), BrokerServiceGrpc.getUnsubMethod())
+            .exceptionally(e -> {
+                log.debug("Failed to handle UnsubRequest", e);
+                return UnsubReply.newBuilder().setResult(UnsubReply.Result.ERROR).build();
+            });
     }
 }

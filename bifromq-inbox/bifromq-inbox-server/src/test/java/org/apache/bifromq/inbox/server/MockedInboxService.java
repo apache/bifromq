@@ -23,6 +23,11 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.when;
 
+import io.grpc.Context;
+import io.micrometer.core.instrument.Timer;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import java.util.HashMap;
+import java.util.Map;
 import org.apache.bifromq.basekv.client.IBaseKVStoreClient;
 import org.apache.bifromq.baserpc.RPCContext;
 import org.apache.bifromq.baserpc.metrics.IRPCMeter;
@@ -36,6 +41,7 @@ import org.apache.bifromq.inbox.server.scheduler.IInboxDeleteScheduler;
 import org.apache.bifromq.inbox.server.scheduler.IInboxDetachScheduler;
 import org.apache.bifromq.inbox.server.scheduler.IInboxExistScheduler;
 import org.apache.bifromq.inbox.server.scheduler.IInboxFetchScheduler;
+import org.apache.bifromq.inbox.server.scheduler.IInboxFetchStateScheduler;
 import org.apache.bifromq.inbox.server.scheduler.IInboxInsertScheduler;
 import org.apache.bifromq.inbox.server.scheduler.IInboxSubScheduler;
 import org.apache.bifromq.inbox.server.scheduler.IInboxUnsubScheduler;
@@ -44,11 +50,6 @@ import org.apache.bifromq.plugin.eventcollector.IEventCollector;
 import org.apache.bifromq.plugin.settingprovider.ISettingProvider;
 import org.apache.bifromq.plugin.settingprovider.Setting;
 import org.apache.bifromq.retain.client.IRetainClient;
-import io.grpc.Context;
-import io.micrometer.core.instrument.Timer;
-import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
-import java.util.HashMap;
-import java.util.Map;
 import org.mockito.Mock;
 import org.mockito.MockitoAnnotations;
 import org.testng.annotations.AfterMethod;
@@ -70,7 +71,9 @@ public abstract class MockedInboxService {
     @Mock
     protected IInboxFetchScheduler fetchScheduler;
     @Mock
-    protected IInboxExistScheduler getScheduler;
+    protected IInboxFetchStateScheduler fetchStateScheduler;
+    @Mock
+    protected IInboxExistScheduler existScheduler;
     @Mock
     protected IInboxCheckSubScheduler checkSubScheduler;
     @Mock
@@ -132,7 +135,8 @@ public abstract class MockedInboxService {
         inboxService = InboxService.builder()
             .inboxClient(inboxClient)
             .distClient(distClient)
-            .getScheduler(getScheduler)
+            .fetchStateScheduler(fetchStateScheduler)
+            .existScheduler(existScheduler)
             .checkSubScheduler(checkSubScheduler)
             .fetchScheduler(fetchScheduler)
             .insertScheduler(insertScheduler)

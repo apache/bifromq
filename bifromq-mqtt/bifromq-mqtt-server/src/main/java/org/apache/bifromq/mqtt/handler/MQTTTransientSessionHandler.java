@@ -81,6 +81,8 @@ import org.apache.bifromq.retain.rpc.proto.MatchReply;
 import org.apache.bifromq.retain.rpc.proto.MatchRequest;
 import org.apache.bifromq.sysprops.props.DataPlaneMaxBurstLatencyMillis;
 import org.apache.bifromq.type.ClientInfo;
+import org.apache.bifromq.type.InboxState;
+import org.apache.bifromq.type.LastWillInfo;
 import org.apache.bifromq.type.MatchInfo;
 import org.apache.bifromq.type.Message;
 import org.apache.bifromq.type.QoS;
@@ -325,6 +327,27 @@ public abstract class MQTTTransientSessionHandler extends MQTTSessionHandler imp
         return Sets.difference(matchedTopicFilters, validTopicFilters.keySet());
     }
 
+    @Override
+    public InboxState inboxState() {
+        InboxState.Builder stateBuilder = InboxState.newBuilder()
+            .setCreatedAt(createdAt)
+            .setLastActiveAt(HLC.INST.getPhysical())
+            .setLimit(settings.inboxQueueLength)
+            .setExpirySeconds(0)
+            .putAllTopicFilters(topicFilters)
+            .setUndeliveredMsgCount(inbox.size());
+        LWT lwt = willMessage();
+        if (lwt != null) {
+            stateBuilder.setWill(LastWillInfo.newBuilder()
+                .setTopic(lwt.getTopic())
+                .setQos(lwt.getMessage().getPubQoS())
+                .setIsRetain(lwt.getMessage().getIsRetain())
+                .setDelaySeconds(lwt.getDelaySeconds())
+                .build());
+        }
+        return stateBuilder.build();
+    }
+
     private void publish(Map<MatchedTopicFilter, TopicFilterOption> matchedTopicFilters,
                          TopicMessagePack topicMsgPack) {
         CompletableFuture<?>[] checkPermissionFutures = new CompletableFuture[matchedTopicFilters.size()];
@@ -391,7 +414,6 @@ public abstract class MQTTTransientSessionHandler extends MQTTSessionHandler imp
                                 // do nothing
                             }
                         }
-
                     }
                 }
             }

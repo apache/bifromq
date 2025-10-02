@@ -50,6 +50,8 @@ import org.apache.bifromq.inbox.rpc.proto.ExpireAllRequest;
 import org.apache.bifromq.inbox.rpc.proto.InboxFetchHint;
 import org.apache.bifromq.inbox.rpc.proto.InboxFetched;
 import org.apache.bifromq.inbox.rpc.proto.InboxServiceGrpc;
+import org.apache.bifromq.inbox.rpc.proto.InboxStateReply;
+import org.apache.bifromq.inbox.rpc.proto.InboxStateRequest;
 import org.apache.bifromq.inbox.rpc.proto.SendLWTReply;
 import org.apache.bifromq.inbox.rpc.proto.SendLWTRequest;
 import org.apache.bifromq.inbox.rpc.proto.SendReply;
@@ -66,6 +68,7 @@ import org.apache.bifromq.inbox.server.scheduler.IInboxDeleteScheduler;
 import org.apache.bifromq.inbox.server.scheduler.IInboxDetachScheduler;
 import org.apache.bifromq.inbox.server.scheduler.IInboxExistScheduler;
 import org.apache.bifromq.inbox.server.scheduler.IInboxFetchScheduler;
+import org.apache.bifromq.inbox.server.scheduler.IInboxFetchStateScheduler;
 import org.apache.bifromq.inbox.server.scheduler.IInboxInsertScheduler;
 import org.apache.bifromq.inbox.server.scheduler.IInboxSendLWTScheduler;
 import org.apache.bifromq.inbox.server.scheduler.IInboxSubScheduler;
@@ -82,7 +85,8 @@ class InboxService extends InboxServiceGrpc.InboxServiceImplBase {
     private final IDistClient distClient;
     private final InboxFetcherRegistry registry = new InboxFetcherRegistry();
     private final IInboxFetchScheduler fetchScheduler;
-    private final IInboxExistScheduler getScheduler;
+    private final IInboxFetchStateScheduler fetchStateScheduler;
+    private final IInboxExistScheduler existScheduler;
     private final IInboxSendLWTScheduler sendLWTScheduler;
     private final IInboxCheckSubScheduler checkSubScheduler;
     private final IInboxInsertScheduler insertScheduler;
@@ -97,7 +101,8 @@ class InboxService extends InboxServiceGrpc.InboxServiceImplBase {
     @Builder
     InboxService(IInboxClient inboxClient,
                  IDistClient distClient,
-                 IInboxExistScheduler getScheduler,
+                 IInboxFetchStateScheduler fetchStateScheduler,
+                 IInboxExistScheduler existScheduler,
                  IInboxSendLWTScheduler sendLWTScheduler,
                  IInboxCheckSubScheduler checkSubScheduler,
                  IInboxFetchScheduler fetchScheduler,
@@ -111,7 +116,8 @@ class InboxService extends InboxServiceGrpc.InboxServiceImplBase {
                  ITenantGCRunner tenantGCRunner) {
         this.inboxClient = inboxClient;
         this.distClient = distClient;
-        this.getScheduler = getScheduler;
+        this.fetchStateScheduler = fetchStateScheduler;
+        this.existScheduler = existScheduler;
         this.sendLWTScheduler = sendLWTScheduler;
         this.checkSubScheduler = checkSubScheduler;
         this.fetchScheduler = fetchScheduler;
@@ -126,26 +132,58 @@ class InboxService extends InboxServiceGrpc.InboxServiceImplBase {
     }
 
     @Override
-    public void exist(ExistRequest request, StreamObserver<ExistReply> responseObserver) {
-        log.trace("Handling get {}", request);
-        response(tenantId -> getScheduler.schedule(request)
+    public void state(InboxStateRequest request, StreamObserver<InboxStateReply> responseObserver) {
+        log.trace("Handling InboxStateRequest: {}", request);
+        response(tenantId -> fetchStateScheduler.schedule(request)
             .exceptionally(unwrap(e -> {
                 if (e instanceof BatcherUnavailableException) {
-                    return ExistReply.newBuilder().setReqId(request.getReqId()).setCode(ExistReply.Code.TRY_LATER)
+                    return InboxStateReply.newBuilder()
+                        .setReqId(request.getReqId())
+                        .setCode(InboxStateReply.Code.TRY_LATER)
                         .build();
                 }
                 if (e instanceof BackPressureException) {
-                    return ExistReply.newBuilder().setReqId(request.getReqId())
-                        .setCode(ExistReply.Code.BACK_PRESSURE_REJECTED).build();
+                    return InboxStateReply.newBuilder()
+                        .setReqId(request.getReqId())
+                        .setCode(InboxStateReply.Code.BACK_PRESSURE_REJECTED)
+                        .build();
                 }
-                log.debug("Failed to get inbox", e);
-                return ExistReply.newBuilder().setReqId(request.getReqId()).setCode(ExistReply.Code.ERROR).build();
+                log.debug("Failed to fetch inbox state", e);
+                return InboxStateReply.newBuilder()
+                    .setReqId(request.getReqId())
+                    .setCode(InboxStateReply.Code.ERROR)
+                    .build();
+            })), responseObserver);
+    }
+
+    @Override
+    public void exist(ExistRequest request, StreamObserver<ExistReply> responseObserver) {
+        log.trace("Handling ExistRequest: {}", request);
+        response(tenantId -> existScheduler.schedule(request)
+            .exceptionally(unwrap(e -> {
+                if (e instanceof BatcherUnavailableException) {
+                    return ExistReply.newBuilder()
+                        .setReqId(request.getReqId())
+                        .setCode(ExistReply.Code.TRY_LATER)
+                        .build();
+                }
+                if (e instanceof BackPressureException) {
+                    return ExistReply.newBuilder()
+                        .setReqId(request.getReqId())
+                        .setCode(ExistReply.Code.BACK_PRESSURE_REJECTED)
+                        .build();
+                }
+                log.debug("Failed to handle ExistRequest", e);
+                return ExistReply.newBuilder()
+                    .setReqId(request.getReqId())
+                    .setCode(ExistReply.Code.ERROR)
+                    .build();
             })), responseObserver);
     }
 
     @Override
     public void attach(AttachRequest request, StreamObserver<AttachReply> responseObserver) {
-        log.trace("Handling attach {}", request);
+        log.trace("Handling AttachRequest: {}", request);
         assert !request.hasLwt() || request.getLwt().getDelaySeconds() > 0;
         response(tenantId -> attachScheduler.schedule(request)
             .exceptionally(unwrap(e -> {
@@ -161,7 +199,7 @@ class InboxService extends InboxServiceGrpc.InboxServiceImplBase {
                         .setCode(AttachReply.Code.BACK_PRESSURE_REJECTED)
                         .build();
                 }
-                log.debug("Failed to attach inbox", e);
+                log.debug("Failed to handle AttachRequest", e);
                 return AttachReply.newBuilder()
                     .setReqId(request.getReqId())
                     .setCode(AttachReply.Code.ERROR)
@@ -171,7 +209,7 @@ class InboxService extends InboxServiceGrpc.InboxServiceImplBase {
 
     @Override
     public void detach(DetachRequest request, StreamObserver<DetachReply> responseObserver) {
-        log.trace("Handling detach {}", request);
+        log.trace("Handling DetachRequest: {}", request);
         response(tenantId -> detachScheduler.schedule(request)
             .exceptionally(unwrap(e -> {
                 if (e instanceof BatcherUnavailableException) {
@@ -186,7 +224,7 @@ class InboxService extends InboxServiceGrpc.InboxServiceImplBase {
                         .setCode(DetachReply.Code.BACK_PRESSURE_REJECTED)
                         .build();
                 }
-                log.debug("Failed to detach inbox", e);
+                log.debug("Failed to handle DetachRequest", e);
                 return DetachReply.newBuilder()
                     .setReqId(request.getReqId())
                     .setCode(DetachReply.Code.ERROR)
@@ -196,7 +234,7 @@ class InboxService extends InboxServiceGrpc.InboxServiceImplBase {
 
     @Override
     public void sub(SubRequest request, StreamObserver<SubReply> responseObserver) {
-        log.trace("Handling sub {}", request);
+        log.trace("Handling SubRequest: {}", request);
         response(tenantId -> subScheduler.schedule(request)
             .thenCompose(subReply -> {
                 if (subReply.getCode() == SubReply.Code.OK || subReply.getCode() == SubReply.Code.EXISTS) {
@@ -238,7 +276,7 @@ class InboxService extends InboxServiceGrpc.InboxServiceImplBase {
                 return CompletableFuture.completedFuture(subReply);
             })
             .exceptionally(unwrap(e -> {
-                log.debug("Failed to subscribe", e);
+                log.debug("Failed to handle SubRequest", e);
                 if (e instanceof BatcherUnavailableException) {
                     return SubReply.newBuilder()
                         .setReqId(request.getReqId())
@@ -260,7 +298,7 @@ class InboxService extends InboxServiceGrpc.InboxServiceImplBase {
 
     @Override
     public void unsub(UnsubRequest request, StreamObserver<UnsubReply> responseObserver) {
-        log.trace("Handling unsub {}", request);
+        log.trace("Handling UnsubRequest: {}", request);
         response(tenantId -> unsubScheduler.schedule(request)
             .thenCompose(v -> {
                 if (v.getCode() == UnsubReply.Code.OK) {
@@ -305,7 +343,7 @@ class InboxService extends InboxServiceGrpc.InboxServiceImplBase {
                         .setCode(UnsubReply.Code.BACK_PRESSURE_REJECTED)
                         .build();
                 }
-                log.debug("Failed to unsubscribe", e);
+                log.debug("Failed to handle UnsubRequest", e);
                 return UnsubReply.newBuilder()
                     .setReqId(request.getReqId())
                     .setCode(UnsubReply.Code.ERROR)
@@ -325,12 +363,13 @@ class InboxService extends InboxServiceGrpc.InboxServiceImplBase {
 
     @Override
     public void expireAll(ExpireAllRequest request, StreamObserver<ExpireAllReply> responseObserver) {
-        log.trace("Handling expireAll {}", request);
+        log.trace("Handling ExpireAllRequest: {}", request);
         response(tenantId -> tenantGCRunner.expire(request), responseObserver);
     }
 
     @Override
     public void checkSubscriptions(CheckRequest request, StreamObserver<CheckReply> responseObserver) {
+        log.trace("Handling CheckRequest: {}", request);
         response(tenantId -> {
             List<CompletableFuture<CheckReply.Code>> futures = request.getMatchInfoList().stream()
                 .map(matchInfo -> checkSubScheduler.schedule(new CheckMatchInfo(request.getTenantId(), matchInfo))
@@ -338,7 +377,7 @@ class InboxService extends InboxServiceGrpc.InboxServiceImplBase {
                         if (e instanceof BatcherUnavailableException) {
                             return CheckReply.Code.TRY_LATER;
                         }
-                        log.debug("Failed to check subscription", e);
+                        log.debug("Failed to handle CheckRequest", e);
                         return CheckReply.Code.ERROR;
                     })))
                 .toList();
@@ -363,7 +402,7 @@ class InboxService extends InboxServiceGrpc.InboxServiceImplBase {
 
     @Override
     public void commit(CommitRequest request, StreamObserver<CommitReply> responseObserver) {
-        log.trace("Handling commit {}", request);
+        log.trace("Handling CommitRequest: {}", request);
         response(tenantId -> commitScheduler.schedule(request)
             .exceptionally(unwrap(e -> {
                 if (e instanceof BatcherUnavailableException) {
@@ -378,7 +417,7 @@ class InboxService extends InboxServiceGrpc.InboxServiceImplBase {
                         .setCode(CommitReply.Code.BACK_PRESSURE_REJECTED)
                         .build();
                 }
-                log.debug("Failed to commit", e);
+                log.debug("Failed to handle CommitRequest", e);
                 return CommitReply.newBuilder()
                     .setReqId(request.getReqId())
                     .setCode(CommitReply.Code.ERROR)
@@ -389,7 +428,7 @@ class InboxService extends InboxServiceGrpc.InboxServiceImplBase {
 
     @Override
     public void sendLWT(SendLWTRequest request, StreamObserver<SendLWTReply> responseObserver) {
-        log.trace("Handling send lwt {}", request);
+        log.trace("Handling SendLWTRequest: {}", request);
         response(tenantId -> sendLWTScheduler.schedule(request)
             .exceptionally(unwrap(e -> {
                 if (e instanceof BatcherUnavailableException) {
@@ -404,7 +443,7 @@ class InboxService extends InboxServiceGrpc.InboxServiceImplBase {
                         .setCode(SendLWTReply.Code.BACK_PRESSURE_REJECTED)
                         .build();
                 }
-                log.debug("Failed to send LWT", e);
+                log.debug("Failed to handle SendLWTRequest", e);
                 return SendLWTReply.newBuilder()
                     .setReqId(request.getReqId())
                     .setCode(SendLWTReply.Code.ERROR)
@@ -414,7 +453,7 @@ class InboxService extends InboxServiceGrpc.InboxServiceImplBase {
 
     @Override
     public void delete(DeleteRequest request, StreamObserver<DeleteReply> responseObserver) {
-        log.trace("Handling delete {}", request);
+        log.trace("Handling DeleteRequest: {}", request);
         response(tenantId -> delete(request), responseObserver);
     }
 
@@ -449,7 +488,7 @@ class InboxService extends InboxServiceGrpc.InboxServiceImplBase {
                         .setCode(DeleteReply.Code.BACK_PRESSURE_REJECTED)
                         .build();
                 }
-                log.debug("Failed to delete", e);
+                log.debug("Failed to handle DeleteRequest", e);
                 return DeleteReply.newBuilder()
                     .setReqId(request.getReqId())
                     .setCode(DeleteReply.Code.ERROR)
@@ -468,7 +507,8 @@ class InboxService extends InboxServiceGrpc.InboxServiceImplBase {
             for (IInboxFetcher fetcher : registry) {
                 fetcher.close();
             }
-            getScheduler.close();
+            fetchStateScheduler.close();
+            existScheduler.close();
             attachScheduler.close();
             detachScheduler.close();
             deleteScheduler.close();

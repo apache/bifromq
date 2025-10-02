@@ -1,0 +1,49 @@
+/**
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+syntax = "proto3";
+import "commontype/QoS.proto";
+import "commontype/TopicFilterOption.proto";
+
+option java_multiple_files = true;
+option java_package = "org.apache.bifromq.type";
+option java_outer_classname = "InboxStateProtos";
+
+package commontype;
+
+message LastWillInfo{
+  string topic = 1;
+  commontype.QoS qos = 2;
+  bool isRetain = 3;
+  uint32 delaySeconds = 4;
+}
+
+message InboxState{
+  uint64 createdAt = 1;
+  uint32 limit = 2;
+  uint32 expirySeconds = 3; // 0 for transient session, > 0 for persistent session
+  optional LastWillInfo will = 4;
+  map<string, commontype.TopicFilterOption> topicFilters = 5; // subscribed topic filters
+  uint64 undeliveredMsgCount = 6; // undelivered qos1/2 messages
+  uint64 lastActiveAt = 7;
+
+  // following fields are only for persistent inbox
+  optional bool dropOldest = 11; // only work for qos0 in persistent inbox
+  optional uint64 unfetchedQoS0MsgCount = 12; // unfetched qos0 messages
+  optional uint64 detachedAt = 13; // null for inbox in attached state(attached doesn't guarantee the client is online)
+}

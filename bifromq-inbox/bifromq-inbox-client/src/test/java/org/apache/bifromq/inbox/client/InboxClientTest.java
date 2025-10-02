@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 
 package org.apache.bifromq.inbox.client;
@@ -27,6 +27,8 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.testng.Assert.assertEquals;
 
+import java.util.concurrent.CompletableFuture;
+import lombok.SneakyThrows;
 import org.apache.bifromq.baserpc.client.IRPCClient;
 import org.apache.bifromq.inbox.rpc.proto.AttachReply;
 import org.apache.bifromq.inbox.rpc.proto.AttachRequest;
@@ -38,6 +40,8 @@ import org.apache.bifromq.inbox.rpc.proto.ExistReply;
 import org.apache.bifromq.inbox.rpc.proto.ExistRequest;
 import org.apache.bifromq.inbox.rpc.proto.ExpireAllReply;
 import org.apache.bifromq.inbox.rpc.proto.ExpireAllRequest;
+import org.apache.bifromq.inbox.rpc.proto.InboxStateReply;
+import org.apache.bifromq.inbox.rpc.proto.InboxStateRequest;
 import org.apache.bifromq.inbox.rpc.proto.SubReply;
 import org.apache.bifromq.inbox.rpc.proto.SubRequest;
 import org.apache.bifromq.inbox.rpc.proto.UnsubReply;
@@ -46,8 +50,7 @@ import org.apache.bifromq.plugin.subbroker.CheckReply;
 import org.apache.bifromq.plugin.subbroker.CheckRequest;
 import org.apache.bifromq.type.ClientInfo;
 import org.apache.bifromq.type.MatchInfo;
-import java.util.concurrent.CompletableFuture;
-import lombok.SneakyThrows;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.MockitoAnnotations;
 import org.testng.annotations.AfterMethod;
@@ -175,5 +178,44 @@ public class InboxClientTest {
         ExpireAllReply reply = inboxClient.expireAll(expireAllRequest).join();
         verify(rpcClient).invoke(eq(expireAllRequest.getTenantId()), isNull(), eq(expireAllRequest), any());
         assertEquals(reply.getCode(), ExpireAllReply.Code.ERROR);
+    }
+
+    @Test
+    public void stateRPCException() {
+        InboxStateRequest request = InboxStateRequest.newBuilder()
+            .setTenantId("TenantId")
+            .setInboxId("userId/clientId")
+            .build();
+
+        when(rpcClient.invoke(anyString(), isNull(), any(), any()))
+            .thenReturn(CompletableFuture.failedFuture(new RuntimeException("Mocked")));
+
+        InboxStateReply reply = inboxClient.state(0, "TenantId", "userId", "clientId").join();
+        ArgumentCaptor<InboxStateRequest> captor = ArgumentCaptor.forClass(InboxStateRequest.class);
+        verify(rpcClient).invoke(eq(request.getTenantId()), isNull(), captor.capture(), any());
+        assertEquals(captor.getValue().toBuilder().setNow(0).build(), request);
+        assertEquals(reply.getCode(), InboxStateReply.Code.ERROR);
+    }
+
+    @Test
+    public void stateOKPassThrough() {
+        InboxStateRequest request = InboxStateRequest.newBuilder()
+            .setTenantId("TenantId")
+            .setInboxId("userId/clientId")
+            .build();
+        InboxStateReply expected = InboxStateReply.newBuilder()
+            .setReqId(1)
+            .setCode(InboxStateReply.Code.OK)
+            .build();
+
+        when(rpcClient.invoke(anyString(), isNull(), any(), any()))
+            .thenReturn(CompletableFuture.completedFuture(expected));
+
+        InboxStateReply reply = inboxClient.state(0, "TenantId", "userId", "clientId").join();
+        ArgumentCaptor<InboxStateRequest> captor = ArgumentCaptor.forClass(InboxStateRequest.class);
+        verify(rpcClient).invoke(eq(request.getTenantId()), isNull(), captor.capture(), any());
+        assertEquals(captor.getValue().toBuilder().setNow(0).build(), request);
+        assertEquals(reply.getCode(), InboxStateReply.Code.OK);
+        assertEquals(reply.getReqId(), 1);
     }
 }

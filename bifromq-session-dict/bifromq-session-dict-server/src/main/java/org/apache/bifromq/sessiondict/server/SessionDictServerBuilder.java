@@ -19,7 +19,6 @@
 
 package org.apache.bifromq.sessiondict.server;
 
-import org.apache.bifromq.baserpc.server.RPCServerBuilder;
 import com.google.common.base.Preconditions;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -29,6 +28,8 @@ import lombok.AccessLevel;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
 import lombok.experimental.Accessors;
+import org.apache.bifromq.baserpc.server.RPCServerBuilder;
+import org.apache.bifromq.inbox.client.IInboxClient;
 import org.apache.bifromq.mqtt.inbox.IMqttBrokerClient;
 
 /**
@@ -40,6 +41,7 @@ import org.apache.bifromq.mqtt.inbox.IMqttBrokerClient;
 public class SessionDictServerBuilder {
     RPCServerBuilder rpcServerBuilder;
     IMqttBrokerClient mqttBrokerClient;
+    IInboxClient inboxClient;
     Map<String, String> attributes = new HashMap<>();
     Set<String> defaultGroupTags = new HashSet<>();
     int workerThreads;

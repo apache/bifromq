@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 
 package org.apache.bifromq.sessiondict.client;
@@ -23,6 +23,8 @@ import java.util.concurrent.CompletableFuture;
 import org.apache.bifromq.baserpc.client.IConnectable;
 import org.apache.bifromq.sessiondict.client.type.OnlineCheckRequest;
 import org.apache.bifromq.sessiondict.client.type.OnlineCheckResult;
+import org.apache.bifromq.sessiondict.rpc.proto.GetInboxStateReply;
+import org.apache.bifromq.sessiondict.rpc.proto.GetInboxStateRequest;
 import org.apache.bifromq.sessiondict.rpc.proto.GetReply;
 import org.apache.bifromq.sessiondict.rpc.proto.GetRequest;
 import org.apache.bifromq.sessiondict.rpc.proto.KillAllReply;
@@ -64,6 +66,7 @@ public interface ISessionDictClient extends IConnectable, AutoCloseable {
     CompletableFuture<GetReply> get(GetRequest request);
 
     CompletableFuture<OnlineCheckResult> exist(OnlineCheckRequest onlineCheckRequest);
+    CompletableFuture<GetInboxStateReply> inboxState(GetInboxStateRequest request);
 
     CompletableFuture<SubReply> sub(SubRequest request);
 

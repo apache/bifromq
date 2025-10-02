@@ -29,5 +29,6 @@ public class RPCBluePrint {
         .methodSemantic(BrokerServiceGrpc.getSubMethod(), BluePrint.DDUnaryMethod.getInstance())
         .methodSemantic(BrokerServiceGrpc.getUnsubMethod(), BluePrint.DDUnaryMethod.getInstance())
         .methodSemantic(BrokerServiceGrpc.getCheckSubscriptionsMethod(), BluePrint.DDUnaryMethod.getInstance())
+        .methodSemantic(BrokerServiceGrpc.getStateMethod(), BluePrint.DDUnaryMethod.getInstance())
         .build();
 }

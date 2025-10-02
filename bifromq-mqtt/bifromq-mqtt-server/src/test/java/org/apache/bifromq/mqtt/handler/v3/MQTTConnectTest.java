@@ -204,33 +204,6 @@ public class MQTTConnectTest extends BaseMQTTTest {
     }
 
     @Test
-    public void clientConnectedHasConnTs() {
-        mockAuthPass();
-        mockSessionReg();
-        mockInboxExist(true);
-        mockInboxDetach(DetachReply.Code.OK);
-
-        MqttConnectMessage connectMessage = MQTTMessageUtils.mqttConnectMessage(true);
-        channel.writeInbound(connectMessage);
-        channel.advanceTimeBy(disconnectDelay, TimeUnit.MILLISECONDS);
-        channel.runPendingTasks();
-        MqttConnAckMessage ackMessage = channel.readOutbound();
-        assertEquals(ackMessage.variableHeader().connectReturnCode(), CONNECTION_ACCEPTED);
-
-        ArgumentCaptor<ClientConnected> eventArgumentCaptor = ArgumentCaptor.forClass(ClientConnected.class);
-        verify(eventCollector).report(eventArgumentCaptor.capture());
-        ClientConnected clientConnected = eventArgumentCaptor.getValue();
-        assertTrue(clientConnected.clientInfo().containsMetadata("connTs"));
-        String connTs = clientConnected.clientInfo().getMetadataMap().get("connTs");
-        try {
-            long ts = Long.parseLong(connTs);
-            assertTrue(ts > 0);
-        } catch (NumberFormatException e) {
-            assertTrue(false, "connTs should be a numeric timestamp");
-        }
-    }
-
-    @Test
     public void authBanned() {
         mockAuthReject(Reject.Code.NotAuthorized, "");
         MqttConnectMessage connectMessage = MQTTMessageUtils.mqttConnectMessage(true);

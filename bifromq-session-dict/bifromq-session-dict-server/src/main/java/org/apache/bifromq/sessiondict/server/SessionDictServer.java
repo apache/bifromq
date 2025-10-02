@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 
 package org.apache.bifromq.sessiondict.server;
@@ -37,7 +37,7 @@ class SessionDictServer implements ISessionDictServer {
 
 
     SessionDictServer(SessionDictServerBuilder builder) {
-        service = new SessionDictService(builder.mqttBrokerClient);
+        service = new SessionDictService(builder.mqttBrokerClient, builder.inboxClient);
         if (builder.workerThreads == 0) {
             rpcExecutor = MoreExecutors.newDirectExecutorService();
         } else {

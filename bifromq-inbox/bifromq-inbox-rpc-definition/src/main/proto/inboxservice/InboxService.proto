@@ -18,6 +18,7 @@
 
 syntax = "proto3";
 import "commontype/ClientInfo.proto";
+import "commontype/InboxState.proto";
 import "commontype/TopicFilterOption.proto";
 import "subbroker/type.proto";
 import "inboxservice/InboxFetched.proto";
@@ -31,6 +32,7 @@ option java_outer_classname = "InboxServiceProtos";
 package inboxservice;
 
 service InboxService {
+  rpc state (InboxStateRequest) returns (InboxStateReply);
   rpc exist (ExistRequest) returns (ExistReply);
   rpc attach (AttachRequest) returns (AttachReply);
   rpc detach (DetachRequest) returns (DetachReply);
@@ -44,6 +46,27 @@ service InboxService {
   rpc delete (DeleteRequest) returns (DeleteReply);
   rpc expireAll (ExpireAllRequest) returns (ExpireAllReply);
   rpc checkSubscriptions(subbroker.CheckRequest) returns (subbroker.CheckReply);
+}
+
+message InboxStateRequest {
+  uint64 reqId = 1;
+  string tenantId = 2;
+  string inboxId = 3;
+  uint64 now = 4;
+}
+
+message InboxStateReply {
+  enum Code{
+    OK = 0;
+    NO_INBOX = 1;
+    EXPIRED = 2;
+    TRY_LATER = 3;
+    BACK_PRESSURE_REJECTED = 4;
+    ERROR = 5;
+  }
+  uint64 reqId = 1;
+  Code code = 2;
+  optional commontype.InboxState state = 3; // available when code = OK
 }
 
 message ExistRequest {

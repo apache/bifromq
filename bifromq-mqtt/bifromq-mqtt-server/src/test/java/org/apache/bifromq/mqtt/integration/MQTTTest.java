@@ -101,7 +101,7 @@ public abstract class MQTTTest {
     private IRPCServiceTrafficService trafficService;
     private IBaseKVMetaService metaService;
     private IRPCServer rpcServer;
-    private IMqttBrokerClient onlineInboxBrokerClient;
+    private IMqttBrokerClient mqttServerClient;
     private ISessionDictClient sessionDictClient;
     private ISessionDictServer sessionDictServer;
     private IDistClient distClient;
@@ -148,22 +148,22 @@ public abstract class MQTTTest {
         trafficService = IRPCServiceTrafficService.newInstance(crdtService);
         metaService = IBaseKVMetaService.newInstance(crdtService);
 
-        RPCServerBuilder rpcServerBuilder = IRPCServer.newBuilder()
-            .host("127.0.0.1")
-            .trafficService(trafficService);
-
-        onlineInboxBrokerClient = IMqttBrokerClient.newBuilder()
+        mqttServerClient = IMqttBrokerClient.newBuilder()
+            .trafficService(trafficService)
+            .build();
+        inboxClient = IInboxClient.newBuilder()
             .trafficService(trafficService)
             .build();
         sessionDictClient = ISessionDictClient.newBuilder()
             .trafficService(trafficService)
             .build();
+        RPCServerBuilder rpcServerBuilder = IRPCServer.newBuilder()
+            .host("127.0.0.1")
+            .trafficService(trafficService);
         sessionDictServer = ISessionDictServer.builder()
             .rpcServerBuilder(rpcServerBuilder)
-            .mqttBrokerClient(onlineInboxBrokerClient)
-            .build();
-        inboxClient = IInboxClient.newBuilder()
-            .trafficService(trafficService)
+            .mqttBrokerClient(mqttServerClient)
+            .inboxClient(inboxClient)
             .build();
         inboxStoreKVStoreClient = IBaseKVStoreClient.newBuilder()
             .clusterId(IInboxStore.CLUSTER_NAME)
@@ -227,7 +227,7 @@ public abstract class MQTTTest {
             .metaService(metaService)
             .build();
 
-        inboxBrokerMgr = new SubBrokerManager(pluginMgr, onlineInboxBrokerClient, inboxClient);
+        inboxBrokerMgr = new SubBrokerManager(pluginMgr, mqttServerClient, inboxClient);
         retainServer = IRetainServer.builder()
             .rpcServerBuilder(rpcServerBuilder)
             .subBrokerManager(inboxBrokerMgr)
@@ -286,7 +286,7 @@ public abstract class MQTTTest {
                 distWorkerStoreClient.connState(),
                 inboxStoreKVStoreClient.connState(),
                 retainStoreKVStoreClient.connState(),
-                onlineInboxBrokerClient.connState(),
+                mqttServerClient.connState(),
                 inboxClient.connState(),
                 sessionDictClient.connState(),
                 retainClient.connState(),

@@ -27,6 +27,8 @@ import static org.apache.bifromq.dist.worker.schema.KVSchemaConstants.FLAG_UNORD
 import static org.apache.bifromq.dist.worker.schema.KVSchemaConstants.MAX_RECEIVER_BUCKETS;
 import static org.apache.bifromq.dist.worker.schema.KVSchemaConstants.SCHEMA_VER;
 import static org.apache.bifromq.dist.worker.schema.KVSchemaConstants.SEPARATOR_BYTE;
+import static org.apache.bifromq.dist.worker.schema.cache.RouteDetailCache.receiverBytesLen;
+import static org.apache.bifromq.dist.worker.schema.cache.RouteDetailCache.tenantIdLen;
 import static org.apache.bifromq.dist.worker.schema.cache.RouteGroupCache.get;
 import static org.apache.bifromq.util.BSUtil.toByteString;
 import static org.apache.bifromq.util.TopicConst.NUL;
@@ -53,6 +55,19 @@ public class KVSchemaUtil {
 
     public static String toReceiverUrl(int subBrokerId, String receiverId, String delivererKey) {
         return subBrokerId + NUL + receiverId + NUL + delivererKey;
+    }
+
+    public static String parseTenantId(ByteString routeKey) {
+        short tenantIdLen = tenantIdLen(routeKey);
+        int tenantIdStartIdx = SCHEMA_VER.size() + Short.BYTES;
+        return routeKey.substring(tenantIdStartIdx, tenantIdStartIdx + tenantIdLen).toStringUtf8();
+    }
+
+    public static byte parseFlag(ByteString routeKey) {
+        short receiverBytesLen = receiverBytesLen(routeKey);
+        int receiverBytesStartIdx = routeKey.size() - Short.BYTES - receiverBytesLen;
+        int flagByteIdx = receiverBytesStartIdx - 1;
+        return routeKey.byteAt(flagByteIdx);
     }
 
     public static Matching buildMatchRoute(ByteString routeKey, ByteString routeValue) {

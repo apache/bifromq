@@ -23,6 +23,9 @@ import static org.apache.bifromq.basekv.utils.BoundaryUtil.intersect;
 import static org.apache.bifromq.basekv.utils.BoundaryUtil.isNULLRange;
 import static org.apache.bifromq.basekv.utils.BoundaryUtil.toBoundary;
 import static org.apache.bifromq.basekv.utils.BoundaryUtil.upperBound;
+import static org.apache.bifromq.dist.worker.schema.KVSchemaConstants.FLAG_NORMAL;
+import static org.apache.bifromq.dist.worker.schema.KVSchemaUtil.parseFlag;
+import static org.apache.bifromq.dist.worker.schema.KVSchemaUtil.parseTenantId;
 import static org.apache.bifromq.dist.worker.schema.KVSchemaUtil.tenantBeginKey;
 
 import com.google.protobuf.ByteString;
@@ -37,9 +40,6 @@ import lombok.extern.slf4j.Slf4j;
 import org.apache.bifromq.basekv.proto.Boundary;
 import org.apache.bifromq.basekv.store.api.IKVCloseableReader;
 import org.apache.bifromq.basekv.store.api.IKVIterator;
-import org.apache.bifromq.dist.worker.schema.cache.RouteDetail;
-import org.apache.bifromq.dist.worker.schema.cache.RouteDetailCache;
-import org.apache.bifromq.type.RouteMatcher;
 
 @Slf4j
 class TenantsStats implements ITenantsStats {
@@ -221,11 +221,12 @@ class TenantsStats implements ITenantsStats {
             // enqueue full reload task; don't block caller
             IKVIterator itr = reader.iterator();
             for (itr.seekToFirst(); itr.isValid(); itr.next()) {
-                RouteDetail routeDetail = RouteDetailCache.get(itr.key());
-                if (routeDetail.matcher().getType() == RouteMatcher.Type.Normal) {
-                    doAddNormalRoutes(routeDetail.tenantId(), 1);
+                String tenantId = parseTenantId(itr.key());
+                byte flag = parseFlag(itr.key());
+                if (flag == FLAG_NORMAL) {
+                    doAddNormalRoutes(tenantId, 1);
                 } else {
-                    doAddSharedRoutes(routeDetail.tenantId(), 1);
+                    doAddSharedRoutes(tenantId, 1);
                 }
             }
         } catch (Throwable e) {

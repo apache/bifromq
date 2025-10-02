@@ -108,11 +108,11 @@ public class RouteDetailCache {
         });
     }
 
-    private static short tenantIdLen(ByteString routeKey) {
+    public static short tenantIdLen(ByteString routeKey) {
         return toShort(routeKey.substring(SCHEMA_VER.size(), SCHEMA_VER.size() + Short.BYTES));
     }
 
-    private static short receiverBytesLen(ByteString routeKey) {
+    public static short receiverBytesLen(ByteString routeKey) {
         return toShort(routeKey.substring(routeKey.size() - Short.BYTES));
     }
 

@@ -403,18 +403,19 @@ public class KVRangeWALSubscriptionTest extends MockableTest {
     public void ignoreOldCommitDoesNotFetch() {
         // Apply 0..2 first, then send an older commit(1), no extra fetch should happen
         AtomicInteger retrieveCount = new AtomicInteger();
-        when(wal.retrieveCommitted(org.mockito.ArgumentMatchers.anyLong(), eq(maxSize))).thenAnswer((Answer<CompletableFuture<Iterator<LogEntry>>>) inv -> {
-            long from = inv.getArgument(0);
-            retrieveCount.incrementAndGet();
-            if (from == 0L) {
-                return CompletableFuture.completedFuture(Iterators.forArray(
-                    LogEntry.newBuilder().setTerm(0).setIndex(0).build(),
-                    LogEntry.newBuilder().setTerm(0).setIndex(1).build(),
-                    LogEntry.newBuilder().setTerm(0).setIndex(2).build()
-                ));
-            }
-            return CompletableFuture.completedFuture(Iterators.forArray());
-        });
+        when(wal.retrieveCommitted(org.mockito.ArgumentMatchers.anyLong(), eq(maxSize))).thenAnswer(
+            (Answer<CompletableFuture<Iterator<LogEntry>>>) inv -> {
+                long from = inv.getArgument(0);
+                retrieveCount.incrementAndGet();
+                if (from == 0L) {
+                    return CompletableFuture.completedFuture(Iterators.forArray(
+                        LogEntry.newBuilder().setTerm(0).setIndex(0).build(),
+                        LogEntry.newBuilder().setTerm(0).setIndex(1).build(),
+                        LogEntry.newBuilder().setTerm(0).setIndex(2).build()
+                    ));
+                }
+                return CompletableFuture.completedFuture(Iterators.forArray());
+            });
         when(subscriber.apply(any(LogEntry.class), anyBoolean()))
             .thenReturn(CompletableFuture.completedFuture(null));
 
@@ -436,22 +437,24 @@ public class KVRangeWALSubscriptionTest extends MockableTest {
     public void commitArrivesDuringFetchAndContinuesNextRound() {
         // First round: commit(1,true) => apply 0,1 only; Second round: commit(3,false) => apply 2,3
         Map<Long, AtomicInteger> calls = new HashMap<>();
-        when(wal.retrieveCommitted(eq(0L), eq(maxSize))).thenAnswer((Answer<CompletableFuture<Iterator<LogEntry>>>) inv -> {
-            calls.computeIfAbsent(0L, k -> new AtomicInteger()).incrementAndGet();
-            return CompletableFuture.completedFuture(Iterators.forArray(
-                LogEntry.newBuilder().setTerm(0).setIndex(0).build(),
-                LogEntry.newBuilder().setTerm(0).setIndex(1).build(),
-                LogEntry.newBuilder().setTerm(0).setIndex(2).build(),
-                LogEntry.newBuilder().setTerm(0).setIndex(3).build()
-            ));
-        });
-        when(wal.retrieveCommitted(eq(2L), eq(maxSize))).thenAnswer((Answer<CompletableFuture<Iterator<LogEntry>>>) inv -> {
-            calls.computeIfAbsent(2L, k -> new AtomicInteger()).incrementAndGet();
-            return CompletableFuture.completedFuture(Iterators.forArray(
-                LogEntry.newBuilder().setTerm(0).setIndex(2).build(),
-                LogEntry.newBuilder().setTerm(0).setIndex(3).build()
-            ));
-        });
+        when(wal.retrieveCommitted(eq(0L), eq(maxSize))).thenAnswer(
+            (Answer<CompletableFuture<Iterator<LogEntry>>>) inv -> {
+                calls.computeIfAbsent(0L, k -> new AtomicInteger()).incrementAndGet();
+                return CompletableFuture.completedFuture(Iterators.forArray(
+                    LogEntry.newBuilder().setTerm(0).setIndex(0).build(),
+                    LogEntry.newBuilder().setTerm(0).setIndex(1).build(),
+                    LogEntry.newBuilder().setTerm(0).setIndex(2).build(),
+                    LogEntry.newBuilder().setTerm(0).setIndex(3).build()
+                ));
+            });
+        when(wal.retrieveCommitted(eq(2L), eq(maxSize))).thenAnswer(
+            (Answer<CompletableFuture<Iterator<LogEntry>>>) inv -> {
+                calls.computeIfAbsent(2L, k -> new AtomicInteger()).incrementAndGet();
+                return CompletableFuture.completedFuture(Iterators.forArray(
+                    LogEntry.newBuilder().setTerm(0).setIndex(2).build(),
+                    LogEntry.newBuilder().setTerm(0).setIndex(3).build()
+                ));
+            });
 
         List<Long> indices = Collections.synchronizedList(new ArrayList<>());
         List<Boolean> leaders = Collections.synchronizedList(new ArrayList<>());
@@ -506,12 +509,13 @@ public class KVRangeWALSubscriptionTest extends MockableTest {
             .thenAnswer((Answer<CompletableFuture<Iterator<LogEntry>>>) inv ->
                 CompletableFuture.completedFuture(Iterators.forArray())
             );
-        when(wal.retrieveCommitted(eq(6L), eq(maxSize))).thenAnswer((Answer<CompletableFuture<Iterator<LogEntry>>>) inv -> {
-            calledFrom6.incrementAndGet();
-            return CompletableFuture.completedFuture(Iterators.forArray(
-                LogEntry.newBuilder().setTerm(0).setIndex(6).build()
-            ));
-        });
+        when(wal.retrieveCommitted(eq(6L), eq(maxSize))).thenAnswer(
+            (Answer<CompletableFuture<Iterator<LogEntry>>>) inv -> {
+                calledFrom6.incrementAndGet();
+                return CompletableFuture.completedFuture(Iterators.forArray(
+                    LogEntry.newBuilder().setTerm(0).setIndex(6).build()
+                ));
+            });
 
         KVRangeWALSubscription walSub =
             new KVRangeWALSubscription(maxSize, wal, commitIndexSource, -1, subscriber, executor);
@@ -531,9 +535,13 @@ public class KVRangeWALSubscriptionTest extends MockableTest {
             new IKVRangeWAL.RestoreSnapshotTask(installed.toByteString(), "leader", afterInstalled));
         latch.await();
         // Now a new commit at 6 should trigger fetch from 6
-        commitIndexSource.onNext(toCommitEvent(6L, true));
-        await().until(() -> calledFrom6.get() >= 1);
-        verify(subscriber, timeout(1000).times(1)).apply(eq(LogEntry.newBuilder().setTerm(0).setIndex(6).build()), eq(true));
+        await().untilAsserted(() -> {
+                commitIndexSource.onNext(toCommitEvent(6L, true));
+                await().until(() -> calledFrom6.get() >= 1);
+            }
+        );
+        verify(subscriber, timeout(1000).times(1)).apply(eq(LogEntry.newBuilder().setTerm(0).setIndex(6).build()),
+            eq(true));
     }
 
     @SneakyThrows

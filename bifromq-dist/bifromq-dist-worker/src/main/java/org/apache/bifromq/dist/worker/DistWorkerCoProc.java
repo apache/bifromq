@@ -106,6 +106,7 @@ class DistWorkerCoProc implements IKVRangeCoProc {
     private final ITenantsStats tenantsState;
     private final IDeliverExecutorGroup deliverExecutorGroup;
     private final ISubscriptionCleaner subscriptionChecker;
+    private final int gcBatchSize;
     private transient Fact fact;
     private transient Boundary boundary;
 
@@ -114,12 +115,14 @@ class DistWorkerCoProc implements IKVRangeCoProc {
                             ISubscriptionCache routeCache,
                             ITenantsStats tenantsState,
                             IDeliverExecutorGroup deliverExecutorGroup,
-                            ISubscriptionCleaner subscriptionChecker) {
+                            ISubscriptionCleaner subscriptionChecker,
+                            int gcBatchSize) {
         this.readerProvider = readerProvider;
         this.routeCache = routeCache;
         this.tenantsState = tenantsState;
         this.deliverExecutorGroup = deliverExecutorGroup;
         this.subscriptionChecker = subscriptionChecker;
+        this.gcBatchSize = gcBatchSize;
     }
 
     @Override
@@ -554,6 +557,8 @@ class DistWorkerCoProc implements IKVRangeCoProc {
         // subBrokerId -> delivererKey -> tenantId-> CheckRequest
         Map<Integer, Map<String, Map<String, CheckRequest.Builder>>> checkRequestBuilders = new HashMap<>();
         IKVIterator itr = reader.iterator();
+        int checkCount = 0;
+        outer:
         for (itr.seekToFirst(); itr.isValid(); itr.next()) {
             Matching matching = buildMatchRoute(itr.key(), itr.value());
             switch (matching.type()) {
@@ -566,6 +571,10 @@ class DistWorkerCoProc implements IKVRangeCoProc {
                                 .setTenantId(k)
                                 .setDelivererKey(normalMatching.delivererKey()))
                             .addMatchInfo(((NormalMatching) matching).matchInfo());
+                        checkCount++;
+                        if (checkCount >= gcBatchSize) {
+                            break outer;
+                        }
                     }
                 }
                 case Group -> {
@@ -578,6 +587,10 @@ class DistWorkerCoProc implements IKVRangeCoProc {
                                     .setTenantId(k)
                                     .setDelivererKey(normalMatching.delivererKey()))
                                 .addMatchInfo(normalMatching.matchInfo());
+                            checkCount++;
+                            if (checkCount >= gcBatchSize) {
+                                break outer;
+                            }
                         }
                     }
                 }

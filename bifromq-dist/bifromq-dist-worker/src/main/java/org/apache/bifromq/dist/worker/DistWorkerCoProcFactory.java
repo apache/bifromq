@@ -49,7 +49,6 @@ import org.apache.bifromq.plugin.resourcethrottler.IResourceThrottler;
 import org.apache.bifromq.plugin.settingprovider.ISettingProvider;
 import org.apache.bifromq.plugin.subbroker.ISubBrokerManager;
 import org.apache.bifromq.sysprops.props.DistMatchParallelism;
-import org.apache.bifromq.sysprops.props.DistWorkerFanOutSplitThreshold;
 
 @Slf4j
 public class DistWorkerCoProcFactory implements IKVRangeCoProcFactory {
@@ -62,7 +61,8 @@ public class DistWorkerCoProcFactory implements IKVRangeCoProcFactory {
     private final Duration loadEstWindow;
     private final int fanoutParallelism;
     private final int inlineFanOutThreshold;
-    private final int fanoutSplitThreshold = DistWorkerFanOutSplitThreshold.INSTANCE.get();
+    private final int fanoutSplitThreshold;
+    private final int gcBatchSize;
 
     public DistWorkerCoProcFactory(IDistClient distClient,
                                    IEventCollector eventCollector,
@@ -72,14 +72,18 @@ public class DistWorkerCoProcFactory implements IKVRangeCoProcFactory {
                                    ISettingProvider settingProvider,
                                    Duration loadEstimateWindow,
                                    int fanoutParallelism,
-                                   int inlineFanOutThreshold) {
+                                   int inlineFanOutThreshold,
+                                   int fanoutSplitThreshold,
+                                   int gcBatchSize) {
         this.eventCollector = eventCollector;
         this.resourceThrottler = resourceThrottler;
         this.loadEstWindow = loadEstimateWindow;
         this.deliverer = messageDeliverer;
         this.settingProvider = settingProvider;
         this.fanoutParallelism = fanoutParallelism;
+        this.fanoutSplitThreshold = fanoutSplitThreshold;
         this.inlineFanOutThreshold = inlineFanOutThreshold;
+        this.gcBatchSize = gcBatchSize;
         subscriptionChecker = new SubscriptionCleaner(subBrokerManager, distClient);
 
         matchExecutor = ExecutorServiceMetrics.monitor(Metrics.globalRegistry,
@@ -117,7 +121,7 @@ public class DistWorkerCoProcFactory implements IKVRangeCoProcFactory {
         IDeliverExecutorGroup deliverExecutorGroup = new DeliverExecutorGroup(
             deliverer, eventCollector, resourceThrottler, settingProvider, fanoutParallelism, inlineFanOutThreshold);
         return new DistWorkerCoProc(
-            id, rangeReaderProvider, routeCache, tenantsState, deliverExecutorGroup, subscriptionChecker);
+            id, rangeReaderProvider, routeCache, tenantsState, deliverExecutorGroup, subscriptionChecker, gcBatchSize);
     }
 
     public void close() {

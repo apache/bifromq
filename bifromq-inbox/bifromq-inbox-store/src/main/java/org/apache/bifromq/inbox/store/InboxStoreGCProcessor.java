@@ -28,13 +28,10 @@ import java.util.concurrent.CompletableFuture;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.bifromq.basekv.client.IBaseKVStoreClient;
 import org.apache.bifromq.basekv.client.KVRangeSetting;
-import org.apache.bifromq.basekv.client.exception.BadRequestException;
-import org.apache.bifromq.basekv.client.exception.BadVersionException;
-import org.apache.bifromq.basekv.client.exception.InternalErrorException;
-import org.apache.bifromq.basekv.client.exception.TryLaterException;
 import org.apache.bifromq.basekv.store.proto.KVRangeRORequest;
 import org.apache.bifromq.basekv.store.proto.ROCoProcInput;
-import org.apache.bifromq.inbox.storage.proto.GCReply;
+import org.apache.bifromq.basekv.store.proto.ReplyCode;
+import org.apache.bifromq.basekv.utils.KVRangeIdUtil;
 import org.apache.bifromq.inbox.storage.proto.GCRequest;
 import org.apache.bifromq.inbox.storage.proto.InboxServiceROCoProcInput;
 
@@ -49,28 +46,29 @@ public class InboxStoreGCProcessor implements IInboxStoreGCProcessor {
     }
 
     @Override
-    public final CompletableFuture<Result> gc(long reqId, long now) {
+    public final CompletableFuture<Void> gc(long reqId, long now) {
         Collection<KVRangeSetting> rangeSettingList = Sets.newHashSet(findByBoundary(FULL_BOUNDARY,
             storeClient.latestEffectiveRouter()));
-        if (localServerId != null) {
-            rangeSettingList.removeIf(rangeSetting -> !rangeSetting.leader().equals(localServerId));
-        }
         if (rangeSettingList.isEmpty()) {
-            return CompletableFuture.completedFuture(Result.OK);
+            return CompletableFuture.completedFuture(null);
         }
-        CompletableFuture<?>[] gcResults = rangeSettingList.stream().map(
-            setting -> doGC(reqId, setting, now)).toArray(CompletableFuture[]::new);
+        CompletableFuture<?>[] gcResults = rangeSettingList.stream()
+            .filter(setting -> setting.leader().equals(localServerId))
+            .map(setting -> doGC(reqId, setting, now))
+            .toArray(CompletableFuture[]::new);
+        log.debug("[InboxStore] start gc: reqId={}, rangeCount={}", reqId, gcResults.length);
         return CompletableFuture.allOf(gcResults)
-            .handle((v, e) -> {
+            .whenComplete((v, e) -> {
                 if (e != null) {
-                    log.debug("[InboxGC] Failed to do gc: reqId={}", reqId, e);
-                    return Result.ERROR;
+                    log.debug("[InboxStore] gc failed: reqId={}", reqId, e);
+                } else {
+                    log.debug("[InboxStore] gc finished: reqId={}", reqId);
                 }
-                return Result.OK;
             });
     }
 
-    private CompletableFuture<GCReply> doGC(long reqId, KVRangeSetting rangeSetting, long now) {
+    private CompletableFuture<Void> doGC(long reqId, KVRangeSetting rangeSetting, long now) {
+        log.debug("[InboxStore] gc running: reqId={}, rangeId={}", reqId, KVRangeIdUtil.toString(rangeSetting.id()));
         return storeClient.query(rangeSetting.leader(), KVRangeRORequest.newBuilder()
                 .setReqId(reqId)
                 .setKvRangeId(rangeSetting.id())
@@ -79,16 +77,20 @@ public class InboxStoreGCProcessor implements IInboxStoreGCProcessor {
                     .setInboxService(buildGCRequest(reqId, now))
                     .build())
                 .build())
-            .thenApply(v -> {
-                switch (v.getCode()) {
-                    case Ok -> {
-                        return v.getRoCoProcResult().getInboxService().getGc();
-                    }
-                    case BadRequest -> throw new BadRequestException();
-                    case BadVersion -> throw new BadVersionException();
-                    case TryLater -> throw new TryLaterException();
-                    default -> throw new InternalErrorException();
+            .handle((v, e) -> {
+                if (e != null) {
+                    log.debug("[InboxStore] gc error: reqId={}, rangeId={}",
+                        reqId, KVRangeIdUtil.toString(rangeSetting.id()), e);
+                    return null;
                 }
+                if (v.getCode() == ReplyCode.Ok) {
+                    log.debug("[InboxStore] gc done: reqId={}, rangeId={}",
+                        reqId, KVRangeIdUtil.toString(rangeSetting.id()));
+                } else {
+                    log.debug("[InboxStore] gc rejected: reqId={}, rangeId={}, reason={}",
+                        reqId, KVRangeIdUtil.toString(rangeSetting.id()), v.getCode());
+                }
+                return null;
             });
     }
 

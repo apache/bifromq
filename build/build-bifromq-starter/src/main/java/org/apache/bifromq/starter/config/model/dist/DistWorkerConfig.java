@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 
 package org.apache.bifromq.starter.config.model.dist;
@@ -40,7 +40,7 @@ public class DistWorkerConfig {
     private int tickerThreads = Math.max(1, Runtime.getRuntime().availableProcessors() / 20);
     private int maxWALFetchSize = 10 * 1024 * 1024; // 10MB
     private int compactWALThreshold = 2500;
-    private int gcIntervalSeconds = 86400; // every 24 hours
+    private int gcIntervalSeconds = 3600; // every hour
     @JsonSetter(nulls = Nulls.SKIP)
     private StorageEngineConfig dataEngineConfig = new RocksDBEngineConfig();
     @JsonSetter(nulls = Nulls.SKIP)

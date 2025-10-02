@@ -17,10 +17,18 @@
  * under the License.
  */
 
-package org.apache.bifromq.inbox.store;
+package org.apache.bifromq.sysprops.props;
 
-import java.util.concurrent.CompletableFuture;
+import org.apache.bifromq.sysprops.BifroMQSysProp;
+import org.apache.bifromq.sysprops.parser.IntegerParser;
 
-public interface IInboxStoreGCProcessor {
-    CompletableFuture<Void> gc(long reqId, long now);
+/**
+ * The system property for dist worker gc batch size.
+ */
+public final class DistGCBatchSize extends BifroMQSysProp<Integer, IntegerParser> {
+    public static final DistGCBatchSize INSTANCE = new DistGCBatchSize();
+
+    private DistGCBatchSize() {
+        super("dist_worker_gc_batch_size", 1000, IntegerParser.POSITIVE);
+    }
 }

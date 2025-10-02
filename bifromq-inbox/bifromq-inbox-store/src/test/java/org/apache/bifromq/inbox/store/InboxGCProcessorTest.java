@@ -23,7 +23,6 @@ import static org.apache.bifromq.basekv.utils.BoundaryUtil.FULL_BOUNDARY;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.when;
-import static org.testng.Assert.assertEquals;
 
 import java.util.HashMap;
 import java.util.TreeMap;
@@ -90,46 +89,45 @@ public class InboxGCProcessorTest {
                         .build())
                     .build())
                 .build()));
-        IInboxStoreGCProcessor.Result result =
-            inboxGCProc.gc(System.nanoTime(), HLC.INST.getPhysical()).join();
-        assertEquals(result, IInboxStoreGCProcessor.Result.OK);
+        inboxGCProc.gc(System.nanoTime(), HLC.INST.getPhysical()).join();
     }
 
     @Test
     public void testStoreQueryException() {
         inboxGCProc = new InboxStoreGCProcessor(storeClient, localStoreId);
-        when(storeClient.latestEffectiveRouter()).thenReturn(new TreeMap<>(BoundaryUtil::compare) {{
-            put(FULL_BOUNDARY, localRangeSetting);
-        }});
+        when(storeClient.latestEffectiveRouter()).thenReturn(new TreeMap<>(BoundaryUtil::compare) {
+            {
+                put(FULL_BOUNDARY, localRangeSetting);
+            }
+        });
 
         when(storeClient.query(anyString(), any())).thenReturn(CompletableFuture.failedFuture(new RuntimeException()));
-        IInboxStoreGCProcessor.Result result =
-            inboxGCProc.gc(System.nanoTime(), HLC.INST.getPhysical()).join();
-        assertEquals(result, IInboxStoreGCProcessor.Result.ERROR);
+        inboxGCProc.gc(System.nanoTime(), HLC.INST.getPhysical()).join();
     }
 
     @Test
     public void testStoreQueryFailed() {
         inboxGCProc = new InboxStoreGCProcessor(storeClient, localStoreId);
-        when(storeClient.latestEffectiveRouter()).thenReturn(new TreeMap<>(BoundaryUtil::compare) {{
-            put(FULL_BOUNDARY, localRangeSetting);
-        }});
+        when(storeClient.latestEffectiveRouter()).thenReturn(new TreeMap<>(BoundaryUtil::compare) {
+            {
+                put(FULL_BOUNDARY, localRangeSetting);
+            }
+        });
         when(storeClient.query(anyString(), any())).thenReturn(
             CompletableFuture.completedFuture(KVRangeROReply.newBuilder().setCode(ReplyCode.InternalError).build()));
-        IInboxStoreGCProcessor.Result result =
-            inboxGCProc.gc(System.nanoTime(), HLC.INST.getPhysical()).join();
-        assertEquals(result, IInboxStoreGCProcessor.Result.ERROR);
+        inboxGCProc.gc(System.nanoTime(), HLC.INST.getPhysical()).join();
     }
 
     @Test
     public void testGCScanFailed() {
         inboxGCProc = new InboxStoreGCProcessor(storeClient, localStoreId);
-        when(storeClient.latestEffectiveRouter()).thenReturn(new TreeMap<>(BoundaryUtil::compare) {{
-            put(FULL_BOUNDARY, localRangeSetting);
-        }});
+        when(storeClient.latestEffectiveRouter()).thenReturn(new TreeMap<>(BoundaryUtil::compare) {
+            {
+                put(FULL_BOUNDARY, localRangeSetting);
+            }
+        });
 
         when(storeClient.query(anyString(), any())).thenReturn(CompletableFuture.failedFuture(new TryLaterException()));
-        IInboxStoreGCProcessor.Result result = inboxGCProc.gc(System.nanoTime(), HLC.INST.getPhysical()).join();
-        assertEquals(result, IInboxStoreGCProcessor.Result.ERROR);
+        inboxGCProc.gc(System.nanoTime(), HLC.INST.getPhysical()).join();
     }
 }

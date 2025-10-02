@@ -34,15 +34,11 @@ import lombok.extern.slf4j.Slf4j;
 import org.apache.bifromq.basehlc.HLC;
 import org.apache.bifromq.basekv.client.IBaseKVStoreClient;
 import org.apache.bifromq.basekv.client.KVRangeSetting;
-import org.apache.bifromq.basekv.client.exception.BadRequestException;
-import org.apache.bifromq.basekv.client.exception.BadVersionException;
-import org.apache.bifromq.basekv.client.exception.InternalErrorException;
-import org.apache.bifromq.basekv.client.exception.TryLaterException;
 import org.apache.bifromq.basekv.store.proto.KVRangeRORequest;
 import org.apache.bifromq.basekv.store.proto.ROCoProcInput;
+import org.apache.bifromq.basekv.store.proto.ReplyCode;
 import org.apache.bifromq.basekv.utils.KVRangeIdUtil;
 import org.apache.bifromq.dist.rpc.proto.DistServiceROCoProcInput;
-import org.apache.bifromq.dist.rpc.proto.GCReply;
 import org.apache.bifromq.dist.rpc.proto.GCRequest;
 
 @Slf4j
@@ -63,6 +59,7 @@ class DistWorkerCleaner {
 
     void start(String storeId) {
         if (started.compareAndSet(false, true)) {
+            log.debug("DistWorkerCleaner started");
             doStart(storeId);
         }
     }
@@ -71,7 +68,10 @@ class DistWorkerCleaner {
         if (started.compareAndSet(true, false)) {
             cleanerFuture.cancel(true);
             CompletableFuture<Void> onDone = new CompletableFuture<>();
-            jobScheduler.execute(() -> onDone.complete(null));
+            jobScheduler.execute(() -> {
+                log.debug("DistWorkerCleaner stopped");
+                onDone.complete(null);
+            });
             return onDone;
         }
         return CompletableFuture.completedFuture(null);
@@ -89,20 +89,24 @@ class DistWorkerCleaner {
     private CompletableFuture<Void> doGC(String storeId) {
         Collection<KVRangeSetting> rangeSettingList =
             findByBoundary(FULL_BOUNDARY, distWorkerClient.latestEffectiveRouter());
-        rangeSettingList.removeIf(rangeSetting -> !rangeSetting.leader().equals(storeId));
         long reqId = HLC.INST.getPhysical();
-        List<CompletableFuture<GCReply>> replyFutures = rangeSettingList.stream()
+        List<CompletableFuture<Void>> replyFutures = rangeSettingList.stream()
+            .filter(rangeSetting -> rangeSetting.leader().equals(storeId))
             .map(rangeSetting -> doGC(reqId, rangeSetting))
             .toList();
+        log.debug("[DistWorker] start gc: reqId={}, rangeCount={}", reqId, replyFutures.size());
         return CompletableFuture.allOf(replyFutures.toArray(new CompletableFuture[0]))
-            .exceptionally(e -> {
-                log.debug("[DistWorker] gc failed: {}", e.getMessage());
-                return null;
+            .whenComplete((v, e) -> {
+                if (e != null) {
+                    log.debug("[DistWorker] gc failed: reqId={}", reqId, e);
+                } else {
+                    log.debug("[DistWorker] gc finished: reqId={}", reqId);
+                }
             });
     }
 
-    private CompletableFuture<GCReply> doGC(long reqId, KVRangeSetting rangeSetting) {
-        log.debug("[DistWorker] gc: rangeId={}", KVRangeIdUtil.toString(rangeSetting.id()));
+    private CompletableFuture<Void> doGC(long reqId, KVRangeSetting rangeSetting) {
+        log.debug("[DistWorker] gc running: reqId={}, rangeId={}", reqId, KVRangeIdUtil.toString(rangeSetting.id()));
         return distWorkerClient.query(rangeSetting.leader(), KVRangeRORequest.newBuilder()
                 .setReqId(reqId)
                 .setKvRangeId(rangeSetting.id())
@@ -116,15 +120,20 @@ class DistWorkerCleaner {
                     .build())
                 .build())
             .handle((v, e) -> {
-                switch (v.getCode()) {
-                    case Ok -> {
-                        return v.getRoCoProcResult().getDistService().getGc();
-                    }
-                    case TryLater -> throw new TryLaterException();
-                    case BadVersion -> throw new BadVersionException();
-                    case BadRequest -> throw new BadRequestException();
-                    default -> throw new InternalErrorException();
+                if (e != null) {
+                    log.debug("[DistWorker] gc error: reqId={}, rangeId={}",
+                        reqId, KVRangeIdUtil.toString(rangeSetting.id()), e);
+                    return null;
                 }
+                if (v.getCode() == ReplyCode.Ok) {
+                    log.debug("[DistWorker] gc done: reqId={}, rangeId={}",
+                        reqId, KVRangeIdUtil.toString(rangeSetting.id()));
+                    return null;
+                } else {
+                    log.debug("[DistWorker] gc rejected: reqId={}, rangeId={}, reason={}",
+                        reqId, KVRangeIdUtil.toString(rangeSetting.id()), v.getCode());
+                }
+                return null;
             });
     }
 }

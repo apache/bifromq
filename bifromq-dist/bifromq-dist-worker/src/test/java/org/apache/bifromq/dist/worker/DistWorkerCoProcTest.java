@@ -114,7 +114,7 @@ public class DistWorkerCoProcTest {
         when(reader.iterator()).thenReturn(iterator);
         when(iterator.isValid()).thenReturn(false);
         distWorkerCoProc = new DistWorkerCoProc(rangeId, readerProvider, routeCache, tenantsState, deliverExecutorGroup,
-            subscriptionChecker);
+            subscriptionChecker, 100);
         distWorkerCoProc.reset(FULL_BOUNDARY);
         distWorkerCoProc.onLeader(true);
     }

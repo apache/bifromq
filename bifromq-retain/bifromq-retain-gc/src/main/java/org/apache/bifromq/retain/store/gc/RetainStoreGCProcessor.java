@@ -31,14 +31,12 @@ import java.util.concurrent.CompletableFuture;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.bifromq.basekv.client.IBaseKVStoreClient;
 import org.apache.bifromq.basekv.client.KVRangeSetting;
-import org.apache.bifromq.basekv.client.exception.BadRequestException;
-import org.apache.bifromq.basekv.client.exception.BadVersionException;
 import org.apache.bifromq.basekv.client.exception.InternalErrorException;
 import org.apache.bifromq.basekv.client.exception.TryLaterException;
 import org.apache.bifromq.basekv.proto.Boundary;
 import org.apache.bifromq.basekv.store.proto.KVRangeRWRequest;
 import org.apache.bifromq.basekv.store.proto.RWCoProcInput;
-import org.apache.bifromq.baserpc.client.exception.ServerNotFoundException;
+import org.apache.bifromq.basekv.utils.KVRangeIdUtil;
 import org.apache.bifromq.retain.rpc.proto.GCReply;
 import org.apache.bifromq.retain.rpc.proto.GCRequest;
 import org.apache.bifromq.retain.rpc.proto.RetainServiceRWCoProcInput;
@@ -68,21 +66,11 @@ public class RetainStoreGCProcessor implements IRetainStoreGCProcessor {
             .toArray(CompletableFuture[]::new);
         return CompletableFuture.allOf(gcFutures)
             .thenApply(v -> Arrays.stream(gcFutures).map(CompletableFuture::join).toList())
-            .thenApply(v -> {
-                log.debug("All range gc succeed");
-                return Result.OK;
-            })
+            .thenApply(v -> Result.OK)
             .exceptionally(unwrap(e -> {
-                if (e instanceof ServerNotFoundException) {
-                    return Result.TRY_LATER;
-                }
                 if (e instanceof TryLaterException) {
                     return Result.TRY_LATER;
                 }
-                if (e instanceof BadVersionException) {
-                    return Result.TRY_LATER;
-                }
-                log.error("Some range gc failed", e);
                 return Result.ERROR;
             }));
     }
@@ -92,6 +80,7 @@ public class RetainStoreGCProcessor implements IRetainStoreGCProcessor {
                                                String tenantId,
                                                Integer expirySeconds,
                                                long now) {
+        log.debug("[RetainStore] gc running: reqId={}, rangeId={}", reqId, KVRangeIdUtil.toString(rangeSetting.id()));
         GCRequest.Builder reqBuilder = GCRequest.newBuilder().setReqId(reqId).setNow(now);
         if (tenantId != null) {
             reqBuilder.setTenantId(tenantId);
@@ -112,14 +101,20 @@ public class RetainStoreGCProcessor implements IRetainStoreGCProcessor {
             .thenApply(reply -> {
                 switch (reply.getCode()) {
                     case Ok -> {
-                        log.debug("Range gc succeed: serverId={}, rangeId={}, ver={}",
-                            rangeSetting.leader(), rangeSetting.id(), rangeSetting.ver());
+                        log.debug("[RetainStore] gc done: reqId={}, rangeId={}", reqId,
+                            KVRangeIdUtil.toString(rangeSetting.id()));
                         return reply.getRwCoProcResult().getRetainService().getGc();
                     }
-                    case TryLater -> throw new TryLaterException();
-                    case BadVersion -> throw new BadVersionException();
-                    case BadRequest -> throw new BadRequestException();
-                    default -> throw new InternalErrorException();
+                    case TryLater, BadVersion -> {
+                        log.debug("[DistWorker] gc rejected: reqId={}, rangeId={}, reason={}",
+                            reqId, KVRangeIdUtil.toString(rangeSetting.id()), reply.getCode());
+                        throw new TryLaterException();
+                    }
+                    default -> {
+                        log.debug("[DistWorker] gc error: reqId={}, rangeId={}, reason={}",
+                            reqId, KVRangeIdUtil.toString(rangeSetting.id()), reply.getCode());
+                        throw new InternalErrorException();
+                    }
                 }
             });
     }

@@ -39,7 +39,9 @@ import org.apache.bifromq.plugin.resourcethrottler.IResourceThrottler;
 import org.apache.bifromq.plugin.settingprovider.ISettingProvider;
 import org.apache.bifromq.plugin.subbroker.ISubBrokerManager;
 import org.apache.bifromq.sysprops.props.DistFanOutParallelism;
+import org.apache.bifromq.sysprops.props.DistGCBatchSize;
 import org.apache.bifromq.sysprops.props.DistInlineFanOutThreshold;
+import org.apache.bifromq.sysprops.props.DistWorkerFanOutSplitThreshold;
 
 /**
  * The builder for building Dist Worker.
@@ -69,7 +71,9 @@ public class DistWorkerBuilder {
     Map<String, Struct> balancerFactoryConfig = new HashMap<>();
     Duration loadEstimateWindow = Duration.ofSeconds(5);
     int fanoutParallelism = DistFanOutParallelism.INSTANCE.get();
+    int fanoutSplitThreshold = DistWorkerFanOutSplitThreshold.INSTANCE.get();
     int inlineFanoutThreshold = DistInlineFanOutThreshold.INSTANCE.get();
+    int gcBatchSize = DistGCBatchSize.INSTANCE.get();
     Map<String, String> attributes = new HashMap<>();
 
     public IDistWorker build() {

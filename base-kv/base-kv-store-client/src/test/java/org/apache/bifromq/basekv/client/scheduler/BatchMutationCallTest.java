@@ -27,13 +27,6 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.testng.Assert.assertEquals;
 
-import org.apache.bifromq.basekv.client.IBaseKVStoreClient;
-import org.apache.bifromq.basekv.client.IMutationPipeline;
-import org.apache.bifromq.basekv.proto.KVRangeId;
-import org.apache.bifromq.basekv.store.proto.KVRangeRWReply;
-import org.apache.bifromq.basekv.store.proto.KVRangeRWRequest;
-import org.apache.bifromq.basekv.utils.BoundaryUtil;
-import org.apache.bifromq.basekv.utils.KVRangeIdUtil;
 import com.google.protobuf.ByteString;
 import java.time.Duration;
 import java.util.ArrayList;
@@ -43,7 +36,15 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import lombok.SneakyThrows;
+import org.apache.bifromq.basekv.client.IBaseKVStoreClient;
+import org.apache.bifromq.basekv.client.IMutationPipeline;
+import org.apache.bifromq.basekv.proto.KVRangeId;
+import org.apache.bifromq.basekv.store.proto.KVRangeRWReply;
+import org.apache.bifromq.basekv.store.proto.KVRangeRWRequest;
+import org.apache.bifromq.basekv.utils.BoundaryUtil;
+import org.apache.bifromq.basekv.utils.KVRangeIdUtil;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.MockitoAnnotations;
@@ -137,5 +138,32 @@ public class BatchMutationCallTest {
         CompletableFuture.allOf(futures.toArray(CompletableFuture[]::new)).join();
         // the resp order preserved
         assertEquals(reqList, respList);
+    }
+
+    @Test
+    public void executeManySmallBatchesNoRecursion() {
+        when(storeClient.latestEffectiveRouter()).thenReturn(new TreeMap<>(BoundaryUtil::compare) {
+            {
+                put(FULL_BOUNDARY, setting(id, "V1", 0));
+            }
+        });
+
+        when(storeClient.createMutationPipeline("V1")).thenReturn(mutationPipeline1);
+        AtomicInteger execCount = new AtomicInteger();
+        when(mutationPipeline1.execute(any())).thenAnswer(invocation -> {
+            execCount.incrementAndGet();
+            return CompletableFuture.supplyAsync(KVRangeRWReply::newBuilder)
+                .thenApply(KVRangeRWReply.Builder::build);
+        });
+
+        TestMutationCallScheduler scheduler = new TestMutationCallScheduler(storeClient, Duration.ofMillis(1000));
+        int n = 5000;
+        List<CompletableFuture<Void>> futures = new ArrayList<>();
+        for (int i = 0; i < n; i++) {
+            futures.add(scheduler.schedule(ByteString.copyFromUtf8("k"))
+                .thenAccept(v -> {}));
+        }
+        CompletableFuture.allOf(futures.toArray(CompletableFuture[]::new)).join();
+        assertEquals(execCount.get(), n);
     }
 }

@@ -21,6 +21,13 @@ package org.apache.bifromq.basekv.client.scheduler;
 
 import static org.apache.bifromq.base.util.CompletableFutureUtil.unwrap;
 
+import java.util.ArrayDeque;
+import java.util.Deque;
+import java.util.Iterator;
+import java.util.LinkedList;
+import java.util.Queue;
+import java.util.concurrent.CompletableFuture;
+import lombok.extern.slf4j.Slf4j;
 import org.apache.bifromq.basekv.client.IQueryPipeline;
 import org.apache.bifromq.basekv.client.exception.BadRequestException;
 import org.apache.bifromq.basekv.client.exception.BadVersionException;
@@ -31,20 +38,12 @@ import org.apache.bifromq.basekv.store.proto.ROCoProcInput;
 import org.apache.bifromq.basekv.store.proto.ROCoProcOutput;
 import org.apache.bifromq.basescheduler.IBatchCall;
 import org.apache.bifromq.basescheduler.ICallTask;
-import java.util.ArrayDeque;
-import java.util.Deque;
-import java.util.Iterator;
-import java.util.LinkedList;
-import java.util.Queue;
-import java.util.concurrent.CompletableFuture;
-import lombok.extern.slf4j.Slf4j;
 
 @Slf4j
 public abstract class BatchQueryCall<ReqT, RespT> implements IBatchCall<ReqT, RespT, QueryCallBatcherKey> {
-    private static final int MAX_RECURSION_DEPTH = 100;
     private final QueryCallBatcherKey batcherKey;
     private final IQueryPipeline storePipeline;
-    private final Deque<BatchQueryCall.BatchCallTask<ReqT, RespT>> batchCallTasks = new ArrayDeque<>();
+    private Deque<BatchQueryCall.BatchCallTask<ReqT, RespT>> batchCallTasks = new ArrayDeque<>();
 
     protected BatchQueryCall(IQueryPipeline pipeline, QueryCallBatcherKey batcherKey) {
         this.storePipeline = pipeline;
@@ -73,24 +72,28 @@ public abstract class BatchQueryCall<ReqT, RespT> implements IBatchCall<ReqT, Re
     protected abstract void handleException(ICallTask<ReqT, RespT, QueryCallBatcherKey> callTask, Throwable e);
 
     @Override
-    public void reset() {
-
+    public void reset(boolean abort) {
+        if (abort) {
+            batchCallTasks = new ArrayDeque<>();
+        }
     }
 
     @Override
     public CompletableFuture<Void> execute() {
-        return fireBatchCall(1);
+        return execute(batchCallTasks);
     }
 
-    private CompletableFuture<Void> fireBatchCall(int recursionDepth) {
-        BatchCallTask<ReqT, RespT> batchCallTask = batchCallTasks.poll();
-        if (batchCallTask == null) {
-            return CompletableFuture.completedFuture(null);
+    private CompletableFuture<Void> execute(Deque<BatchQueryCall.BatchCallTask<ReqT, RespT>> batchCallTasks) {
+        CompletableFuture<Void> chained = CompletableFuture.completedFuture(null);
+        BatchCallTask<ReqT, RespT> batchCallTask;
+        while ((batchCallTask = batchCallTasks.poll()) != null) {
+            BatchCallTask<ReqT, RespT> current = batchCallTask;
+            chained = chained.thenCompose(v -> fireSingleBatch(current));
         }
-        return fireBatchCall(batchCallTask, recursionDepth);
+        return chained;
     }
 
-    private CompletableFuture<Void> fireBatchCall(BatchCallTask<ReqT, RespT> batchCallTask, int recursionDepth) {
+    private CompletableFuture<Void> fireSingleBatch(BatchCallTask<ReqT, RespT> batchCallTask) {
         ROCoProcInput input = makeBatch(batchCallTask.batchedTasks.stream().map(ICallTask::call).iterator());
         long reqId = System.nanoTime();
         return storePipeline.query(
@@ -117,15 +120,7 @@ public abstract class BatchQueryCall<ReqT, RespT> implements IBatchCall<ReqT, Re
                     handleOutput(batchCallTask.batchedTasks, v);
                 }
                 return null;
-            }))
-            .thenCompose(v -> {
-                if (recursionDepth < MAX_RECURSION_DEPTH) {
-                    return fireBatchCall(recursionDepth + 1);
-                } else {
-                    return CompletableFuture.supplyAsync(() -> fireBatchCall(1))
-                        .thenCompose(inner -> inner);
-                }
-            });
+            }));
     }
 
     private static class BatchCallTask<ReqT, RespT> {

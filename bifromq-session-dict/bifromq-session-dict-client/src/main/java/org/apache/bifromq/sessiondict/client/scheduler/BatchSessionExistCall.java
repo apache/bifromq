@@ -19,10 +19,10 @@
 
 package org.apache.bifromq.sessiondict.client.scheduler;
 
-import org.apache.bifromq.baserpc.client.IRPCClient;
 import java.util.LinkedList;
 import java.util.concurrent.CompletableFuture;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.bifromq.baserpc.client.IRPCClient;
 import org.apache.bifromq.basescheduler.IBatchCall;
 import org.apache.bifromq.basescheduler.ICallTask;
 import org.apache.bifromq.sessiondict.client.type.OnlineCheckRequest;
@@ -33,7 +33,7 @@ import org.apache.bifromq.sessiondict.rpc.proto.ExistRequest;
 @Slf4j
 class BatchSessionExistCall implements IBatchCall<OnlineCheckRequest, OnlineCheckResult, String> {
     private final IRPCClient.IRequestPipeline<ExistRequest, ExistReply> ppln;
-    private final LinkedList<ICallTask<OnlineCheckRequest, OnlineCheckResult, String>> batchedTasks = new LinkedList<>();
+    private LinkedList<ICallTask<OnlineCheckRequest, OnlineCheckResult, String>> batchedTasks = new LinkedList<>();
 
     public BatchSessionExistCall(IRPCClient.IRequestPipeline<ExistRequest, ExistReply> ppln) {
         this.ppln = ppln;
@@ -45,12 +45,19 @@ class BatchSessionExistCall implements IBatchCall<OnlineCheckRequest, OnlineChec
     }
 
     @Override
-    public void reset() {
-
+    public void reset(boolean abort) {
+        if (abort) {
+            batchedTasks = new LinkedList<>();
+        }
     }
 
     @Override
     public CompletableFuture<Void> execute() {
+        return execute(batchedTasks);
+    }
+
+    private CompletableFuture<Void> execute(
+        LinkedList<ICallTask<OnlineCheckRequest, OnlineCheckResult, String>> batchedTasks) {
         ExistRequest.Builder reqBuilder = ExistRequest.newBuilder().setReqId(System.nanoTime());
         batchedTasks.forEach(task ->
             reqBuilder.addClient(ExistRequest.Client.newBuilder()
@@ -87,4 +94,5 @@ class BatchSessionExistCall implements IBatchCall<OnlineCheckRequest, OnlineChec
                 return null;
             });
     }
+
 }

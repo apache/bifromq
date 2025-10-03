@@ -25,12 +25,6 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.when;
 import static org.testng.Assert.assertEquals;
 
-import org.apache.bifromq.basekv.client.IBaseKVStoreClient;
-import org.apache.bifromq.basekv.client.IQueryPipeline;
-import org.apache.bifromq.basekv.proto.KVRangeId;
-import org.apache.bifromq.basekv.store.proto.KVRangeROReply;
-import org.apache.bifromq.basekv.utils.BoundaryUtil;
-import org.apache.bifromq.basekv.utils.KVRangeIdUtil;
 import com.google.protobuf.ByteString;
 import java.time.Duration;
 import java.util.ArrayList;
@@ -42,6 +36,12 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ThreadLocalRandom;
 import lombok.SneakyThrows;
+import org.apache.bifromq.basekv.client.IBaseKVStoreClient;
+import org.apache.bifromq.basekv.client.IQueryPipeline;
+import org.apache.bifromq.basekv.proto.KVRangeId;
+import org.apache.bifromq.basekv.store.proto.KVRangeROReply;
+import org.apache.bifromq.basekv.utils.BoundaryUtil;
+import org.apache.bifromq.basekv.utils.KVRangeIdUtil;
 import org.mockito.Mock;
 import org.mockito.MockitoAnnotations;
 import org.testng.annotations.AfterMethod;
@@ -137,5 +137,32 @@ public class BatchQueryCallTest {
         assertEquals(reqList2, respList2);
         executor1.shutdown();
         executor2.shutdown();
+    }
+
+    @Test
+    public void executeManySmallBatchesNoRecursion() {
+        when(storeClient.latestEffectiveRouter()).thenReturn(new TreeMap<>(BoundaryUtil::compare) {{
+            put(FULL_BOUNDARY, setting(id, "V1", 0));
+        }});
+        when(storeClient.createLinearizedQueryPipeline("V1")).thenReturn(queryPipeline1);
+
+        when(queryPipeline1.query(any())).thenAnswer(invocation ->
+            CompletableFuture.supplyAsync(KVRangeROReply::newBuilder)
+                .thenApply(KVRangeROReply.Builder::build)
+        );
+
+        TestQueryCallScheduler scheduler = new TestQueryCallScheduler(storeClient, Duration.ofSeconds(1), true);
+        int n = 5000;
+        List<Integer> reqList = new ArrayList<>(n);
+        List<Integer> respList = new CopyOnWriteArrayList<>();
+        List<CompletableFuture<Void>> futures = new ArrayList<>(n);
+        for (int i = 0; i < n; i++) {
+            reqList.add(i);
+            futures.add(scheduler.schedule(ByteString.copyFromUtf8(Integer.toString(i)))
+                .thenAccept(v -> respList.add(Integer.parseInt(v.toStringUtf8()))));
+        }
+        CompletableFuture.allOf(futures.toArray(CompletableFuture[]::new)).join();
+        assertEquals(respList.size(), n);
+        assertEquals(reqList, respList);
     }
 }

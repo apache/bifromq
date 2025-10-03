@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 
 package org.apache.bifromq.basescheduler;
@@ -38,8 +38,10 @@ public interface IBatchCall<ReqT, RespT, BatcherKeyT> {
 
     /**
      * Reset the batch call object to initial state to be reused again.
+     *
+     * @param abort if true, the batch tasks is reset due to abort by caller.
      */
-    void reset();
+    void reset(boolean abort);
 
     /**
      * Execute the async batch call.

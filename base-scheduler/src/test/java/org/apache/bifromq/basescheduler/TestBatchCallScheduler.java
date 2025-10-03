@@ -47,16 +47,18 @@ class TestBatchCallScheduler extends BatchCallScheduler<Integer, Integer, Intege
     }
 
     public static class TestBatchCall implements IBatchCall<Integer, Integer, Integer> {
-        private final Queue<ICallTask<Integer, Integer, Integer>> batch = new ConcurrentLinkedQueue<>();
         private final Duration callDelay;
+        private Queue<ICallTask<Integer, Integer, Integer>> batch = new ConcurrentLinkedQueue<>();
 
         public TestBatchCall(Duration callDelay) {
             this.callDelay = callDelay;
         }
 
         @Override
-        public void reset() {
-            batch.clear();
+        public void reset(boolean abort) {
+            if (abort) {
+                batch = new ConcurrentLinkedQueue<>();
+            }
         }
 
         @Override

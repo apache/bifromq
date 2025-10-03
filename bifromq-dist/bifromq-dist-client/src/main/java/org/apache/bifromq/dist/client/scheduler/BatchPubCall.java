@@ -20,6 +20,7 @@
 package org.apache.bifromq.dist.client.scheduler;
 
 import java.util.ArrayDeque;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.Map;
@@ -38,8 +39,8 @@ import org.apache.bifromq.type.PublisherMessagePack;
 @Slf4j
 class BatchPubCall implements IBatchCall<PubRequest, PubResult, PubCallBatcherKey> {
     private final IRPCClient.IRequestPipeline<DistRequest, DistReply> ppln;
-    private final Queue<ICallTask<PubRequest, PubResult, PubCallBatcherKey>> tasks = new ArrayDeque<>(64);
-    private final Map<ClientInfo, Map<String, PublisherMessagePack.TopicPack.Builder>> clientMsgPack = new HashMap<>(
+    private Queue<ICallTask<PubRequest, PubResult, PubCallBatcherKey>> tasks = new ArrayDeque<>(64);
+    private Map<ClientInfo, Map<String, PublisherMessagePack.TopicPack.Builder>> clientMsgPack = new HashMap<>(
         128);
 
     BatchPubCall(IRPCClient.IRequestPipeline<DistRequest, DistReply> ppln) {
@@ -47,7 +48,11 @@ class BatchPubCall implements IBatchCall<PubRequest, PubResult, PubCallBatcherKe
     }
 
     @Override
-    public void reset() {
+    public void reset(boolean abort) {
+        if (abort) {
+            tasks = new ArrayDeque<>(64);
+            clientMsgPack = new HashMap<>(128);
+        }
     }
 
     @Override
@@ -61,6 +66,11 @@ class BatchPubCall implements IBatchCall<PubRequest, PubResult, PubCallBatcherKe
 
     @Override
     public CompletableFuture<Void> execute() {
+        return execute(tasks, clientMsgPack);
+    }
+
+    private CompletableFuture<Void> execute(Queue<ICallTask<PubRequest, PubResult, PubCallBatcherKey>> tasks,
+                                            Map<ClientInfo, Map<String, PublisherMessagePack.TopicPack.Builder>> clientMsgPack) {
         DistRequest.Builder requestBuilder = DistRequest.newBuilder().setReqId(System.nanoTime());
         Iterator<Map.Entry<ClientInfo, Map<String, PublisherMessagePack.TopicPack.Builder>>> itr =
             clientMsgPack.entrySet().iterator();
@@ -87,26 +97,35 @@ class BatchPubCall implements IBatchCall<PubRequest, PubResult, PubCallBatcherKe
                 } else {
                     switch (reply.getCode()) {
                         case OK -> {
-                            Map<ClientInfo, Map<String, Integer>> fanoutResultMap = new HashMap<>();
-                            for (int i = 0; i < request.getMessagesCount(); i++) {
-                                PublisherMessagePack pubMsgPack = request.getMessages(i);
-                                DistReply.DistResult result = reply.getResults(i);
-                                fanoutResultMap.put(pubMsgPack.getPublisher(), result.getTopicMap());
-                            }
-
-                            ICallTask<PubRequest, PubResult, PubCallBatcherKey> task;
-                            while ((task = tasks.poll()) != null) {
-                                Integer fanOut = fanoutResultMap.get(task.call().publisher).get(task.call().topic);
-                                if (fanOut == null) {
-                                    // should not happen
-                                    log.error("Illegal state: no dist result for topic: {}", task.call().topic);
-                                    fanOut = 0;
+                            try {
+                                Map<ClientInfo, Map<String, Integer>> fanoutResultMap = new HashMap<>();
+                                for (int i = 0; i < request.getMessagesCount(); i++) {
+                                    PublisherMessagePack pubMsgPack = request.getMessages(i);
+                                    DistReply.DistResult result = reply.getResults(i);
+                                    fanoutResultMap.put(pubMsgPack.getPublisher(), result.getTopicMap());
                                 }
-                                switch (fanOut) {
-                                    case -2 -> task.resultPromise().complete(PubResult.ERROR);
-                                    case -1 -> task.resultPromise().complete(PubResult.TRY_LATER);
-                                    case 0 -> task.resultPromise().complete(PubResult.NO_MATCH);
-                                    default -> task.resultPromise().complete(PubResult.OK);
+
+                                ICallTask<PubRequest, PubResult, PubCallBatcherKey> task;
+                                while ((task = tasks.poll()) != null) {
+                                    Integer fanOut = fanoutResultMap.getOrDefault(task.call().publisher,
+                                        Collections.emptyMap()).get(task.call().topic);
+                                    if (fanOut == null) {
+                                        // should not happen
+                                        log.warn("Illegal state: no dist result for topic: {}", task.call().topic);
+                                        fanOut = 0;
+                                    }
+                                    switch (fanOut) {
+                                        case -2 -> task.resultPromise().complete(PubResult.ERROR);
+                                        case -1 -> task.resultPromise().complete(PubResult.TRY_LATER);
+                                        case 0 -> task.resultPromise().complete(PubResult.NO_MATCH);
+                                        default -> task.resultPromise().complete(PubResult.OK);
+                                    }
+                                }
+                            } catch (Throwable t) {
+                                log.error("Unexpected exception", t);
+                                ICallTask<PubRequest, PubResult, PubCallBatcherKey> task;
+                                while ((task = tasks.poll()) != null) {
+                                    task.resultPromise().complete(PubResult.ERROR);
                                 }
                             }
                         }

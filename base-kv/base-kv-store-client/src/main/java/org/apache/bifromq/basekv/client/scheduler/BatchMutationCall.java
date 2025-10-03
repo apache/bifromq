@@ -21,6 +21,12 @@ package org.apache.bifromq.basekv.client.scheduler;
 
 import static org.apache.bifromq.base.util.CompletableFutureUtil.unwrap;
 
+import java.util.ArrayDeque;
+import java.util.Deque;
+import java.util.LinkedList;
+import java.util.Queue;
+import java.util.concurrent.CompletableFuture;
+import lombok.extern.slf4j.Slf4j;
 import org.apache.bifromq.basekv.client.IMutationPipeline;
 import org.apache.bifromq.basekv.client.exception.BadRequestException;
 import org.apache.bifromq.basekv.client.exception.BadVersionException;
@@ -31,19 +37,12 @@ import org.apache.bifromq.basekv.store.proto.RWCoProcInput;
 import org.apache.bifromq.basekv.store.proto.RWCoProcOutput;
 import org.apache.bifromq.basescheduler.IBatchCall;
 import org.apache.bifromq.basescheduler.ICallTask;
-import java.util.ArrayDeque;
-import java.util.Deque;
-import java.util.LinkedList;
-import java.util.Queue;
-import java.util.concurrent.CompletableFuture;
-import lombok.extern.slf4j.Slf4j;
 
 @Slf4j
 public abstract class BatchMutationCall<ReqT, RespT> implements IBatchCall<ReqT, RespT, MutationCallBatcherKey> {
-    private static final int MAX_RECURSION_DEPTH = 100;
     protected final MutationCallBatcherKey batcherKey;
     private final IMutationPipeline storePipeline;
-    private final Deque<MutationCallTaskBatch<ReqT, RespT>> batchCallTasks = new ArrayDeque<>();
+    private Deque<MutationCallTaskBatch<ReqT, RespT>> batchCallTasks = new ArrayDeque<>();
 
     protected BatchMutationCall(IMutationPipeline storePipeline, MutationCallBatcherKey batcherKey) {
         this.batcherKey = batcherKey;
@@ -80,25 +79,28 @@ public abstract class BatchMutationCall<ReqT, RespT> implements IBatchCall<ReqT,
     protected abstract void handleException(ICallTask<ReqT, RespT, MutationCallBatcherKey> callTask, Throwable e);
 
     @Override
-    public void reset() {
-
+    public void reset(boolean abort) {
+        if (abort) {
+            batchCallTasks = new ArrayDeque<>();
+        }
     }
 
     @Override
     public CompletableFuture<Void> execute() {
-        return fireBatchCall(1);
+        return execute(batchCallTasks);
     }
 
-    private CompletableFuture<Void> fireBatchCall(int recursionDepth) {
-        MutationCallTaskBatch<ReqT, RespT> batchCallTask = batchCallTasks.poll();
-        if (batchCallTask == null) {
-            return CompletableFuture.completedFuture(null);
+    private CompletableFuture<Void> execute(Deque<MutationCallTaskBatch<ReqT, RespT>> batchCallTasks) {
+        CompletableFuture<Void> chained = CompletableFuture.completedFuture(null);
+        MutationCallTaskBatch<ReqT, RespT> batchCallTask;
+        while ((batchCallTask = batchCallTasks.poll()) != null) {
+            MutationCallTaskBatch<ReqT, RespT> current = batchCallTask;
+            chained = chained.thenCompose(v -> fireSingleBatch(current));
         }
-        return fireBatchCall(batchCallTask, recursionDepth);
+        return chained;
     }
 
-    private CompletableFuture<Void> fireBatchCall(MutationCallTaskBatch<ReqT, RespT> batchCallTask,
-                                                  int recursionDepth) {
+    private CompletableFuture<Void> fireSingleBatch(MutationCallTaskBatch<ReqT, RespT> batchCallTask) {
         RWCoProcInput input = makeBatch(batchCallTask.batchedTasks);
         long reqId = System.nanoTime();
         return storePipeline
@@ -129,15 +131,7 @@ public abstract class BatchMutationCall<ReqT, RespT> implements IBatchCall<ReqT,
                     handleOutput(batchCallTask.batchedTasks, v);
                 }
                 return null;
-            }))
-            .thenCompose(v -> {
-                if (recursionDepth < MAX_RECURSION_DEPTH) {
-                    return fireBatchCall(recursionDepth + 1);
-                } else {
-                    return CompletableFuture.supplyAsync(() -> fireBatchCall(1))
-                        .thenCompose(inner -> inner);
-                }
-            });
+            }));
     }
 
     protected static class MutationCallTaskBatch<CallT, CallResultT> {

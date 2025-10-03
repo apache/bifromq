@@ -53,8 +53,8 @@ class BatchDeliveryCall implements IBatchCall<DeliveryCall, DeliveryCallResult, 
     private final IDistClient distClient;
     private final IDeliverer deliverer;
     private final DelivererKey batcherKey;
-    private final Queue<ICallTask<DeliveryCall, DeliveryCallResult, DelivererKey>> tasks = new ArrayDeque<>(128);
-    private final Map<String, Map<TopicMessagePackHolder, Set<MatchInfo>>> batch = new HashMap<>(128);
+    private Queue<ICallTask<DeliveryCall, DeliveryCallResult, DelivererKey>> tasks = new ArrayDeque<>(128);
+    private Map<String, Map<TopicMessagePackHolder, Set<MatchInfo>>> batch = new HashMap<>(128);
 
     BatchDeliveryCall(IDistClient distClient, IDeliverer deliverer, DelivererKey batcherKey) {
         this.distClient = distClient;
@@ -63,7 +63,11 @@ class BatchDeliveryCall implements IBatchCall<DeliveryCall, DeliveryCallResult, 
     }
 
     @Override
-    public void reset() {
+    public void reset(boolean abort) {
+        if (abort) {
+            tasks = new ArrayDeque<>(128);
+            batch = new HashMap<>(128);
+        }
     }
 
     @Override
@@ -76,6 +80,11 @@ class BatchDeliveryCall implements IBatchCall<DeliveryCall, DeliveryCallResult, 
 
     @Override
     public CompletableFuture<Void> execute() {
+        return execute(tasks, batch);
+    }
+
+    private CompletableFuture<Void> execute(Queue<ICallTask<DeliveryCall, DeliveryCallResult, DelivererKey>> tasks,
+                                            Map<String, Map<TopicMessagePackHolder, Set<MatchInfo>>> batch) {
         DeliveryRequest.Builder requestBuilder = DeliveryRequest.newBuilder();
         Iterator<Map.Entry<String, Map<TopicMessagePackHolder, Set<MatchInfo>>>> itr = batch.entrySet().iterator();
         while (itr.hasNext()) {
@@ -92,10 +101,11 @@ class BatchDeliveryCall implements IBatchCall<DeliveryCall, DeliveryCallResult, 
             itr.remove();
         }
         DeliveryRequest request = requestBuilder.build();
-        return execute(request);
+        return execute(request, tasks);
     }
 
-    private CompletableFuture<Void> execute(DeliveryRequest request) {
+    private CompletableFuture<Void> execute(DeliveryRequest request,
+                                            Queue<ICallTask<DeliveryCall, DeliveryCallResult, DelivererKey>> tasks) {
         return deliverer.deliver(request)
             .exceptionally(e -> {
                 log.error("Unexpected exception", e);

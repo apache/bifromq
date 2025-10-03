@@ -61,10 +61,10 @@ class BatchDistServerCall implements IBatchCall<TenantPubRequest, Map<String, In
     private final IBaseKVStoreClient distWorkerClient;
     private final DistServerCallBatcherKey batcherKey;
     private final String orderKey;
-    private final Queue<ICallTask<TenantPubRequest, Map<String, Integer>, DistServerCallBatcherKey>> tasks =
-        new ArrayDeque<>();
-    private final Map<String, Map<ClientInfo, Iterable<Message>>> batch = new HashMap<>(128);
     private final TenantRangeLookupCache lookupCache;
+    private Queue<ICallTask<TenantPubRequest, Map<String, Integer>, DistServerCallBatcherKey>> tasks =
+        new ArrayDeque<>();
+    private Map<String, Map<ClientInfo, Iterable<Message>>> batch = new HashMap<>(128);
 
     BatchDistServerCall(IBaseKVStoreClient distWorkerClient,
                         DistServerCallBatcherKey batcherKey,
@@ -91,13 +91,24 @@ class BatchDistServerCall implements IBatchCall<TenantPubRequest, Map<String, In
     }
 
     @Override
-    public void reset() {
-        batch.clear();
+    public void reset(boolean abort) {
+        if (abort) {
+            tasks = new ArrayDeque<>();
+            batch = new HashMap<>(128);
+        } else {
+            batch.clear();
+        }
     }
 
     @Override
     public CompletableFuture<Void> execute() {
-        Map<KVRangeSetting, Set<String>> topicsByRange = rangeLookup();
+        return execute(tasks, batch);
+    }
+
+    private CompletableFuture<Void> execute(
+        Queue<ICallTask<TenantPubRequest, Map<String, Integer>, DistServerCallBatcherKey>> tasks,
+        Map<String, Map<ClientInfo, Iterable<Message>>> batch) {
+        Map<KVRangeSetting, Set<String>> topicsByRange = rangeLookup(batch);
         if (topicsByRange.isEmpty()) {
             // no candidate range
             ICallTask<TenantPubRequest, Map<String, Integer>, DistServerCallBatcherKey> task;
@@ -109,13 +120,15 @@ class BatchDistServerCall implements IBatchCall<TenantPubRequest, Map<String, In
             }
             return CompletableFuture.completedFuture(null);
         } else {
-            return parallelDist(topicsByRange);
+            return parallelDist(topicsByRange, tasks, batch);
         }
     }
 
-    private CompletableFuture<Void> parallelDist(Map<KVRangeSetting, Set<String>> topicsByRange) {
+    private CompletableFuture<Void> parallelDist(Map<KVRangeSetting, Set<String>> topicsByRange,
+                                                 Queue<ICallTask<TenantPubRequest, Map<String, Integer>, DistServerCallBatcherKey>> tasks,
+                                                 Map<String, Map<ClientInfo, Iterable<Message>>> batch) {
         long reqId = System.nanoTime();
-        Collection<ReplicaBatch> replicaBatches = replicaSelect(topicsByRange);
+        Collection<ReplicaBatch> replicaBatches = replicaSelect(topicsByRange, batch);
         Map<CompletableFuture<KVRangeROReply>, ReplicaBatch> rangeQueryReplies = replicaBatches.stream()
             .collect(Collectors.toMap(entry -> {
                 KVRangeReplica rangeReplica = entry.replica;
@@ -166,7 +179,7 @@ class BatchDistServerCall implements IBatchCall<TenantPubRequest, Map<String, In
             .thenAccept(v -> {
                 Map<String, Integer> allFanOutByTopic = new HashMap<>();
                 for (CompletableFuture<KVRangeROReply> replyFuture : rangeQueryReplies.keySet()) {
-                    ReplicaBatch batch = rangeQueryReplies.get(replyFuture);
+                    ReplicaBatch replicaBatch = rangeQueryReplies.get(replyFuture);
                     KVRangeROReply reply = replyFuture.join();
                     switch (reply.getCode()) {
                         case Ok -> {
@@ -192,12 +205,12 @@ class BatchDistServerCall implements IBatchCall<TenantPubRequest, Map<String, In
                             }
                         }
                         case BadVersion, TryLater -> {
-                            for (String topic : batch.msgBatch.keySet()) {
+                            for (String topic : replicaBatch.msgBatch.keySet()) {
                                 allFanOutByTopic.put(topic, -1); // need retry
                             }
                         }
                         default -> {
-                            for (String topic : batch.msgBatch.keySet()) {
+                            for (String topic : replicaBatch.msgBatch.keySet()) {
                                 allFanOutByTopic.put(topic, -2); // error
                             }
                         }
@@ -217,7 +230,7 @@ class BatchDistServerCall implements IBatchCall<TenantPubRequest, Map<String, In
             });
     }
 
-    private Map<KVRangeSetting, Set<String>> rangeLookup() {
+    private Map<KVRangeSetting, Set<String>> rangeLookup(Map<String, Map<ClientInfo, Iterable<Message>>> batch) {
         NavigableMap<Boundary, KVRangeSetting> effectiveRouter = distWorkerClient.latestEffectiveRouter();
         Map<KVRangeSetting, Set<String>> topicsByRange = new HashMap<>();
         for (String topic : batch.keySet()) {
@@ -229,7 +242,8 @@ class BatchDistServerCall implements IBatchCall<TenantPubRequest, Map<String, In
         return topicsByRange;
     }
 
-    private Collection<ReplicaBatch> replicaSelect(Map<KVRangeSetting, Set<String>> topicsByRange) {
+    private Collection<ReplicaBatch> replicaSelect(Map<KVRangeSetting, Set<String>> topicsByRange,
+                                                   Map<String, Map<ClientInfo, Iterable<Message>>> batch) {
         Map<KVRangeReplica, ReplicaBatch> batchByReplica = new LinkedHashMap<>(); // preserve insertion order
         for (KVRangeSetting rangeSetting : topicsByRange.keySet()) {
             Map<String, Map<ClientInfo, Iterable<Message>>> rangeBatch = new HashMap<>();

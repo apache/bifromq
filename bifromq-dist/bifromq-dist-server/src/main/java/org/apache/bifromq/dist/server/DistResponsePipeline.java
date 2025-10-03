@@ -85,6 +85,7 @@ class DistResponsePipeline extends ResponsePipeline<DistRequest, DistReply> {
                     }
                 } else {
                     int totalFanout = 0;
+                    replyBuilder.setCode(DistReply.Code.OK);
                     for (PublisherMessagePack publisherMsgPack : request.getMessagesList()) {
                         DistReply.DistResult.Builder resultBuilder = DistReply.DistResult.newBuilder();
                         for (PublisherMessagePack.TopicPack topicPack : publisherMsgPack.getMessagePackList()) {
@@ -99,7 +100,7 @@ class DistResponsePipeline extends ResponsePipeline<DistRequest, DistReply> {
                                 }
                             }
                         }
-                        replyBuilder.setCode(DistReply.Code.OK).addResults(resultBuilder.build());
+                        replyBuilder.addResults(resultBuilder.build());
                     }
                     eventCollector.report(getLocal(Disted.class)
                         .reqId(request.getReqId())

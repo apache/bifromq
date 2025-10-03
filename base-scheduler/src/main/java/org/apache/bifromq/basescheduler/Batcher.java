@@ -197,9 +197,13 @@ final class Batcher<CallT, CallResultT, BatcherKeyT> {
                         if (e instanceof TimeoutException) {
                             batchedTasks.forEach(t -> t.resultPromise()
                                 .completeExceptionally(new BackPressureException("Batch Call timeout", e)));
+                            if (!future.isDone()) {
+                                future.cancel(true);
+                            }
                         } else {
                             batchedTasks.forEach(t -> t.resultPromise().completeExceptionally(e));
                         }
+                        returnBatchCall(batchCall, true);
                     } else {
                         long batchCallLatency = execEnd - execBegin;
                         capacityEstimator.record(finalBatchSize, batchCallLatency);
@@ -208,8 +212,8 @@ final class Batcher<CallT, CallResultT, BatcherKeyT> {
                             long callLatency = execEnd - t.ts();
                             batchCallTimer.record(callLatency, TimeUnit.NANOSECONDS);
                         });
+                        returnBatchCall(batchCall, false);
                     }
-                    returnBatchCall(batchCall);
                     pipelineDepth.getAndDecrement();
                     // After each completion, check for shutdown
                     if (state.get() == State.SHUTTING_DOWN) {
@@ -222,7 +226,7 @@ final class Batcher<CallT, CallResultT, BatcherKeyT> {
         } catch (Throwable e) {
             log.error("Batch call failed unexpectedly", e);
             batchedTasks.forEach(t -> t.resultPromise().completeExceptionally(e));
-            returnBatchCall(batchCall);
+            returnBatchCall(batchCall, true);
             pipelineDepth.getAndDecrement();
             if (state.get() == State.SHUTTING_DOWN) {
                 checkShutdownCompletion();
@@ -241,8 +245,8 @@ final class Batcher<CallT, CallResultT, BatcherKeyT> {
         return batchCall;
     }
 
-    private void returnBatchCall(IBatchCall<CallT, CallResultT, BatcherKeyT> batchCall) {
-        batchCall.reset();
+    private void returnBatchCall(IBatchCall<CallT, CallResultT, BatcherKeyT> batchCall, boolean abort) {
+        batchCall.reset(abort);
         batchPool.offer(batchCall);
     }
 

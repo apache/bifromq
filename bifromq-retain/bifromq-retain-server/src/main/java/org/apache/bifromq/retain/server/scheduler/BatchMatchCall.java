@@ -64,11 +64,10 @@ class BatchMatchCall implements IBatchCall<MatchRetainedRequest, MatchRetainedRe
     private final MatchCallBatcherKey batcherKey;
     private final IBaseKVStoreClient retainStoreClient;
     private final ISettingProvider settingProvider;
-    private final Queue<ICallTask<MatchRetainedRequest, MatchRetainedResult, MatchCallBatcherKey>> tasks =
+    private Queue<ICallTask<MatchRetainedRequest, MatchRetainedResult, MatchCallBatcherKey>> tasks =
         new ArrayDeque<>(128);
-    private final Set<String> nonWildcardTopicFilters = new HashSet<>(128);
-    private final Set<String> wildcardTopicFilters = new HashSet<>(128);
-
+    private Set<String> nonWildcardTopicFilters = new HashSet<>(128);
+    private Set<String> wildcardTopicFilters = new HashSet<>(128);
 
     BatchMatchCall(MatchCallBatcherKey batcherKey, IBaseKVStoreClient retainStoreClient,
                    ISettingProvider settingProvider) {
@@ -88,13 +87,26 @@ class BatchMatchCall implements IBatchCall<MatchRetainedRequest, MatchRetainedRe
     }
 
     @Override
-    public void reset() {
-        nonWildcardTopicFilters.clear();
-        wildcardTopicFilters.clear();
+    public void reset(boolean abort) {
+        if (abort) {
+            tasks = new ArrayDeque<>(128);
+            nonWildcardTopicFilters = new HashSet<>(128);
+            wildcardTopicFilters = new HashSet<>(128);
+        } else {
+            nonWildcardTopicFilters.clear();
+            wildcardTopicFilters.clear();
+        }
     }
 
     @Override
     public CompletableFuture<Void> execute() {
+        return execute(tasks, nonWildcardTopicFilters, wildcardTopicFilters);
+    }
+
+    private CompletableFuture<Void> execute(
+        Queue<ICallTask<MatchRetainedRequest, MatchRetainedResult, MatchCallBatcherKey>> tasks,
+        Set<String> nonWildcardTopicFilters,
+        Set<String> wildcardTopicFilters) {
         long now = HLC.INST.getPhysical();
         long reqId = System.nanoTime();
         NavigableMap<Boundary, KVRangeSetting> effectiveRouter = retainStoreClient.latestEffectiveRouter();

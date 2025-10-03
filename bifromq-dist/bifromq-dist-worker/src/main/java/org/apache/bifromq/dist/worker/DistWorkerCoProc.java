@@ -518,9 +518,11 @@ class DistWorkerCoProc implements IKVRangeCoProc {
             return CompletableFuture.completedFuture(BatchDistReply.newBuilder().setReqId(request.getReqId()).build());
         }
         List<CompletableFuture<Void>> distFutures = new LinkedList<>();
-        ConcurrentMap<String, TopicFanout.Builder> tenantTopicFanOuts = new ConcurrentHashMap<>();
+        ConcurrentMap<String, Map<String, AtomicInteger>> tenantTopicFanOuts = new ConcurrentHashMap<>();
         for (DistPack distPack : distPackList) {
             String tenantId = distPack.getTenantId();
+            Map<String, AtomicInteger> topicFanouts = tenantTopicFanOuts.computeIfAbsent(tenantId,
+                (k) -> new ConcurrentHashMap<>());
             ByteString tenantStartKey = tenantBeginKey(tenantId);
             Boundary tenantBoundary = intersect(toBoundary(tenantStartKey, upperBound(tenantStartKey)), boundary);
             if (isNULLRange(tenantBoundary)) {
@@ -528,16 +530,11 @@ class DistWorkerCoProc implements IKVRangeCoProc {
             }
             for (TopicMessagePack topicMsgPack : distPack.getMsgPackList()) {
                 String topic = topicMsgPack.getTopic();
+                AtomicInteger fanout = topicFanouts.computeIfAbsent(topic, k -> new AtomicInteger());
                 distFutures.add(routeCache.get(tenantId, topic)
                     .thenAccept(routes -> {
                         deliverExecutorGroup.submit(tenantId, routes, topicMsgPack);
-                        tenantTopicFanOuts.compute(tenantId, (k, v) -> {
-                            if (v == null) {
-                                v = TopicFanout.newBuilder();
-                            }
-                            v.putFanout(topic, routes.size());
-                            return v;
-                        });
+                        fanout.addAndGet(routes.size());
                     }));
             }
         }
@@ -546,7 +543,9 @@ class DistWorkerCoProc implements IKVRangeCoProc {
                 // tenantId -> topic -> fanOut
                 BatchDistReply.Builder replyBuilder = BatchDistReply.newBuilder().setReqId(request.getReqId());
                 tenantTopicFanOuts.forEach((k, f) -> {
-                    replyBuilder.putResult(k, f.build());
+                    TopicFanout.Builder fanoutBuilder = TopicFanout.newBuilder();
+                    f.forEach((topic, count) -> fanoutBuilder.putFanout(topic, count.get()));
+                    replyBuilder.putResult(k, fanoutBuilder.build());
                 });
                 return replyBuilder.build();
             });

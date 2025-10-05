@@ -25,8 +25,6 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicReferenceFieldUpdater;
 import lombok.ToString;
-import org.pcollections.HashTreePMap;
-import org.pcollections.PMap;
 
 /**
  * The topic level trie supporting concurrent update and lookup.
@@ -46,25 +44,25 @@ public abstract class TopicLevelTrie<V> {
     protected V add(List<String> topicLevels, V value) {
         while (true) {
             INode<V> r = root();
-            if (insert(r, null, topicLevels, value)) {
+            if (insert(r, null, null, topicLevels, value)) {
                 return value;
             }
         }
     }
 
-    private boolean insert(INode<V> i, INode<V> parent, List<String> topicLevels, V value) {
+    private boolean insert(INode<V> i, INode<V> parent, String keyFromParent, List<String> topicLevels, V value) {
         // LPoint
         MainNode<V> main = i.main();
         if (main.cNode != null) {
             CNode<V> cn = main.cNode;
-            Branch<V> br = cn.branches.get(topicLevels.get(0));
+            Branch<V> br = cn.branches().get(topicLevels.get(0));
             if (br == null) {
                 MainNode<V> newMain = new MainNode<>(cn.inserted(topicLevels, value));
                 return i.cas(main, newMain);
             } else {
                 if (topicLevels.size() > 1) {
                     if (br.iNode != null) {
-                        return insert(br.iNode, i, topicLevels.subList(1, topicLevels.size()), value);
+                        return insert(br.iNode, i, topicLevels.get(0), topicLevels.subList(1, topicLevels.size()), value);
                     }
                     INode<V> nin = new INode<>(
                         new MainNode<>(new CNode<>(topicLevels.subList(1, topicLevels.size()), value)));
@@ -79,7 +77,13 @@ public abstract class TopicLevelTrie<V> {
                 return i.cas(main, newMain);
             }
         } else if (main.tNode != null) {
-            clean(parent);
+            if (parent != null) {
+                if (keyFromParent != null) {
+                    clean(parent, keyFromParent);
+                } else {
+                    clean(parent);
+                }
+            }
             return false;
         }
         throw new IllegalStateException("TopicLevelTrie is in an invalid state");
@@ -106,7 +110,7 @@ public abstract class TopicLevelTrie<V> {
         if (main.cNode != null) {
             CNode<V> cn = main.cNode;
             String key = topicLevels.get(levelIndex);
-            Branch<V> br = cn.branches.get(key);
+            Branch<V> br = cn.branches().get(key);
             if (br == null) {
                 return true;
             } else {
@@ -130,7 +134,13 @@ public abstract class TopicLevelTrie<V> {
                 return false;
             }
         } else if (main.tNode != null) {
-            clean(parent);
+            if (parent != null) {
+                if (top != null && top.keyFromParent != null) {
+                    clean(parent, top.keyFromParent);
+                } else {
+                    clean(parent);
+                }
+            }
             return false;
         }
         throw new IllegalStateException("TopicLevelTrie is in an invalid state");
@@ -146,8 +156,9 @@ public abstract class TopicLevelTrie<V> {
                 break;
             }
             Frame<V> gpF = parentF.prev;
+            String branchTopicLevel = gpF == null ? childF.keyFromParent : parentF.keyFromParent;
             cleanParent(childF.node, parentF.node, gpF == null ? null : gpF.node,
-                childF.keyFromParent, parentF.keyFromParent);
+                childF.keyFromParent, branchTopicLevel);
 
             MainNode<V> pAfter = parentF.node.main();
             if (pAfter.tNode != null) {
@@ -191,7 +202,7 @@ public abstract class TopicLevelTrie<V> {
         if (main.cNode != null) {
             CNode<V> cn = main.cNode;
             Map<Branch<V>, BranchSelector.Action> branches =
-                branchSelector.selectBranch(cn.branches, topicLevels, currentLevel);
+                branchSelector.selectBranch(cn.branches(), topicLevels, currentLevel);
 
             // Flatten union: accumulate into a mutable set to avoid deep SetView chains
             Set<V> values = new HashSet<>();
@@ -224,19 +235,22 @@ public abstract class TopicLevelTrie<V> {
             }
             return new LookupResult<>(values, true);
         } else if (main.tNode != null) {
-            clean(parent);
+            if (parent != null) {
+                clean(parent);
+            }
             return new LookupResult<>(null, false);
         }
         throw new IllegalStateException("TopicLevelTrie is in an invalid state");
     }
 
+    // visible for testing
     @SuppressWarnings("unchecked")
-    private INode<V> root() {
+    INode<V> root() {
         return ROOT_UPDATER.get(this);
     }
 
     private MainNode<V> toContracted(CNode<V> cn, INode<V> parent) {
-        if (root() != parent && cn.branches.isEmpty()) {
+        if (root() != parent && cn.branchCount() == 0) {
             return new MainNode<>(new TNode());
         }
         return new MainNode<>(cn);
@@ -245,8 +259,26 @@ public abstract class TopicLevelTrie<V> {
     private void clean(INode<V> i) {
         MainNode<V> main = i.main();
         if (main.cNode != null) {
-            MainNode<V> compressed = toCompressed(main.cNode);
-            i.cas(main, toContracted(compressed.cNode, i));
+            // Avoid redundant CAS when there is no structural change
+            CNode<V> compressedCNode = toCompressed(main.cNode);
+            boolean unchanged = compressedCNode == main.cNode;
+            boolean isRoot = root() == i;
+            if (unchanged && (isRoot || compressedCNode.branchCount() != 0)) {
+                return; // no-op: keep structure untouched
+            }
+            i.cas(main, toContracted(compressedCNode, i));
+        }
+    }
+
+    // Clean with key hint: only attempt to trim the specified branch under i
+    private void clean(INode<V> i, String onlyKey) {
+        MainNode<V> main = i.main();
+        if (main.cNode != null) {
+            CNode<V> compressed = toCompressed(main.cNode, onlyKey);
+            if (compressed == main.cNode) {
+                return; // nothing to trim for this key
+            }
+            i.cas(main, toContracted(compressed, i));
         }
     }
 
@@ -254,57 +286,85 @@ public abstract class TopicLevelTrie<V> {
                              INode<V> parent,
                              INode<V> grandparent,
                              String topicLevel,
-                             String parentTopicLevel) {
+                             String branchTopicLevel) {
         while (true) {
             MainNode<V> main = i.main();
             MainNode<V> pMain = parent.main();
             if (pMain.cNode == null) {
                 return;
             }
-            Branch<V> br = pMain.cNode.branches.get(topicLevel);
+            Branch<V> br = pMain.cNode.branches().get(topicLevel);
             if (br == null || br.iNode != i || main.tNode == null) {
                 return;
             }
-            if (contract(grandparent, parent, pMain, parentTopicLevel)) {
+            if (contract(i, grandparent, parent, pMain, topicLevel, branchTopicLevel)) {
                 return;
             }
         }
     }
 
-    private boolean contract(INode<V> grandparent, INode<V> parent, MainNode<V> pMain, String parentTopicLevel) {
-        MainNode<V> compressed = toCompressed(pMain.cNode);
-        if (compressed.cNode.branches.isEmpty() && grandparent != null) {
+    private boolean contract(INode<V> child,
+                             INode<V> grandparent,
+                             INode<V> parent,
+                             MainNode<V> pMain,
+                             String topicLevel,
+                             String branchTopicLevel) {
+        CNode<V> compressedCNode = toCompressed(pMain.cNode);
+        if (compressedCNode.branchCount() == 0 && grandparent != null) {
             MainNode<V> ppMain = grandparent.main();
             if (ppMain.cNode == null) {
                 return true;
             }
-            Branch<V> parentBr = ppMain.cNode.branches.get(parentTopicLevel);
+            Branch<V> parentBr = ppMain.cNode.branches().get(branchTopicLevel);
             if (parentBr == null || parentBr.iNode != parent) {
                 return true;
             }
-            CNode<V> updated = ppMain.cNode.updatedBranch(parentTopicLevel, null, parentBr);
-            MainNode<V> gpNew = toContracted(toCompressed(updated).cNode, grandparent);
+            CNode<V> updated = ppMain.cNode.updatedBranch(branchTopicLevel, null, parentBr);
+            MainNode<V> gpNew = toContracted(toCompressed(updated, branchTopicLevel), grandparent);
             return grandparent.cas(ppMain, gpNew);
-        } else {
-            Runnable hook = TestHook.beforeParentContractCas;
-            if (hook != null) {
-                hook.run();
-            }
-            return parent.cas(pMain, toContracted(compressed.cNode, parent));
         }
+        // Always detach child TNode from parent at the branch `topicLevel`.
+        // This prevents leaving an INode(TNode) zombie reference when parent still has values.
+        Branch<V> targetBranch = pMain.cNode.branches().get(topicLevel);
+        if (targetBranch == null) {
+            return true; // stale; let outer loop retry
+        }
+        if (targetBranch.iNode != child) {
+            return true; // child replaced concurrently; retry
+        }
+        CNode<V> targetCNode = toCompressed(pMain.cNode.updatedBranch(topicLevel, null, targetBranch), topicLevel);
+        Runnable hook = TestHook.beforeParentContractCas;
+        if (hook != null) {
+            hook.run();
+        }
+        return parent.cas(pMain, toContracted(targetCNode, parent));
     }
 
-    private MainNode<V> toCompressed(CNode<V> cn) {
-        PMap<String, Branch<V>> branches = HashTreePMap.empty();
-        for (Map.Entry<String, Branch<V>> entry : cn.branches.entrySet()) {
-            if (!couldTrim(entry.getValue())) {
-                branches = branches.plus(entry.getKey(), entry.getValue());
+    private CNode<V> toCompressed(CNode<V> cn) {
+        BranchTable<V> table = cn.table;
+        boolean changed = false;
+        for (Map.Entry<String, Branch<V>> entry : cn.branches().entrySet()) {
+            if (couldTrim(entry.getValue())) {
+                table = table.minus(entry.getKey());
+                changed = true;
             }
         }
-        return new MainNode<>(new CNode<>(branches));
+        return changed ? new CNode<>(table) : cn;
+    }
+
+    // Compress only the specified key if it becomes trimmable; otherwise return original cn
+    private CNode<V> toCompressed(CNode<V> cn, String onlyKey) {
+        Branch<V> br = cn.branches().get(onlyKey);
+        if (couldTrim(br)) {
+            return new CNode<>(cn.table.minus(onlyKey));
+        }
+        return cn; // unchanged
     }
 
     private boolean couldTrim(Branch<V> br) {
+        if (br == null) {
+            return false;
+        }
         if (!br.values.isEmpty()) {
             return false;
         }

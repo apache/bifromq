@@ -20,11 +20,14 @@
 package org.apache.bifromq.util.index;
 
 import static org.testng.Assert.assertFalse;
+import static org.testng.Assert.assertNotNull;
+import static org.testng.Assert.assertNull;
 import static org.testng.Assert.assertTrue;
 
-import java.lang.reflect.Field;
 import java.util.Arrays;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -86,28 +89,127 @@ public class TopicLevelTrieTest {
         assertTrue(isEmpty(trie));
     }
 
-    private boolean hasZombieBranch(TestTrie trie, String topicLevel) throws Exception {
-        Field rootField = TopicLevelTrie.class.getDeclaredField("root");
-        rootField.setAccessible(true);
-        @SuppressWarnings("unchecked")
-        INode<String> root = (INode<String>) rootField.get(trie);
+    @Test
+    public void testDetachParentINodeWhenParentHasValuesAndChildRemoved() throws Exception {
+        TestTrie trie = new TestTrie();
+
+        trie.addPath(List.of("root"), "parentValue");
+        trie.addPath(Arrays.asList("root", "child"), "childValue");
+
+        trie.removePath(Arrays.asList("root", "child"), "childValue");
+
+        Branch<String> branch = getRootBranch(trie, "root");
+        assertNotNull(branch);
+        assertTrue(branch.values().contains("parentValue"));
+        assertNull(branch.iNode);
+    }
+
+    @Test
+    public void testDetachParentINodeWhenGrandparentIsNonRoot() throws Exception {
+        // Arrange: root -> g -> p -> c; keep value at 'p' level
+        TestTrie trie = new TestTrie();
+        trie.addPath(Arrays.asList("g", "p"), "parentValue");
+        trie.addPath(Arrays.asList("g", "p", "c"), "childValue");
+
+        // Act: remove only child path so parent keeps its value but child subtree becomes empty
+        trie.removePath(Arrays.asList("g", "p", "c"), "childValue");
+
+        // Assert (expected after fix): at grandparent 'g' (non-root), branch 'p' must detach its iNode
+        INode<String> root = trie.root();
+        MainNode<String> rootMain = root.main();
+        assertNotNull(rootMain.cNode);
+        Branch<String> gBranch = rootMain.cNode.branches().get("g");
+        assertNotNull(gBranch);
+        assertNotNull(gBranch.iNode);
+
+        MainNode<String> gMain = gBranch.iNode.main();
+        assertNotNull(gMain.cNode);
+        Branch<String> pBranch = gMain.cNode.branches().get("p");
+        assertNotNull(pBranch);
+        assertTrue(pBranch.values().contains("parentValue"));
+        assertNull(pBranch.iNode, "Non-root grandparent must nullify iNode when child subtree is removed");
+    }
+
+    @Test
+    public void testPruneOnlyTargetChildAmongSiblings() throws Exception {
+        // Arrange: siblings under the same parent
+        TestTrie trie = new TestTrie();
+        trie.addPath(Arrays.asList("g", "p"), "parentValue");
+        trie.addPath(Arrays.asList("g", "p", "c1"), "child1");
+        trie.addPath(Arrays.asList("g", "p", "c2"), "child2");
+
+        // Act: remove only c1
+        trie.removePath(Arrays.asList("g", "p", "c1"), "child1");
+
+        // Assert: parent keeps value and only c2 remains
+        INode<String> root = trie.root();
+        MainNode<String> rootMain = root.main();
+        Branch<String> gBranch = rootMain.cNode.branches().get("g");
+        assertNotNull(gBranch);
+        MainNode<String> gMain = gBranch.iNode.main();
+        Branch<String> pBranch = gMain.cNode.branches().get("p");
+        assertNotNull(pBranch);
+        assertTrue(pBranch.values().contains("parentValue"));
+        assertNotNull(pBranch.iNode);
+        MainNode<String> pMain = pBranch.iNode.main();
+        assertNotNull(pMain.cNode);
+        assertFalse(pMain.cNode.branches().containsKey("c1"));
+        assertTrue(pMain.cNode.branches().containsKey("c2"));
+    }
+
+    @Test
+    public void testReinsertAndLookupAfterPrune() {
+        // Arrange: build siblings and prune one
+        TestTrie trie = new TestTrie();
+        trie.addPath(Arrays.asList("g", "p"), "parentValue");
+        trie.addPath(Arrays.asList("g", "p", "c1"), "child1");
+        trie.addPath(Arrays.asList("g", "p", "c2"), "child2");
+        trie.removePath(Arrays.asList("g", "p", "c1"), "child1");
+
+        // Reinsert pruned child with a different value
+        trie.addPath(Arrays.asList("g", "p", "c1"), "child1V2");
+
+        // Lookup exact path semantics
+        assertTrue(trie.lookupExact(List.of("g", "p")).contains("parentValue"));
+        // g/p/c1 should include parentValue and child1V2
+        {
+            var res = trie.lookupExact(List.of("g", "p", "c1"));
+            assertTrue(res.contains("parentValue"));
+            assertTrue(res.contains("child1V2"));
+        }
+        // g/p/c2 should include parentValue and child2
+        {
+            var res = trie.lookupExact(List.of("g", "p", "c2"));
+            assertTrue(res.contains("parentValue"));
+            assertTrue(res.contains("child2"));
+        }
+    }
+
+    private boolean hasZombieBranch(TestTrie trie, String topicLevel) {
+        INode<String> root = trie.root();;
         MainNode<String> main = root.main();
         if (main.cNode == null) {
             return false;
         }
-        Branch<String> branch = main.cNode.branches.get(topicLevel);
+        Branch<String> branch = main.cNode.branches().get(topicLevel);
         if (branch == null || branch.iNode == null) {
             return false;
         }
         return branch.iNode.main().tNode != null;
     }
 
-    private boolean isEmpty(TestTrie trie) throws Exception {
-        Field rootField = TopicLevelTrie.class.getDeclaredField("root");
-        rootField.setAccessible(true);
-        @SuppressWarnings("unchecked")
-        INode<String> root = (INode<String>) rootField.get(trie);
-        return root.main().cNode.branches.isEmpty();
+    private Branch<String> getRootBranch(TestTrie trie, String topicLevel) {
+        INode<String> root = trie.root();
+        MainNode<String> main = root.main();
+        if (main.cNode == null) {
+            return null;
+        }
+        return main.cNode.branches().get(topicLevel);
+    }
+
+    private boolean isEmpty(TestTrie trie) {
+        INode<String> root = trie.root();
+        return root.main().cNode.branchCount() == 0;
     }
 
     private static final class TestTrie extends TopicLevelTrie<String> {
@@ -117,6 +219,29 @@ public class TopicLevelTrieTest {
 
         void removePath(List<String> topicLevels, String value) {
             remove(topicLevels, value);
+        }
+
+        // Exact-match lookup selector for test validation
+        java.util.Set<String> lookupExact(List<String> topicLevels) {
+            BranchSelector selector = new BranchSelector() {
+                @Override
+                public <V> Map<Branch<V>, Action> selectBranch(Map<String, Branch<V>> branches,
+                                                               List<String> levels,
+                                                               int currentLevel) {
+                    Map<Branch<V>, Action> m = new HashMap<>();
+                    if (currentLevel >= levels.size()) {
+                        return m;
+                    }
+                    @SuppressWarnings("unchecked")
+                    Branch<V> br = branches.get(levels.get(currentLevel));
+                    if (br != null) {
+                        boolean last = currentLevel == levels.size() - 1;
+                        m.put(br, last ? Action.MATCH_AND_STOP : Action.MATCH_AND_CONTINUE);
+                    }
+                    return m;
+                }
+            };
+            return lookup(topicLevels, selector);
         }
     }
 }

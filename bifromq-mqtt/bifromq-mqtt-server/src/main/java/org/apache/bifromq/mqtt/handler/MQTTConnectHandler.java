@@ -185,7 +185,9 @@ public abstract class MQTTConnectHandler extends ChannelDuplexHandler {
                                             .setExpirySeconds(sessionExpiryInterval)
                                             .setLimit(settings.inboxQueueLength)
                                             .setDropOldest(settings.inboxDropOldest)
-                                            .setClient(clientInfo)
+                                            .setClient(clientInfo.toBuilder()
+                                                .putMetadata(MQTT_CLIENT_SESSION_TYPE, MQTT_CLIENT_SESSION_TYPE_P_VALUE)
+                                                .build())
                                             .setNow(HLC.INST.getPhysical());
                                         if (willMessage != null && willMessage.getDelaySeconds() > 0) {
                                             reqBuilder.setLwt(willMessage);
@@ -245,7 +247,10 @@ public abstract class MQTTConnectHandler extends ChannelDuplexHandler {
                                                     .setExpirySeconds(sessionExpiryInterval)
                                                     .setLimit(settings.inboxQueueLength)
                                                     .setDropOldest(settings.inboxDropOldest)
-                                                    .setClient(clientInfo)
+                                                    .setClient(clientInfo.toBuilder()
+                                                        .putMetadata(MQTT_CLIENT_SESSION_TYPE,
+                                                            MQTT_CLIENT_SESSION_TYPE_P_VALUE)
+                                                        .build())
                                                     .setNow(HLC.INST.getPhysical());
                                                 if (willMessage != null && willMessage.getDelaySeconds() > 0) {
                                                     reqBuilder.setLwt(willMessage);
@@ -319,7 +324,9 @@ public abstract class MQTTConnectHandler extends ChannelDuplexHandler {
                                     .setExpirySeconds(sessionExpiryInterval)
                                     .setLimit(settings.inboxQueueLength)
                                     .setDropOldest(settings.inboxDropOldest)
-                                    .setClient(clientInfo)
+                                    .setClient(clientInfo.toBuilder()
+                                        .putMetadata(MQTT_CLIENT_SESSION_TYPE, MQTT_CLIENT_SESSION_TYPE_P_VALUE)
+                                        .build())
                                     .setNow(HLC.INST.getPhysical());
                                 if (willMessage != null && willMessage.getDelaySeconds() > 0) {
                                     reqBuilder.setLwt(willMessage);

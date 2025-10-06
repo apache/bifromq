@@ -90,10 +90,17 @@ message BatchDistReply {
 
 message GCRequest {
   uint64 reqId = 1;
+  optional bytes startKey = 2;
+  uint32 stepHint = 3;
+  uint32 scanQuota = 4;
 }
 
 message GCReply {
   uint64 reqId = 1;
+  optional bytes nextStartKey = 2;
+  uint32 inspectedCount = 3;
+  uint32 removeSuccess = 4;
+  bool wrapped = 5;
 }
 
 message DistServiceRWCoProcInput{
@@ -123,5 +130,3 @@ message DistServiceROCoProcOutput{
     GCReply gc = 2;
   }
 }
-
-

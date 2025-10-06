@@ -51,6 +51,7 @@ import java.util.TreeMap;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Supplier;
@@ -67,6 +68,7 @@ import org.apache.bifromq.basekv.store.proto.ROCoProcInput;
 import org.apache.bifromq.basekv.store.proto.ROCoProcOutput;
 import org.apache.bifromq.basekv.store.proto.RWCoProcInput;
 import org.apache.bifromq.basekv.store.proto.RWCoProcOutput;
+import org.apache.bifromq.basekv.utils.BoundaryUtil;
 import org.apache.bifromq.dist.rpc.proto.BatchDistReply;
 import org.apache.bifromq.dist.rpc.proto.BatchDistRequest;
 import org.apache.bifromq.dist.rpc.proto.BatchMatchReply;
@@ -106,7 +108,6 @@ class DistWorkerCoProc implements IKVRangeCoProc {
     private final ITenantsStats tenantsState;
     private final IDeliverExecutorGroup deliverExecutorGroup;
     private final ISubscriptionCleaner subscriptionChecker;
-    private final int gcBatchSize;
     private transient Fact fact;
     private transient Boundary boundary;
 
@@ -115,14 +116,12 @@ class DistWorkerCoProc implements IKVRangeCoProc {
                             ISubscriptionCache routeCache,
                             ITenantsStats tenantsState,
                             IDeliverExecutorGroup deliverExecutorGroup,
-                            ISubscriptionCleaner subscriptionChecker,
-                            int gcBatchSize) {
+                            ISubscriptionCleaner subscriptionChecker) {
         this.readerProvider = readerProvider;
         this.routeCache = routeCache;
         this.tenantsState = tenantsState;
         this.deliverExecutorGroup = deliverExecutorGroup;
         this.subscriptionChecker = subscriptionChecker;
-        this.gcBatchSize = gcBatchSize;
     }
 
     @Override
@@ -553,13 +552,74 @@ class DistWorkerCoProc implements IKVRangeCoProc {
 
     private CompletableFuture<GCReply> gc(GCRequest request, IKVReader reader) {
         reader.refresh();
+        int stepUsed = Math.max(request.getStepHint(), 1);
+        int scanQuota = request.getScanQuota() > 0 ? request.getScanQuota() : 256 * stepUsed;
+
         // subBrokerId -> delivererKey -> tenantId-> CheckRequest
         Map<Integer, Map<String, Map<String, CheckRequest.Builder>>> checkRequestBuilders = new HashMap<>();
+
         IKVIterator itr = reader.iterator();
-        int checkCount = 0;
+        // clamp start key to current boundary when provided
+        if (request.hasStartKey()) {
+            ByteString startKey = request.getStartKey();
+            if (boundary != null) {
+                ByteString startBoundary = BoundaryUtil.startKey(boundary);
+                ByteString endBoundary = BoundaryUtil.endKey(boundary);
+                if (BoundaryUtil.compareStartKey(startKey, startBoundary) < 0) {
+                    startKey = startBoundary;
+                } else if (BoundaryUtil.compareEndKeys(startKey, endBoundary) >= 0) {
+                    // clamp to start when beyond end
+                    startKey = startBoundary;
+                }
+            }
+            if (startKey != null) {
+                itr.seek(startKey);
+            } else {
+                itr.seekToFirst();
+            }
+        } else {
+            itr.seekToFirst();
+        }
+
+        // if range is empty, return immediately
+        if (!itr.isValid()) {
+            return CompletableFuture.completedFuture(GCReply.newBuilder()
+                .setReqId(request.getReqId())
+                .setInspectedCount(0)
+                .setRemoveSuccess(0)
+                .setWrapped(false)
+                .build());
+        }
+
+        AtomicInteger inspectedCount = new AtomicInteger();
+        AtomicBoolean wrapped = new AtomicBoolean(false);
+        ByteString sessionStartKey = null;
+
         outer:
-        for (itr.seekToFirst(); itr.isValid(); itr.next()) {
-            Matching matching = buildMatchRoute(itr.key(), itr.value());
+        while (true) {
+            if (!itr.isValid()) {
+                // reach tail
+                if (!wrapped.get()) {
+                    itr.seekToFirst();
+                    if (!itr.isValid()) {
+                        break; // still empty
+                    }
+                    wrapped.set(true);
+                } else {
+                    break;
+                }
+            }
+
+            ByteString currentKey = itr.key();
+            // stop if met sessionStartKey after wrap before decoding
+            if (wrapped.get() && currentKey.equals(sessionStartKey)) {
+                break;
+            }
+
+            if (sessionStartKey == null) {
+                sessionStartKey = currentKey;
+            }
+            Matching matching = buildMatchRoute(currentKey, itr.value());
             switch (matching.type()) {
                 case Normal -> {
                     if (!routeCache.isCached(matching.tenantId(), matching.matcher.getFilterLevelList())) {
@@ -570,10 +630,6 @@ class DistWorkerCoProc implements IKVRangeCoProc {
                                 .setTenantId(k)
                                 .setDelivererKey(normalMatching.delivererKey()))
                             .addMatchInfo(((NormalMatching) matching).matchInfo());
-                        checkCount++;
-                        if (checkCount >= gcBatchSize) {
-                            break outer;
-                        }
                     }
                 }
                 case Group -> {
@@ -586,10 +642,6 @@ class DistWorkerCoProc implements IKVRangeCoProc {
                                     .setTenantId(k)
                                     .setDelivererKey(normalMatching.delivererKey()))
                                 .addMatchInfo(normalMatching.matchInfo());
-                            checkCount++;
-                            if (checkCount >= gcBatchSize) {
-                                break outer;
-                            }
                         }
                     }
                 }
@@ -597,9 +649,28 @@ class DistWorkerCoProc implements IKVRangeCoProc {
                     // never happen
                 }
             }
+            inspectedCount.incrementAndGet();
+            if (inspectedCount.get() >= scanQuota) {
+                // stop by quota
+                itr.next();
+                break;
+            }
+
+            // skip over stepUsed-1 entries
+            int skip = stepUsed - 1;
+            while (skip-- > 0) {
+                itr.next();
+                if (!itr.isValid()) {
+                    // let outer loop handle wrap or stop
+                    continue outer;
+                }
+            }
+            // move to next for next iteration
+            itr.next();
         }
 
-        List<CompletableFuture<Void>> checkFutures = new ArrayList<>();
+        // aggregate sweep results
+        List<CompletableFuture<ISubscriptionCleaner.GCStats>> checkFutures = new ArrayList<>();
         for (int subBrokerId : checkRequestBuilders.keySet()) {
             for (String delivererKey : checkRequestBuilders.get(subBrokerId).keySet()) {
                 for (Map.Entry<String, CheckRequest.Builder> entry : checkRequestBuilders.get(subBrokerId)
@@ -608,8 +679,23 @@ class DistWorkerCoProc implements IKVRangeCoProc {
                 }
             }
         }
-        return CompletableFuture.allOf(checkFutures.toArray(CompletableFuture[]::new))
-            .thenApply(v -> GCReply.newBuilder().setReqId(request.getReqId()).build());
+
+        CompletableFuture<Void> all = CompletableFuture.allOf(checkFutures.toArray(CompletableFuture[]::new));
+        return all.thenApply(v -> {
+            int success = 0;
+            for (CompletableFuture<ISubscriptionCleaner.GCStats> f : checkFutures) {
+                success += f.join().success();
+            }
+            GCReply.Builder reply = GCReply.newBuilder()
+                .setReqId(request.getReqId())
+                .setInspectedCount(inspectedCount.get())
+                .setRemoveSuccess(success)
+                .setWrapped(wrapped.get());
+            if (itr.isValid()) {
+                reply.setNextStartKey(itr.key());
+            }
+            return reply.build();
+        });
     }
 
     private record GlobalTopicFilter(String tenantId, RouteMatcher routeMatcher) {

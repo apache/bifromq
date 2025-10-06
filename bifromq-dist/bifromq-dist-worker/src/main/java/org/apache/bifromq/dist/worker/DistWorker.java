@@ -73,8 +73,7 @@ class DistWorker implements IDistWorker {
             builder.loadEstimateWindow,
             builder.fanoutParallelism,
             builder.inlineFanoutThreshold,
-            builder.fanoutSplitThreshold,
-            builder.gcBatchSize);
+            builder.fanoutSplitThreshold);
         Map<String, IDistWorkerBalancerFactory> loadedFactories = BaseHookLoader.load(IDistWorkerBalancerFactory.class);
         for (String factoryName : builder.balancerFactoryConfig.keySet()) {
             if (!loadedFactories.containsKey(factoryName)) {
@@ -131,7 +130,7 @@ class DistWorker implements IDistWorker {
             .attributes(builder.attributes)
             .finish()
             .build();
-        cleaner = new DistWorkerCleaner(distWorkerClient, builder.gcInterval, jobScheduler);
+        cleaner = new DistWorkerCleaner(distWorkerClient, builder.minGCInterval, builder.maxGCInterval, jobScheduler);
         start();
     }
 

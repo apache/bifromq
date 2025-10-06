@@ -65,10 +65,7 @@ import org.apache.bifromq.dist.rpc.proto.DistPack;
 import org.apache.bifromq.dist.rpc.proto.DistServiceROCoProcInput;
 import org.apache.bifromq.dist.rpc.proto.DistServiceRWCoProcInput;
 import org.apache.bifromq.dist.rpc.proto.Fact;
-import org.apache.bifromq.dist.rpc.proto.GCReply;
-import org.apache.bifromq.dist.rpc.proto.GCRequest;
 import org.apache.bifromq.dist.rpc.proto.MatchRoute;
-import org.apache.bifromq.dist.rpc.proto.RouteGroup;
 import org.apache.bifromq.dist.rpc.proto.TenantOption;
 import org.apache.bifromq.dist.worker.cache.ISubscriptionCache;
 import org.apache.bifromq.dist.worker.cache.task.AddRoutesTask;
@@ -76,8 +73,6 @@ import org.apache.bifromq.dist.worker.cache.task.RefreshEntriesTask;
 import org.apache.bifromq.dist.worker.cache.task.RemoveRoutesTask;
 import org.apache.bifromq.dist.worker.schema.KVSchemaUtil;
 import org.apache.bifromq.dist.worker.schema.cache.Matching;
-import org.apache.bifromq.dist.worker.schema.cache.RouteDetailCache;
-import org.apache.bifromq.plugin.subbroker.CheckRequest;
 import org.apache.bifromq.type.TopicMessagePack;
 import org.apache.bifromq.util.BSUtil;
 import org.apache.bifromq.util.TopicUtil;
@@ -114,7 +109,7 @@ public class DistWorkerCoProcTest {
         when(reader.iterator()).thenReturn(iterator);
         when(iterator.isValid()).thenReturn(false);
         distWorkerCoProc = new DistWorkerCoProc(rangeId, readerProvider, routeCache, tenantsState, deliverExecutorGroup,
-            subscriptionChecker, 100);
+            subscriptionChecker);
         distWorkerCoProc.reset(FULL_BOUNDARY);
         distWorkerCoProc.onLeader(true);
     }
@@ -464,57 +459,6 @@ public class DistWorkerCoProcTest {
         // Check the result output
         BatchDistReply reply = result.getDistService().getBatchDist();
         assertEquals(reply.getReqId(), 789);
-    }
-
-    @Test
-    public void testGC() {
-        String tenant1 = "tenant1";
-        String tenant2 = "tenant2";
-        String topic1 = "topic1";
-        String topic2 = "topic2";
-        String receiverUrl1 = toReceiverUrl(1, "inbox1", "deliverer1");
-        String receiverUrl2 = toReceiverUrl(2, "inbox2", "deliverer2");
-
-        ByteString normalMatchKey1 =
-            KVSchemaUtil.toNormalRouteKey(tenant1, TopicUtil.from(topic1), toReceiverUrl(1, "inbox1", "deliverer1"));
-        ByteString normalMatchKey2 =
-            KVSchemaUtil.toNormalRouteKey(tenant2, TopicUtil.from(topic2), toReceiverUrl(2, "inbox2", "deliverer2"));
-
-        String sharedTopic = "$share/group/topic3";
-        ByteString groupMatchKey = KVSchemaUtil.toGroupRouteKey(tenant1, TopicUtil.from(sharedTopic));
-        RouteGroup groupMembers =
-            RouteGroup.newBuilder().putMembers(receiverUrl1, 1L).putMembers(receiverUrl2, 1L).build();
-
-        when(iterator.isValid()).thenReturn(true, true, true, false);
-        when(iterator.key()).thenReturn(normalMatchKey1, groupMatchKey, normalMatchKey2);
-        when(iterator.value()).thenReturn(toByteString(1L), groupMembers.toByteString(), toByteString(1L));
-
-        when(routeCache.isCached(eq(tenant1), eq(TopicUtil.from(topic1).getFilterLevelList()))).thenReturn(false);
-        when(routeCache.isCached(eq(tenant1),
-            eq(TopicUtil.from(RouteDetailCache.get(groupMatchKey).matcher().getMqttTopicFilter())
-                .getFilterLevelList()))).thenReturn(false);
-        when(routeCache.isCached(eq(tenant2), eq(TopicUtil.from(topic2).getFilterLevelList()))).thenReturn(false);
-
-        when(subscriptionChecker.sweep(anyInt(), any(CheckRequest.class))).thenReturn(
-            CompletableFuture.completedFuture(null));
-
-        ROCoProcInput roCoProcInput = ROCoProcInput.newBuilder().setDistService(
-            DistServiceROCoProcInput.newBuilder().setGc(GCRequest.newBuilder().setReqId(999).build()).build()).build();
-
-        CompletableFuture<ROCoProcOutput> resultFuture = distWorkerCoProc.query(roCoProcInput, reader);
-        ROCoProcOutput result = resultFuture.join();
-
-        GCReply reply = result.getDistService().getGc();
-        assertEquals(reply.getReqId(), 999);
-
-        verify(subscriptionChecker, times(1)).sweep(eq(1),
-            argThat(req -> req.getTenantId().equals(tenant1) && req.getMatchInfoCount() == 2));
-        verify(subscriptionChecker, times(1)).sweep(eq(2), argThat(
-            req -> req.getTenantId().equals(tenant2) && req.getMatchInfoCount() == 1
-                && req.getMatchInfoList().get(0).getMatcher().getMqttTopicFilter().equals(topic2)));
-        verify(subscriptionChecker, times(1)).sweep(eq(2), argThat(
-            req -> req.getTenantId().equals(tenant1) && req.getMatchInfoCount() == 1
-                && req.getMatchInfoList().get(0).getMatcher().getMqttTopicFilter().equals(sharedTopic)));
     }
 
     @SneakyThrows

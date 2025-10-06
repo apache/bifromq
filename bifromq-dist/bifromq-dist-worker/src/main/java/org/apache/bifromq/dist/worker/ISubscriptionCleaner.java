@@ -14,17 +14,22 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 
 package org.apache.bifromq.dist.worker;
 
-import org.apache.bifromq.plugin.subbroker.CheckRequest;
 import java.util.concurrent.CompletableFuture;
+import org.apache.bifromq.plugin.subbroker.CheckRequest;
 
 /**
  * Subscription checker is responsible for checking the subscriptions.
  */
 public interface ISubscriptionCleaner {
-    CompletableFuture<Void> sweep(int subBrokerId, CheckRequest request);
+    /**
+     * Sweep stale subscriptions and return GC stats.
+     */
+    CompletableFuture<GCStats> sweep(int subBrokerId, CheckRequest request);
+
+    record GCStats(int attempts, int success) {}
 }

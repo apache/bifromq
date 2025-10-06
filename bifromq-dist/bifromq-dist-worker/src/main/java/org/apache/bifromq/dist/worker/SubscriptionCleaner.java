@@ -14,21 +14,21 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 
 package org.apache.bifromq.dist.worker;
 
+import java.util.ArrayList;
+import java.util.List;
+import java.util.concurrent.CompletableFuture;
+import lombok.extern.slf4j.Slf4j;
 import org.apache.bifromq.dist.client.IDistClient;
 import org.apache.bifromq.dist.client.UnmatchResult;
 import org.apache.bifromq.plugin.subbroker.CheckReply;
 import org.apache.bifromq.plugin.subbroker.CheckRequest;
 import org.apache.bifromq.plugin.subbroker.ISubBrokerManager;
 import org.apache.bifromq.type.MatchInfo;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.concurrent.CompletableFuture;
-import lombok.extern.slf4j.Slf4j;
 
 @Slf4j
 class SubscriptionCleaner implements ISubscriptionCleaner {
@@ -41,7 +41,7 @@ class SubscriptionCleaner implements ISubscriptionCleaner {
     }
 
     @Override
-    public CompletableFuture<Void> sweep(int subBrokerId, CheckRequest request) {
+    public CompletableFuture<GCStats> sweep(int subBrokerId, CheckRequest request) {
         long reqId = System.nanoTime();
         return subBrokerManager.get(subBrokerId)
             .check(request)
@@ -74,7 +74,18 @@ class SubscriptionCleaner implements ISubscriptionCleaner {
                         }
                     }
                 }
-                return CompletableFuture.allOf(futures.toArray(new CompletableFuture[0]));
+                CompletableFuture<Void> all = CompletableFuture.allOf(futures.toArray(new CompletableFuture[0]));
+                return all.thenApply(v -> {
+                        int attempts = futures.size();
+                        int success = 0;
+                        for (CompletableFuture<UnmatchResult> f : futures) {
+                            if (f.join() == UnmatchResult.OK) {
+                                success++;
+                            }
+                        }
+                        return new GCStats(attempts, success);
+                    }
+                );
             });
     }
 }

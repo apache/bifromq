@@ -126,8 +126,8 @@ public class DistServiceModule extends AbstractModule {
                         .getDataEngineConfig(), "dist_data"))
                     .setWalEngineConfigurator(buildWALEngineConf(workerConfig
                         .getWalEngineConfig(), "dist_wal")))
-                .gcInterval(
-                    Duration.ofSeconds(workerConfig.getGcIntervalSeconds()))
+                .minGCInterval(Duration.ofSeconds(workerConfig.getMinGCIntervalSeconds()))
+                .maxGCInterval(Duration.ofSeconds(workerConfig.getMaxGCIntervalSeconds()))
                 .bootstrapDelay(Duration.ofMillis(workerConfig.getBalanceConfig().getBootstrapDelayInMS()))
                 .zombieProbeDelay(Duration.ofMillis(workerConfig.getBalanceConfig().getZombieProbeDelayInMS()))
                 .balancerRetryDelay(Duration.ofMillis(workerConfig.getBalanceConfig().getRetryDelayInMS()))

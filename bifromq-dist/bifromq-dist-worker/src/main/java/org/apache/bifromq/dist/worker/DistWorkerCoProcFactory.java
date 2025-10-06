@@ -62,7 +62,6 @@ public class DistWorkerCoProcFactory implements IKVRangeCoProcFactory {
     private final int fanoutParallelism;
     private final int inlineFanOutThreshold;
     private final int fanoutSplitThreshold;
-    private final int gcBatchSize;
 
     public DistWorkerCoProcFactory(IDistClient distClient,
                                    IEventCollector eventCollector,
@@ -73,8 +72,7 @@ public class DistWorkerCoProcFactory implements IKVRangeCoProcFactory {
                                    Duration loadEstimateWindow,
                                    int fanoutParallelism,
                                    int inlineFanOutThreshold,
-                                   int fanoutSplitThreshold,
-                                   int gcBatchSize) {
+                                   int fanoutSplitThreshold) {
         this.eventCollector = eventCollector;
         this.resourceThrottler = resourceThrottler;
         this.loadEstWindow = loadEstimateWindow;
@@ -83,7 +81,6 @@ public class DistWorkerCoProcFactory implements IKVRangeCoProcFactory {
         this.fanoutParallelism = fanoutParallelism;
         this.fanoutSplitThreshold = fanoutSplitThreshold;
         this.inlineFanOutThreshold = inlineFanOutThreshold;
-        this.gcBatchSize = gcBatchSize;
         subscriptionChecker = new SubscriptionCleaner(subBrokerManager, distClient);
 
         matchExecutor = ExecutorServiceMetrics.monitor(Metrics.globalRegistry,
@@ -121,7 +118,7 @@ public class DistWorkerCoProcFactory implements IKVRangeCoProcFactory {
         IDeliverExecutorGroup deliverExecutorGroup = new DeliverExecutorGroup(
             deliverer, eventCollector, resourceThrottler, settingProvider, fanoutParallelism, inlineFanOutThreshold);
         return new DistWorkerCoProc(
-            id, rangeReaderProvider, routeCache, tenantsState, deliverExecutorGroup, subscriptionChecker, gcBatchSize);
+            id, rangeReaderProvider, routeCache, tenantsState, deliverExecutorGroup, subscriptionChecker);
     }
 
     public void close() {

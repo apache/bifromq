@@ -39,7 +39,6 @@ import org.apache.bifromq.plugin.resourcethrottler.IResourceThrottler;
 import org.apache.bifromq.plugin.settingprovider.ISettingProvider;
 import org.apache.bifromq.plugin.subbroker.ISubBrokerManager;
 import org.apache.bifromq.sysprops.props.DistFanOutParallelism;
-import org.apache.bifromq.sysprops.props.DistGCBatchSize;
 import org.apache.bifromq.sysprops.props.DistInlineFanOutThreshold;
 import org.apache.bifromq.sysprops.props.DistWorkerFanOutSplitThreshold;
 
@@ -64,7 +63,8 @@ public class DistWorkerBuilder {
     ISubBrokerManager subBrokerManager;
     ISettingProvider settingProvider;
     KVRangeStoreOptions storeOptions;
-    Duration gcInterval = Duration.ofMinutes(5);
+    Duration minGCInterval = Duration.ofMinutes(5);
+    Duration maxGCInterval = Duration.ofHours(24);
     Duration bootstrapDelay = Duration.ofSeconds(15);
     Duration zombieProbeDelay = Duration.ofSeconds(15);
     Duration balancerRetryDelay = Duration.ofSeconds(5);
@@ -73,7 +73,6 @@ public class DistWorkerBuilder {
     int fanoutParallelism = DistFanOutParallelism.INSTANCE.get();
     int fanoutSplitThreshold = DistWorkerFanOutSplitThreshold.INSTANCE.get();
     int inlineFanoutThreshold = DistInlineFanOutThreshold.INSTANCE.get();
-    int gcBatchSize = DistGCBatchSize.INSTANCE.get();
     Map<String, String> attributes = new HashMap<>();
 
     public IDistWorker build() {

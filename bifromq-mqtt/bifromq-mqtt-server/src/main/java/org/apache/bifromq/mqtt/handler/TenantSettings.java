@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 
 package org.apache.bifromq.mqtt.handler;
@@ -37,6 +37,7 @@ import static org.apache.bifromq.plugin.settingprovider.Setting.MaxTopicLevels;
 import static org.apache.bifromq.plugin.settingprovider.Setting.MaxUserPayloadBytes;
 import static org.apache.bifromq.plugin.settingprovider.Setting.MaximumQoS;
 import static org.apache.bifromq.plugin.settingprovider.Setting.MinKeepAliveSeconds;
+import static org.apache.bifromq.plugin.settingprovider.Setting.MinSendPerSec;
 import static org.apache.bifromq.plugin.settingprovider.Setting.MinSessionExpirySeconds;
 import static org.apache.bifromq.plugin.settingprovider.Setting.MsgPubPerSec;
 import static org.apache.bifromq.plugin.settingprovider.Setting.OutBoundBandWidth;
@@ -78,6 +79,7 @@ public class TenantSettings {
     public final long inboundBandwidth;
     public final long outboundBandwidth;
     public final int receiveMaximum;
+    public final double minSendPerSec;
     public final int maxMsgPerSec;
     public final int maxResendTimes;
     public final int resendTimeoutSeconds;
@@ -114,6 +116,7 @@ public class TenantSettings {
         maxResendTimes = provider.provide(MaxResendTimes, tenantId);
         resendTimeoutSeconds = provider.provide(ResendTimeoutSeconds, tenantId);
         receiveMaximum = provider.provide(ReceivingMaximum, tenantId);
+        minSendPerSec = provider.provide(MinSendPerSec, tenantId);
         maxTopicFiltersPerSub = provider.provide(MaxTopicFiltersPerSub, tenantId);
         inboxQueueLength = provider.provide(SessionInboxSize, tenantId);
         inboxDropOldest = provider.provide(QoS0DropOldest, tenantId);

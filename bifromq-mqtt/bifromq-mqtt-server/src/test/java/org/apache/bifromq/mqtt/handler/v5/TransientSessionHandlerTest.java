@@ -973,8 +973,8 @@ public class TransientSessionHandlerTest extends BaseSessionHandlerTest {
             assertEquals(message.variableHeader().properties().getProperties(TOPIC_ALIAS.value()).get(0).value(), 1);
             channel.writeInbound(MQTTMessageUtils.pubAckMessage(message.variableHeader().packetId()));
         }
-        verifyEvent(MQTT_SESSION_START, QOS1_PUSHED, QOS1_PUSHED, QOS1_PUSHED, QOS1_CONFIRMED, QOS1_CONFIRMED,
-            QOS1_CONFIRMED);
+        verifyEventUnordered(MQTT_SESSION_START, QOS1_PUSHED, QOS1_PUSHED, QOS1_PUSHED, QOS1_CONFIRMED,
+            QOS1_CONFIRMED, QOS1_CONFIRMED);
     }
 
     @Test

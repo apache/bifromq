@@ -59,6 +59,7 @@ import io.netty.handler.codec.mqtt.MqttDecoder;
 import io.netty.handler.traffic.ChannelTrafficShapingHandler;
 import java.net.InetSocketAddress;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
@@ -429,6 +430,20 @@ public abstract class BaseMQTTTest {
         ArgumentCaptor<Event> eventArgumentCaptor = ArgumentCaptor.forClass(Event.class);
         verify(eventCollector, times(types.length)).report(eventArgumentCaptor.capture());
         assertArrayEquals(types, eventArgumentCaptor.getAllValues().stream().map(Event::type).toArray());
+    }
+
+    // Compare events ignoring order, only types and counts must match
+    protected void verifyEventUnordered(EventType... types) {
+        ArgumentCaptor<Event> eventArgumentCaptor = ArgumentCaptor.forClass(Event.class);
+        verify(eventCollector, times(types.length)).report(eventArgumentCaptor.capture());
+        if (types.length != 0) {
+            EventType[] actual = eventArgumentCaptor.getAllValues().stream().map(Event::type)
+                .toArray(EventType[]::new);
+            EventType[] expected = Arrays.copyOf(types, types.length);
+            Arrays.sort(actual);
+            Arrays.sort(expected);
+            assertArrayEquals(expected, actual);
+        }
     }
 
     protected void setupTransientSession() {

@@ -52,6 +52,7 @@ public enum Setting {
     OutBoundBandWidth(Long.class, val -> (long) val >= 0, 512 * 1024L),
     MaxLastWillBytes(Integer.class, val -> (int) val > 0 && (int) val <= 250 * 1024 * 1024, 128),
     MaxUserPayloadBytes(Integer.class, val -> (int) val > 0 && (int) val <= 256 * 1024 * 1024, 256 * 1024),
+    MinSendPerSec(Double.class, val -> (double) val >= 0.0, 1.0),
     MaxResendTimes(Integer.class, val -> (int) val >= 0, 3),
     ResendTimeoutSeconds(Integer.class, val -> (int) val > 0, 10),
     MaxTopicFiltersPerSub(Integer.class, val -> (int) val > 0 && (int) val <= 100, 10),

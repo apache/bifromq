@@ -333,7 +333,7 @@ public class MQTT3PersistentSessionHandlerTest extends BaseSessionHandlerTest {
             assertEquals(message.variableHeader().topicName(), topic);
             channel.writeInbound(MQTTMessageUtils.pubAckMessage(message.variableHeader().packetId()));
         }
-        verifyEvent(QOS1_PUSHED, QOS1_PUSHED, QOS1_PUSHED, QOS1_CONFIRMED, QOS1_CONFIRMED, QOS1_CONFIRMED);
+        verifyEventUnordered(QOS1_PUSHED, QOS1_PUSHED, QOS1_PUSHED, QOS1_CONFIRMED, QOS1_CONFIRMED, QOS1_CONFIRMED);
         verify(inboxClient, times(3)).commit(argThat(CommitRequest::hasSendBufferUpToSeq));
     }
 
@@ -431,7 +431,7 @@ public class MQTT3PersistentSessionHandlerTest extends BaseSessionHandlerTest {
                 channel.writeInbound(MQTTMessageUtils.pubAckMessage(message.variableHeader().packetId()));
             }
         }
-        verifyEvent(QOS1_PUSHED, QOS1_PUSHED, QOS1_PUSHED, QOS1_CONFIRMED, QOS1_CONFIRMED);
+        verifyEventUnordered(QOS1_PUSHED, QOS1_PUSHED, QOS1_PUSHED, QOS1_CONFIRMED, QOS1_CONFIRMED);
         verify(inboxClient, times(2)).commit(argThat(CommitRequest::hasSendBufferUpToSeq));
     }
 
@@ -452,7 +452,7 @@ public class MQTT3PersistentSessionHandlerTest extends BaseSessionHandlerTest {
             MqttPublishMessage message = channel.readOutbound();
             assertNull(message);
         }
-        verifyEvent(QOS1_DROPPED, QOS1_DROPPED, QOS1_DROPPED, QOS1_CONFIRMED, QOS1_CONFIRMED, QOS1_CONFIRMED);
+        verifyEventUnordered(QOS1_DROPPED, QOS1_DROPPED, QOS1_DROPPED, QOS1_CONFIRMED, QOS1_CONFIRMED, QOS1_CONFIRMED);
         verify(eventCollector, times(6)).report(argThat(e -> {
             if (e instanceof QoS1Confirmed evt) {
                 return !evt.delivered();
@@ -504,7 +504,7 @@ public class MQTT3PersistentSessionHandlerTest extends BaseSessionHandlerTest {
             MqttPublishMessage message = channel.readOutbound();
             assertNull(message);
         }
-        verifyEvent(QOS2_DROPPED, QOS2_DROPPED, QOS2_DROPPED, QOS2_CONFIRMED, QOS2_CONFIRMED, QOS2_CONFIRMED);
+        verifyEventUnordered(QOS2_DROPPED, QOS2_DROPPED, QOS2_DROPPED, QOS2_CONFIRMED, QOS2_CONFIRMED, QOS2_CONFIRMED);
         verify(eventCollector, times(6)).report(argThat(e -> {
             if (e instanceof QoS2Confirmed evt) {
                 return !evt.delivered();

@@ -229,6 +229,20 @@ public abstract class BaseSessionHandlerTest extends MockableTest {
         }
     }
 
+    // Compare events ignoring order, only types and counts must match
+    protected void verifyEventUnordered(EventType... types) {
+        ArgumentCaptor<Event> eventArgumentCaptor = ArgumentCaptor.forClass(Event.class);
+        verify(eventCollector, times(types.length)).report(eventArgumentCaptor.capture());
+        if (types.length != 0) {
+            EventType[] actual = eventArgumentCaptor.getAllValues().stream().map(Event::type)
+                .toArray(EventType[]::new);
+            EventType[] expected = Arrays.copyOf(types, types.length);
+            Arrays.sort(actual);
+            Arrays.sort(expected);
+            assertArrayEquals(expected, actual);
+        }
+    }
+
     protected void mockSettings() {
         Mockito.lenient().when(resourceThrottler.hasResource(anyString(), any())).thenReturn(true);
         Mockito.lenient().when(settingProvider.provide(any(Setting.class), anyString()))

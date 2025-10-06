@@ -19,7 +19,6 @@
 
 package org.apache.bifromq.mqtt.handler.v3;
 
-
 import static io.netty.handler.codec.mqtt.MqttMessageType.PUBREL;
 import static org.apache.bifromq.plugin.eventcollector.EventType.CLIENT_CONNECTED;
 import static org.apache.bifromq.plugin.eventcollector.EventType.INBOX_TRANSIENT_ERROR;
@@ -144,8 +143,8 @@ public class MQTTPersistentS2CPubTest extends BaseMQTTTest {
             assertEquals(message.variableHeader().topicName(), "testTopic");
             channel.writeInbound(MQTTMessageUtils.pubAckMessage(message.variableHeader().packetId()));
         }
-        verifyEvent(CLIENT_CONNECTED, QOS1_PUSHED, QOS1_PUSHED, QOS1_PUSHED, QOS1_CONFIRMED, QOS1_CONFIRMED,
-            QOS1_CONFIRMED);
+        verifyEventUnordered(CLIENT_CONNECTED, QOS1_PUSHED, QOS1_PUSHED, QOS1_PUSHED, QOS1_CONFIRMED,
+            QOS1_CONFIRMED, QOS1_CONFIRMED);
         verify(inboxClient, times(3)).commit(argThat(CommitRequest::hasSendBufferUpToSeq));
     }
 
@@ -165,7 +164,7 @@ public class MQTTPersistentS2CPubTest extends BaseMQTTTest {
                 channel.writeInbound(MQTTMessageUtils.pubAckMessage(message.variableHeader().packetId()));
             }
         }
-        verifyEvent(CLIENT_CONNECTED, QOS1_PUSHED, QOS1_PUSHED, QOS1_PUSHED, QOS1_CONFIRMED, QOS1_CONFIRMED);
+        verifyEventUnordered(CLIENT_CONNECTED, QOS1_PUSHED, QOS1_PUSHED, QOS1_PUSHED, QOS1_CONFIRMED, QOS1_CONFIRMED);
         verify(inboxClient, times(2)).commit(argThat(CommitRequest::hasSendBufferUpToSeq));
     }
 
@@ -184,7 +183,7 @@ public class MQTTPersistentS2CPubTest extends BaseMQTTTest {
             assertNull(message);
         }
         channel.runPendingTasks();
-        verifyEvent(CLIENT_CONNECTED, QOS1_DROPPED, QOS1_DROPPED, QOS1_DROPPED,
+        verifyEventUnordered(CLIENT_CONNECTED, QOS1_DROPPED, QOS1_DROPPED, QOS1_DROPPED,
             QOS1_CONFIRMED, QOS1_CONFIRMED, QOS1_CONFIRMED);
         verify(eventCollector, times(7)).report(argThat(e -> {
             if (e instanceof QoS1Confirmed evt) {
@@ -235,7 +234,7 @@ public class MQTTPersistentS2CPubTest extends BaseMQTTTest {
             MqttPublishMessage message = channel.readOutbound();
             assertNull(message);
         }
-        verifyEvent(CLIENT_CONNECTED, QOS2_DROPPED, QOS2_DROPPED, QOS2_DROPPED,
+        verifyEventUnordered(CLIENT_CONNECTED, QOS2_DROPPED, QOS2_DROPPED, QOS2_DROPPED,
             QOS2_CONFIRMED, QOS2_CONFIRMED, QOS2_CONFIRMED);
         verify(eventCollector, times(7)).report(argThat(e -> {
             if (e instanceof QoS1Confirmed evt) {

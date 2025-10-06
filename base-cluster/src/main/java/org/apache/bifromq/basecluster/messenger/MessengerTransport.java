@@ -14,14 +14,11 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 
 package org.apache.bifromq.basecluster.messenger;
 
-import org.apache.bifromq.basecluster.messenger.proto.MessengerMessage;
-import org.apache.bifromq.basecluster.transport.ITransport;
-import org.apache.bifromq.basecluster.transport.PacketEnvelope;
 import com.google.protobuf.AbstractMessageLite;
 import com.google.protobuf.InvalidProtocolBufferException;
 import io.reactivex.rxjava3.core.Observable;
@@ -33,6 +30,9 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.bifromq.basecluster.messenger.proto.MessengerMessage;
+import org.apache.bifromq.basecluster.transport.ITransport;
+import org.apache.bifromq.basecluster.transport.PacketEnvelope;
 
 @Slf4j
 final class MessengerTransport {
@@ -61,25 +61,13 @@ final class MessengerTransport {
 
     private Observable<Timed<MessengerMessageEnvelope>> convert(PacketEnvelope packetEnvelope) {
         return Observable.fromIterable(packetEnvelope.data.stream().map(b -> {
-            MessengerMessageEnvelope.MessengerMessageEnvelopeBuilder messageEnvelopeBuilder =
-                MessengerMessageEnvelope.builder()
-                    .recipient(packetEnvelope.recipient);
             try {
-                MessengerMessage mm = MessengerMessage.parseFrom(b);
-                messageEnvelopeBuilder.message(mm);
-                switch (mm.getMessengerMessageTypeCase()) {
-                    case DIRECT:
-                        return new Timed<MessengerMessageEnvelope>(
-                            messageEnvelopeBuilder.sender(packetEnvelope.sender).build(),
-                            System.currentTimeMillis(),
-                            TimeUnit.MILLISECONDS);
-                    case GOSSIP:
-                    default:
-                        return new Timed<MessengerMessageEnvelope>(
-                            messageEnvelopeBuilder.build(),
-                            System.currentTimeMillis(),
-                            TimeUnit.MILLISECONDS);
-                }
+                MessengerMessageEnvelope mmEnvelop = MessengerMessageEnvelope.builder()
+                    .recipient(packetEnvelope.recipient)
+                    .message(MessengerMessage.parseFrom(b))
+                    .sender(packetEnvelope.sender)
+                    .build();
+                return new Timed<>(mmEnvelop, System.currentTimeMillis(), TimeUnit.MILLISECONDS);
             } catch (InvalidProtocolBufferException e) {
                 return null;
             }

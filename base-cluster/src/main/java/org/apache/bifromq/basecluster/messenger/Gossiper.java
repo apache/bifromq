@@ -14,12 +14,11 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 
 package org.apache.bifromq.basecluster.messenger;
 
-import org.apache.bifromq.basecluster.messenger.proto.GossipMessage;
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
 import com.google.common.annotations.VisibleForTesting;
@@ -41,59 +40,20 @@ import java.util.stream.Collectors;
 import lombok.Builder;
 import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.bifromq.basecluster.messenger.proto.GossipMessage;
 
 @Slf4j
 final class Gossiper {
-
-    @Builder
-    private static class GossipState {
-        public final GossipMessage message;
-
-        public final long infectionPeriod;
-
-        private final CompletableFuture<Duration> spreadSuccessSignal = new CompletableFuture<>();
-
-        private final long start = System.nanoTime();
-
-        private final Set<InetSocketAddress> infected = new HashSet<>();
-
-        @Getter
-        public boolean confirmed;
-
-        void addInfectedAddress(InetSocketAddress address) {
-            infected.add(address);
-        }
-
-        boolean isInfected(InetSocketAddress address) {
-            return infected.contains(address);
-        }
-
-        CompletableFuture<Duration> spreadSuccessSignal() {
-            return spreadSuccessSignal;
-        }
-
-        void confirmSpreadSuccess() {
-            spreadSuccessSignal.complete(Duration.ofNanos(System.nanoTime() - start));
-            confirmed = true;
-        }
-    }
-
+    private final Cache<String, GossipState> currentGossips;
+    private final String id;
+    private final int retransmitMultiplier;
+    private final Duration spreadPeriod;
+    private final Subject<GossipMessage> gossipPublisher;
+    private final Observable<Timed<GossipMessage>> gossipSink;
     private long currentPeriod = 0;
     private long gossipCounter = 0;
     // nanos
     private long prevPeriodTime = -1;
-
-    private final Cache<String, GossipState> currentGossips;
-
-    private final String id;
-
-    private final int retransmitMultiplier;
-
-    private final Duration spreadPeriod;
-
-    private final Subject<GossipMessage> gossipPublisher;
-
-    private final Observable<Timed<GossipMessage>> gossipSink;
 
     Gossiper(String id, int retransmitMultiplier, Duration spreadPeriod, Scheduler scheduler) {
         // global unique id of the gossiper
@@ -140,28 +100,33 @@ final class Gossiper {
             prevPeriodTime = currentPeriodTime;
             // If time interval between current and previous period is too long, do confirm or sweep in advance
             if (elapsedPeriod > periodsToSweep) {
-                log.warn("Too many elapsed periods, sweep gossips in advance, currentPeriod={}, elapsedPeriod={}",
-                    currentPeriod, elapsedPeriod);
-                sweepSpreadGossips(gossipState -> true);
+                // Avoid sweeping when isolated to prevent information loss
+                // in case the node is temporarily partitioned.
+                if (totalGossipers > 1) {
+                    log.warn("Too many elapsed periods, sweep gossips in advance, currentPeriod={}, elapsedPeriod={}",
+                        currentPeriod, elapsedPeriod);
+                    sweepSpreadGossips(gossipState -> true);
+                }
                 return currentPeriod;
             }
             if (elapsedPeriod > periodsToSpread) {
-                log.warn("Some gossips are too old to spread, confirm gossips in advance, "
-                        + "currentPeriod={}, elapsedPeriod={}",
-                    currentPeriod, elapsedPeriod);
-                double confirmRatio = elapsedPeriod / (double) periodsToSweep;
-                confirmGossipsSpread(gossipState ->
-                    !gossipState.confirmed && (
-                        ThreadLocalRandom.current().nextDouble() < confirmRatio ||
-                            currentPeriod > gossipState.infectionPeriod + periodsToSpread)
-                );
+                // Do not early-confirm when isolated (no other gossipers).
+                if (totalGossipers > 1) {
+                    log.warn("Some gossips are too old to spread, confirm gossips in advance, "
+                            + "currentPeriod={}, elapsedPeriod={}", currentPeriod, elapsedPeriod);
+                    double confirmRatio = elapsedPeriod / (double) periodsToSweep;
+                    confirmGossipsSpread(gossipState ->
+                        !gossipState.confirmed && (ThreadLocalRandom.current().nextDouble() < confirmRatio
+                            || currentPeriod > gossipState.infectionPeriod + periodsToSpread)
+                    );
+                }
                 return currentPeriod;
             }
         }
         // do normal period action
         sweepSpreadGossips(gossipState -> currentPeriod > gossipState.infectionPeriod + periodsToSweep);
-        confirmGossipsSpread(gossipState -> !gossipState.confirmed &&
-            currentPeriod > gossipState.infectionPeriod + periodsToSpread);
+        confirmGossipsSpread(gossipState -> !gossipState.confirmed
+            && currentPeriod > gossipState.infectionPeriod + periodsToSpread);
         prevPeriodTime = currentPeriodTime;
         return currentPeriod;
     }
@@ -216,5 +181,38 @@ final class Gossiper {
     @VisibleForTesting
     int ceilLog2(int num) {
         return num <= 1 ? 1 : 32 - Integer.numberOfLeadingZeros(num - 1);
+    }
+
+    @Builder
+    private static class GossipState {
+        public final GossipMessage message;
+
+        public final long infectionPeriod;
+
+        private final CompletableFuture<Duration> spreadSuccessSignal = new CompletableFuture<>();
+
+        private final long start = System.nanoTime();
+
+        private final Set<InetSocketAddress> infected = new HashSet<>();
+
+        @Getter
+        public boolean confirmed;
+
+        void addInfectedAddress(InetSocketAddress address) {
+            infected.add(address);
+        }
+
+        boolean isInfected(InetSocketAddress address) {
+            return infected.contains(address);
+        }
+
+        CompletableFuture<Duration> spreadSuccessSignal() {
+            return spreadSuccessSignal;
+        }
+
+        void confirmSpreadSuccess() {
+            spreadSuccessSignal.complete(Duration.ofNanos(System.nanoTime() - start));
+            confirmed = true;
+        }
     }
 }

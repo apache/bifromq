@@ -25,6 +25,7 @@ import static org.awaitility.Awaitility.await;
 import com.google.common.collect.Sets;
 import com.google.protobuf.ByteString;
 import io.reactivex.rxjava3.observers.TestObserver;
+import java.time.Duration;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Set;
@@ -362,10 +363,10 @@ public class AgentHostsTest extends AgentTestTemplate {
         IAgentMember agentMember1OnS1 = agentOnS1.register("agentNode1OnS1");
         agentMember1OnS1.metadata(copyFromUtf8("agentNode1OnS1"));
         IAgentMember agentMember2OnS1 = agentOnS1.register("agentNode2OnS1");
-        agentMember1OnS1.metadata(copyFromUtf8("agentNode2OnS1"));
+        agentMember2OnS1.metadata(copyFromUtf8("agentNode2OnS1"));
 
         IAgentMember agentMemberOnS2 = agentOnS2.register("agentNodeOnS2");
-        agentMember2OnS1.metadata(copyFromUtf8("agentNodeOnS2"));
+        agentMemberOnS2.metadata(copyFromUtf8("agentNodeOnS2"));
 
         IAgentMember agentMemberOnS3 = agentOnS3.register("agentNodeOnS3");
         agentMemberOnS3.metadata(copyFromUtf8("agentNodeOnS3"));
@@ -374,17 +375,17 @@ public class AgentHostsTest extends AgentTestTemplate {
         await().until(() -> agentOnS2.membership().blockingFirst().size() == 4);
         await().until(() -> agentOnS3.membership().blockingFirst().size() == 4);
 
-        //  isolate s2 from others
+        //  isolate s1 from others
         storeMgr.isolate("s1");
-        await().forever().until(() -> agentOnS1.membership().blockingFirst().size() == 2);
-        await().forever().until(() -> agentOnS2.membership().blockingFirst().size() == 2);
-        await().forever().until(() -> agentOnS3.membership().blockingFirst().size() == 2);
+        await().atMost(Duration.ofSeconds(60)).until(() -> agentOnS1.membership().blockingFirst().size() == 2);
+        await().atMost(Duration.ofSeconds(60)).until(() -> agentOnS2.membership().blockingFirst().size() == 2);
+        await().atMost(Duration.ofSeconds(60)).until(() -> agentOnS3.membership().blockingFirst().size() == 2);
 
         // integrate s1 into the cluster
         storeMgr.integrate("s1");
-        await().forever().until(() -> agentOnS1.membership().blockingFirst().size() == 4);
-        await().forever().until(() -> agentOnS2.membership().blockingFirst().size() == 4);
-        await().forever().until(() -> agentOnS3.membership().blockingFirst().size() == 4);
+        await().atMost(Duration.ofSeconds(60)).until(() -> agentOnS1.membership().blockingFirst().size() == 4);
+        await().atMost(Duration.ofSeconds(60)).until(() -> agentOnS2.membership().blockingFirst().size() == 4);
+        await().atMost(Duration.ofSeconds(60)).until(() -> agentOnS3.membership().blockingFirst().size() == 4);
     }
 
     @StoreCfgs(stores = {

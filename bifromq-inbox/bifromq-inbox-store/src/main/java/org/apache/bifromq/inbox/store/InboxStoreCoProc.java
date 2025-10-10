@@ -1661,6 +1661,10 @@ final class InboxStoreCoProc implements IKVRangeCoProc {
             boolean isCleared = inboxMetaCache.remove(tenantId, inboxMetadata.getInboxId(),
                 inboxMetadata.getIncarnation(), reader);
             if (isCleared) {
+                int topicFiltersCount = inboxMetadata.getTopicFiltersCount();
+                if (topicFiltersCount > 0) {
+                    tenantStats.addSubCount(tenantId, -topicFiltersCount);
+                }
                 tenantStats.addSessionCount(tenantId, -1);
                 if (isLeader) {
                     eventCollector.report(getLocal(MQTTSessionStop.class)

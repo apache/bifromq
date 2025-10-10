@@ -237,4 +237,69 @@ public class SubStatsTest extends InboxStoreTest {
         assertNoGauge(tenantId, TenantMetric.MqttPersistentSessionNumGauge);
         assertNoGauge(tenantId, TenantMetric.MqttPersistentSubCountGauge);
     }
+
+    @Test(groups = "integration")
+    public void collectAfterDeleteWithRemainingSession() {
+        long now = HLC.INST.getPhysical();
+        String tenantId = "tenantId-" + System.nanoTime();
+        String inboxId1 = "inboxId-" + System.nanoTime();
+        String inboxId2 = "inboxId-" + System.nanoTime();
+        String topicFilter1 = "/a/b/c";
+        String topicFilter2 = "/d/e/f";
+        long incarnation1 = System.nanoTime();
+        long incarnation2 = System.nanoTime();
+        ClientInfo client = ClientInfo.newBuilder().setTenantId(tenantId).build();
+
+        BatchAttachRequest.Params attachParams1 = BatchAttachRequest.Params.newBuilder()
+            .setInboxId(inboxId1)
+            .setIncarnation(incarnation1)
+            .setExpirySeconds(5)
+            .setClient(client)
+            .setNow(now)
+            .build();
+        BatchAttachRequest.Params attachParams2 = BatchAttachRequest.Params.newBuilder()
+            .setInboxId(inboxId2)
+            .setIncarnation(incarnation2)
+            .setExpirySeconds(5)
+            .setClient(client)
+            .setNow(now)
+            .build();
+
+        InboxVersion inboxVersion1 = requestAttach(attachParams1).get(0);
+        InboxVersion inboxVersion2 = requestAttach(attachParams2).get(0);
+
+        BatchSubRequest.Params subParams1 = BatchSubRequest.Params.newBuilder()
+            .setTenantId(tenantId)
+            .setInboxId(inboxId1)
+            .setVersion(inboxVersion1)
+            .setTopicFilter(topicFilter1)
+            .setMaxTopicFilters(100)
+            .setNow(now)
+            .build();
+        BatchSubRequest.Params subParams2 = BatchSubRequest.Params.newBuilder()
+            .setTenantId(tenantId)
+            .setInboxId(inboxId2)
+            .setVersion(inboxVersion2)
+            .setTopicFilter(topicFilter2)
+            .setMaxTopicFilters(100)
+            .setNow(now)
+            .build();
+        requestSub(subParams1);
+        requestSub(subParams2);
+
+        Gauge subCountGauge = getSubCountGauge(tenantId);
+        Gauge pSessionGauge = getPSessionGauge(tenantId);
+        await().until(() -> subCountGauge.value() == 2);
+        await().until(() -> pSessionGauge.value() == 2);
+
+        BatchDeleteRequest.Params deleteParams = BatchDeleteRequest.Params.newBuilder()
+            .setTenantId(tenantId)
+            .setInboxId(inboxId1)
+            .setVersion(inboxVersion1)
+            .build();
+        requestDelete(deleteParams);
+
+        await().until(() -> subCountGauge.value() == 1);
+        await().until(() -> pSessionGauge.value() == 1);
+    }
 }

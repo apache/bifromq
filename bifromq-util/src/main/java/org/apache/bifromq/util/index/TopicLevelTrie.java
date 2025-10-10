@@ -309,35 +309,38 @@ public abstract class TopicLevelTrie<V> {
                              MainNode<V> pMain,
                              String topicLevel,
                              String branchTopicLevel) {
-        CNode<V> compressedCNode = toCompressed(pMain.cNode);
-        if (compressedCNode.branchCount() == 0 && grandparent != null) {
-            MainNode<V> ppMain = grandparent.main();
-            if (ppMain.cNode == null) {
-                return true;
+        // 1) Detach the child branch only and compress for that key (targeted, O(1) shards touched)
+        Branch<V> targetChildBranch = pMain.cNode.branches().get(topicLevel);
+        if (targetChildBranch == null || targetChildBranch.iNode != child) {
+            return true; // stale or child replaced concurrently; let outer loop retry
+        }
+
+        // Build parent-after-detach view using targeted compression on the removed key
+        CNode<V> parentAfterDetachChild =
+            toCompressed(pMain.cNode.updatedBranch(topicLevel, null, targetChildBranch), topicLevel);
+
+        // 2) If parent becomes empty after the targeted removal, try to unlink parent from grandparent
+        if (parentAfterDetachChild.branchCount() == 0 && grandparent != null) {
+            MainNode<V> gpMain = grandparent.main();
+            if (gpMain.cNode == null) {
+                return true; // grandparent contracted concurrently
             }
-            Branch<V> parentBr = ppMain.cNode.branches().get(branchTopicLevel);
-            if (parentBr == null || parentBr.iNode != parent) {
-                return true;
+            Branch<V> parentBranch = gpMain.cNode.branches().get(branchTopicLevel);
+            if (parentBranch == null || parentBranch.iNode != parent) {
+                return true; // parent link changed concurrently
             }
-            CNode<V> updated = ppMain.cNode.updatedBranch(branchTopicLevel, null, parentBr);
-            MainNode<V> gpNew = toContracted(toCompressed(updated, branchTopicLevel), grandparent);
-            return grandparent.cas(ppMain, gpNew);
+            // Targeted compression on grandparent by the parent branch key
+            CNode<V> gpAfterDetachParent =
+                toCompressed(gpMain.cNode.updatedBranch(branchTopicLevel, null, parentBranch), branchTopicLevel);
+            return grandparent.cas(gpMain, toContracted(gpAfterDetachParent, grandparent));
         }
-        // Always detach child TNode from parent at the branch `topicLevel`.
-        // This prevents leaving an INode(TNode) zombie reference when parent still has values.
-        Branch<V> targetBranch = pMain.cNode.branches().get(topicLevel);
-        if (targetBranch == null) {
-            return true; // stale; let outer loop retry
-        }
-        if (targetBranch.iNode != child) {
-            return true; // child replaced concurrently; retry
-        }
-        CNode<V> targetCNode = toCompressed(pMain.cNode.updatedBranch(topicLevel, null, targetBranch), topicLevel);
+
+        // 3) Otherwise only update parent with the targeted removal to keep structure minimal
         Runnable hook = TestHook.beforeParentContractCas;
         if (hook != null) {
             hook.run();
         }
-        return parent.cas(pMain, toContracted(targetCNode, parent));
+        return parent.cas(pMain, toContracted(parentAfterDetachChild, parent));
     }
 
     private CNode<V> toCompressed(CNode<V> cn) {

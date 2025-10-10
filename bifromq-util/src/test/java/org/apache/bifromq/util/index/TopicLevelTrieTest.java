@@ -28,6 +28,7 @@ import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -77,7 +78,7 @@ public class TopicLevelTrieTest {
     }
 
     @Test
-    public void testRemoveDeepTopicTrimsAllAncestors() throws Exception {
+    public void testRemoveDeepTopicTrimsAllAncestors() {
         TestTrie trie = new TestTrie();
         List<String> topicLevels = Arrays.asList("$iot", "tenant", "user", "device", "up", "sensor");
         String value = "payload";
@@ -90,7 +91,7 @@ public class TopicLevelTrieTest {
     }
 
     @Test
-    public void testDetachParentINodeWhenParentHasValuesAndChildRemoved() throws Exception {
+    public void testDetachParentINodeWhenParentHasValuesAndChildRemoved() {
         TestTrie trie = new TestTrie();
 
         trie.addPath(List.of("root"), "parentValue");
@@ -105,7 +106,7 @@ public class TopicLevelTrieTest {
     }
 
     @Test
-    public void testDetachParentINodeWhenGrandparentIsNonRoot() throws Exception {
+    public void testDetachParentINodeWhenGrandparentIsNonRoot() {
         // Arrange: root -> g -> p -> c; keep value at 'p' level
         TestTrie trie = new TestTrie();
         trie.addPath(Arrays.asList("g", "p"), "parentValue");
@@ -131,7 +132,7 @@ public class TopicLevelTrieTest {
     }
 
     @Test
-    public void testPruneOnlyTargetChildAmongSiblings() throws Exception {
+    public void testPruneOnlyTargetChildAmongSiblings() {
         // Arrange: siblings under the same parent
         TestTrie trie = new TestTrie();
         trie.addPath(Arrays.asList("g", "p"), "parentValue");
@@ -222,7 +223,7 @@ public class TopicLevelTrieTest {
         }
 
         // Exact-match lookup selector for test validation
-        java.util.Set<String> lookupExact(List<String> topicLevels) {
+        Set<String> lookupExact(List<String> topicLevels) {
             BranchSelector selector = new BranchSelector() {
                 @Override
                 public <V> Map<Branch<V>, Action> selectBranch(Map<String, Branch<V>> branches,

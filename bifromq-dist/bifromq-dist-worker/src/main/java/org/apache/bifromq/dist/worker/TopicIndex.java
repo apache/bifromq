@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 
 package org.apache.bifromq.dist.worker;
@@ -23,14 +23,15 @@ import static org.apache.bifromq.util.TopicConst.MULTI_WILDCARD;
 import static org.apache.bifromq.util.TopicConst.SINGLE_WILDCARD;
 import static org.apache.bifromq.util.TopicConst.SYS_PREFIX;
 
-import org.apache.bifromq.util.TopicUtil;
-import org.apache.bifromq.util.index.Branch;
-import org.apache.bifromq.util.index.TopicLevelTrie;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import org.apache.bifromq.util.TopicUtil;
+import org.apache.bifromq.util.index.Branch;
+import org.apache.bifromq.util.index.TopicLevelTrie;
+import org.apache.bifromq.util.index.ValueStrategy;
 
 /**
  * Concurrent Index for searching Topics against TopicFilter.
@@ -128,6 +129,10 @@ public final class TopicIndex<V> extends TopicLevelTrie<V> {
             return Collections.emptyMap();
         }
     };
+
+    public TopicIndex() {
+        super(ValueStrategy.identity());
+    }
 
     public void add(String topic, V value) {
         add(TopicUtil.parse(topic, false), value);

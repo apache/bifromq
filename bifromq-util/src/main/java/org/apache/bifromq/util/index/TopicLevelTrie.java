@@ -19,7 +19,6 @@
 
 package org.apache.bifromq.util.index;
 
-import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -35,10 +34,16 @@ import lombok.ToString;
 public abstract class TopicLevelTrie<V> {
     private static final AtomicReferenceFieldUpdater<TopicLevelTrie, INode> ROOT_UPDATER =
         AtomicReferenceFieldUpdater.newUpdater(TopicLevelTrie.class, INode.class, "root");
+    private final ValueStrategy<V> strategy;
     private volatile INode<V> root = null;
 
     public TopicLevelTrie() {
-        ROOT_UPDATER.compareAndSet(this, null, new INode<>(new MainNode<>(new CNode<>())));
+        this(ValueStrategy.natural());
+    }
+
+    public TopicLevelTrie(ValueStrategy<V> strategy) {
+        this.strategy = strategy;
+        ROOT_UPDATER.compareAndSet(this, null, new INode<>(new MainNode<>(new CNode<>(strategy))));
     }
 
     protected V add(List<String> topicLevels, V value) {
@@ -65,11 +70,11 @@ public abstract class TopicLevelTrie<V> {
                         return insert(br.iNode, i, topicLevels.get(0), topicLevels.subList(1, topicLevels.size()), value);
                     }
                     INode<V> nin = new INode<>(
-                        new MainNode<>(new CNode<>(topicLevels.subList(1, topicLevels.size()), value)));
+                        new MainNode<>(new CNode<>(topicLevels.subList(1, topicLevels.size()), value, strategy)));
                     MainNode<V> newMain = new MainNode<>(cn.updatedBranch(topicLevels.get(0), nin, br));
                     return i.cas(main, newMain);
                 }
-                if (br.values.contains(value)) {
+                if (br.contains(value)) {
                     // value already exists
                     return true;
                 }
@@ -121,7 +126,7 @@ public abstract class TopicLevelTrie<V> {
                     }
                     return true;
                 }
-                if (!br.values.contains(value)) {
+                if (!br.contains(value)) {
                     return true;
                 }
                 MainNode<V> newMain = toContracted(cn.removed(topicLevels.get(levelIndex), value), i);
@@ -204,8 +209,8 @@ public abstract class TopicLevelTrie<V> {
             Map<Branch<V>, BranchSelector.Action> branches =
                 branchSelector.selectBranch(cn.branches(), topicLevels, currentLevel);
 
-            // Flatten union: accumulate into a mutable set to avoid deep SetView chains
-            Set<V> values = new HashSet<>();
+            // Use strategy-backed set to preserve custom equivalence
+            Set<V> values = new StrategySet<>(strategy);
             for (Map.Entry<Branch<V>, BranchSelector.Action> entry : branches.entrySet()) {
                 Branch<V> branch = entry.getKey();
                 BranchSelector.Action action = entry.getValue();
@@ -352,14 +357,14 @@ public abstract class TopicLevelTrie<V> {
                 changed = true;
             }
         }
-        return changed ? new CNode<>(table) : cn;
+        return changed ? new CNode<>(table, strategy) : cn;
     }
 
     // Compress only the specified key if it becomes trimmable; otherwise return original cn
     private CNode<V> toCompressed(CNode<V> cn, String onlyKey) {
         Branch<V> br = cn.branches().get(onlyKey);
         if (couldTrim(br)) {
-            return new CNode<>(cn.table.minus(onlyKey));
+            return new CNode<>(cn.table.minus(onlyKey), strategy);
         }
         return cn; // unchanged
     }
@@ -403,6 +408,8 @@ public abstract class TopicLevelTrie<V> {
             MATCH_AND_STOP;
         }
     }
+
+    // StrategySet moved to package class
 
     /**
      * The return value of the lookup operation. The general contract is when the operation is successful, the

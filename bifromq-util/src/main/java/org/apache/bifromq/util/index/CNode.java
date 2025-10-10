@@ -29,24 +29,27 @@ public class CNode<V> {
     private static final int SHARDING_THRESHOLD = 8192; // Threshold to switch from single PMap to sharded table
     private static final int DEFAULT_SEG_BITS = 3; // 8 segments
     private static final int DEFAULT_SHARD_BITS = 8;    // 256 shards
+    private final ValueStrategy<V> strategy;
     BranchTable<V> table;
 
-    CNode() {
+    CNode(ValueStrategy<V> strategy) {
         this.table = EmptyBranchTable.empty();
+        this.strategy = strategy;
     }
 
-    CNode(BranchTable<V> table) {
+    CNode(BranchTable<V> table, ValueStrategy<V> strategy) {
         this.table = table;
+        this.strategy = strategy;
     }
 
-    CNode(List<String> topicLevels, V value) {
-        this();
+    CNode(List<String> topicLevels, V value, ValueStrategy<V> strategy) {
+        this(strategy);
         if (topicLevels.size() == 1) {
-            table = table.plus(topicLevels.get(0), new Branch<>(value));
+            table = table.plus(topicLevels.get(0), new Branch<>(value, strategy));
         } else {
             INode<V> nin = new INode<>(
-                new MainNode<>(new CNode<>(topicLevels.subList(1, topicLevels.size()), value)));
-            table = table.plus(topicLevels.get(0), new Branch<>(nin));
+                new MainNode<>(new CNode<>(topicLevels.subList(1, topicLevels.size()), value, strategy)));
+            table = table.plus(topicLevels.get(0), new Branch<>(nin, strategy));
         }
         table = maybeShard(table);
     }
@@ -54,18 +57,18 @@ public class CNode<V> {
     CNode<V> inserted(List<String> topicLevels, V value) {
         BranchTable<V> newTable = table;
         if (topicLevels.size() == 1) {
-            newTable = newTable.plus(topicLevels.get(0), new Branch<>(value));
+            newTable = newTable.plus(topicLevels.get(0), new Branch<>(value, strategy));
         } else {
-            INode<V> nin = new INode<>(new MainNode<>(new CNode<>(topicLevels.subList(1, topicLevels.size()), value)));
-            newTable = newTable.plus(topicLevels.get(0), new Branch<>(nin));
+            INode<V> nin = new INode<>(new MainNode<>(new CNode<>(topicLevels.subList(1, topicLevels.size()), value, strategy)));
+            newTable = newTable.plus(topicLevels.get(0), new Branch<>(nin, strategy));
         }
-        return new CNode<>(maybeShard(newTable));
+        return new CNode<>(maybeShard(newTable), strategy);
     }
 
     // updatedBranch returns a copy of this C-node with the specified branch updated.
     CNode<V> updatedBranch(String topicLevel, INode<V> iNode, Branch<V> br) {
         BranchTable<V> newTable = table.plus(topicLevel, br.updated(iNode));
-        return new CNode<>(maybeShard(newTable));
+        return new CNode<>(maybeShard(newTable), strategy);
     }
 
     CNode<V> updated(String topicLevel, V value) {
@@ -74,9 +77,9 @@ public class CNode<V> {
         if (br != null) {
             newTable = newTable.plus(topicLevel, br.updated(value));
         } else {
-            newTable = newTable.plus(topicLevel, new Branch<>(value));
+            newTable = newTable.plus(topicLevel, new Branch<>(value, strategy));
         }
-        return new CNode<>(maybeShard(newTable));
+        return new CNode<>(maybeShard(newTable), strategy);
     }
 
     CNode<V> removed(String topicLevel, V value) {
@@ -90,7 +93,7 @@ public class CNode<V> {
                 newTable = newTable.plus(topicLevel, updatedBranch);
             }
         }
-        return new CNode<>(newTable);
+        return new CNode<>(newTable, strategy);
     }
 
     Map<String, Branch<V>> branches() {

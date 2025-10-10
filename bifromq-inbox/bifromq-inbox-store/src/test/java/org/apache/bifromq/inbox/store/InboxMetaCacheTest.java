@@ -67,13 +67,11 @@ public class InboxMetaCacheTest {
         reader.put(qos0MsgKey(instPrefix, 1), KVUtil.toByteString(1));
         reader.put(bufferedMsgKey(instPrefix, 2), KVUtil.toByteString(2));
 
-        SortedMap<Long, InboxMetadata> map1 = cache.get(tenant, inbox, reader);
+        SortedMap<Long, InboxMetadata> map1 = cache.get(tenant, inbox, reader.iterator());
         assertEquals(map1.size(), 2);
-        assertEquals(reader.refreshCount, 1);
 
-        SortedMap<Long, InboxMetadata> map2 = cache.get(tenant, inbox, reader);
+        SortedMap<Long, InboxMetadata> map2 = cache.get(tenant, inbox, reader.iterator());
         assertSame(map1, map2);
-        assertEquals(reader.refreshCount, 1);
     }
 
     @Test
@@ -83,8 +81,8 @@ public class InboxMetaCacheTest {
         putInstance(tenant, inbox, 100);
         putInstance(tenant, inbox, 200);
 
-        Optional<InboxMetadata> m100 = cache.get(tenant, inbox, 100, reader);
-        Optional<InboxMetadata> m300 = cache.get(tenant, inbox, 300, reader);
+        Optional<InboxMetadata> m100 = cache.get(tenant, inbox, 100, reader.iterator());
+        Optional<InboxMetadata> m300 = cache.get(tenant, inbox, 300, reader.iterator());
         assertTrue(m100.isPresent());
         assertFalse(m300.isPresent());
     }
@@ -95,20 +93,18 @@ public class InboxMetaCacheTest {
         String inbox = "i1";
 
         InboxMetadata meta1 = InboxMetadata.newBuilder().setInboxId(inbox).setIncarnation(1).build();
-        assertTrue(cache.upsert(tenant, meta1, reader)); // first entry
-        assertEquals(cache.get(tenant, inbox, reader).size(), 1);
+        assertTrue(cache.upsert(tenant, meta1, reader.iterator())); // first entry
+        assertEquals(cache.get(tenant, inbox, reader.iterator()).size(), 1);
 
         InboxMetadata meta2 = InboxMetadata.newBuilder().setInboxId(inbox).setIncarnation(2).build();
-        assertFalse(cache.upsert(tenant, meta2, reader));
-        assertEquals(cache.get(tenant, inbox, reader).size(), 2);
+        assertFalse(cache.upsert(tenant, meta2, reader.iterator()));
+        assertEquals(cache.get(tenant, inbox, reader.iterator()).size(), 2);
 
-        assertFalse(cache.remove(tenant, inbox, 1, reader));
-        assertEquals(cache.get(tenant, inbox, reader).size(), 1);
+        assertFalse(cache.remove(tenant, inbox, 1, reader.iterator()));
+        assertEquals(cache.get(tenant, inbox, reader.iterator()).size(), 1);
 
-        assertTrue(cache.remove(tenant, inbox, 2, reader)); // map becomes empty and invalidated
-        reader.refreshCount = 0;
-        cache.get(tenant, inbox, reader);
-        assertEquals(reader.refreshCount, 1);
+        assertTrue(cache.remove(tenant, inbox, 2, reader.iterator())); // map becomes empty and invalidated
+        cache.get(tenant, inbox, reader.iterator());
     }
 
     @Test
@@ -119,9 +115,8 @@ public class InboxMetaCacheTest {
         putInstance(tenant, inbox1, 1);
         putInstance(tenant, inbox2, 2);
 
-        cache.get(tenant, inbox1, reader);
-        cache.get(tenant, inbox2, reader);
-        reader.refreshCount = 0;
+        cache.get(tenant, inbox1, reader.iterator());
+        cache.get(tenant, inbox2, reader.iterator());
 
         // boundary only covers inbox1 prefix, so inbox2 should be invalidated
         ByteString start = inboxStartKeyPrefix(tenant, inbox1);
@@ -130,12 +125,10 @@ public class InboxMetaCacheTest {
         cache.reset(boundary);
 
         // inbox1 should still be cached
-        cache.get(tenant, inbox1, reader);
-        assertEquals(reader.refreshCount, 0);
+        cache.get(tenant, inbox1, reader.iterator());
 
         // inbox2 should be reloaded (invalidated)
-        cache.get(tenant, inbox2, reader);
-        assertEquals(reader.refreshCount, 1);
+        cache.get(tenant, inbox2, reader.iterator());
     }
 
     @Test
@@ -154,7 +147,7 @@ public class InboxMetaCacheTest {
             }
         }
 
-        cache.get(tenant, inbox, reader);
+        cache.get(tenant, inbox, reader.iterator());
         assertTrue(reader.iter.seekCount.get() > 0);
     }
 
@@ -168,7 +161,7 @@ public class InboxMetaCacheTest {
         ByteString key = inboxInstanceStartKey(tenant, inbox, 2);
         reader.put(key, ByteString.copyFromUtf8("bad"));
 
-        SortedMap<Long, InboxMetadata> map = cache.get(tenant, inbox, reader);
+        SortedMap<Long, InboxMetadata> map = cache.get(tenant, inbox, reader.iterator());
         assertEquals(map.size(), 1);
         assertTrue(map.containsKey(1L));
     }
@@ -186,7 +179,6 @@ public class InboxMetaCacheTest {
     private static class FakeKVReader implements IKVReader {
         private final NavigableMap<ByteString, ByteString> data =
             new ConcurrentSkipListMap<>(COMPARATOR);
-        int refreshCount = 0;
         FakeKVIterator iter;
         private Boundary boundary = Boundary.getDefaultInstance();
 
@@ -222,7 +214,6 @@ public class InboxMetaCacheTest {
 
         @Override
         public void refresh() {
-            refreshCount++;
         }
     }
 

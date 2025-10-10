@@ -326,10 +326,12 @@ final class InboxStoreCoProc implements IKVRangeCoProc {
     }
 
     private CompletableFuture<BatchExistReply> batchExist(BatchExistRequest request, IKVReader reader) {
+        reader.refresh();
+        IKVIterator itr = reader.iterator();
         BatchExistReply.Builder replyBuilder = BatchExistReply.newBuilder();
         for (BatchExistRequest.Params params : request.getParamsList()) {
             SortedMap<Long, InboxMetadata> inboxInstances = inboxMetaCache.get(params.getTenantId(),
-                params.getInboxId(), reader);
+                params.getInboxId(), itr);
 
             replyBuilder.addExist(!inboxInstances.isEmpty()
                 && !hasExpired(inboxInstances.get(inboxInstances.lastKey()), params.getNow()));
@@ -338,10 +340,12 @@ final class InboxStoreCoProc implements IKVRangeCoProc {
     }
 
     private CompletableFuture<BatchCheckSubReply> batchCheckSub(BatchCheckSubRequest request, IKVReader reader) {
+        reader.refresh();
+        IKVIterator itr = reader.iterator();
         BatchCheckSubReply.Builder replyBuilder = BatchCheckSubReply.newBuilder();
         for (BatchCheckSubRequest.Params params : request.getParamsList()) {
             Optional<InboxMetadata> metadataOpt = inboxMetaCache.get(params.getTenantId(), params.getInboxId(),
-                params.getIncarnation(), reader);
+                params.getIncarnation(), itr);
 
             if (metadataOpt.isEmpty()) {
                 replyBuilder.addCode(BatchCheckSubReply.Code.NO_INBOX);
@@ -362,17 +366,19 @@ final class InboxStoreCoProc implements IKVRangeCoProc {
     }
 
     private CompletableFuture<BatchFetchReply> batchFetch(BatchFetchRequest request, IKVReader reader) {
+        reader.refresh();
+        IKVIterator itr = reader.iterator();
         BatchFetchReply.Builder replyBuilder = BatchFetchReply.newBuilder();
         for (BatchFetchRequest.Params params : request.getParamsList()) {
-            replyBuilder.addResult(fetch(params, reader));
+            replyBuilder.addResult(fetch(params, reader, itr));
         }
         return CompletableFuture.completedFuture(replyBuilder.build());
     }
 
-    private Fetched fetch(BatchFetchRequest.Params params, IKVReader reader) {
+    private Fetched fetch(BatchFetchRequest.Params params, IKVReader reader, IKVIterator itr) {
         Fetched.Builder replyBuilder = Fetched.newBuilder();
         Optional<InboxMetadata> inboxMetadataOpt = inboxMetaCache.get(params.getTenantId(), params.getInboxId(),
-            params.getIncarnation(), reader);
+            params.getIncarnation(), itr);
         if (inboxMetadataOpt.isEmpty()) {
             replyBuilder.setResult(Fetched.Result.NO_INBOX);
             return replyBuilder.build();
@@ -435,10 +441,12 @@ final class InboxStoreCoProc implements IKVRangeCoProc {
 
     private CompletableFuture<BatchFetchInboxStateReply> batchFetchInboxState(BatchFetchInboxStateRequest request,
                                                                               IKVReader reader) {
+        reader.refresh();
+        IKVIterator itr = reader.iterator();
         BatchFetchInboxStateReply.Builder replyBuilder = BatchFetchInboxStateReply.newBuilder();
         for (BatchFetchInboxStateRequest.Params params : request.getParamsList()) {
             SortedMap<Long, InboxMetadata> inboxInstances =
-                inboxMetaCache.get(params.getTenantId(), params.getInboxId(), reader);
+                inboxMetaCache.get(params.getTenantId(), params.getInboxId(), itr);
             if (inboxInstances.isEmpty()) {
                 replyBuilder.addResult(BatchFetchInboxStateReply.Result.newBuilder()
                     .setCode(BatchFetchInboxStateReply.Result.Code.NO_INBOX)
@@ -490,10 +498,12 @@ final class InboxStoreCoProc implements IKVRangeCoProc {
     }
 
     private CompletableFuture<BatchSendLWTReply> batchSendLWT(BatchSendLWTRequest request, IKVReader reader) {
+        reader.refresh();
+        IKVIterator itr = reader.iterator();
         List<CompletableFuture<BatchSendLWTReply.Code>> sendLWTFutures = new ArrayList<>(request.getParamsCount());
         for (BatchSendLWTRequest.Params params : request.getParamsList()) {
             Optional<InboxMetadata> metadataOpt = inboxMetaCache.get(params.getTenantId(), params.getInboxId(),
-                params.getVersion().getIncarnation(), reader);
+                params.getVersion().getIncarnation(), itr);
             if (metadataOpt.isEmpty()) {
                 sendLWTFutures.add(CompletableFuture.completedFuture(BatchSendLWTReply.Code.NO_INBOX));
                 continue;
@@ -693,6 +703,8 @@ final class InboxStoreCoProc implements IKVRangeCoProc {
                                  boolean isLeader,
                                  IKVReader reader,
                                  IKVWriter writer) {
+        reader.refresh();
+        IKVIterator itr = reader.iterator();
         Map<String, Set<InboxMetadata>> toBeTracked = new HashMap<>();
         Set<TenantInboxInstance> toBeCanceled = new HashSet<>();
         Map<String, Set<InboxMetadata>> toBeEnsured = new HashMap<>();
@@ -700,7 +712,7 @@ final class InboxStoreCoProc implements IKVRangeCoProc {
             String tenantId = params.getClient().getTenantId();
             String inboxId = params.getInboxId();
             long now = params.getNow();
-            SortedMap<Long, InboxMetadata> inboxInstances = inboxMetaCache.get(tenantId, inboxId, reader);
+            SortedMap<Long, InboxMetadata> inboxInstances = inboxMetaCache.get(tenantId, inboxId, itr);
             if (inboxInstances.isEmpty() || hasExpired(inboxInstances.get(inboxInstances.lastKey()), now)) {
                 long incarnation = params.getIncarnation();
                 ByteString metadataKey = inboxInstanceStartKey(tenantId, inboxId, incarnation);
@@ -774,7 +786,7 @@ final class InboxStoreCoProc implements IKVRangeCoProc {
             }
         }
         return () -> {
-            updateTenantStates(toBeTracked, reader, isLeader);
+            updateTenantStates(toBeTracked, itr, isLeader);
             delayTaskRunner.cancelAll(toBeCanceled);
             toBeEnsured.forEach((tenantId, inboxSet) -> inboxSet.forEach(metadata -> {
                 TenantInboxInstance inboxInstance = new TenantInboxInstance(
@@ -805,12 +817,14 @@ final class InboxStoreCoProc implements IKVRangeCoProc {
                                  boolean isLeader,
                                  IKVReader reader,
                                  IKVWriter writer) {
+        reader.refresh();
+        IKVIterator itr = reader.iterator();
         Map<String, Set<InboxMetadata>> toBeUpdated = new HashMap<>();
         Map<String, Set<InboxMetadata>> toBeEnsured = new HashMap<>();
         Map<String, Set<InboxMetadata>> toBeScheduled = new HashMap<>();
         for (BatchDetachRequest.Params params : request.getParamsList()) {
             SortedMap<Long, InboxMetadata> inboxInstances = inboxMetaCache.get(params.getTenantId(),
-                params.getInboxId(), reader);
+                params.getInboxId(), itr);
             if (inboxInstances.isEmpty()) {
                 replyBuilder.addCode(BatchDetachReply.Code.NO_INBOX);
                 continue;
@@ -852,7 +866,7 @@ final class InboxStoreCoProc implements IKVRangeCoProc {
             replyBuilder.addCode(BatchDetachReply.Code.OK);
         }
         return () -> {
-            updateTenantStates(toBeUpdated, reader, isLeader);
+            updateTenantStates(toBeUpdated, itr, isLeader);
             toBeScheduled.forEach((tenantId, inboxSet) -> inboxSet.forEach(metadata -> {
                 TenantInboxInstance inboxInstance = new TenantInboxInstance(
                     TENANT_ID_INTERNER.intern(tenantId),
@@ -910,7 +924,7 @@ final class InboxStoreCoProc implements IKVRangeCoProc {
         Map<InboxMetadata, List<InboxMessage>> dropedBufferedMsg = new HashMap<>();
         for (BatchDeleteRequest.Params params : request.getParamsList()) {
             Optional<InboxMetadata> metadataOpt = inboxMetaCache.get(params.getTenantId(), params.getInboxId(),
-                params.getVersion().getIncarnation(), reader);
+                params.getVersion().getIncarnation(), itr);
             if (metadataOpt.isEmpty()) {
                 replyBuilder.addResult(
                     BatchDeleteReply.Result.newBuilder().setCode(BatchDeleteReply.Code.NO_INBOX).build());
@@ -988,7 +1002,7 @@ final class InboxStoreCoProc implements IKVRangeCoProc {
                     }
                 }
             }
-            removeTenantStates(toBeRemoved, reader, isLeader);
+            removeTenantStates(toBeRemoved, itr, isLeader);
         };
     }
 
@@ -997,11 +1011,13 @@ final class InboxStoreCoProc implements IKVRangeCoProc {
                               boolean isLeader,
                               IKVReader reader,
                               IKVWriter writer) {
+        reader.refresh();
+        IKVIterator itr = reader.iterator();
         Map<String, Set<InboxMetadata>> toBeCached = new HashMap<>();
         Map<String, Integer> addedSubCounts = new HashMap<>();
         for (BatchSubRequest.Params params : request.getParamsList()) {
             Optional<InboxMetadata> metadataOpt = inboxMetaCache.get(params.getTenantId(), params.getInboxId(),
-                params.getVersion().getIncarnation(), reader);
+                params.getVersion().getIncarnation(), itr);
             if (metadataOpt.isEmpty()) {
                 replyBuilder.addCode(BatchSubReply.Code.NO_INBOX);
                 continue;
@@ -1034,7 +1050,7 @@ final class InboxStoreCoProc implements IKVRangeCoProc {
             toBeCached.computeIfAbsent(params.getTenantId(), k -> new HashSet<>()).add(metadata);
         }
         return () -> {
-            updateTenantStates(toBeCached, reader, isLeader);
+            updateTenantStates(toBeCached, itr, isLeader);
             addedSubCounts.forEach(tenantStats::addSubCount);
             tenantStats.toggleMetering(isLeader);
         };
@@ -1045,11 +1061,13 @@ final class InboxStoreCoProc implements IKVRangeCoProc {
                                 boolean isLeader,
                                 IKVReader reader,
                                 IKVWriter write) {
+        reader.refresh();
+        IKVIterator itr = reader.iterator();
         Map<String, Set<InboxMetadata>> toBeCached = new HashMap<>();
         Map<String, Integer> removedSubCounts = new HashMap<>();
         for (BatchUnsubRequest.Params params : request.getParamsList()) {
             Optional<InboxMetadata> metadataOpt = inboxMetaCache.get(params.getTenantId(), params.getInboxId(),
-                params.getVersion().getIncarnation(), reader);
+                params.getVersion().getIncarnation(), itr);
             if (metadataOpt.isEmpty()) {
                 replyBuilder.addResult(
                     BatchUnsubReply.Result.newBuilder().setCode(BatchUnsubReply.Code.NO_INBOX).build());
@@ -1078,7 +1096,7 @@ final class InboxStoreCoProc implements IKVRangeCoProc {
             toBeCached.computeIfAbsent(params.getTenantId(), k -> new HashSet<>()).add(metadata);
         }
         return () -> {
-            updateTenantStates(toBeCached, reader, isLeader);
+            updateTenantStates(toBeCached, itr, isLeader);
             removedSubCounts.forEach((tenantId, subCount) -> tenantStats.addSubCount(tenantId, -subCount));
             tenantStats.toggleMetering(isLeader);
         };
@@ -1165,12 +1183,14 @@ final class InboxStoreCoProc implements IKVRangeCoProc {
                                  boolean isLeader,
                                  IKVReader reader,
                                  IKVWriter writer) {
+        reader.refresh();
+        IKVIterator itr = reader.iterator();
         Map<String, Set<InboxMetadata>> toBeCached = new HashMap<>();
         Map<ClientInfo, Map<QoS, Integer>> dropCountMap = new HashMap<>();
         Map<ClientInfo, Boolean> dropOldestMap = new HashMap<>();
         for (InsertRequest params : request.getRequestList()) {
             Optional<InboxMetadata> metadataOpt = inboxMetaCache.get(params.getTenantId(), params.getInboxId(),
-                params.getIncarnation(), reader);
+                params.getIncarnation(), itr);
             if (metadataOpt.isEmpty()) {
                 replyBuilder.addResult(InsertResult.newBuilder().setCode(InsertResult.Code.NO_INBOX).build());
                 continue;
@@ -1260,7 +1280,7 @@ final class InboxStoreCoProc implements IKVRangeCoProc {
             ByteString inboxInstStartKey = inboxInstanceStartKey(params.getTenantId(), params.getInboxId(),
                 params.getIncarnation());
             Map<QoS, Integer> dropCounts = insertInbox(inboxInstStartKey, qos0MsgList, bufferMsgList, metadataBuilder,
-                reader, writer);
+                itr, writer);
             metadata = metadataBuilder.build();
 
             Map<QoS, Integer> aggregated = dropCountMap.computeIfAbsent(metadata.getClient(), k -> new HashMap<>());
@@ -1281,7 +1301,7 @@ final class InboxStoreCoProc implements IKVRangeCoProc {
             toBeCached.computeIfAbsent(params.getTenantId(), k -> new HashSet<>()).add(metadata);
         }
         return () -> {
-            updateTenantStates(toBeCached, reader, isLeader);
+            updateTenantStates(toBeCached, itr, isLeader);
             dropCountMap.forEach((client, dropCounts) -> dropCounts.forEach((qos, count) -> {
                 if (count > 0) {
                     eventCollector.report(getLocal(Overflowed.class)
@@ -1298,7 +1318,7 @@ final class InboxStoreCoProc implements IKVRangeCoProc {
                                           List<SubMessage> qos0MsgList,
                                           List<SubMessage> bufferedMsgList,
                                           InboxMetadata.Builder metaBuilder,
-                                          IKVReader reader,
+                                          IKVIterator itr,
                                           IKVWriter writer) {
         Map<QoS, Integer> dropCounts = new HashMap<>();
         if (!qos0MsgList.isEmpty()) {
@@ -1306,7 +1326,7 @@ final class InboxStoreCoProc implements IKVRangeCoProc {
             long nextSeq = metaBuilder.getQos0NextSeq();
             int dropCount = insertToInbox(inboxKeyPrefix, startSeq, nextSeq, metaBuilder.getLimit(),
                 metaBuilder.getDropOldest(), KVSchemaUtil::qos0MsgKey, metaBuilder::setQos0StartSeq,
-                metaBuilder::setQos0NextSeq, qos0MsgList, reader, writer);
+                metaBuilder::setQos0NextSeq, qos0MsgList, itr, writer);
             if (dropCount > 0) {
                 dropCounts.put(QoS.AT_MOST_ONCE, dropCount);
             }
@@ -1316,7 +1336,7 @@ final class InboxStoreCoProc implements IKVRangeCoProc {
             long nextSeq = metaBuilder.getSendBufferNextSeq();
             int dropCount = insertToInbox(inboxKeyPrefix, startSeq, nextSeq, metaBuilder.getLimit(), false,
                 KVSchemaUtil::bufferedMsgKey, metaBuilder::setSendBufferStartSeq, metaBuilder::setSendBufferNextSeq,
-                bufferedMsgList, reader, writer);
+                bufferedMsgList, itr, writer);
             if (dropCount > 0) {
                 dropCounts.put(QoS.AT_LEAST_ONCE, dropCount);
             }
@@ -1334,7 +1354,7 @@ final class InboxStoreCoProc implements IKVRangeCoProc {
                               Function<Long, InboxMetadata.Builder> startSeqSetter,
                               Function<Long, InboxMetadata.Builder> nextSeqSetter,
                               List<SubMessage> messages,
-                              IKVReader reader,
+                              IKVIterator itr,
                               IKVWriter writer) {
         int newMsgCount = messages.size();
         int currCount = (int) (nextSeq - startSeq);
@@ -1352,8 +1372,6 @@ final class InboxStoreCoProc implements IKVRangeCoProc {
                     writer.insert(keyGenerator.apply(inboxKeyPrefix, startSeq + dropCount),
                         buildInboxMessageList(startSeq + dropCount, messages).toByteString());
                 } else {
-                    reader.refresh();
-                    IKVIterator itr = reader.iterator();
                     // drop partially
                     itr.seekForPrev(keyGenerator.apply(inboxKeyPrefix, startSeq + dropCount));
                     long beginSeq = parseSeq(inboxKeyPrefix, itr.key());
@@ -1422,10 +1440,12 @@ final class InboxStoreCoProc implements IKVRangeCoProc {
                                  boolean isLeader,
                                  IKVReader reader,
                                  IKVWriter writer) {
+        reader.refresh();
+        IKVIterator itr = reader.iterator();
         Map<String, Set<InboxMetadata>> toBeCached = new HashMap<>();
         for (BatchCommitRequest.Params params : request.getParamsList()) {
             Optional<InboxMetadata> metadataOpt = inboxMetaCache.get(params.getTenantId(), params.getInboxId(),
-                params.getVersion().getIncarnation(), reader);
+                params.getVersion().getIncarnation(), itr);
             if (metadataOpt.isEmpty()) {
                 replyBuilder.addCode(BatchCommitReply.Code.NO_INBOX);
                 continue;
@@ -1444,7 +1464,7 @@ final class InboxStoreCoProc implements IKVRangeCoProc {
             replyBuilder.addCode(BatchCommitReply.Code.OK);
             toBeCached.computeIfAbsent(params.getTenantId(), k -> new HashSet<>()).add(metadata);
         }
-        return () -> updateTenantStates(toBeCached, reader, isLeader);
+        return () -> updateTenantStates(toBeCached, itr, isLeader);
     }
 
     private void commitInbox(ByteString scopedInboxId,
@@ -1640,10 +1660,10 @@ final class InboxStoreCoProc implements IKVRangeCoProc {
         }
     }
 
-    private void updateTenantStates(Map<String, Set<InboxMetadata>> toBeUpdated, IKVReader reader, boolean isLeader) {
+    private void updateTenantStates(Map<String, Set<InboxMetadata>> toBeUpdated, IKVIterator itr, boolean isLeader) {
         toBeUpdated.forEach((tenantId, inboxSet) ->
             inboxSet.forEach(inboxMetadata -> {
-                boolean isNew = inboxMetaCache.upsert(tenantId, inboxMetadata, reader);
+                boolean isNew = inboxMetaCache.upsert(tenantId, inboxMetadata, itr);
                 if (isNew) {
                     tenantStats.addSessionCount(tenantId, 1);
                     if (isLeader) {
@@ -1656,10 +1676,10 @@ final class InboxStoreCoProc implements IKVRangeCoProc {
         tenantStats.toggleMetering(isLeader);
     }
 
-    private void removeTenantStates(Map<String, Set<InboxMetadata>> toBeRemoved, IKVReader reader, boolean isLeader) {
+    private void removeTenantStates(Map<String, Set<InboxMetadata>> toBeRemoved, IKVIterator itr, boolean isLeader) {
         toBeRemoved.forEach((tenantId, inboxSet) -> inboxSet.forEach(inboxMetadata -> {
             boolean isCleared = inboxMetaCache.remove(tenantId, inboxMetadata.getInboxId(),
-                inboxMetadata.getIncarnation(), reader);
+                inboxMetadata.getIncarnation(), itr);
             if (isCleared) {
                 int topicFiltersCount = inboxMetadata.getTopicFiltersCount();
                 if (topicFiltersCount > 0) {

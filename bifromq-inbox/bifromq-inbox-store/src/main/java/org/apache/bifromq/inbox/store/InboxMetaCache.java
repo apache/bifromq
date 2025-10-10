@@ -34,11 +34,10 @@ import com.google.protobuf.InvalidProtocolBufferException;
 import java.time.Duration;
 import java.util.Optional;
 import java.util.SortedMap;
-import java.util.TreeMap;
+import java.util.concurrent.ConcurrentSkipListMap;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.bifromq.basekv.proto.Boundary;
 import org.apache.bifromq.basekv.store.api.IKVIterator;
-import org.apache.bifromq.basekv.store.api.IKVReader;
 import org.apache.bifromq.inbox.storage.proto.InboxMetadata;
 
 @Slf4j
@@ -52,28 +51,28 @@ class InboxMetaCache implements IInboxMetaCache {
     }
 
     @Override
-    public SortedMap<Long, InboxMetadata> get(String tenantId, String inboxId, IKVReader reader) {
+    public SortedMap<Long, InboxMetadata> get(String tenantId, String inboxId, IKVIterator itr) {
         return cache.get(new CacheKey(TENANT_ID_INTERNER.intern(tenantId), inboxId),
-            key -> getFromStore(key.tenantId, key.inboxId, reader));
+            key -> getFromStore(key.tenantId, key.inboxId, itr));
     }
 
     @Override
-    public Optional<InboxMetadata> get(String tenantId, String inboxId, long incarnation, IKVReader reader) {
-        SortedMap<Long, InboxMetadata> inboxInstances = get(tenantId, inboxId, reader);
+    public Optional<InboxMetadata> get(String tenantId, String inboxId, long incarnation, IKVIterator itr) {
+        SortedMap<Long, InboxMetadata> inboxInstances = get(tenantId, inboxId, itr);
         return Optional.ofNullable(inboxInstances.get(incarnation));
     }
 
     @Override
-    public boolean upsert(String tenantId, InboxMetadata metadata, IKVReader reader) {
-        SortedMap<Long, InboxMetadata> inboxInstances = get(tenantId, metadata.getInboxId(), reader);
+    public boolean upsert(String tenantId, InboxMetadata metadata, IKVIterator itr) {
+        SortedMap<Long, InboxMetadata> inboxInstances = get(tenantId, metadata.getInboxId(), itr);
         boolean isNew = inboxInstances.isEmpty();
         inboxInstances.put(metadata.getIncarnation(), metadata);
         return isNew;
     }
 
     @Override
-    public boolean remove(String tenantId, String inboxId, long incarnation, IKVReader reader) {
-        SortedMap<Long, InboxMetadata> inboxInstances = get(tenantId, inboxId, reader);
+    public boolean remove(String tenantId, String inboxId, long incarnation, IKVIterator itr) {
+        SortedMap<Long, InboxMetadata> inboxInstances = get(tenantId, inboxId, itr);
         inboxInstances.remove(incarnation);
         if (inboxInstances.isEmpty()) {
             cache.invalidate(new CacheKey(tenantId, inboxId));
@@ -96,11 +95,9 @@ class InboxMetaCache implements IInboxMetaCache {
         cache.invalidateAll();
     }
 
-    private SortedMap<Long, InboxMetadata> getFromStore(String tenantId, String inboxId, IKVReader reader) {
-        reader.refresh();
-        IKVIterator itr = reader.iterator();
+    private SortedMap<Long, InboxMetadata> getFromStore(String tenantId, String inboxId, IKVIterator itr) {
         int probe = 0;
-        SortedMap<Long, InboxMetadata> inboxInstances = new TreeMap<>();
+        SortedMap<Long, InboxMetadata> inboxInstances = new ConcurrentSkipListMap<>();
         ByteString inboxStartKey = inboxStartKeyPrefix(tenantId, inboxId);
         for (itr.seek(inboxStartKey); itr.isValid(); ) {
             if (itr.key().startsWith(inboxStartKey)) {

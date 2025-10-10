@@ -22,18 +22,18 @@ package org.apache.bifromq.inbox.store;
 import java.util.Optional;
 import java.util.SortedMap;
 import org.apache.bifromq.basekv.proto.Boundary;
-import org.apache.bifromq.basekv.store.api.IKVReader;
+import org.apache.bifromq.basekv.store.api.IKVIterator;
 import org.apache.bifromq.inbox.storage.proto.InboxMetadata;
 
 public interface IInboxMetaCache {
 
-    SortedMap<Long, InboxMetadata> get(String tenantId, String inboxId, IKVReader reader);
+    SortedMap<Long, InboxMetadata> get(String tenantId, String inboxId, IKVIterator itr);
 
-    Optional<InboxMetadata> get(String tenantId, String inboxId, long incarnation, IKVReader reader);
+    Optional<InboxMetadata> get(String tenantId, String inboxId, long incarnation, IKVIterator itr);
 
-    boolean upsert(String tenantId, InboxMetadata metadata, IKVReader reader);
+    boolean upsert(String tenantId, InboxMetadata metadata, IKVIterator itr);
 
-    boolean remove(String tenantId, String inboxId, long incarnation, IKVReader reader);
+    boolean remove(String tenantId, String inboxId, long incarnation, IKVIterator itr);
 
     void reset(Boundary boundary);
 

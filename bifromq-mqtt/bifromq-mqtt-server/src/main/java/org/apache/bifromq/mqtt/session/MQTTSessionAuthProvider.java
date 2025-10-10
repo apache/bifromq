@@ -19,6 +19,11 @@
 
 package org.apache.bifromq.mqtt.session;
 
+import io.netty.channel.ChannelHandlerContext;
+import java.util.Iterator;
+import java.util.LinkedHashMap;
+import java.util.concurrent.CompletableFuture;
+import lombok.extern.slf4j.Slf4j;
 import org.apache.bifromq.plugin.authprovider.IAuthProvider;
 import org.apache.bifromq.plugin.authprovider.type.CheckResult;
 import org.apache.bifromq.plugin.authprovider.type.MQTT3AuthData;
@@ -29,19 +34,13 @@ import org.apache.bifromq.plugin.authprovider.type.MQTT5ExtendedAuthData;
 import org.apache.bifromq.plugin.authprovider.type.MQTT5ExtendedAuthResult;
 import org.apache.bifromq.plugin.authprovider.type.MQTTAction;
 import org.apache.bifromq.type.ClientInfo;
-import io.netty.channel.ChannelHandlerContext;
-import java.util.Iterator;
-import java.util.LinkedHashMap;
-import java.util.concurrent.CompletableFuture;
-import lombok.extern.slf4j.Slf4j;
 
 @Slf4j
 public class MQTTSessionAuthProvider implements IAuthProvider {
     private final IAuthProvider delegate;
     private final ChannelHandlerContext ctx;
     private final LinkedHashMap<CompletableFuture<CheckResult>, CompletableFuture<CheckResult>>
-        checkPermissionTaskQueue =
-        new LinkedHashMap<>();
+        checkPermissionTaskQueue = new LinkedHashMap<>();
 
     public MQTTSessionAuthProvider(IAuthProvider delegate, ChannelHandlerContext ctx) {
         this.delegate = delegate;
@@ -71,33 +70,49 @@ public class MQTTSessionAuthProvider implements IAuthProvider {
     @Override
     public CompletableFuture<CheckResult> checkPermission(ClientInfo client, MQTTAction action) {
         assert ctx.executor().inEventLoop();
+        // proactively drain head to minimize latency while keeping order
+        drainInOrder();
+
         CompletableFuture<CheckResult> task = delegate.checkPermission(client, action);
-        if (task.isDone()) {
+        // fast path
+        if (task.isDone() && checkPermissionTaskQueue.isEmpty()) {
             return task;
-        } else {
-            // queue it for fifo semantic
-            CompletableFuture<CheckResult> onDone = new CompletableFuture<>();
-            // in case authProvider returns same future object;
-            task = task.thenApply(v -> v);
-            checkPermissionTaskQueue.put(task, onDone);
-            task.whenCompleteAsync((_v, _e) -> {
-                Iterator<CompletableFuture<CheckResult>> itr = checkPermissionTaskQueue.keySet().iterator();
-                while (itr.hasNext()) {
-                    CompletableFuture<CheckResult> k = itr.next();
-                    if (k.isDone()) {
-                        CompletableFuture<CheckResult> r = checkPermissionTaskQueue.get(k);
-                        try {
-                            r.complete(k.join());
-                        } catch (Throwable e) {
-                            r.completeExceptionally(e);
-                        }
-                        itr.remove();
-                    } else {
-                        break;
-                    }
+        }
+
+        // queue it for strict FIFO semantics
+        CompletableFuture<CheckResult> onDone = new CompletableFuture<>();
+        // in case authProvider returns same future object
+        task = task.thenApply(v -> v);
+        checkPermissionTaskQueue.put(task, onDone);
+        task.whenComplete((_v, _e) -> {
+            if (ctx.executor().inEventLoop()) {
+                // drain upon completion on event loop to release head in order
+                drainInOrder();
+            } else {
+                // schedule a drain on event loop to release head in order
+                ctx.executor().execute(this::drainInOrder);
+            }
+        });
+        return onDone;
+    }
+
+    // drain head completed tasks in FIFO order
+    private void drainInOrder() {
+        Iterator<CompletableFuture<CheckResult>> itr = checkPermissionTaskQueue.keySet().iterator();
+        while (itr.hasNext()) {
+            CompletableFuture<CheckResult> k = itr.next();
+            if (k.isDone()) {
+                CompletableFuture<CheckResult> r = checkPermissionTaskQueue.get(k);
+                try {
+                    // complete in caller's event loop
+                    r.complete(k.join());
+                } catch (Throwable e) {
+                    r.completeExceptionally(e);
                 }
-            }, ctx.executor());
-            return onDone;
+                itr.remove();
+            } else {
+                break;
+            }
         }
     }
 }

@@ -21,7 +21,6 @@ import "commontype/ClientInfo.proto";
 import "commontype/InboxState.proto";
 import "commontype/TopicFilterOption.proto";
 import "commontype/TopicMessage.proto";
-import "inboxservice/InboxMetadata.proto";
 import "inboxservice/LWT.proto";
 import "inboxservice/InboxFetched.proto";
 

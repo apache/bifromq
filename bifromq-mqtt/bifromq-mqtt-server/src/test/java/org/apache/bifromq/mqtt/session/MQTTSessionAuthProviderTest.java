@@ -23,13 +23,6 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.when;
 import static org.testng.Assert.assertEquals;
 
-import org.apache.bifromq.mqtt.MockableTest;
-import org.apache.bifromq.plugin.authprovider.IAuthProvider;
-import org.apache.bifromq.plugin.authprovider.type.CheckResult;
-import org.apache.bifromq.plugin.authprovider.type.Granted;
-import org.apache.bifromq.plugin.authprovider.type.MQTTAction;
-import org.apache.bifromq.plugin.authprovider.type.PubAction;
-import org.apache.bifromq.type.ClientInfo;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.DefaultEventLoop;
 import io.netty.util.concurrent.EventExecutor;
@@ -40,7 +33,15 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ThreadLocalRandom;
+import java.util.concurrent.atomic.AtomicInteger;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.bifromq.mqtt.MockableTest;
+import org.apache.bifromq.plugin.authprovider.IAuthProvider;
+import org.apache.bifromq.plugin.authprovider.type.CheckResult;
+import org.apache.bifromq.plugin.authprovider.type.Granted;
+import org.apache.bifromq.plugin.authprovider.type.MQTTAction;
+import org.apache.bifromq.plugin.authprovider.type.PubAction;
+import org.apache.bifromq.type.ClientInfo;
 import org.mockito.Mock;
 import org.mockito.invocation.InvocationOnMock;
 import org.mockito.stubbing.Answer;
@@ -114,5 +115,68 @@ public class MQTTSessionAuthProviderTest extends MockableTest {
         for (int i = 0; i < 100; i++) {
             assertEquals(expected.get(i), i);
         }
+    }
+
+    @Test
+    public void isDoneWhenQueueNotEmptyStillOrdered() {
+        MQTTSessionAuthProvider authProvider = new MQTTSessionAuthProvider(delegate, context);
+        CheckResult ok = CheckResult.newBuilder().setGranted(Granted.getDefaultInstance()).build();
+        CompletableFuture<CheckResult> first = new CompletableFuture<>();
+        AtomicInteger count = new AtomicInteger(0);
+
+        when(delegate.checkPermission(any(), any())).thenAnswer((Answer<CompletableFuture<CheckResult>>) invocation -> {
+            // first call returns incomplete, second call returns completed
+            return count.getAndIncrement() == 0 ? first : CompletableFuture.completedFuture(ok);
+        });
+
+        LinkedList<Integer> order = new LinkedList<>();
+        CompletableFuture<CheckResult>[] rets = new CompletableFuture[2];
+        CompletableFuture<Void> scheduled = new CompletableFuture<>();
+
+        context.executor().execute(() -> {
+            rets[0] = authProvider
+                .checkPermission(ClientInfo.newBuilder().build(), MQTTAction.newBuilder().build())
+                .whenComplete((r, e) -> {
+                    assert context.executor().inEventLoop();
+                    order.add(1);
+                });
+            rets[1] = authProvider
+                .checkPermission(ClientInfo.newBuilder().build(), MQTTAction.newBuilder().build())
+                .whenComplete((r, e) -> {
+                    assert context.executor().inEventLoop();
+                    order.add(2);
+                });
+            scheduled.complete(null);
+        });
+        scheduled.join();
+
+        // complete the first one to release the queue
+        first.complete(ok);
+
+        // wait both to finish
+        CompletableFuture.allOf(rets).join();
+
+        assertEquals(order.get(0).intValue(), 1);
+        assertEquals(order.get(1).intValue(), 2);
+    }
+
+    @Test
+    public void isDoneWithEmptyQueueFastPath() {
+        MQTTSessionAuthProvider authProvider = new MQTTSessionAuthProvider(delegate, context);
+        CheckResult ok = CheckResult.newBuilder().setGranted(Granted.getDefaultInstance()).build();
+        CompletableFuture<CheckResult> delegateFuture = CompletableFuture.completedFuture(ok);
+        when(delegate.checkPermission(any(), any())).thenReturn(delegateFuture);
+
+        CompletableFuture<CheckResult>[] ret = new CompletableFuture[1];
+        CompletableFuture<Void> done = new CompletableFuture<>();
+        context.executor().execute(() -> {
+            ret[0] = authProvider.checkPermission(ClientInfo.newBuilder().build(), MQTTAction.newBuilder().build());
+            done.complete(null);
+        });
+        done.join();
+
+        // should be the exact same future instance for zero-latency
+        assertEquals(ret[0], delegateFuture);
+        assertEquals(ret[0].join(), ok);
     }
 }

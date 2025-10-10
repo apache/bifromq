@@ -475,7 +475,6 @@ public abstract class MQTTPersistentSessionHandler extends MQTTSessionHandler im
                     // deal with buffered message
                     if (fetched.getSendBufferMsgCount() > 0) {
                         fetched.getSendBufferMsgList().forEach(this::pubBufferedMessage);
-                        drainStaging();
                     }
                 }
                 case BACK_PRESSURE_REJECTED -> {
@@ -543,6 +542,11 @@ public abstract class MQTTPersistentSessionHandler extends MQTTSessionHandler im
                 RoutedMessage prev = stagingBuffer.put(seq, msg);
                 if (prev == null) {
                     memUsage.addAndGet(msg.estBytes());
+                }
+                if (ctx.executor().inEventLoop()) {
+                    this.drainStaging();
+                } else {
+                    ctx.executor().execute(this::drainStaging);
                 }
             });
     }

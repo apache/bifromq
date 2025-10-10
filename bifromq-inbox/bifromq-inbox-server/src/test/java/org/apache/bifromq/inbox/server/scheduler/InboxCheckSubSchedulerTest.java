@@ -20,28 +20,42 @@
 package org.apache.bifromq.inbox.server.scheduler;
 
 import static org.apache.bifromq.inbox.store.schema.KVSchemaUtil.inboxStartKeyPrefix;
+import static org.testng.Assert.assertEquals;
 
 import com.google.protobuf.ByteString;
 import org.apache.bifromq.basekv.client.IBaseKVStoreClient;
 import org.apache.bifromq.inbox.util.InboxServiceUtil;
-import org.apache.bifromq.plugin.subbroker.CheckReply;
-import org.apache.bifromq.sysprops.props.InboxCheckQueuesPerRange;
+import org.apache.bifromq.type.MatchInfo;
+import org.apache.bifromq.util.TopicUtil;
+import org.mockito.Mockito;
+import org.testng.annotations.Test;
 
-public class InboxCheckSubScheduler extends InboxReadScheduler<CheckMatchInfo, CheckReply.Code, BatchCheckSubCall>
-    implements IInboxCheckSubScheduler {
-    public InboxCheckSubScheduler(IBaseKVStoreClient inboxStoreClient) {
-        super(BatchCheckSubCall::new, InboxCheckQueuesPerRange.INSTANCE.get(), inboxStoreClient);
-    }
+public class InboxCheckSubSchedulerTest {
 
-    @Override
-    protected boolean isLinearizable(CheckMatchInfo request) {
-        return true;
-    }
+    @Test
+    public void rangeKeyShouldRouteByInboxId() {
+        // arrange
+        String tenantId = "t1";
+        String inboxId = "inboxA";
+        long incarnation = 123456789L;
+        String receiverId = InboxServiceUtil.receiverId(inboxId, incarnation);
 
-    @Override
-    protected ByteString rangeKey(CheckMatchInfo request) {
-        // route by inboxId parsed from receiverId to match KV schema partitioning
-        String inboxId = InboxServiceUtil.parseReceiverId(request.matchInfo().getReceiverId()).inboxId();
-        return inboxStartKeyPrefix(request.tenantId(), inboxId);
+        MatchInfo matchInfo = MatchInfo.newBuilder()
+            .setMatcher(TopicUtil.from("a/b"))
+            .setReceiverId(receiverId)
+            .setIncarnation(incarnation)
+            .build();
+
+        CheckMatchInfo request = new CheckMatchInfo(tenantId, matchInfo);
+
+        IBaseKVStoreClient storeClient = Mockito.mock(IBaseKVStoreClient.class);
+        InboxCheckSubScheduler scheduler = new InboxCheckSubScheduler(storeClient);
+
+        // act
+        ByteString key = scheduler.rangeKey(request);
+
+        // assert
+        assertEquals(key, inboxStartKeyPrefix(tenantId, inboxId));
     }
 }
+

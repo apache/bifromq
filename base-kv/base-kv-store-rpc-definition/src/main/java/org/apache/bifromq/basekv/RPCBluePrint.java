@@ -19,6 +19,7 @@
 
 package org.apache.bifromq.basekv;
 
+import static io.grpc.MethodDescriptor.generateFullMethodName;
 import static org.apache.bifromq.basekv.store.proto.BaseKVStoreServiceGrpc.getBootstrapMethod;
 import static org.apache.bifromq.basekv.store.proto.BaseKVStoreServiceGrpc.getChangeReplicaConfigMethod;
 import static org.apache.bifromq.basekv.store.proto.BaseKVStoreServiceGrpc.getExecuteMethod;
@@ -28,16 +29,16 @@ import static org.apache.bifromq.basekv.store.proto.BaseKVStoreServiceGrpc.getQu
 import static org.apache.bifromq.basekv.store.proto.BaseKVStoreServiceGrpc.getRecoverMethod;
 import static org.apache.bifromq.basekv.store.proto.BaseKVStoreServiceGrpc.getSplitMethod;
 import static org.apache.bifromq.basekv.store.proto.BaseKVStoreServiceGrpc.getTransferLeadershipMethod;
-import static io.grpc.MethodDescriptor.generateFullMethodName;
+import static org.apache.bifromq.basekv.store.proto.BaseKVStoreServiceGrpc.getZombieQuitMethod;
 
-import org.apache.bifromq.basekv.store.proto.BaseKVStoreServiceGrpc;
-import org.apache.bifromq.baserpc.BluePrint;
 import io.grpc.MethodDescriptor;
 import io.grpc.ServerMethodDefinition;
 import io.grpc.ServerServiceDefinition;
 import io.grpc.ServiceDescriptor;
 import java.util.HashMap;
 import java.util.Map;
+import org.apache.bifromq.basekv.store.proto.BaseKVStoreServiceGrpc;
+import org.apache.bifromq.baserpc.BluePrint;
 
 public class RPCBluePrint {
     public static ServerServiceDefinition scope(ServerServiceDefinition definition, String clusterId) {
@@ -74,6 +75,7 @@ public class RPCBluePrint {
             .serviceDescriptor(serviceDesc)
             .methodSemantic(methodMap.get(getBootstrapMethod()), BluePrint.DDUnaryMethod.getInstance())
             .methodSemantic(methodMap.get(getRecoverMethod()), BluePrint.DDUnaryMethod.getInstance())
+            .methodSemantic(methodMap.get(getZombieQuitMethod()), BluePrint.DDUnaryMethod.getInstance())
             .methodSemantic(methodMap.get(getChangeReplicaConfigMethod()), BluePrint.DDUnaryMethod.getInstance())
             .methodSemantic(methodMap.get(getSplitMethod()), BluePrint.DDUnaryMethod.getInstance())
             .methodSemantic(methodMap.get(getMergeMethod()), BluePrint.DDUnaryMethod.getInstance())

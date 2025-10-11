@@ -19,8 +19,6 @@
 
 package org.apache.bifromq.basekv.localengine.rocksdb;
 
-import org.apache.bifromq.basekv.localengine.AbstractKVEngine;
-import org.apache.bifromq.basekv.localengine.KVEngineException;
 import com.google.common.base.Strings;
 import io.micrometer.core.instrument.Gauge;
 import io.micrometer.core.instrument.Metrics;
@@ -33,12 +31,22 @@ import java.nio.file.Paths;
 import java.nio.file.StandardOpenOption;
 import java.util.UUID;
 import java.util.stream.Stream;
+import org.apache.bifromq.basekv.localengine.AbstractKVEngine;
+import org.apache.bifromq.basekv.localengine.KVEngineException;
+import org.rocksdb.RocksDB;
 
 abstract class RocksDBKVEngine<
     E extends RocksDBKVEngine<E, T, C>,
     T extends RocksDBKVSpace<E, T, C>,
     C extends RocksDBKVEngineConfigurator<C>
     > extends AbstractKVEngine<T, C> {
+
+    public static final String IDENTITY_FILE = "IDENTITY";
+
+    static {
+        RocksDB.loadLibrary();
+    }
+
     private final File dbRootDir;
     private final String identity;
     private final boolean isCreate;
@@ -103,7 +111,7 @@ abstract class RocksDBKVEngine<
 
     private String loadIdentity(boolean create) {
         try {
-            Path identityFilePath = Paths.get(dbRootDir.getAbsolutePath(), "IDENTITY");
+            Path identityFilePath = Paths.get(dbRootDir.getAbsolutePath(), IDENTITY_FILE);
             if (create) {
                 String identity =
                     Strings.isNullOrEmpty(overrideIdentity) ? UUID.randomUUID().toString() : overrideIdentity.trim();

@@ -19,25 +19,23 @@
 
 package org.apache.bifromq.basekv.localengine.memory;
 
-import org.apache.bifromq.basekv.localengine.IKVSpaceIterator;
-import org.apache.bifromq.basekv.localengine.IKVSpaceMetadataWriter;
+import com.google.protobuf.ByteString;
+import java.util.Map;
+import java.util.concurrent.ConcurrentSkipListMap;
+import java.util.function.Consumer;
 import org.apache.bifromq.basekv.localengine.IKVSpaceWriter;
 import org.apache.bifromq.basekv.localengine.ISyncContext;
 import org.apache.bifromq.basekv.localengine.KVEngineException;
 import org.apache.bifromq.basekv.localengine.metrics.KVSpaceOpMeters;
 import org.apache.bifromq.basekv.proto.Boundary;
-import com.google.protobuf.ByteString;
-import java.util.Map;
-import java.util.concurrent.ConcurrentSkipListMap;
-import java.util.function.Consumer;
 import org.slf4j.Logger;
 
 class InMemKVSpaceWriter<E extends InMemKVEngine<E, T>, T extends InMemKVSpace<E, T>> extends InMemKVSpaceReader
     implements IKVSpaceWriter {
+    protected final InMemKVSpaceWriterHelper helper;
+    protected final E engine;
     private final Map<ByteString, ByteString> metadataMap;
     private final ConcurrentSkipListMap<ByteString, ByteString> rangeData;
-    private final E engine;
-    private final InMemKVSpaceWriterHelper helper;
 
     InMemKVSpaceWriter(String id,
                        Map<ByteString, ByteString> metadataMap,
@@ -107,45 +105,6 @@ class InMemKVSpaceWriter<E extends InMemKVEngine<E, T>, T extends InMemKVSpace<E
     }
 
     @Override
-    public IKVSpaceMetadataWriter migrateTo(String targetSpaceId, Boundary boundary) {
-        try {
-            InMemKVSpace<?, ?> targetKVSpace = engine.createIfMissing(targetSpaceId);
-            IKVSpaceWriter targetKVSpaceWriter = targetKVSpace.toWriter();
-            // move data
-            try (IKVSpaceIterator itr = newIterator(boundary)) {
-                for (itr.seekToFirst(); itr.isValid(); itr.next()) {
-                    targetKVSpaceWriter.put(itr.key(), itr.value());
-                }
-            }
-            // clear moved data in left range
-            helper.clear(id, boundary);
-            return targetKVSpaceWriter;
-        } catch (Throwable e) {
-            throw new KVEngineException("Delete range in batch failed", e);
-        }
-    }
-
-    @Override
-    public IKVSpaceMetadataWriter migrateFrom(String fromSpaceId, Boundary boundary) {
-
-        try {
-            InMemKVSpace<?, ?> sourceKVSpace = engine.createIfMissing(fromSpaceId);
-            IKVSpaceWriter sourceKVSpaceWriter = sourceKVSpace.toWriter();
-            // move data
-            try (IKVSpaceIterator itr = sourceKVSpace.newIterator(boundary)) {
-                for (itr.seekToFirst(); itr.isValid(); itr.next()) {
-                    helper.put(id, itr.key(), itr.value());
-                }
-            }
-            // clear moved data in right range
-            sourceKVSpaceWriter.clear(boundary);
-            return sourceKVSpaceWriter;
-        } catch (Throwable e) {
-            throw new KVEngineException("Delete range in batch failed", e);
-        }
-    }
-
-    @Override
     public void done() {
         opMeters.batchWriteCallTimer.record(() -> {
             try {
@@ -155,6 +114,11 @@ class InMemKVSpaceWriter<E extends InMemKVEngine<E, T>, T extends InMemKVSpace<E
                 throw new KVEngineException("Batch commit failed", e);
             }
         });
+    }
+
+    @Override
+    public void reset() {
+        helper.reset();
     }
 
     @Override

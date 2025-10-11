@@ -14,26 +14,28 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 
 package org.apache.bifromq.basekv.raft;
 
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.argThat;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.testng.Assert.assertEquals;
 import static org.testng.Assert.assertFalse;
 import static org.testng.Assert.assertTrue;
 
-import org.apache.bifromq.basekv.raft.exception.ClusterConfigChangeException;
-import org.apache.bifromq.basekv.raft.proto.ClusterConfig;
-import org.apache.bifromq.basekv.raft.proto.LogEntry;
-import org.apache.bifromq.basekv.raft.proto.RaftNodeSyncState;
 import java.util.Arrays;
 import java.util.HashSet;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
+import org.apache.bifromq.basekv.raft.exception.ClusterConfigChangeException;
+import org.apache.bifromq.basekv.raft.proto.ClusterConfig;
+import org.apache.bifromq.basekv.raft.proto.LogEntry;
+import org.apache.bifromq.basekv.raft.proto.RaftNodeSyncState;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.MockitoAnnotations;
@@ -57,6 +59,7 @@ public class RaftConfigChangerTest {
     IPeerLogReplicator logReplicator;
 
     private AutoCloseable closeable;
+
     @BeforeMethod
     public void setup() {
         closeable = MockitoAnnotations.openMocks(this);
@@ -149,15 +152,16 @@ public class RaftConfigChangerTest {
 
     @Test
     public void testCatchupTimeout() {
+        ClusterConfig latestConfig = ClusterConfig.newBuilder()
+            .addVoters("V1")
+            .addVoters("V2")
+            .addVoters("V3")
+            .addLearners("L1")
+            .build();
         when(stateStorage.latestClusterConfig())
-            .thenReturn(ClusterConfig.newBuilder()
-                .addVoters("V1")
-                .addVoters("V2")
-                .addVoters("V3")
-                .addLearners("L1")
-                .build());
+            .thenReturn(latestConfig);
         CompletableFuture<Void> onDone = new CompletableFuture<>();
-        configChanger.submit("cId", new HashSet<>() {{
+        configChanger.submit("newId", new HashSet<>() {{
             add("V1");
             add("N2");
             add("N3");
@@ -189,10 +193,22 @@ public class RaftConfigChangerTest {
             add("L2");
         }});
 
-        Assert.assertEquals(configChanger.state(), RaftConfigChanger.State.Waiting);
+        Assert.assertEquals(configChanger.state(), RaftConfigChanger.State.FallbackConfigCommitting);
 
         assertTrue(configChanger.remotePeers().containsAll(Arrays.asList("V1", "V2", "V3", "L1")));
         assertTrue(onDone.isDone() && onDone.isCompletedExceptionally());
+
+        verify(stateStorage).append(argThat(logEntries -> {
+            if (logEntries.size() != 1) {
+                return false;
+            }
+            LogEntry logEntry = logEntries.get(0);
+            if (!logEntry.hasConfig()) {
+                return false;
+            }
+            ClusterConfig targetConfig = logEntry.getConfig();
+            return targetConfig.equals(latestConfig.toBuilder().setCorrelateId("newId").build());
+        }), eq(true));
     }
 
     @Test

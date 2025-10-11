@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 
 package org.apache.bifromq.basekv.balance.command;
@@ -25,6 +25,7 @@ package org.apache.bifromq.basekv.balance.command;
 public enum CommandType {
     CHANGE_CONFIG,
     RECOVERY,
+    QUIT,
     SPLIT,
     MERGE,
     TRANSFER_LEADERSHIP,

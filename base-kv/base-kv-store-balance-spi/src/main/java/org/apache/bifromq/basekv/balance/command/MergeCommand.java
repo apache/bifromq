@@ -14,16 +14,17 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 
 package org.apache.bifromq.basekv.balance.command;
 
-import org.apache.bifromq.basekv.proto.KVRangeId;
-import org.apache.bifromq.basekv.utils.KVRangeIdUtil;
+import java.util.Set;
 import lombok.Getter;
 import lombok.Setter;
 import lombok.experimental.SuperBuilder;
+import org.apache.bifromq.basekv.proto.KVRangeId;
+import org.apache.bifromq.basekv.utils.KVRangeIdUtil;
 
 @Getter
 @Setter
@@ -31,6 +32,7 @@ import lombok.experimental.SuperBuilder;
 public class MergeCommand extends RangeCommand {
 
     private KVRangeId mergeeId;
+    private Set<String> voters;
 
     @Override
     public CommandType type() {
@@ -39,8 +41,9 @@ public class MergeCommand extends RangeCommand {
 
     @Override
     public String toString() {
-        return String.format("MergeCommand{toStore=%s, kvRangeId=%s, mergeeId=%s, expectedVer=%s}",
-            getToStore(), KVRangeIdUtil.toString(getKvRangeId()), KVRangeIdUtil.toString(mergeeId), printableVer());
+        return String.format("MergeCommand{toStore=%s, kvRangeId=%s, expectedVer=%s, mergeeId=%s, voters=%s}",
+            getToStore(), KVRangeIdUtil.toString(getKvRangeId()),
+            printableVer(), KVRangeIdUtil.toString(mergeeId), voters);
     }
 
 }

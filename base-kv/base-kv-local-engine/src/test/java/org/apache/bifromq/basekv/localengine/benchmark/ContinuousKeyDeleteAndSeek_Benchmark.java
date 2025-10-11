@@ -22,14 +22,14 @@ package org.apache.bifromq.basekv.localengine.benchmark;
 
 import static org.apache.bifromq.basekv.localengine.TestUtil.toByteString;
 
-import org.apache.bifromq.basekv.localengine.IKVSpace;
-import org.apache.bifromq.basekv.localengine.IKVSpaceIterator;
-import org.apache.bifromq.basekv.localengine.IKVSpaceWriter;
-import org.apache.bifromq.basekv.proto.Boundary;
 import com.google.protobuf.ByteString;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.TimeUnit;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.bifromq.basekv.localengine.ICPableKVSpace;
+import org.apache.bifromq.basekv.localengine.IKVSpaceIterator;
+import org.apache.bifromq.basekv.localengine.IKVSpaceWriter;
+import org.apache.bifromq.basekv.proto.Boundary;
 import org.openjdk.jmh.annotations.Benchmark;
 import org.openjdk.jmh.annotations.BenchmarkMode;
 import org.openjdk.jmh.annotations.Group;
@@ -46,21 +46,11 @@ import org.openjdk.jmh.annotations.State;
 public class ContinuousKeyDeleteAndSeek_Benchmark extends BenchmarkTemplate {
     private static int keyCount = 1000000;
     private static ByteString key = ByteString.copyFromUtf8("key");
-    private IKVSpace kvSpace;
+    private ICPableKVSpace kvSpace;
     private IKVSpaceIterator itr;
     private String rangeId = "testRange";
 
 //    IKVEngineIterator itr;
-
-    @State(Scope.Thread)
-    public static class BenchmarkThreadState {
-        volatile int i = ThreadLocalRandom.current().nextInt(keyCount);
-
-        @Setup(Level.Invocation)
-        public void inc() {
-            i = ThreadLocalRandom.current().nextInt(keyCount);
-        }
-    }
 
     @Override
     protected void doSetup() {
@@ -77,15 +67,6 @@ public class ContinuousKeyDeleteAndSeek_Benchmark extends BenchmarkTemplate {
         writer.done();
     }
 
-//    @Benchmark
-//    @Group("Seek")
-//    @GroupThreads(1)
-//    @BenchmarkMode(Mode.Throughput)
-//    @OutputTimeUnit(TimeUnit.SECONDS)
-//    public void delete(BenchmarkThreadState state) {
-//        kvEngine.deleteRange(DEFAULT_NS, key.concat(toByteString(state.i)), key.concat(toByteString(state.i + 1)));
-//    }
-
     @Benchmark
     @Group("Seek")
     @GroupThreads(1)
@@ -100,5 +81,24 @@ public class ContinuousKeyDeleteAndSeek_Benchmark extends BenchmarkTemplate {
 //        itr.seekToFirst();
         itr.seek(key.concat(toByteString(state.i)));
         return itr.isValid();
+    }
+
+//    @Benchmark
+//    @Group("Seek")
+//    @GroupThreads(1)
+//    @BenchmarkMode(Mode.Throughput)
+//    @OutputTimeUnit(TimeUnit.SECONDS)
+//    public void delete(BenchmarkThreadState state) {
+//        kvEngine.deleteRange(DEFAULT_NS, key.concat(toByteString(state.i)), key.concat(toByteString(state.i + 1)));
+//    }
+
+    @State(Scope.Thread)
+    public static class BenchmarkThreadState {
+        volatile int i = ThreadLocalRandom.current().nextInt(keyCount);
+
+        @Setup(Level.Invocation)
+        public void inc() {
+            i = ThreadLocalRandom.current().nextInt(keyCount);
+        }
     }
 }

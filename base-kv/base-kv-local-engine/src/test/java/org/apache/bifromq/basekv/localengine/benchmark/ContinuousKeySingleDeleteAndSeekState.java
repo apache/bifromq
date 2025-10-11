@@ -22,10 +22,10 @@ package org.apache.bifromq.basekv.localengine.benchmark;
 
 import static org.apache.bifromq.basekv.localengine.TestUtil.toByteString;
 
-import org.apache.bifromq.basekv.localengine.IKVSpace;
+import com.google.protobuf.ByteString;
+import org.apache.bifromq.basekv.localengine.ICPableKVSpace;
 import org.apache.bifromq.basekv.localengine.IKVSpaceIterator;
 import org.apache.bifromq.basekv.localengine.IKVSpaceWriter;
-import com.google.protobuf.ByteString;
 import org.openjdk.jmh.annotations.Scope;
 import org.openjdk.jmh.annotations.State;
 
@@ -33,8 +33,8 @@ import org.openjdk.jmh.annotations.State;
 public class ContinuousKeySingleDeleteAndSeekState extends BenchmarkState {
     int keyCount = 1000000;
     ByteString key = ByteString.copyFromUtf8("key");
-    private IKVSpace kvSpace;
     IKVSpaceIterator itr;
+    private ICPableKVSpace kvSpace;
     private String rangeId = "testRange";
 
     @Override

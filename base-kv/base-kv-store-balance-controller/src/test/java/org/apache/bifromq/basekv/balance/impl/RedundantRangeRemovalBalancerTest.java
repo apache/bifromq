@@ -21,6 +21,7 @@ package org.apache.bifromq.basekv.balance.impl;
 
 import static org.testng.Assert.assertEquals;
 import static org.testng.Assert.assertSame;
+import static org.testng.Assert.assertTrue;
 
 import com.google.protobuf.ByteString;
 import java.time.Duration;
@@ -32,6 +33,7 @@ import org.apache.bifromq.basekv.balance.BalanceNow;
 import org.apache.bifromq.basekv.balance.BalanceResult;
 import org.apache.bifromq.basekv.balance.BalanceResultType;
 import org.apache.bifromq.basekv.balance.command.ChangeConfigCommand;
+import org.apache.bifromq.basekv.balance.command.QuitCommand;
 import org.apache.bifromq.basekv.proto.Boundary;
 import org.apache.bifromq.basekv.proto.KVRangeDescriptor;
 import org.apache.bifromq.basekv.proto.KVRangeId;
@@ -410,6 +412,236 @@ public class RedundantRangeRemovalBalancerTest {
             .build();
 
         balancer.update(Set.of(localStoreDesc, peerStoreDesc));
+
+        BalanceResult result = balancer.balance();
+        assertSame(result.type(), BalanceResultType.NoNeedBalance);
+    }
+
+    @Test
+    public void scheduleQuitForZombieCandidateNotInEffectiveMap() {
+        // Effective leaders forming a valid split set
+        KVRangeId effId1 = KVRangeId.newBuilder().setEpoch(1).setId(1).build();
+        KVRangeId effId2 = KVRangeId.newBuilder().setEpoch(1).setId(2).build();
+        // Make effective leader boundaries a valid split set: [null, m) and [m, null)
+        Boundary b1 = Boundary.newBuilder()
+            .setEndKey(ByteString.copyFromUtf8("m")).build();
+        Boundary b2 = Boundary.newBuilder()
+            .setStartKey(ByteString.copyFromUtf8("m")).build();
+        String leaderStore = "leaderStore";
+        KVRangeDescriptor effRange1 = KVRangeDescriptor.newBuilder()
+            .setId(effId1).setVer(1).setRole(RaftNodeStatus.Leader)
+            .setState(State.StateType.Normal)
+            .setBoundary(b1)
+            .setConfig(ClusterConfig.newBuilder().addVoters(leaderStore).build())
+            .build();
+        KVRangeDescriptor effRange2 = KVRangeDescriptor.newBuilder()
+            .setId(effId2).setVer(1).setRole(RaftNodeStatus.Leader)
+            .setState(State.StateType.Normal)
+            .setBoundary(b2)
+            .setConfig(ClusterConfig.newBuilder().addVoters(leaderStore).build())
+            .build();
+        KVRangeStoreDescriptor leaderDesc = KVRangeStoreDescriptor.newBuilder()
+            .setId(leaderStore)
+            .addRanges(effRange1)
+            .addRanges(effRange2)
+            .build();
+
+        // Local zombie candidate with a different id that doesn't exist in effective map
+        KVRangeId zombieId = KVRangeId.newBuilder().setEpoch(1).setId(99).build();
+        KVRangeDescriptor zombieCandidate = KVRangeDescriptor.newBuilder()
+            .setId(zombieId).setVer(1).setRole(RaftNodeStatus.Candidate)
+            .setState(State.StateType.Normal)
+            .setBoundary(Boundary.newBuilder()
+                .setStartKey(ByteString.copyFromUtf8("a"))
+                .setEndKey(ByteString.copyFromUtf8("z")).build())
+            .setConfig(ClusterConfig.newBuilder().addVoters("other").build())
+            .build();
+        KVRangeStoreDescriptor localDesc = KVRangeStoreDescriptor.newBuilder()
+            .setId(localStoreId)
+            .addRanges(zombieCandidate)
+            .build();
+
+        balancer.update(Set.of(leaderDesc, localDesc));
+
+        BalanceResult result = balancer.balance();
+        // first AwaitBalance due to suspicion delay
+        assertEquals(result.type(), BalanceResultType.AwaitBalance);
+        mockTime.set(3000L);
+        result = balancer.balance();
+        assertEquals(result.type(), BalanceResultType.BalanceNow);
+        QuitCommand cmd = (QuitCommand) ((BalanceNow<?>) result).command;
+        assertEquals(cmd.getToStore(), localStoreId);
+        assertEquals(cmd.getKvRangeId(), zombieId);
+    }
+
+    @Test
+    public void doNotQuitCandidateIfLocalIsInEffectiveReplicaSet() {
+        // Effective leader contains localStore in replica sets
+        KVRangeId id = KVRangeId.newBuilder().setEpoch(1).setId(7).build();
+        // Single leader must be FULL_BOUNDARY to be valid split set
+        Boundary b = Boundary.newBuilder().build();
+        String leaderStore = "leaderStore";
+        ClusterConfig effCfg = ClusterConfig.newBuilder()
+            .addVoters(leaderStore)
+            .addLearners(localStoreId) // local exists in effective replica set
+            .build();
+        KVRangeDescriptor effLeader = KVRangeDescriptor.newBuilder()
+            .setId(id).setVer(1).setRole(RaftNodeStatus.Leader)
+            .setState(State.StateType.Normal)
+            .setBoundary(b)
+            .setConfig(effCfg)
+            .build();
+        KVRangeStoreDescriptor leaderDesc = KVRangeStoreDescriptor.newBuilder()
+            .setId(leaderStore)
+            .addRanges(effLeader)
+            .build();
+
+        // Local candidate with the same id
+        KVRangeDescriptor localCandidate = KVRangeDescriptor.newBuilder()
+            .setId(id).setVer(1).setRole(RaftNodeStatus.Candidate)
+            .setState(State.StateType.Normal)
+            .setBoundary(b)
+            .setConfig(ClusterConfig.newBuilder().addVoters(leaderStore).build())
+            .build();
+        KVRangeStoreDescriptor localDesc = KVRangeStoreDescriptor.newBuilder()
+            .setId(localStoreId)
+            .addRanges(localCandidate)
+            .build();
+
+        balancer.update(Set.of(leaderDesc, localDesc));
+
+        BalanceResult result = balancer.balance();
+        assertSame(result.type(), BalanceResultType.NoNeedBalance);
+    }
+
+    @Test
+    public void quitCandidateIfLocalNotInEffectiveReplicaSet() {
+        // Effective leader without local in any replica set
+        KVRangeId id = KVRangeId.newBuilder().setEpoch(1).setId(8).build();
+        // Single leader must be FULL_BOUNDARY to be valid split set
+        Boundary b = Boundary.newBuilder().build();
+        String leaderStore = "leaderStore";
+        ClusterConfig effCfg = ClusterConfig.newBuilder()
+            .addVoters(leaderStore)
+            .build();
+        KVRangeDescriptor effLeader = KVRangeDescriptor.newBuilder()
+            .setId(id).setVer(1).setRole(RaftNodeStatus.Leader)
+            .setState(State.StateType.Normal)
+            .setBoundary(b)
+            .setConfig(effCfg)
+            .build();
+        KVRangeStoreDescriptor leaderDesc = KVRangeStoreDescriptor.newBuilder()
+            .setId(leaderStore)
+            .addRanges(effLeader)
+            .build();
+
+        // Local candidate with the same id but local not in effective config
+        KVRangeDescriptor localCandidate = KVRangeDescriptor.newBuilder()
+            .setId(id).setVer(1).setRole(RaftNodeStatus.Candidate)
+            .setState(State.StateType.Normal)
+            .setBoundary(b)
+            .setConfig(ClusterConfig.newBuilder().addVoters(leaderStore).build())
+            .build();
+        KVRangeStoreDescriptor localDesc = KVRangeStoreDescriptor.newBuilder()
+            .setId(localStoreId)
+            .addRanges(localCandidate)
+            .build();
+
+        balancer.update(Set.of(leaderDesc, localDesc));
+
+        BalanceResult result = balancer.balance();
+        // first AwaitBalance due to suspicion delay
+        assertEquals(result.type(), BalanceResultType.AwaitBalance);
+        mockTime.set(3000L);
+        result = balancer.balance();
+        assertEquals(result.type(), BalanceResultType.BalanceNow);
+        assertTrue(((BalanceNow<?>) result).command instanceof QuitCommand);
+    }
+
+    @Test
+    public void doNotQuitWhenEffectiveSplitSetInvalid() {
+        // Two leaders with overlapping boundaries -> invalid split set
+        String leaderStore = "leaderStore";
+        KVRangeId effId1 = KVRangeId.newBuilder().setEpoch(1).setId(1).build();
+        KVRangeId effId2 = KVRangeId.newBuilder().setEpoch(1).setId(2).build();
+        Boundary b1 = Boundary.newBuilder()
+            .setStartKey(ByteString.copyFromUtf8("a"))
+            .setEndKey(ByteString.copyFromUtf8("n")).build();
+        Boundary b2 = Boundary.newBuilder()
+            .setStartKey(ByteString.copyFromUtf8("m")) // overlaps with b1
+            .setEndKey(ByteString.copyFromUtf8("z")).build();
+        KVRangeDescriptor effRange1 = KVRangeDescriptor.newBuilder()
+            .setId(effId1).setVer(1).setRole(RaftNodeStatus.Leader)
+            .setState(State.StateType.Normal)
+            .setBoundary(b1)
+            .setConfig(ClusterConfig.newBuilder().addVoters(leaderStore).build())
+            .build();
+        KVRangeDescriptor effRange2 = KVRangeDescriptor.newBuilder()
+            .setId(effId2).setVer(1).setRole(RaftNodeStatus.Leader)
+            .setState(State.StateType.Normal)
+            .setBoundary(b2)
+            .setConfig(ClusterConfig.newBuilder().addVoters(leaderStore).build())
+            .build();
+        KVRangeStoreDescriptor leaderDesc = KVRangeStoreDescriptor.newBuilder()
+            .setId(leaderStore)
+            .addRanges(effRange1)
+            .addRanges(effRange2)
+            .build();
+
+        // Local zombie candidate not present in effective map
+        KVRangeId zombieId = KVRangeId.newBuilder().setEpoch(1).setId(99).build();
+        KVRangeDescriptor zombieCandidate = KVRangeDescriptor.newBuilder()
+            .setId(zombieId).setVer(1).setRole(RaftNodeStatus.Candidate)
+            .setState(State.StateType.Normal)
+            .setBoundary(Boundary.newBuilder()
+                .setStartKey(ByteString.copyFromUtf8("a"))
+                .setEndKey(ByteString.copyFromUtf8("z")).build())
+            .setConfig(ClusterConfig.newBuilder().addVoters("other").build())
+            .build();
+        KVRangeStoreDescriptor localDesc = KVRangeStoreDescriptor.newBuilder()
+            .setId(localStoreId)
+            .addRanges(zombieCandidate)
+            .build();
+
+        balancer.update(Set.of(leaderDesc, localDesc));
+
+        BalanceResult result = balancer.balance();
+        assertSame(result.type(), BalanceResultType.NoNeedBalance);
+    }
+
+    @Test
+    public void doNotQuitNonCandidate() {
+        // Effective leader forming valid split set
+        String leaderStore = "leaderStore";
+        KVRangeId effId = KVRangeId.newBuilder().setEpoch(1).setId(1).build();
+        Boundary b = Boundary.newBuilder()
+            .setStartKey(ByteString.copyFromUtf8("a"))
+            .setEndKey(ByteString.copyFromUtf8("z")).build();
+        KVRangeDescriptor effLeader = KVRangeDescriptor.newBuilder()
+            .setId(effId).setVer(1).setRole(RaftNodeStatus.Leader)
+            .setState(State.StateType.Normal)
+            .setBoundary(b)
+            .setConfig(ClusterConfig.newBuilder().addVoters(leaderStore).build())
+            .build();
+        KVRangeStoreDescriptor leaderDesc = KVRangeStoreDescriptor.newBuilder()
+            .setId(leaderStore)
+            .addRanges(effLeader)
+            .build();
+
+        // Local follower with an id not in effective map shouldn't be treated as zombie
+        KVRangeId followerId = KVRangeId.newBuilder().setEpoch(1).setId(99).build();
+        KVRangeDescriptor localFollower = KVRangeDescriptor.newBuilder()
+            .setId(followerId).setVer(1).setRole(RaftNodeStatus.Follower)
+            .setState(State.StateType.Normal)
+            .setBoundary(b)
+            .setConfig(ClusterConfig.newBuilder().addVoters(localStoreId).build())
+            .build();
+        KVRangeStoreDescriptor localDesc = KVRangeStoreDescriptor.newBuilder()
+            .setId(localStoreId)
+            .addRanges(localFollower)
+            .build();
+
+        balancer.update(Set.of(leaderDesc, localDesc));
 
         BalanceResult result = balancer.balance();
         assertSame(result.type(), BalanceResultType.NoNeedBalance);

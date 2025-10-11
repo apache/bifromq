@@ -19,8 +19,6 @@
 
 package org.apache.bifromq.basekv.localengine.memory;
 
-import org.apache.bifromq.basekv.localengine.ISyncContext;
-import org.apache.bifromq.basekv.proto.Boundary;
 import com.google.protobuf.ByteString;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -32,6 +30,8 @@ import java.util.Set;
 import java.util.concurrent.ConcurrentSkipListMap;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
+import org.apache.bifromq.basekv.localengine.ISyncContext;
+import org.apache.bifromq.basekv.proto.Boundary;
 
 class InMemKVSpaceWriterHelper {
     private final Map<String, Map<ByteString, ByteString>> metadataMap;
@@ -84,20 +84,27 @@ class InMemKVSpaceWriterHelper {
     }
 
     void done() {
-        Runnable doneFn = () -> batchMap.values().forEach(WriteBatch::end);
-        AtomicReference<Runnable> finalRun = new AtomicReference<>();
+        ISyncContext.IMutation doneFn = () -> {
+            batchMap.values().forEach(WriteBatch::end);
+            return false;
+        };
+        AtomicReference<ISyncContext.IMutation> finalRun = new AtomicReference<>();
         for (ISyncContext.IMutator mutator : mutators) {
             if (finalRun.get() == null) {
                 finalRun.set(() -> mutator.run(doneFn));
             } else {
-                Runnable innerRun = finalRun.get();
+                ISyncContext.IMutation innerRun = finalRun.get();
                 finalRun.set(() -> mutator.run(innerRun));
             }
         }
-        finalRun.get().run();
+        finalRun.get().mutate();
         for (String rangeId : afterWriteCallbacks.keySet()) {
             afterWriteCallbacks.get(rangeId).accept(metadataChanges.get(rangeId));
         }
+    }
+
+    void reset() {
+        rangeDataMap.clear();
     }
 
     void abort() {
@@ -111,7 +118,7 @@ class InMemKVSpaceWriterHelper {
     protected interface KVAction {
         KVAction.Type type();
 
-        enum Type {Put, Delete, DeleteRange}
+        enum Type { Put, Delete, DeleteRange }
     }
 
     protected class WriteBatch {

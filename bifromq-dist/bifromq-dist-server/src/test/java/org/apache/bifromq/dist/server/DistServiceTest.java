@@ -25,6 +25,7 @@ import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.when;
 
 import java.time.Duration;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import lombok.extern.slf4j.Slf4j;
@@ -48,10 +49,13 @@ import org.apache.bifromq.plugin.eventcollector.IEventCollector;
 import org.apache.bifromq.plugin.resourcethrottler.IResourceThrottler;
 import org.apache.bifromq.plugin.settingprovider.ISettingProvider;
 import org.apache.bifromq.plugin.settingprovider.Setting;
+import org.apache.bifromq.plugin.subbroker.CheckReply;
+import org.apache.bifromq.plugin.subbroker.CheckRequest;
 import org.apache.bifromq.plugin.subbroker.IDeliverer;
 import org.apache.bifromq.plugin.subbroker.ISubBroker;
 import org.apache.bifromq.plugin.subbroker.ISubBrokerManager;
 import org.mockito.Mock;
+import org.mockito.Mockito;
 import org.mockito.MockitoAnnotations;
 import org.testng.annotations.AfterClass;
 import org.testng.annotations.BeforeClass;
@@ -90,6 +94,15 @@ public abstract class DistServiceTest {
         closeable = MockitoAnnotations.openMocks(this);
         when(subBrokerMgr.get(anyInt())).thenReturn(inboxBroker);
         when(inboxBroker.open(anyString())).thenReturn(inboxDeliverer);
+        Mockito.lenient().when(inboxBroker.check(Mockito.any())).thenAnswer(invocation -> {
+            // build a CheckReply with OK codes aligned with request size
+            CheckRequest req = invocation.getArgument(0);
+            CheckReply.Builder reply = CheckReply.newBuilder();
+            for (int i = 0; i < req.getMatchInfoCount(); i++) {
+                reply.addCode(CheckReply.Code.OK);
+            }
+            return CompletableFuture.completedFuture(reply.build());
+        });
         bgTaskExecutor = Executors.newSingleThreadScheduledExecutor();
         AgentHostOptions agentHostOpts = AgentHostOptions.builder()
             .addr("127.0.0.1")

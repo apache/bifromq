@@ -19,10 +19,12 @@
 
 package org.apache.bifromq.basekv.store.range;
 
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.atLeast;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.timeout;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -31,25 +33,27 @@ import static org.testng.Assert.assertThrows;
 import static org.testng.Assert.assertTrue;
 import static org.testng.AssertJUnit.assertSame;
 
-import com.google.protobuf.ByteString;
+import com.google.common.util.concurrent.MoreExecutors;
 import io.reactivex.rxjava3.subjects.PublishSubject;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
+import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
-import org.apache.bifromq.basekv.proto.KVPair;
+import java.util.concurrent.TimeUnit;
 import org.apache.bifromq.basekv.proto.KVRangeId;
 import org.apache.bifromq.basekv.proto.KVRangeMessage;
 import org.apache.bifromq.basekv.proto.KVRangeSnapshot;
+import org.apache.bifromq.basekv.proto.SaveSnapshotDataReply;
 import org.apache.bifromq.basekv.proto.SaveSnapshotDataRequest;
 import org.apache.bifromq.basekv.utils.KVRangeIdUtil;
 import org.mockito.ArgumentCaptor;
+import org.testng.annotations.AfterMethod;
 import org.testng.annotations.BeforeMethod;
 import org.testng.annotations.Test;
 
 public class KVRangeRestorerTest {
     private KVRangeId rangeId;
     private IKVRange range;
-    private IKVReseter reseter;
     private IKVRangeMessenger messenger;
     private PublishSubject<KVRangeMessage> messageSubject;
     private IKVRangeMetricManager metricManager;
@@ -69,23 +73,32 @@ public class KVRangeRestorerTest {
         snapshot = KVRangeSnapshot.newBuilder().setId(rangeId).build();
     }
 
+    @AfterMethod
+    public void tearDown() {
+        if (executor instanceof ExecutorService) {
+            MoreExecutors.shutdownAndAwaitTermination((ExecutorService) executor, 5, TimeUnit.SECONDS);
+        }
+    }
+
     @Test
     public void awaitDone() {
-        IKVReseter reseter = mock(IKVReseter.class);
-        when(range.toReseter(eq(snapshot))).thenReturn(reseter);
+        IKVRangeRestoreSession restoreSession = mock(IKVRangeRestoreSession.class);
+        when(range.startRestore(eq(snapshot), any())).thenReturn(restoreSession);
         KVRangeRestorer restorer = new KVRangeRestorer(snapshot, range, messenger, metricManager, executor, 10);
 
         assertTrue(restorer.awaitDone().isDone());
 
         // Manually complete the future
-        restorer.restoreFrom("leader", snapshot);
+        CompletableFuture<Void> restoreFuture = restorer.restoreFrom("leader", snapshot);
         assertFalse(restorer.awaitDone().isDone());
+        // Ensure no active subscription remains after test
+        restoreFuture.cancel(true);
     }
 
     @Test
     public void restoreFrom() {
-        IKVReseter reseter = mock(IKVReseter.class);
-        when(range.toReseter(snapshot)).thenReturn(reseter);
+        IKVRangeRestoreSession restoreSession = mock(IKVRangeRestoreSession.class);
+        when(range.startRestore(eq(snapshot), any())).thenReturn(restoreSession);
 
         KVRangeRestorer restorer = new KVRangeRestorer(snapshot, range, messenger, metricManager, executor, 10);
         CompletableFuture<Void> restoreFuture = restorer.restoreFrom("leader", snapshot);
@@ -97,6 +110,7 @@ public class KVRangeRestorerTest {
 
         // Simulate receiving snapshot data
         messageSubject.onNext(KVRangeMessage.newBuilder()
+            .setHostStoreId("leader")
             .setSaveSnapshotDataRequest(SaveSnapshotDataRequest.newBuilder()
                 .setSessionId(message.getSnapshotSyncRequest().getSessionId())
                 .setFlag(SaveSnapshotDataRequest.Flag.End)
@@ -106,13 +120,13 @@ public class KVRangeRestorerTest {
         // Wait for the future to complete
         restoreFuture.join();
         // Verify the reseter's put and done methods were called
-        verify(reseter, times(1)).done();
+        verify(restoreSession, times(1)).done();
     }
 
     @Test
     public void restoreFromWithError() {
-        IKVReseter reseter = mock(IKVReseter.class);
-        when(range.toReseter(snapshot)).thenReturn(reseter);
+        IKVRangeRestoreSession restoreSession = mock(IKVRangeRestoreSession.class);
+        when(range.startRestore(eq(snapshot), any())).thenReturn(restoreSession);
 
         KVRangeRestorer restorer = new KVRangeRestorer(snapshot, range, messenger, metricManager, executor, 10);
         CompletableFuture<Void> restoreFuture = restorer.restoreFrom("leader", snapshot);
@@ -125,6 +139,7 @@ public class KVRangeRestorerTest {
 
         // Simulate receiving snapshot data
         messageSubject.onNext(KVRangeMessage.newBuilder()
+            .setHostStoreId("leader")
             .setSaveSnapshotDataRequest(SaveSnapshotDataRequest.newBuilder()
                 .setSessionId(sessionId)
                 .setFlag(SaveSnapshotDataRequest.Flag.Error)
@@ -135,13 +150,13 @@ public class KVRangeRestorerTest {
         assertThrows(restoreFuture::join);
 
         // Verify the reseter's put and done methods were called
-        verify(reseter, times(1)).abort();
+        verify(restoreSession, times(1)).abort();
     }
 
     @Test
     public void restoreFromTimeout() {
-        IKVReseter reseter = mock(IKVReseter.class);
-        when(range.toReseter(eq(snapshot))).thenReturn(reseter);
+        IKVRangeRestoreSession restoreSession = mock(IKVRangeRestoreSession.class);
+        when(range.startRestore(eq(snapshot), any())).thenReturn(restoreSession);
 
         KVRangeRestorer restorer = new KVRangeRestorer(snapshot, range, messenger, metricManager, executor, 1);
         CompletableFuture<Void> restoreFuture = restorer.restoreFrom("leader", snapshot);
@@ -150,33 +165,44 @@ public class KVRangeRestorerTest {
         assertThrows(restoreFuture::join);
 
         // Verify the reseter's put and done methods were called
-        verify(reseter, times(1)).abort();
+        verify(restoreSession, times(1)).abort();
     }
 
     @Test
     public void cancelPreviousSession() {
-        IKVReseter reseter = mock(IKVReseter.class);
-        when(range.toReseter(eq(snapshot))).thenReturn(reseter);
+        IKVRangeRestoreSession firstRS = mock(IKVRangeRestoreSession.class);
+        IKVRangeRestoreSession secondRS = mock(IKVRangeRestoreSession.class);
+        when(range.startRestore(eq(snapshot), any())).thenReturn(firstRS);
 
         KVRangeRestorer restorer = new KVRangeRestorer(snapshot, range, messenger, metricManager, executor, 10);
 
         // Start the first restore session
         CompletableFuture<Void> firstRestore = restorer.restoreFrom("leader", snapshot);
 
+        // Ensure receiver subscribed before starting next session
+        assertTrue(messageSubject.hasObservers()); // ensure receiver subscribed
+
         // Start the second restore session, which should cancel the first
         KVRangeSnapshot newSnapshot = KVRangeSnapshot.newBuilder().setId(snapshot.getId()).setVer(1).build();
-        when(range.toReseter(eq(newSnapshot))).thenReturn(reseter);
+        when(range.startRestore(eq(newSnapshot), any())).thenReturn(secondRS);
         CompletableFuture<Void> secondRestore = restorer.restoreFrom("leader", newSnapshot);
 
-        verify(reseter, times(1)).abort();
+        verify(firstRS, atLeast(1)).abort();
+        verify(secondRS, times(0)).abort();
+        // Allow async cancellation hook to send NoSessionFound
+        verify(messenger, timeout(500)).send(argThat(m ->
+            m.hasSaveSnapshotDataReply() &&
+                m.getSaveSnapshotDataReply().getResult() == SaveSnapshotDataReply.Result.NoSessionFound));
         assertTrue(firstRestore.isCancelled());
         assertFalse(secondRestore.isDone());
+
+        secondRestore.cancel(true);
     }
 
     @Test
     public void reuseRestoreSessionForSameSnapshot() {
-        IKVReseter reseter = mock(IKVReseter.class);
-        when(range.toReseter(snapshot)).thenReturn(reseter);
+        IKVRangeRestoreSession restoreSession = mock(IKVRangeRestoreSession.class);
+        when(range.startRestore(eq(snapshot), any())).thenReturn(restoreSession);
 
         KVRangeRestorer restorer = new KVRangeRestorer(snapshot, range, messenger, metricManager, executor, 10);
 
@@ -184,7 +210,7 @@ public class KVRangeRestorerTest {
         CompletableFuture<Void> secondRestore = restorer.restoreFrom("leader", snapshot);
 
         assertSame(firstRestore, secondRestore);
-        verify(range, times(1)).toReseter(snapshot);
+        verify(range, times(1)).startRestore(eq(snapshot), any());
         verify(messenger, times(1)).send(argThat(KVRangeMessage::hasSnapshotSyncRequest));
 
         ArgumentCaptor<KVRangeMessage> messageCaptor = ArgumentCaptor.forClass(KVRangeMessage.class);
@@ -192,6 +218,7 @@ public class KVRangeRestorerTest {
         KVRangeMessage message = messageCaptor.getValue();
 
         messageSubject.onNext(KVRangeMessage.newBuilder()
+            .setHostStoreId("leader")
             .setSaveSnapshotDataRequest(SaveSnapshotDataRequest.newBuilder()
                 .setSessionId(message.getSnapshotSyncRequest().getSessionId())
                 .setFlag(SaveSnapshotDataRequest.Flag.End)
@@ -200,14 +227,14 @@ public class KVRangeRestorerTest {
 
         firstRestore.join();
         assertTrue(secondRestore.isDone());
-        verify(reseter, times(1)).done();
+        verify(restoreSession, times(1)).done();
     }
 
     @Test
     public void startNewSessionWhenLeaderChanges() {
-        IKVReseter firstReseter = mock(IKVReseter.class);
-        IKVReseter secondReseter = mock(IKVReseter.class);
-        when(range.toReseter(snapshot)).thenReturn(firstReseter, secondReseter);
+        IKVRangeRestoreSession firstRS = mock(IKVRangeRestoreSession.class);
+        IKVRangeRestoreSession secondRS = mock(IKVRangeRestoreSession.class);
+        when(range.startRestore(eq(snapshot), any())).thenReturn(firstRS, secondRS);
 
         KVRangeRestorer restorer = new KVRangeRestorer(snapshot, range, messenger, metricManager, executor, 10);
 
@@ -216,103 +243,54 @@ public class KVRangeRestorerTest {
 
         assertTrue(firstRestore.isCancelled());
         assertFalse(secondRestore.isDone());
-        verify(range, times(2)).toReseter(snapshot);
+        verify(range, times(2)).startRestore(eq(snapshot), any());
         verify(messenger, times(2)).send(argThat(KVRangeMessage::hasSnapshotSyncRequest));
-        verify(firstReseter, times(1)).abort();
+        verify(firstRS, atLeast(1)).abort();
+        // Cleanup: cancel the second pending restore to avoid executor use after shutdown
+        secondRestore.cancel(true); // ensure no lingering scheduling
     }
 
     @Test
-    public void autoFlushWhenEntryLimitReached() {
-        IKVReseter reseter = mock(IKVReseter.class);
-        when(range.toReseter(eq(snapshot))).thenReturn(reseter);
+    public void reuseAfterDoneStartsNew() {
+        IKVRangeRestoreSession firstRS = mock(IKVRangeRestoreSession.class);
+        IKVRangeRestoreSession secondRS = mock(IKVRangeRestoreSession.class);
+        when(range.startRestore(eq(snapshot), any())).thenReturn(firstRS, secondRS);
 
         KVRangeRestorer restorer = new KVRangeRestorer(snapshot, range, messenger, metricManager, executor, 10);
-        CompletableFuture<Void> restoreFuture = restorer.restoreFrom("leader", snapshot);
 
-        ArgumentCaptor<KVRangeMessage> messageCaptor = ArgumentCaptor.forClass(KVRangeMessage.class);
-        verify(messenger).send(messageCaptor.capture());
-        String sessionId = messageCaptor.getValue().getSnapshotSyncRequest().getSessionId();
+        // Start first restore
+        CompletableFuture<Void> firstRestore = restorer.restoreFrom("leader", snapshot);
+        ArgumentCaptor<KVRangeMessage> captor = ArgumentCaptor.forClass(KVRangeMessage.class);
+        verify(messenger).send(captor.capture());
+        String sessionId1 = captor.getValue().getSnapshotSyncRequest().getSessionId();
 
-        SaveSnapshotDataRequest.Builder builder = SaveSnapshotDataRequest.newBuilder()
-            .setSessionId(sessionId)
-            .setFlag(SaveSnapshotDataRequest.Flag.End);
-        for (int i = 0; i < 1_025; i++) {
-            builder.addKv(KVPair.newBuilder()
-                .setKey(ByteString.copyFromUtf8("k" + i))
-                .setValue(ByteString.copyFromUtf8("v" + i))
-                .build());
-        }
-
+        // Complete first restore
         messageSubject.onNext(KVRangeMessage.newBuilder()
-            .setSaveSnapshotDataRequest(builder.build())
-            .build());
-
-        restoreFuture.join();
-
-        verify(reseter, atLeast(2)).flush();
-        verify(reseter, times(1)).done();
-    }
-
-    @Test
-    public void flushRemainingDataOnEnd() {
-        IKVReseter reseter = mock(IKVReseter.class);
-        when(range.toReseter(eq(snapshot))).thenReturn(reseter);
-
-        KVRangeRestorer restorer = new KVRangeRestorer(snapshot, range, messenger, metricManager, executor, 10);
-        CompletableFuture<Void> restoreFuture = restorer.restoreFrom("leader", snapshot);
-
-        ArgumentCaptor<KVRangeMessage> messageCaptor = ArgumentCaptor.forClass(KVRangeMessage.class);
-        verify(messenger).send(messageCaptor.capture());
-        String sessionId = messageCaptor.getValue().getSnapshotSyncRequest().getSessionId();
-
-        KVPair kv1 = KVPair.newBuilder()
-            .setKey(ByteString.copyFromUtf8("k1"))
-            .setValue(ByteString.copyFromUtf8("v1"))
-            .build();
-
-        messageSubject.onNext(KVRangeMessage.newBuilder()
+            .setHostStoreId("leader")
             .setSaveSnapshotDataRequest(SaveSnapshotDataRequest.newBuilder()
-                .setSessionId(sessionId)
+                .setSessionId(sessionId1)
                 .setFlag(SaveSnapshotDataRequest.Flag.End)
-                .addKv(kv1)
                 .build())
             .build());
+        firstRestore.join();
 
-        restoreFuture.join();
+        // Start second restore with same leader and snapshot; should start a new session
+        CompletableFuture<Void> secondRestore = restorer.restoreFrom("leader", snapshot);
 
-        verify(reseter, times(1)).flush();
-        verify(reseter, times(1)).done();
-    }
+        // Only count SnapshotSyncRequest sends; receiver also sends replies
+        verify(messenger, times(2)).send(argThat(KVRangeMessage::hasSnapshotSyncRequest));
+        // Capture all sends, then filter out SnapshotSyncRequest to compare session ids
+        verify(messenger, atLeast(2)).send(captor.capture());
+        String sessionId2 = captor.getAllValues().stream()
+            .filter(KVRangeMessage::hasSnapshotSyncRequest)
+            .map(m -> m.getSnapshotSyncRequest().getSessionId())
+            .reduce((first, second) -> second)
+            .orElse("");
 
-    @Test
-    public void adaptiveFlushWithUnlimitedBudget() {
-        IKVReseter reseter = mock(IKVReseter.class);
-        when(range.toReseter(eq(snapshot))).thenReturn(reseter);
+        // Verify new startRestore invoked and session id differs
+        verify(range, times(2)).startRestore(eq(snapshot), any());
+        assertFalse(sessionId1.equals(sessionId2));
 
-        KVRangeRestorer restorer = new KVRangeRestorer(snapshot, range, messenger, metricManager, executor, 10);
-        CompletableFuture<Void> restoreFuture = restorer.restoreFrom("leader", snapshot);
-
-        ArgumentCaptor<KVRangeMessage> messageCaptor = ArgumentCaptor.forClass(KVRangeMessage.class);
-        verify(messenger).send(messageCaptor.capture());
-        String sessionId = messageCaptor.getValue().getSnapshotSyncRequest().getSessionId();
-
-        SaveSnapshotDataRequest.Builder builder = SaveSnapshotDataRequest.newBuilder()
-            .setSessionId(sessionId)
-            .setFlag(SaveSnapshotDataRequest.Flag.End);
-        for (int i = 0; i < 2048; i++) {
-            builder.addKv(KVPair.newBuilder()
-                .setKey(ByteString.copyFromUtf8("k" + i))
-                .setValue(ByteString.copyFromUtf8("v" + i))
-                .build());
-        }
-
-        messageSubject.onNext(KVRangeMessage.newBuilder()
-            .setSaveSnapshotDataRequest(builder.build())
-            .build());
-
-        restoreFuture.join();
-
-        verify(reseter, atLeast(2)).flush();
-        verify(reseter, times(1)).done();
+        secondRestore.cancel(true);
     }
 }

@@ -29,6 +29,11 @@ public interface IKVSpaceWriteable {
     void done();
 
     /**
+     * Reset the batch to empty state.
+     */
+    void reset();
+
+    /**
      * Abort the batch.
      */
     void abort();

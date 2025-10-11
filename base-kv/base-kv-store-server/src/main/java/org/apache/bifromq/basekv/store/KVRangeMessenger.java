@@ -19,16 +19,17 @@
 
 package org.apache.bifromq.basekv.store;
 
-import org.apache.bifromq.basekv.proto.KVRangeId;
-import org.apache.bifromq.basekv.proto.KVRangeMessage;
-import org.apache.bifromq.basekv.proto.StoreMessage;
-import org.apache.bifromq.basekv.store.exception.KVRangeException;
-import org.apache.bifromq.basekv.store.range.IKVRangeMessenger;
 import io.reactivex.rxjava3.core.Observable;
 import io.reactivex.rxjava3.disposables.Disposable;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.function.Predicate;
+import org.apache.bifromq.base.util.CascadeCancelCompletableFuture;
+import org.apache.bifromq.basekv.proto.KVRangeId;
+import org.apache.bifromq.basekv.proto.KVRangeMessage;
+import org.apache.bifromq.basekv.proto.StoreMessage;
+import org.apache.bifromq.basekv.store.exception.KVRangeException;
+import org.apache.bifromq.basekv.store.range.IKVRangeMessenger;
 
 public class KVRangeMessenger implements IKVRangeMessenger {
     private final String id;
@@ -53,10 +54,9 @@ public class KVRangeMessenger implements IKVRangeMessenger {
     @Override
     public Observable<KVRangeMessage> receive() {
         return messenger.receive().mapOptional(storeMessage -> {
-            assert storeMessage.getFrom() != null;
-            assert storeMessage.hasSrcRange();
             KVRangeMessage payload = storeMessage.getPayload();
-            if (!payload.getHostStoreId().equals(id) || !payload.getRangeId().equals(rangeId)) {
+            if (!payload.getHostStoreId().equals(id)
+                || (payload.hasRangeId() && !payload.getRangeId().equals(rangeId))) {
                 return Optional.empty();
             }
             // swap the origin
@@ -87,6 +87,6 @@ public class KVRangeMessenger implements IKVRangeMessenger {
                 });
 
         onDone.whenComplete((v, e) -> disposable.dispose());
-        return onDone;
+        return CascadeCancelCompletableFuture.fromRoot(onDone);
     }
 }

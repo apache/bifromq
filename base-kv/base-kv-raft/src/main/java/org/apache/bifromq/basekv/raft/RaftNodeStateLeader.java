@@ -20,6 +20,7 @@
 package org.apache.bifromq.basekv.raft;
 
 import static org.apache.bifromq.base.util.CompletableFutureUtil.unwrap;
+import static org.apache.bifromq.basekv.raft.RaftConfigChanger.State.FallbackConfigCommitting;
 import static org.apache.bifromq.basekv.raft.RaftConfigChanger.State.JointConfigCommitting;
 import static org.apache.bifromq.basekv.raft.RaftConfigChanger.State.TargetConfigCommitting;
 
@@ -156,10 +157,11 @@ class RaftNodeStateLeader extends RaftNodeState {
         peerLogTracker.tick();
         if (configChanger.tick(currentTerm())) {
             // there is a state change after tick
-            if (configChanger.state() == JointConfigCommitting || configChanger.state() == TargetConfigCommitting) {
-                log.debug("{} cluster config is activated in current term",
-                    configChanger.state() == JointConfigCommitting ? "Joint" : "Target");
+            if (configChanger.state() == JointConfigCommitting
+                || configChanger.state() == TargetConfigCommitting
+                || configChanger.state() == FallbackConfigCommitting) {
                 ClusterConfig clusterConfig = stateStorage.latestClusterConfig();
+                log.debug("Activate config in current term: {}", clusterConfig);
                 activityTracker.refresh(clusterConfig);
                 electionElapsedTick = 0; // to prevent leader from quorum check failed prematurely
                 if (leaderTransferTask != null) {
@@ -719,6 +721,9 @@ class RaftNodeStateLeader extends RaftNodeState {
                         leaderTransferTask.abort(LeaderTransferException.notFoundOrQualified());
                         leaderTransferTask = null;
                     }
+                }
+                case FallbackConfigCommitting -> {
+                    // do nothing when fallback config is committed
                 }
                 default -> {
                     // do nothing

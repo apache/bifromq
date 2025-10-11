@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 
 package org.apache.bifromq.basekv.localengine;
@@ -41,4 +41,25 @@ public interface ICPableKVSpace extends IKVSpace {
      * @return the range object for accessing the checkpoint
      */
     Optional<IKVSpaceCheckpoint> openCheckpoint(String checkpointId);
+
+    /**
+     * Start a restore session for bulk restoring data into current space.
+     *
+     * @return the restore session
+     */
+    IRestoreSession startRestore(IRestoreSession.FlushListener flushListener);
+
+    /**
+     * Start a session for bulk migrating data into current space.
+     *
+     * @return the restore session
+     */
+    IRestoreSession startReceiving(IRestoreSession.FlushListener flushListener);
+
+    /**
+     * Get a writer to update range state which supports data restore.
+     *
+     * @return the writer object
+     */
+    IKVSpaceMigratableWriter toWriter();
 }

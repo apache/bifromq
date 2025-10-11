@@ -102,19 +102,14 @@ class RocksDBKVSpaceWriterHelper {
         if (batch.count() == 0) {
             return;
         }
-        if (hasPendingMetadata()) {
-            throw new IllegalStateException("Flush is not allowed when metadata changes exist");
-        }
-        runInMutators(() -> {
-            try {
-                if (batch.count() > 0) {
-                    db.write(writeOptions, batch);
-                    batch.clear();
-                }
-            } catch (Throwable e) {
-                throw new KVEngineException("Range write error", e);
+        try {
+            if (batch.count() > 0) {
+                db.write(writeOptions, batch);
+                batch.clear();
             }
-        });
+        } catch (Throwable e) {
+            throw new KVEngineException("Range write error", e);
+        }
     }
 
     void done() {
@@ -131,12 +126,17 @@ class RocksDBKVSpaceWriterHelper {
                     batch.close();
                 }
             }
+            return false;
         });
         for (ColumnFamilyHandle columnFamilyHandle : afterWriteCallbacks.keySet()) {
             Map<ByteString, ByteString> updatedMetadata = metadataChanges.get(columnFamilyHandle);
             afterWriteCallbacks.get(columnFamilyHandle).accept(updatedMetadata);
             updatedMetadata.clear();
         }
+    }
+
+    void reset() {
+        batch.clear();
     }
 
     void abort() {
@@ -156,20 +156,20 @@ class RocksDBKVSpaceWriterHelper {
         return metadataChanges.values().stream().anyMatch(map -> !map.isEmpty());
     }
 
-    private void runInMutators(Runnable runnable) {
+    private void runInMutators(ISyncContext.IMutation mutation) {
         if (mutators.isEmpty()) {
-            runnable.run();
+            mutation.mutate();
             return;
         }
-        AtomicReference<Runnable> finalRun = new AtomicReference<>();
+        AtomicReference<ISyncContext.IMutation> finalRun = new AtomicReference<>();
         for (ISyncContext.IMutator mutator : mutators) {
             if (finalRun.get() == null) {
-                finalRun.set(() -> mutator.run(runnable));
+                finalRun.set(() -> mutator.run(mutation));
             } else {
-                Runnable innerRun = finalRun.get();
+                ISyncContext.IMutation innerRun = finalRun.get();
                 finalRun.set(() -> mutator.run(innerRun));
             }
         }
-        finalRun.get().run();
+        finalRun.get().mutate();
     }
 }

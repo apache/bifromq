@@ -34,4 +34,11 @@ public @interface Cluster {
     int installSnapshotTimeoutTick() default 2000;
 
     boolean asyncAppend() default true;
+
+    // Extra knobs for deterministic tests
+    int snapshotSyncIdleTimeoutSec() default 5;
+
+    int zombieTimeoutSec() default 5;
+
+    int mergeTimeoutSec() default 5;
 }

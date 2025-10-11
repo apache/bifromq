@@ -23,14 +23,14 @@ import static org.testng.Assert.assertEquals;
 import static org.testng.Assert.assertFalse;
 import static org.testng.Assert.assertTrue;
 
-import org.apache.bifromq.basekv.proto.Boundary;
 import com.google.protobuf.ByteString;
-import io.reactivex.rxjava3.disposables.Disposable;
 import java.lang.reflect.Method;
+import org.apache.bifromq.basekv.proto.Boundary;
 import org.testng.annotations.Test;
 
-public abstract class AbstractKVEngineTest extends MockableTest {
-    protected IKVEngine<? extends IKVSpace> engine;
+public abstract class AbstractKVEngineTest<T extends IKVSpace> extends MockableTest {
+    // Use covariant engine type to accept concrete space subtypes
+    protected IKVEngine<? extends T> engine;
 
     @Override
     protected void doSetup(Method method) {
@@ -40,7 +40,7 @@ public abstract class AbstractKVEngineTest extends MockableTest {
     }
 
     protected void beforeStart() {
-
+        // no-op
     }
 
     @Override
@@ -50,17 +50,22 @@ public abstract class AbstractKVEngineTest extends MockableTest {
     }
 
     protected void afterStop() {
-
+        // no-op
     }
 
-    protected abstract IKVEngine<? extends IKVSpace> newEngine();
+    protected abstract IKVEngine<? extends T> newEngine();
+
+    // Subclass must provide writer for specific space subtype
+    protected abstract IKVSpaceWriter writerOf(T space);
+
+    // Common behavior tests below work for any IKVSpace implementation
 
     @Test
     public void createIfMissing() {
         String rangeId = "test_range1";
-        IKVSpace keyRange = engine.createIfMissing(rangeId);
-        IKVSpace keyRange1 = engine.createIfMissing(rangeId);
-        assertEquals(keyRange1, keyRange);
+        IKVSpace space = engine.createIfMissing(rangeId);
+        IKVSpace space1 = engine.createIfMissing(rangeId);
+        assertEquals(space1, space);
     }
 
     @Test
@@ -69,13 +74,13 @@ public abstract class AbstractKVEngineTest extends MockableTest {
         String rangeId1 = "test_range2";
         ByteString key = ByteString.copyFromUtf8("key");
         ByteString value = ByteString.copyFromUtf8("value");
-        IKVSpace keyRange = engine.createIfMissing(rangeId);
-        assertEquals(keyRange.size(), 0);
-        keyRange.toWriter().put(key, value).done();
-        assertTrue(keyRange.size() > 0);
+        IKVSpace space = engine.createIfMissing(rangeId);
+        assertEquals(space.size(), 0);
+        writerOf((T) space).put(key, value).done();
+        assertTrue(space.size() > 0);
 
-        IKVSpace keyRange1 = engine.createIfMissing(rangeId1);
-        assertEquals(keyRange1.size(), 0);
+        IKVSpace space1 = engine.createIfMissing(rangeId1);
+        assertEquals(space1.size(), 0);
     }
 
     @Test
@@ -83,10 +88,10 @@ public abstract class AbstractKVEngineTest extends MockableTest {
         String rangeId = "test_range1";
         ByteString key = ByteString.copyFromUtf8("key");
         ByteString value = ByteString.copyFromUtf8("value");
-        IKVSpace keyRange = engine.createIfMissing(rangeId);
-        keyRange.toWriter().metadata(key, value).done();
-        assertTrue(keyRange.metadata(key).isPresent());
-        assertEquals(keyRange.metadata(key).get(), value);
+        IKVSpace space = engine.createIfMissing(rangeId);
+        writerOf((T) space).metadata(key, value).done();
+        assertTrue(space.metadata(key).isPresent());
+        assertEquals(space.metadata(key).get(), value);
     }
 
     @Test
@@ -94,23 +99,23 @@ public abstract class AbstractKVEngineTest extends MockableTest {
         String rangeId = "test_range1";
         ByteString key = ByteString.copyFromUtf8("key");
         ByteString value = ByteString.copyFromUtf8("value");
-        IKVSpace keyRange = engine.createIfMissing(rangeId);
-        KVSpaceDescriptor descriptor = keyRange.describe();
+        IKVSpace space = engine.createIfMissing(rangeId);
+        KVSpaceDescriptor descriptor = space.describe();
         assertEquals(descriptor.id(), rangeId);
         assertEquals(descriptor.metrics().get("size"), 0);
 
-        keyRange.toWriter().put(key, value).metadata(key, value).done();
-        descriptor = keyRange.describe();
+        writerOf((T) space).put(key, value).metadata(key, value).done();
+        descriptor = space.describe();
         assertTrue(descriptor.metrics().get("size") > 0);
     }
 
     @Test
     public void kvSpaceDestroy() {
         String rangeId = "test_range1";
-        IKVSpace range = engine.createIfMissing(rangeId);
+        IKVSpace space = engine.createIfMissing(rangeId);
         assertTrue(engine.spaces().containsKey(rangeId));
-        Disposable disposable = range.metadata().subscribe();
-        range.destroy();
+        var disposable = space.metadata().subscribe();
+        space.destroy();
         assertTrue(disposable.isDisposed());
         assertTrue(engine.spaces().isEmpty());
         assertFalse(engine.spaces().containsKey(rangeId));
@@ -121,31 +126,30 @@ public abstract class AbstractKVEngineTest extends MockableTest {
         String rangeId = "test_range1";
         ByteString key = ByteString.copyFromUtf8("key");
         ByteString value = ByteString.copyFromUtf8("value");
-        IKVSpace range = engine.createIfMissing(rangeId);
-        range.toWriter().put(key, value).done();
-        assertTrue(range.exist(key));
-        range.destroy();
+        IKVSpace space = engine.createIfMissing(rangeId);
+        writerOf((T) space).put(key, value).done();
+        assertTrue(space.exist(key));
+        space.destroy();
 
-        range = engine.createIfMissing(rangeId);
-        assertFalse(range.exist(key));
-        range.toWriter().put(key, value).done();
-        assertTrue(range.exist(key));
+        space = engine.createIfMissing(rangeId);
+        assertFalse(space.exist(key));
+        writerOf((T) space).put(key, value).done();
+        assertTrue(space.exist(key));
     }
-
 
     @Test
     public void exist() {
         String rangeId = "test_range1";
         ByteString key = ByteString.copyFromUtf8("key");
         ByteString value = ByteString.copyFromUtf8("value");
-        IKVSpace keyRange = engine.createIfMissing(rangeId);
-        assertFalse(keyRange.exist(key));
+        IKVSpace space = engine.createIfMissing(rangeId);
+        assertFalse(space.exist(key));
 
-        IKVSpaceWriter rangeWriter = keyRange.toWriter().put(key, value);
-        assertFalse(keyRange.exist(key));
+        IKVSpaceWriter writer = writerOf((T) space).put(key, value);
+        assertFalse(space.exist(key));
 
-        rangeWriter.done();
-        assertTrue(keyRange.exist(key));
+        writer.done();
+        assertTrue(space.exist(key));
     }
 
     @Test
@@ -153,15 +157,15 @@ public abstract class AbstractKVEngineTest extends MockableTest {
         String rangeId = "test_range1";
         ByteString key = ByteString.copyFromUtf8("key");
         ByteString value = ByteString.copyFromUtf8("value");
-        IKVSpace keyRange = engine.createIfMissing(rangeId);
-        assertFalse(keyRange.get(key).isPresent());
+        IKVSpace space = engine.createIfMissing(rangeId);
+        assertFalse(space.get(key).isPresent());
 
-        IKVSpaceWriter rangeWriter = keyRange.toWriter().put(key, value);
-        assertFalse(keyRange.get(key).isPresent());
+        IKVSpaceWriter writer = writerOf((T) space).put(key, value);
+        assertFalse(space.get(key).isPresent());
 
-        rangeWriter.done();
-        assertTrue(keyRange.get(key).isPresent());
-        assertEquals(keyRange.get(key).get(), value);
+        writer.done();
+        assertTrue(space.get(key).isPresent());
+        assertEquals(space.get(key).get(), value);
     }
 
     @Test
@@ -169,37 +173,37 @@ public abstract class AbstractKVEngineTest extends MockableTest {
         String rangeId = "test_range1";
         ByteString key = ByteString.copyFromUtf8("key");
         ByteString value = ByteString.copyFromUtf8("value");
-        IKVSpace keyRange = engine.createIfMissing(rangeId);
+        IKVSpace space = engine.createIfMissing(rangeId);
 
-        try (IKVSpaceIterator keyRangeIterator = keyRange.newIterator()) {
-            keyRangeIterator.seekToFirst();
-            assertFalse(keyRangeIterator.isValid());
-            keyRange.toWriter().put(key, value).done();
+        try (IKVSpaceIterator itr = space.newIterator()) {
+            itr.seekToFirst();
+            assertFalse(itr.isValid());
+            writerOf((T) space).put(key, value).done();
 
-            keyRangeIterator.seekToFirst();
-            assertFalse(keyRangeIterator.isValid());
-            keyRangeIterator.refresh();
+            itr.seekToFirst();
+            assertFalse(itr.isValid());
+            itr.refresh();
 
-            keyRangeIterator.seekToFirst();
-            assertTrue(keyRangeIterator.isValid());
-            assertEquals(keyRangeIterator.key(), key);
-            assertEquals(keyRangeIterator.value(), value);
-            keyRangeIterator.next();
-            assertFalse(keyRangeIterator.isValid());
+            itr.seekToFirst();
+            assertTrue(itr.isValid());
+            assertEquals(itr.key(), key);
+            assertEquals(itr.value(), value);
+            itr.next();
+            assertFalse(itr.isValid());
 
-            keyRangeIterator.seekToLast();
-            assertTrue(keyRangeIterator.isValid());
-            assertEquals(keyRangeIterator.key(), key);
-            assertEquals(keyRangeIterator.value(), value);
-            keyRangeIterator.next();
-            assertFalse(keyRangeIterator.isValid());
+            itr.seekToLast();
+            assertTrue(itr.isValid());
+            assertEquals(itr.key(), key);
+            assertEquals(itr.value(), value);
+            itr.next();
+            assertFalse(itr.isValid());
 
-            keyRangeIterator.seekForPrev(key);
-            assertTrue(keyRangeIterator.isValid());
-            assertEquals(keyRangeIterator.key(), key);
-            assertEquals(keyRangeIterator.value(), value);
-            keyRangeIterator.next();
-            assertFalse(keyRangeIterator.isValid());
+            itr.seekForPrev(key);
+            assertTrue(itr.isValid());
+            assertEquals(itr.key(), key);
+            assertEquals(itr.value(), value);
+            itr.next();
+            assertFalse(itr.isValid());
         }
     }
 
@@ -208,53 +212,33 @@ public abstract class AbstractKVEngineTest extends MockableTest {
         String rangeId = "test_range1";
         ByteString key = ByteString.copyFromUtf8("key");
         ByteString value = ByteString.copyFromUtf8("value");
-        IKVSpace keyRange = engine.createIfMissing(rangeId);
+        IKVSpace space = engine.createIfMissing(rangeId);
 
-        try (IKVSpaceIterator keyRangeIterator = keyRange.newIterator(Boundary.newBuilder()
-            .setStartKey(key)
-            .build())) {
-            keyRangeIterator.seekToFirst();
-            assertFalse(keyRangeIterator.isValid());
-            keyRange.toWriter().put(key, value).done();
+        try (IKVSpaceIterator itr = space.newIterator(Boundary.newBuilder().setStartKey(key).build())) {
+            itr.seekToFirst();
+            assertFalse(itr.isValid());
+            writerOf((T) space).put(key, value).done();
 
-            keyRangeIterator.seekToFirst();
-            assertFalse(keyRangeIterator.isValid());
-            keyRangeIterator.refresh();
+            itr.seekToFirst();
+            assertFalse(itr.isValid());
+            itr.refresh();
 
-            keyRangeIterator.seekToFirst();
-            assertTrue(keyRangeIterator.isValid());
-            assertEquals(keyRangeIterator.key(), key);
-            assertEquals(keyRangeIterator.value(), value);
-            keyRangeIterator.next();
-            assertFalse(keyRangeIterator.isValid());
-
-            keyRangeIterator.seekToLast();
-            assertTrue(keyRangeIterator.isValid());
-            assertEquals(keyRangeIterator.key(), key);
-            assertEquals(keyRangeIterator.value(), value);
-            keyRangeIterator.next();
-            assertFalse(keyRangeIterator.isValid());
-
-            keyRangeIterator.seekForPrev(key);
-            assertTrue(keyRangeIterator.isValid());
-            assertEquals(keyRangeIterator.key(), key);
-            assertEquals(keyRangeIterator.value(), value);
-            keyRangeIterator.next();
-            assertFalse(keyRangeIterator.isValid());
+            itr.seekToFirst();
+            assertTrue(itr.isValid());
+            assertEquals(itr.key(), key);
+            assertEquals(itr.value(), value);
+            itr.next();
+            assertFalse(itr.isValid());
         }
-        try (IKVSpaceIterator keyRangeIterator = keyRange.newIterator(Boundary.newBuilder()
+        try (IKVSpaceIterator itr = space.newIterator(Boundary.newBuilder()
             .setStartKey(ByteString.copyFromUtf8("0"))
-            .setEndKey(ByteString.copyFromUtf8("9"))
-            .build())) {
-            keyRangeIterator.seekToFirst();
-            assertFalse(keyRangeIterator.isValid());
-
-            keyRange.toWriter().put(key, value).done();
-
-            keyRangeIterator.refresh();
-
-            keyRangeIterator.seekToFirst();
-            assertFalse(keyRangeIterator.isValid());
+            .setEndKey(ByteString.copyFromUtf8("9")).build())) {
+            itr.seekToFirst();
+            assertFalse(itr.isValid());
+            writerOf((T) space).put(key, value).done();
+            itr.refresh();
+            itr.seekToFirst();
+            assertFalse(itr.isValid());
         }
     }
 
@@ -263,21 +247,17 @@ public abstract class AbstractKVEngineTest extends MockableTest {
         String rangeId = "test_range1";
         ByteString key = ByteString.copyFromUtf8("key");
         ByteString value = ByteString.copyFromUtf8("value");
-        IKVSpace keyRange = engine.createIfMissing(rangeId);
-        keyRange.toWriter()
-            .put(key, value)
-            .delete(key)
-            .metadata(key, value)
-            .done();
-        assertFalse(keyRange.exist(key));
+        IKVSpace space = engine.createIfMissing(rangeId);
+        writerOf((T) space).put(key, value).delete(key).metadata(key, value).done();
+        assertFalse(space.exist(key));
 
-        IKVSpaceWriter rangeWriter = keyRange.toWriter();
-        assertEquals(rangeWriter.metadata(key).get(), value);
-        rangeWriter.insert(key, value).done();
-        assertTrue(keyRange.exist(key));
+        IKVSpaceWriter writer = writerOf((T) space);
+        assertEquals(writer.metadata(key).get(), value);
+        writer.insert(key, value).done();
+        assertTrue(space.exist(key));
 
-        keyRange.toWriter().clear().done();
-        assertFalse(keyRange.exist(key));
+        writerOf((T) space).clear().done();
+        assertFalse(space.exist(key));
     }
 
     @Test
@@ -285,93 +265,13 @@ public abstract class AbstractKVEngineTest extends MockableTest {
         String rangeId = "test_range1";
         ByteString key = ByteString.copyFromUtf8("key");
         ByteString value = ByteString.copyFromUtf8("value");
-        IKVSpace keyRange = engine.createIfMissing(rangeId);
-        keyRange.toWriter().put(key, value).done();
+        IKVSpace space = engine.createIfMissing(rangeId);
+        writerOf((T) space).put(key, value).done();
 
-        keyRange.toWriter()
-            .clear(Boundary.newBuilder()
+        writerOf((T) space).clear(Boundary.newBuilder()
                 .setStartKey(ByteString.copyFromUtf8("0"))
-                .setEndKey(ByteString.copyFromUtf8("9"))
-                .build())
+                .setEndKey(ByteString.copyFromUtf8("9")).build())
             .done();
-        assertTrue(keyRange.exist(key));
-    }
-
-    @Test
-    public void migrateTo() {
-        String leftRangeId = "test_range1";
-        String rightRangeId = "test_range2";
-        ByteString key1 = ByteString.copyFromUtf8("1");
-        ByteString value1 = ByteString.copyFromUtf8("1");
-        ByteString key2 = ByteString.copyFromUtf8("6");
-        ByteString value2 = ByteString.copyFromUtf8("6");
-        ByteString splitKey = ByteString.copyFromUtf8("5");
-
-        ByteString metaKey = ByteString.copyFromUtf8("metaKey");
-        ByteString metaVal = ByteString.copyFromUtf8("metaVal");
-
-
-        IKVSpace leftRange = engine.createIfMissing(leftRangeId);
-        leftRange.toWriter()
-            .put(key1, value1)
-            .put(key2, value2)
-            .done();
-        IKVSpaceWriter leftSpaceWriter = leftRange.toWriter();
-        IKVSpaceMetadataWriter rightSpaceMetadataWriter = leftSpaceWriter
-            .migrateTo(rightRangeId, Boundary.newBuilder().setStartKey(splitKey).build()).metadata(metaKey, metaVal);
-        leftSpaceWriter.done();
-        rightSpaceMetadataWriter.done();
-
-        IKVSpace rightRange = engine.createIfMissing(rightRangeId);
-
-        assertFalse(leftRange.metadata(metaKey).isPresent());
-        assertTrue(rightRange.metadata(metaKey).isPresent());
-        assertEquals(rightRange.metadata(metaKey).get(), metaVal);
-        assertFalse(leftRange.exist(key2));
-        assertTrue(rightRange.exist(key2));
-    }
-
-    @Test
-    public void migrateFrom() {
-        String leftRangeId = "test_range1";
-        String rightRangeId = "test_range2";
-        ByteString key1 = ByteString.copyFromUtf8("1");
-        ByteString value1 = ByteString.copyFromUtf8("1");
-        ByteString key2 = ByteString.copyFromUtf8("6");
-        ByteString value2 = ByteString.copyFromUtf8("6");
-        ByteString splitKey = ByteString.copyFromUtf8("5");
-
-        ByteString metaKey = ByteString.copyFromUtf8("metaKey");
-        ByteString metaVal = ByteString.copyFromUtf8("metaVal");
-
-
-        IKVSpace leftRange = engine.createIfMissing(leftRangeId);
-        leftRange.toWriter()
-            .put(key1, value1)
-            .done();
-        assertFalse(leftRange.exist(key2));
-        IKVSpace rightRange = engine.createIfMissing(rightRangeId);
-        rightRange.toWriter()
-            .put(key2, value2)
-            .done();
-        assertTrue(rightRange.exist(key2));
-
-        IKVSpaceWriter leftSpaceWriter = leftRange.toWriter();
-        IKVSpaceMetadataWriter rightSpaceMetadataWriter = leftSpaceWriter
-            .migrateFrom(rightRangeId, Boundary.newBuilder().setStartKey(splitKey).build())
-            .metadata(metaKey, metaVal);
-        leftSpaceWriter
-            .metadata(metaKey, metaVal)
-            .done();
-        rightSpaceMetadataWriter.done();
-
-        assertTrue(leftRange.metadata(metaKey).isPresent());
-        assertTrue(rightRange.metadata(metaKey).isPresent());
-
-        assertEquals(rightRange.metadata(metaKey).get(), metaVal);
-        assertEquals(rightRange.metadata(metaKey).get(), metaVal);
-
-        assertTrue(leftRange.exist(key2));
-        assertFalse(rightRange.exist(key2));
+        assertTrue(space.exist(key));
     }
 }

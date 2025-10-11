@@ -20,11 +20,19 @@
 package org.apache.bifromq.basekv.server;
 
 import static org.apache.bifromq.basekv.Constants.toBaseKVAgentId;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.testng.Assert.assertEquals;
 import static org.testng.Assert.assertTrue;
 
+import com.google.protobuf.ByteString;
+import io.reactivex.rxjava3.observers.TestObserver;
+import io.reactivex.rxjava3.subjects.PublishSubject;
+import java.lang.reflect.Method;
 import org.apache.bifromq.basecluster.IAgentHost;
 import org.apache.bifromq.basecluster.agent.proto.AgentMemberAddr;
 import org.apache.bifromq.basecluster.agent.proto.AgentMessage;
@@ -35,10 +43,6 @@ import org.apache.bifromq.basekv.proto.KVRangeId;
 import org.apache.bifromq.basekv.proto.KVRangeMessage;
 import org.apache.bifromq.basekv.proto.StoreMessage;
 import org.apache.bifromq.basekv.utils.KVRangeIdUtil;
-import com.google.protobuf.ByteString;
-import io.reactivex.rxjava3.observers.TestObserver;
-import io.reactivex.rxjava3.subjects.PublishSubject;
-import java.lang.reflect.Method;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.testng.annotations.Test;
@@ -70,6 +74,7 @@ public class AgentHostStoreMessengerTest extends MockableTest {
         when(agent.register(srcStore)).thenReturn(srcStoreAgentMember);
         when(agent.register(targetStore)).thenReturn(tgtStoreAgentMember);
         when(tgtStoreAgentMember.receive()).thenReturn(tgtStoreMessageSubject);
+        when(srcStoreAgentMember.receive()).thenReturn(PublishSubject.create());
     }
 
     @Test
@@ -157,5 +162,26 @@ public class AgentHostStoreMessengerTest extends MockableTest {
         tgtStoreMessageSubject.onNext(nodeMessage);
         testObserver.awaitCount(1);
         assertEquals(testObserver.values().get(0).getPayload().getHostStoreId(), targetStore);
+    }
+
+    @Test
+    public void sendToSelfShortcut() {
+        AgentHostStoreMessenger messenger = new AgentHostStoreMessenger(agentHost, clusterId, targetStore);
+        TestObserver<StoreMessage> testObserver = TestObserver.create();
+        messenger.receive().subscribe(testObserver);
+
+        StoreMessage message = StoreMessage.newBuilder()
+            .setFrom(targetStore)
+            .setSrcRange(targetRange)
+            .setPayload(KVRangeMessage.newBuilder().setHostStoreId(targetStore).setRangeId(targetRange).build())
+            .build();
+
+        messenger.send(message);
+
+        testObserver.awaitCount(1);
+        assertEquals(testObserver.values().get(0), message);
+
+        verify(tgtStoreAgentMember, never()).multicast(anyString(), any(), anyBoolean());
+        verify(tgtStoreAgentMember, never()).broadcast(any(), anyBoolean());
     }
 }

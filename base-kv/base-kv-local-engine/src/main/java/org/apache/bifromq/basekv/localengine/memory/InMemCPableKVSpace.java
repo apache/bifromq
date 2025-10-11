@@ -19,19 +19,27 @@
 
 package org.apache.bifromq.basekv.localengine.memory;
 
+import static com.google.protobuf.ByteString.unsignedLexicographicalComparator;
 import static org.apache.bifromq.basekv.localengine.metrics.KVSpaceMeters.getGauge;
 
-import org.apache.bifromq.basekv.localengine.ICPableKVSpace;
-import org.apache.bifromq.basekv.localengine.IKVSpaceCheckpoint;
-import org.apache.bifromq.basekv.localengine.metrics.GeneralKVSpaceMetric;
-import org.apache.bifromq.basekv.localengine.metrics.KVSpaceOpMeters;
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
+import com.google.protobuf.ByteString;
 import io.micrometer.core.instrument.Gauge;
 import io.micrometer.core.instrument.Tags;
 import java.util.HashMap;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentSkipListMap;
+import java.util.concurrent.atomic.AtomicBoolean;
+import org.apache.bifromq.basekv.localengine.ICPableKVSpace;
+import org.apache.bifromq.basekv.localengine.IKVSpaceCheckpoint;
+import org.apache.bifromq.basekv.localengine.IKVSpaceMigratableWriter;
+import org.apache.bifromq.basekv.localengine.IRestoreSession;
+import org.apache.bifromq.basekv.localengine.RestoreMode;
+import org.apache.bifromq.basekv.localengine.metrics.GeneralKVSpaceMetric;
+import org.apache.bifromq.basekv.localengine.metrics.KVSpaceOpMeters;
 import org.slf4j.Logger;
 
 public class InMemCPableKVSpace extends InMemKVSpace<InMemCPableKVEngine, InMemCPableKVSpace>
@@ -72,8 +80,103 @@ public class InMemCPableKVSpace extends InMemKVSpace<InMemCPableKVEngine, InMemC
     }
 
     @Override
+    public IRestoreSession startRestore(IRestoreSession.FlushListener flushListener) {
+        return new RestoreSession(RestoreMode.Replace, flushListener);
+    }
+
+    @Override
+    public IRestoreSession startReceiving(IRestoreSession.FlushListener flushListener) {
+        return new RestoreSession(RestoreMode.Overlay, flushListener);
+    }
+
+    @Override
     public void close() {
         super.close();
         checkpointGauge.close();
+    }
+
+    @Override
+    public IKVSpaceMigratableWriter toWriter() {
+        return new InMemKVSpaceMigratableWriter<>(id, metadataMap, rangeData, engine, syncContext,
+            metadataUpdated -> {
+                if (metadataUpdated) {
+                    this.loadMetadata();
+                }
+            }, opMeters, logger);
+    }
+
+    private class RestoreSession implements IRestoreSession {
+        private final ConcurrentHashMap<ByteString, ByteString> stagedMetadata = new ConcurrentHashMap<>();
+        private final ConcurrentSkipListMap<ByteString, ByteString> stagedData = new ConcurrentSkipListMap<>(
+            unsignedLexicographicalComparator());
+        private final RestoreMode mode;
+        private final IRestoreSession.FlushListener flushListener;
+        private final AtomicBoolean closed = new AtomicBoolean();
+        private int ops = 0;
+        private long bytes = 0;
+
+        private RestoreSession(RestoreMode mode, FlushListener flushListener) {
+            this.mode = mode;
+            this.flushListener = flushListener;
+        }
+
+        private void ensureOpen() {
+            if (closed.get()) {
+                throw new IllegalStateException("Restore session already closed");
+            }
+        }
+
+        @Override
+        public IRestoreSession put(ByteString key, ByteString value) {
+            ensureOpen();
+            stagedData.put(key, value);
+            ops++;
+            bytes += key.size() + value.size();
+            return this;
+        }
+
+        @Override
+        public IRestoreSession metadata(ByteString metaKey, ByteString metaValue) {
+            ensureOpen();
+            stagedMetadata.put(metaKey, metaValue);
+            ops++;
+            bytes += metaKey.size() + metaValue.size();
+            return this;
+        }
+
+        @Override
+        public void done() {
+            ensureOpen();
+            if (closed.compareAndSet(false, true)) {
+                // Replace mode ignores existing state; Overlay mode applies on top of current state
+                syncContext().mutator().run(() -> {
+                    if (mode == RestoreMode.Replace) {
+                        metadataMap.clear();
+                        rangeData.clear();
+                    }
+                    metadataMap.putAll(stagedMetadata);
+                    rangeData.putAll(stagedData);
+                    if (flushListener != null) {
+                        flushListener.onFlush(ops, bytes);
+                    }
+                    loadMetadata();
+                    // InMemCPableKVSpace is not generation aware
+                    return false;
+                });
+            }
+        }
+
+        @Override
+        public void abort() {
+            if (closed.compareAndSet(false, true)) {
+                stagedMetadata.clear();
+                stagedData.clear();
+            }
+        }
+
+        @Override
+        public int count() {
+            return ops;
+        }
     }
 }

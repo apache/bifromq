@@ -19,6 +19,7 @@
 
 package org.apache.bifromq.basekv.store.range;
 
+import io.reactivex.rxjava3.core.Observable;
 import org.apache.bifromq.basekv.proto.Boundary;
 import org.apache.bifromq.basekv.proto.KVRangeSnapshot;
 import org.apache.bifromq.basekv.proto.State;
@@ -26,7 +27,6 @@ import org.apache.bifromq.basekv.raft.proto.ClusterConfig;
 import org.apache.bifromq.basekv.store.api.IKVCloseableReader;
 import org.apache.bifromq.basekv.store.api.IKVRangeReader;
 import org.apache.bifromq.basekv.store.api.IKVReader;
-import io.reactivex.rxjava3.core.Observable;
 
 public interface IKVRange extends IKVRangeReader {
     /**
@@ -81,7 +81,8 @@ public interface IKVRange extends IKVRangeReader {
      */
     IKVRangeWriter<?> toWriter(IKVLoadRecorder recorder);
 
-    IKVReseter toReseter(KVRangeSnapshot snapshot);
+    IKVRangeRestoreSession startRestore(KVRangeSnapshot snapshot,
+                                        IKVRangeRestoreSession.IKVRestoreProgressListener progressListener);
 
     void close();
 

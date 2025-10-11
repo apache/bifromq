@@ -14,25 +14,70 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 
 package org.apache.bifromq.basekv.localengine;
 
 import java.util.function.Supplier;
 
+/**
+ * A synchronization context that provides synchronized access to a resource with read-write locks.
+ * It supports refreshing the state when needed and performing mutations with proper locking.
+ */
 public interface ISyncContext {
+    /**
+     * Get the refresher for read operations.
+     *
+     * @return the refresher
+     */
+    IRefresher refresher();
+
+    /**
+     * Get the mutator for write operations.
+     *
+     * @return the mutator
+     */
+    IMutator mutator();
+
+    /**
+     * Callback interface for refreshing state.
+     */
+    interface IRefresh {
+        void refresh(boolean genBumped);
+    }
+
+    /**
+     * Interface for performing read operations with refresh capability.
+     */
     interface IRefresher {
-        void runIfNeeded(Runnable runnable);
+        void runIfNeeded(IRefresh refresh);
 
         <T> T call(Supplier<T> supplier);
     }
 
-    interface IMutator {
-        void run(Runnable runnable);
+    /**
+     * Callback interface for performing mutations.
+     */
+    interface IMutation {
+        /**
+         * Perform mutation, return true if generation is bumped.
+         *
+         * @return true if generation is bumped
+         */
+        boolean mutate();
     }
 
-    IRefresher refresher();
-
-    IMutator mutator();
+    /**
+     * Interface for performing mutations with write locking.
+     */
+    interface IMutator {
+        /**
+         * Perform mutation with write lock.
+         *
+         * @param mutation the mutation to perform
+         * @return boolean indicating if generation is bumped after the mutation
+         */
+        boolean run(IMutation mutation);
+    }
 }

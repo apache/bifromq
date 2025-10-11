@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 
 package org.apache.bifromq.basekv.store;
@@ -22,6 +22,14 @@ package org.apache.bifromq.basekv.store;
 import static org.awaitility.Awaitility.await;
 import static org.testng.Assert.fail;
 
+import com.google.common.base.Preconditions;
+import com.google.common.collect.Sets;
+import io.reactivex.rxjava3.plugins.RxJavaPlugins;
+import java.lang.reflect.Method;
+import java.util.HashSet;
+import java.util.Set;
+import java.util.concurrent.TimeUnit;
+import lombok.extern.slf4j.Slf4j;
 import org.apache.bifromq.basekv.MockableTest;
 import org.apache.bifromq.basekv.annotation.Cluster;
 import org.apache.bifromq.basekv.proto.KVRangeDescriptor;
@@ -29,13 +37,6 @@ import org.apache.bifromq.basekv.proto.KVRangeId;
 import org.apache.bifromq.basekv.store.option.KVRangeOptions;
 import org.apache.bifromq.basekv.store.option.KVRangeStoreOptions;
 import org.apache.bifromq.basekv.utils.KVRangeIdUtil;
-import com.google.common.base.Preconditions;
-import com.google.common.collect.Sets;
-import java.lang.reflect.Method;
-import java.util.HashSet;
-import java.util.Set;
-import java.util.concurrent.TimeUnit;
-import lombok.extern.slf4j.Slf4j;
 
 @Slf4j
 public abstract class KVRangeStoreClusterTestTemplate extends MockableTest {
@@ -56,16 +57,26 @@ public abstract class KVRangeStoreClusterTestTemplate extends MockableTest {
             rangeOptions.setWalRaftConfig(rangeOptions.getWalRaftConfig().setAsyncAppend(cluster.asyncAppend()));
             rangeOptions.setWalRaftConfig(rangeOptions.getWalRaftConfig()
                 .setInstallSnapshotTimeoutTick(cluster.installSnapshotTimeoutTick()));
+            // Deterministic timeouts configurable via annotation
+            rangeOptions.setSnapshotSyncIdleTimeoutSec(cluster.snapshotSyncIdleTimeoutSec());
+            rangeOptions.setZombieTimeoutSec(cluster.zombieTimeoutSec());
+            rangeOptions.setMergeTimeoutSec(cluster.mergeTimeoutSec());
             options.setKvRangeOptions(rangeOptions);
         } else {
             initVoters = 3;
             initLearners = 0;
+            KVRangeOptions rangeOptions = options.getKvRangeOptions();
+            // Speed up snapshot/data-merge idle timeout for deterministic tests
+            rangeOptions.setSnapshotSyncIdleTimeoutSec(5);
+            rangeOptions.setZombieTimeoutSec(5);
+            rangeOptions.setMergeTimeoutSec(5);
         }
     }
 
     @Override
     protected void doSetup(Method method) {
         try {
+            RxJavaPlugins.setErrorHandler(e -> log.debug("Unhandled exception", e));
             createClusterByAnnotation(method);
             log.info("Starting test cluster");
             cluster = new KVRangeStoreTestCluster(options);
@@ -128,6 +139,7 @@ public abstract class KVRangeStoreClusterTestTemplate extends MockableTest {
             KVRangeStoreTestCluster lastCluster = this.cluster;
             lastCluster.shutdown();
         }
+        RxJavaPlugins.setErrorHandler(null);
     }
 
     public String nonLeaderStore(KVRangeConfig setting) {

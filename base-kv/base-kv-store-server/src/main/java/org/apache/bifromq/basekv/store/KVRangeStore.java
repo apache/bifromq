@@ -14,13 +14,14 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 
 package org.apache.bifromq.basekv.store;
 
 import static java.util.Collections.emptyList;
 import static org.apache.bifromq.basekv.InProcStores.regInProcStore;
+import static org.apache.bifromq.basekv.proto.State.StateType.NoUse;
 import static org.apache.bifromq.basekv.proto.State.StateType.Normal;
 import static org.apache.bifromq.basekv.store.exception.KVRangeStoreException.rangeNotFound;
 import static org.apache.bifromq.basekv.store.util.ExecutorServiceUtil.awaitShutdown;
@@ -67,6 +68,10 @@ import org.apache.bifromq.basekv.proto.KVRangeId;
 import org.apache.bifromq.basekv.proto.KVRangeMessage;
 import org.apache.bifromq.basekv.proto.KVRangeSnapshot;
 import org.apache.bifromq.basekv.proto.KVRangeStoreDescriptor;
+import org.apache.bifromq.basekv.proto.MergeDoneReply;
+import org.apache.bifromq.basekv.proto.MergeReply;
+import org.apache.bifromq.basekv.proto.PrepareMergeToReply;
+import org.apache.bifromq.basekv.proto.SaveSnapshotDataRequest;
 import org.apache.bifromq.basekv.proto.State;
 import org.apache.bifromq.basekv.proto.StoreMessage;
 import org.apache.bifromq.basekv.raft.proto.ClusterConfig;
@@ -319,6 +324,18 @@ public class KVRangeStore implements IKVRangeStore {
     }
 
     @Override
+    public CompletionStage<Boolean> quit(KVRangeId rangeId) {
+        checkStarted();
+        RangeFSMHolder holder = kvRangeMap.get(rangeId);
+        if (holder != null) {
+            metricsManager.runningQuitNum.increment();
+            return holder.fsm.quit()
+                .whenComplete((v, e) -> metricsManager.runningQuitNum.decrement());
+        }
+        return CompletableFuture.failedFuture(rangeNotFound());
+    }
+
+    @Override
     public Observable<KVRangeStoreDescriptor> describe() {
         checkStarted();
         return descriptorListSubject
@@ -344,24 +361,56 @@ public class KVRangeStore implements IKVRangeStore {
     private void receive(StoreMessage storeMessage) {
         if (status.get() == Status.STARTED) {
             KVRangeMessage payload = storeMessage.getPayload();
-            if (payload.hasEnsureRange()) {
-                EnsureRange request = storeMessage.getPayload().getEnsureRange();
-                mgmtTaskRunner.add(() -> {
-                    if (status.get() != Status.STARTED) {
-                        return CompletableFuture.completedFuture(null);
-                    }
-                    KVRangeId rangeId = payload.getRangeId();
-                    RangeFSMHolder holder = kvRangeMap.get(rangeId);
-                    try {
-                        Snapshot walSnapshot = request.getInitSnapshot();
-                        KVRangeSnapshot rangeSnapshot = KVRangeSnapshot.parseFrom(walSnapshot.getData());
-                        if (holder != null) {
-                            // pin the range
-                            if (holder.fsm.ver() < request.getVer()) {
-                                log.debug("Range already exists, pinning it: rangeId={}",
-                                    KVRangeIdUtil.toString(rangeId));
-                                holder.pin(request.getVer(), walSnapshot, rangeSnapshot);
+            switch (payload.getPayloadTypeCase()) {
+                case ENSURERANGE -> {
+                    EnsureRange request = storeMessage.getPayload().getEnsureRange();
+                    mgmtTaskRunner.add(() -> {
+                        if (status.get() != Status.STARTED) {
+                            return CompletableFuture.completedFuture(null);
+                        }
+                        KVRangeId rangeId = payload.getRangeId();
+                        RangeFSMHolder holder = kvRangeMap.get(rangeId);
+                        try {
+                            Snapshot walSnapshot = request.getInitSnapshot();
+                            KVRangeSnapshot rangeSnapshot = KVRangeSnapshot.parseFrom(walSnapshot.getData());
+                            if (holder != null) {
+                                // pin the range
+                                if (holder.fsm.ver() < request.getVer()) {
+                                    log.debug("Range already exists, pinning it: rangeId={}",
+                                        KVRangeIdUtil.toString(rangeId));
+                                    holder.pin(request.getVer(), walSnapshot, rangeSnapshot);
+                                }
+                                messenger.send(StoreMessage.newBuilder()
+                                    .setFrom(id)
+                                    .setSrcRange(payload.getRangeId())
+                                    .setPayload(KVRangeMessage.newBuilder()
+                                        .setRangeId(storeMessage.getSrcRange())
+                                        .setHostStoreId(storeMessage.getFrom())
+                                        .setEnsureRangeReply(EnsureRangeReply.newBuilder()
+                                            .setResult(EnsureRangeReply.Result.OK).build())
+                                        .build())
+                                    .build());
+                                return CompletableFuture.completedFuture(null);
+                            } else {
+                                return ensureRange(rangeId, walSnapshot, rangeSnapshot)
+                                    .whenComplete((v, e) -> {
+                                        updateDescriptorList();
+                                        messenger.send(StoreMessage.newBuilder()
+                                            .setFrom(id)
+                                            .setSrcRange(payload.getRangeId())
+                                            .setPayload(KVRangeMessage.newBuilder()
+                                                .setRangeId(storeMessage.getSrcRange())
+                                                .setHostStoreId(storeMessage.getFrom())
+                                                .setEnsureRangeReply(EnsureRangeReply.newBuilder()
+                                                    .setResult(EnsureRangeReply.Result.OK)
+                                                    .build())
+                                                .build())
+                                            .build());
+                                    });
                             }
+                        } catch (Throwable e) {
+                            // should never happen
+                            log.error("Unexpected error", e);
                             messenger.send(StoreMessage.newBuilder()
                                 .setFrom(id)
                                 .setSrcRange(payload.getRangeId())
@@ -369,44 +418,93 @@ public class KVRangeStore implements IKVRangeStore {
                                     .setRangeId(storeMessage.getSrcRange())
                                     .setHostStoreId(storeMessage.getFrom())
                                     .setEnsureRangeReply(EnsureRangeReply.newBuilder()
-                                        .setResult(EnsureRangeReply.Result.OK).build())
+                                        .setResult(EnsureRangeReply.Result.Error)
+                                        .build())
                                     .build())
                                 .build());
                             return CompletableFuture.completedFuture(null);
-                        } else {
-                            return ensureRange(rangeId, walSnapshot, rangeSnapshot)
-                                .whenComplete((v, e) -> {
-                                    updateDescriptorList();
-                                    messenger.send(StoreMessage.newBuilder()
-                                        .setFrom(id)
-                                        .setSrcRange(payload.getRangeId())
-                                        .setPayload(KVRangeMessage.newBuilder()
-                                            .setRangeId(storeMessage.getSrcRange())
-                                            .setHostStoreId(storeMessage.getFrom())
-                                            .setEnsureRangeReply(EnsureRangeReply.newBuilder()
-                                                .setResult(EnsureRangeReply.Result.OK)
-                                                .build())
-                                            .build())
-                                        .build());
-                                });
                         }
-                    } catch (Throwable e) {
-                        // should never happen
-                        log.error("Unexpected error", e);
-                        messenger.send(StoreMessage.newBuilder()
-                            .setFrom(id)
-                            .setSrcRange(payload.getRangeId())
-                            .setPayload(KVRangeMessage.newBuilder()
-                                .setRangeId(storeMessage.getSrcRange())
-                                .setHostStoreId(storeMessage.getFrom())
-                                .setEnsureRangeReply(EnsureRangeReply.newBuilder()
-                                    .setResult(EnsureRangeReply.Result.Error)
+                    });
+                }
+                case PREPAREMERGETOREQUEST -> {
+                    KVRangeId mergeeRangeId = payload.getRangeId();
+                    mgmtTaskRunner.add(() -> {
+                        if (!kvRangeMap.containsKey(mergeeRangeId)) {
+                            messenger.send(StoreMessage.newBuilder()
+                                .setFrom(id)
+                                .setSrcRange(mergeeRangeId) // although it's not existing
+                                .setPayload(KVRangeMessage.newBuilder()
+                                    .setRangeId(payload.getPrepareMergeToRequest().getId()) // the merger
+                                    .setHostStoreId(storeMessage.getFrom())
+                                    .setPrepareMergeToReply(PrepareMergeToReply.newBuilder()
+                                        .setTaskId(payload.getPrepareMergeToRequest().getTaskId())
+                                        .build())
+                                    // do not set 'accept' field means the merger is not found
                                     .build())
-                                .build())
-                            .build());
-                        return CompletableFuture.completedFuture(null);
-                    }
-                });
+                                .build());
+                        }
+                    });
+                }
+                case MERGEREQUEST -> {
+                    KVRangeId mergerRangeId = payload.getRangeId();
+                    mgmtTaskRunner.add(() -> {
+                        if (!kvRangeMap.containsKey(mergerRangeId)) {
+                            messenger.send(StoreMessage.newBuilder()
+                                .setFrom(id)
+                                .setSrcRange(mergerRangeId) // although it's not existing
+                                .setPayload(KVRangeMessage.newBuilder()
+                                    .setRangeId(payload.getMergeRequest().getMergeeId()) // the mergee
+                                    .setHostStoreId(storeMessage.getFrom())
+                                    .setMergeReply(MergeReply.newBuilder()
+                                        .setTaskId(payload.getMergeRequest().getTaskId())
+                                        // do not set 'accept' field means the merger is not found
+                                        .build())
+                                    .build())
+                                .build());
+                        }
+                    });
+                }
+                case MERGEDONEREQUEST -> {
+                    KVRangeId mergeeRangeId = payload.getRangeId();
+                    mgmtTaskRunner.add(() -> {
+                        if (!kvRangeMap.containsKey(mergeeRangeId)) {
+                            messenger.send(StoreMessage.newBuilder()
+                                .setFrom(id)
+                                .setSrcRange(mergeeRangeId) // although it's not existing
+                                .setPayload(KVRangeMessage.newBuilder()
+                                    .setRangeId(payload.getMergeDoneRequest().getId()) // the merger
+                                    .setHostStoreId(storeMessage.getFrom())
+                                    .setMergeDoneReply(MergeDoneReply.newBuilder()
+                                        .setTaskId(payload.getMergeDoneRequest().getTaskId())
+                                        // do not set 'accept' field means the mergee is not found
+                                        .build())
+                                    .build())
+                                .build());
+                        }
+                    });
+                }
+                case DATAMERGEREQUEST -> {
+                    KVRangeId mergeeRangeId = payload.getRangeId();
+                    mgmtTaskRunner.add(() -> {
+                        if (!kvRangeMap.containsKey(mergeeRangeId)) {
+                            messenger.send(StoreMessage.newBuilder()
+                                .setFrom(id)
+                                .setSrcRange(mergeeRangeId) // although it's not existing
+                                .setPayload(KVRangeMessage.newBuilder()
+                                    .setRangeId(payload.getDataMergeRequest().getMergerId()) // the merger
+                                    .setHostStoreId(storeMessage.getFrom())
+                                    .setSaveSnapshotDataRequest(SaveSnapshotDataRequest.newBuilder()
+                                        .setSessionId(payload.getDataMergeRequest().getSessionId())
+                                        .setFlag(SaveSnapshotDataRequest.Flag.NotFound)
+                                        .build())
+                                    .build())
+                                .build());
+                        }
+                    });
+                }
+                default -> {
+                    // ignore other messages
+                }
             }
         }
     }
@@ -449,12 +547,13 @@ public class KVRangeStore implements IKVRangeStore {
     }
 
     @Override
-    public CompletionStage<Void> merge(long ver, KVRangeId mergerId, KVRangeId mergeeId) {
+    public CompletionStage<Void> merge(long ver, KVRangeId mergerId, KVRangeId mergeeId, Set<String> mergeeVoters) {
         checkStarted();
         RangeFSMHolder holder = kvRangeMap.get(mergerId);
         if (holder != null) {
             metricsManager.runningMergeNum.increment();
-            return holder.fsm.merge(ver, mergeeId).whenComplete((v, e) -> metricsManager.runningMergeNum.decrement());
+            return holder.fsm.merge(ver, mergeeId, mergeeVoters)
+                .whenComplete((v, e) -> metricsManager.runningMergeNum.decrement());
         }
         return CompletableFuture.failedFuture(rangeNotFound());
     }
@@ -562,22 +661,41 @@ public class KVRangeStore implements IKVRangeStore {
         }
     }
 
-    private void quitKVRange(IKVRangeFSM range) {
+    private void quitKVRange(IKVRangeFSM range, boolean reset) {
         if (status.get() != Status.STARTED) {
             return;
         }
-        CompletableFuture<Optional<RangeFSMHolder.PinnedRange>> afterDestroyed = mgmtTaskRunner.add(() -> {
+        CompletableFuture<Optional<PinnedRange>> afterDestroyed = mgmtTaskRunner.add(() -> {
             if (status.get() != Status.STARTED) {
                 return CompletableFuture.failedFuture(new KVRangeStoreException("Not started"));
             }
             RangeFSMHolder holder = kvRangeMap.remove(range.id());
             assert holder.fsm == range;
+            KVRangeId id = range.id();
             long ver = range.ver();
+            Boundary boundary = range.boundary();
             log.debug("Destroy kvrange: rangeId={}", KVRangeIdUtil.toString(range.id()));
             return range.destroy()
                 .thenApply(v -> {
                     if (holder.pinned != null && holder.pinned.ver > ver) {
                         return Optional.of(holder.pinned);
+                    }
+                    if (reset) {
+                        KVRangeSnapshot fsmSnapshot = KVRangeSnapshot.newBuilder()
+                            .setVer(0)
+                            .setId(id)
+                            .setLastAppliedIndex(0)
+                            .setBoundary(boundary)
+                            .setState(State.newBuilder().setType(NoUse).build())
+                            .setClusterConfig(ClusterConfig.getDefaultInstance())
+                            .build();
+                        Snapshot walSnapshot = Snapshot.newBuilder()
+                            .setTerm(0)
+                            .setIndex(0)
+                            .setClusterConfig(ClusterConfig.getDefaultInstance()) // empty voter set
+                            .setData(fsmSnapshot.toByteString())
+                            .build();
+                        return Optional.of(new PinnedRange(ver, walSnapshot, fsmSnapshot));
                     }
                     return Optional.empty();
                 });
@@ -585,7 +703,7 @@ public class KVRangeStore implements IKVRangeStore {
         afterDestroyed.thenCompose(pinned ->
                 mgmtTaskRunner.add(() -> {
                     if (pinned.isPresent()) {
-                        RangeFSMHolder.PinnedRange pinnedRange = pinned.get();
+                        PinnedRange pinnedRange = pinned.get();
                         log.debug("Recreate range after destroy: rangeId={}", KVRangeIdUtil.toString(range.id()));
                         return ensureRange(range.id(), pinnedRange.walSnapshot, pinnedRange.fsmSnapshot);
                     }
@@ -648,6 +766,10 @@ public class KVRangeStore implements IKVRangeStore {
         TERMINATED // resource released
     }
 
+    record PinnedRange(long ver, Snapshot walSnapshot, KVRangeSnapshot fsmSnapshot) {
+
+    }
+
     private static class RangeFSMHolder {
         private final IKVRangeFSM fsm;
         private PinnedRange pinned;
@@ -662,10 +784,6 @@ public class KVRangeStore implements IKVRangeStore {
                 this.pinned = new PinnedRange(ver, walSnapshot, fsmSnapshot);
             }
         }
-
-        record PinnedRange(long ver, Snapshot walSnapshot, KVRangeSnapshot fsmSnapshot) {
-
-        }
     }
 
     private static class MetricsManager {
@@ -674,6 +792,7 @@ public class KVRangeStore implements IKVRangeStore {
         private final LongAdder runningSplitNum;
         private final LongAdder runningMergeNum;
         private final LongAdder runningRecoverNum;
+        private final LongAdder runningQuitNum;
         private final LongAdder runningQueryNum;
         private final LongAdder runningMutateNum;
 
@@ -689,6 +808,8 @@ public class KVRangeStore implements IKVRangeStore {
                 Metrics.gauge("basekv.store.running", tags.and("cmd", "merge"), new LongAdder());
             runningRecoverNum =
                 Metrics.gauge("basekv.store.running", tags.and("cmd", "recover"), new LongAdder());
+            runningQuitNum =
+                Metrics.gauge("basekv.store.running", tags.and("cmd", "quit"), new LongAdder());
             runningQueryNum =
                 Metrics.gauge("basekv.store.running", tags.and("cmd", "query"), new LongAdder());
             runningMutateNum =

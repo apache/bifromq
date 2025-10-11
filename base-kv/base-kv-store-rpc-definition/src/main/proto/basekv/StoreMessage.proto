@@ -38,6 +38,11 @@ message SnapshotSyncRequest{
   KVRangeSnapshot snapshot = 2;
 }
 
+message DataMergeRequest{
+  string sessionId = 1;
+  KVRangeId mergerId = 2;
+}
+
 message KVPair{
   bytes key = 1;
   bytes value = 2;
@@ -50,6 +55,7 @@ message SaveSnapshotDataRequest{
     More = 0;
     End = 1;
     Error = 2;
+    NotFound = 3; // no range found
   }
   Flag flag = 3;
   repeated KVPair kv = 4;
@@ -91,7 +97,7 @@ message PrepareMergeToRequest{
 
 message PrepareMergeToReply{
   string taskId = 1;
-  bool accept = 2;
+  optional bool accept = 2; // null means no mergee found, true means accepted, false means rejected and needs retry
 }
 
 message MergeRequest{
@@ -101,16 +107,16 @@ message MergeRequest{
   uint64 mergeeVer = 4;
   basekv.Boundary boundary = 5;
   string storeId = 6;
+  raft.ClusterConfig config = 7; // mergee's config at the moment
 }
 
 message MergeReply{
   string taskId = 1;
-  bool accept = 2;
+  optional bool accept = 2; // null means no merger found, true means accepted, false means rejected and needs retry
 }
 
 message MergeDoneRequest{
   string taskId = 1;
-  uint64 reqId = 2;
   basekv.KVRangeId id = 3; // merger's id
   uint64 mergeeVer = 4;
   string storeId = 5;
@@ -118,7 +124,7 @@ message MergeDoneRequest{
 
 message MergeDoneReply{
   string taskId = 1;
-  bool accept = 2;
+  optional bool accept = 2; // null means no mergee found, true means accepted, false means rejected and needs retry
 }
 
 message CancelMergingRequest{
@@ -130,12 +136,21 @@ message CancelMergingRequest{
 
 message CancelMergingReply{
   string taskId = 1;
-  bool accept = 2;
+  optional bool accept = 2; // null means no merger/mergee found, true means accepted, false means rejected and needs retry
 }
 
+message MergeHelpRequest{
+  string taskId = 1;
+  basekv.KVRangeId mergeeId = 2;
+  uint64 ver = 3;
+  basekv.Boundary boundary = 4;
+  raft.ClusterConfig config = 5;
+}
+
+// used for both direction
 message KVRangeMessage{
-  KVRangeId rangeId = 1;
-  optional string hostStoreId = 2; // null for broadcast
+  optional KVRangeId rangeId = 1; // send direction: the target rangeId or null for broadcast; recv direction: the source rangeId
+  optional string hostStoreId = 2; // send direction: the target store, or null for broadcast; recv direction: the source storeId
   oneof PayloadType{
     WALRaftMessages walRaftMessages = 4;
     SnapshotSyncRequest snapshotSyncRequest = 5;
@@ -151,6 +166,8 @@ message KVRangeMessage{
     CancelMergingReply cancelMergingReply = 15;
     MergeDoneRequest mergeDoneRequest = 16;
     MergeDoneReply mergeDoneReply = 17;
+    DataMergeRequest dataMergeRequest = 18;
+    MergeHelpRequest mergeHelpRequest = 19;
   }
 }
 

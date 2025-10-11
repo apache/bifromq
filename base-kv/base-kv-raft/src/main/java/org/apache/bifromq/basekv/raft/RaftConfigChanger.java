@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 
 package org.apache.bifromq.basekv.raft;
@@ -25,14 +25,14 @@ import static org.apache.bifromq.basekv.raft.RaftConfigChanger.State.JointConfig
 import static org.apache.bifromq.basekv.raft.RaftConfigChanger.State.TargetConfigCommitting;
 import static org.apache.bifromq.basekv.raft.RaftConfigChanger.State.Waiting;
 
-import org.apache.bifromq.basekv.raft.exception.ClusterConfigChangeException;
-import org.apache.bifromq.basekv.raft.proto.ClusterConfig;
-import org.apache.bifromq.basekv.raft.proto.LogEntry;
-import org.apache.bifromq.basekv.raft.proto.RaftNodeSyncState;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
+import org.apache.bifromq.basekv.raft.exception.ClusterConfigChangeException;
+import org.apache.bifromq.basekv.raft.proto.ClusterConfig;
+import org.apache.bifromq.basekv.raft.proto.LogEntry;
+import org.apache.bifromq.basekv.raft.proto.RaftNodeSyncState;
 import org.slf4j.Logger;
 
 /**
@@ -51,7 +51,7 @@ import org.slf4j.Logger;
  *  IMPLEMENTATION NOTES:
  *  *  "catching up" is formulated as (lastIndex - nextIndex) / nextIndexIncreasingRate <= electionTimeout
  *  *  only one cluster config process could run at the same time, so leader should check if the pending is null
- *     and if the latest cluster config is not in Joint-Consensus Mode and it is committed.
+ *     and if the latest cluster config is not in Joint-Consensus Mode, and it is committed.
  *  *  if any new server is not catching up in catchingUpTimeoutTick, the process will be aborted by reporting
  *     slow learner exception.
  *  *  if the process aborted in #1, remove no used peer replicator tracked previously.
@@ -75,6 +75,7 @@ class RaftConfigChanger {
     private long catchingUpElapsedTick = 0;
     private long jointConfigIndex = 0;
     private long targetConfigIndex = 0;
+    private ClusterConfig fallbackConfig;
     private ClusterConfig jointConfig;
     private ClusterConfig targetConfig;
 
@@ -114,6 +115,7 @@ class RaftConfigChanger {
             allVoters.addAll(nextVoters);
             Set<String> allLearners = new HashSet<>(latestConfig.getNextLearnersList());
             allLearners.addAll(nextLearners);
+            fallbackConfig = latestConfig.toBuilder().setCorrelateId(correlateId).build();
             jointConfig = ClusterConfig.newBuilder()
                 .setCorrelateId(correlateId)
                 .addAllVoters(latestConfig.getVotersList())
@@ -154,7 +156,8 @@ class RaftConfigChanger {
             // accumulated
             if (catchingUpElapsedTick
                 >= config.getInstallSnapshotTimeoutTick() + 10L * config.getElectionTimeoutTick()) {
-                logger.debug("Catching up timeout, give up changing config");
+                logger.debug("Catching up timeout, revert to previous config: correlateId={}",
+                    fallbackConfig.getCorrelateId());
 
                 // report exception, unregister replicators and transit to Waiting state
                 Set<String> peersToStopTracking = new HashSet<>(jointConfig.getNextVotersList());
@@ -163,7 +166,17 @@ class RaftConfigChanger {
                 peersToStopTracking.removeIf(jointConfig.getLearnersList()::contains);
 
                 peerLogTracker.stopTracking(peersToStopTracking);
-                state = Waiting;
+                targetConfigIndex = stateStorage.lastIndex() + 1;
+                LogEntry fallbackConfigEntry = LogEntry.newBuilder()
+                    .setTerm(currentTerm)
+                    .setIndex(targetConfigIndex)
+                    .setConfig(fallbackConfig)
+                    .build();
+                // flush the log entry immediately
+                stateStorage.append(Collections.singletonList(fallbackConfigEntry), true);
+                // update self progress
+                peerLogTracker.replicateBy(stateStorage.local(), stateStorage.lastIndex());
+                state = State.FallbackConfigCommitting;
                 onDone.completeExceptionally(ClusterConfigChangeException.slowLearner());
                 return true;
             } else {
@@ -210,7 +223,7 @@ class RaftConfigChanger {
 
     /**
      * Leader must call this method to report current commitIndex and currentTerm, The return bool indicates if there is
-     * a state change, Leader must examine the status afterwards and take corresponding actions.
+     * a state change, Leader must examine the status afterward and take corresponding actions.
      *
      * @param commitIndex committed index
      * @param currentTerm current term
@@ -218,8 +231,8 @@ class RaftConfigChanger {
      */
     public boolean commitTo(long commitIndex, long currentTerm) {
         assert state != Abort;
-        switch (state) {
-            case JointConfigCommitting:
+        return switch (state) {
+            case JointConfigCommitting -> {
                 if (commitIndex >= jointConfigIndex) {
                     targetConfigIndex = stateStorage.lastIndex() + 1;
                     assert commitIndex < targetConfigIndex;
@@ -236,21 +249,28 @@ class RaftConfigChanger {
                     state = TargetConfigCommitting;
                     logger.debug("Joint config committed, append target config as log entry[index={}]",
                         targetConfigIndex);
-                    return true;
+                    yield true;
                 }
-                return false;
-            case TargetConfigCommitting:
+                yield false;
+            }
+            case TargetConfigCommitting -> {
                 if (commitIndex >= targetConfigIndex) {
                     state = Waiting;
                     logger.debug("Target config committed at index[{}]", targetConfigIndex);
-                    return true;
+                    yield true;
                 }
-                return false;
-            case Waiting:
-            case CatchingUp:
-            default:
-                return false;
-        }
+                yield false;
+            }
+            case FallbackConfigCommitting -> {
+                if (commitIndex >= targetConfigIndex) {
+                    state = Waiting;
+                    logger.debug("Fallback config committed at index[{}]", targetConfigIndex);
+                    yield true;
+                }
+                yield false;
+            }
+            default -> false;
+        };
     }
 
     /**
@@ -274,7 +294,7 @@ class RaftConfigChanger {
                 all.addAll(clusterConfig.getLearnersList());
                 all.remove(stateStorage.local());
             }
-            case CatchingUp, JointConfigCommitting, TargetConfigCommitting -> {
+            case CatchingUp, JointConfigCommitting, TargetConfigCommitting, FallbackConfigCommitting -> {
                 all.addAll(jointConfig.getVotersList());
                 all.addAll(jointConfig.getLearnersList());
                 all.addAll(jointConfig.getNextVotersList());
@@ -299,7 +319,7 @@ class RaftConfigChanger {
         assert state != Abort;
         switch (state) {
             case Waiting -> state = Abort;
-            case CatchingUp, TargetConfigCommitting, JointConfigCommitting -> {
+            case CatchingUp, TargetConfigCommitting, JointConfigCommitting, FallbackConfigCommitting -> {
                 logger.debug("Abort on-going cluster config change");
                 state = Abort;
                 onDone.completeExceptionally(e);
@@ -370,6 +390,7 @@ class RaftConfigChanger {
         Waiting, // changer could accept submission of new config change
         CatchingUp, // catching up new voters in new submitted config
         JointConfigCommitting, // joint config is appended as log entry and waiting to be committed
-        TargetConfigCommitting // target config is appended as log entry and waiting to be committed
+        TargetConfigCommitting, // target config is appended as log entry and waiting to be committed
+        FallbackConfigCommitting // fallback config is appended as log entry and waiting to be committed
     }
 }

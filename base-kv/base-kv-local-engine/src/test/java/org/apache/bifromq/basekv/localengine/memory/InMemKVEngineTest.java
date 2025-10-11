@@ -22,10 +22,17 @@ package org.apache.bifromq.basekv.localengine.memory;
 import org.apache.bifromq.basekv.localengine.AbstractKVEngineTest;
 import org.apache.bifromq.basekv.localengine.ICPableKVSpace;
 import org.apache.bifromq.basekv.localengine.IKVEngine;
+import org.apache.bifromq.basekv.localengine.IKVSpaceWriter;
 
-public class InMemKVEngineTest extends AbstractKVEngineTest {
+public class InMemKVEngineTest extends AbstractKVEngineTest<ICPableKVSpace> {
     @Override
     protected IKVEngine<? extends ICPableKVSpace> newEngine() {
         return new InMemCPableKVEngine(null, new InMemKVEngineConfigurator());
+    }
+
+    @Override
+    protected IKVSpaceWriter writerOf(ICPableKVSpace space) {
+        // InMem CPable space returns a restorable writer which is also an IKVSpaceWriter
+        return space.toWriter();
     }
 }

@@ -24,6 +24,7 @@ import io.reactivex.rxjava3.disposables.CompositeDisposable;
 import java.util.Map;
 import java.util.NavigableMap;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionStage;
 import java.util.concurrent.ConcurrentSkipListMap;
 import java.util.concurrent.Executor;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -48,6 +49,7 @@ class KVRangeWALSubscription implements IKVRangeWALSubscription {
     private final CompositeDisposable disposables = new CompositeDisposable();
     private final AtomicBoolean fetching = new AtomicBoolean();
     private final AtomicBoolean stopped = new AtomicBoolean();
+    private final CompletableFuture<Void> stopSign = new CompletableFuture<>();
     private final AtomicLong lastFetchedIdx = new AtomicLong();
     private final ConcurrentSkipListMap<Long, Boolean> pendingApplies = new ConcurrentSkipListMap<>();
 
@@ -96,12 +98,16 @@ class KVRangeWALSubscription implements IKVRangeWALSubscription {
     }
 
     @Override
-    public void stop() {
+    public CompletionStage<Void> stop() {
         if (stopped.compareAndSet(false, true)) {
             disposables.dispose();
             fetchRunner.cancelAll();
             applyRunner.cancelAll();
+            CompletableFuture
+                .allOf(fetchRunner.awaitDone().toCompletableFuture(), applyRunner.awaitDone().toCompletableFuture())
+                .whenComplete((v, e) -> stopSign.complete(null));
         }
+        return stopSign;
     }
 
     private void scheduleFetchWAL() {

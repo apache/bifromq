@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 
 package org.apache.bifromq.basekv.raft.functest;
@@ -26,14 +26,6 @@ import static org.testng.Assert.assertFalse;
 import static org.testng.Assert.assertSame;
 import static org.testng.Assert.assertTrue;
 
-import org.apache.bifromq.basekv.raft.exception.ClusterConfigChangeException;
-import org.apache.bifromq.basekv.raft.functest.annotation.Cluster;
-import org.apache.bifromq.basekv.raft.functest.annotation.Config;
-import org.apache.bifromq.basekv.raft.functest.annotation.Ticker;
-import org.apache.bifromq.basekv.raft.functest.template.SharedRaftConfigTestTemplate;
-import org.apache.bifromq.basekv.raft.proto.ClusterConfig;
-import org.apache.bifromq.basekv.raft.proto.RaftNodeStatus;
-import org.apache.bifromq.basekv.raft.proto.RaftNodeSyncState;
 import com.google.protobuf.ByteString;
 import java.util.Arrays;
 import java.util.Collections;
@@ -43,6 +35,14 @@ import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.bifromq.basekv.raft.exception.ClusterConfigChangeException;
+import org.apache.bifromq.basekv.raft.functest.annotation.Cluster;
+import org.apache.bifromq.basekv.raft.functest.annotation.Config;
+import org.apache.bifromq.basekv.raft.functest.annotation.Ticker;
+import org.apache.bifromq.basekv.raft.functest.template.SharedRaftConfigTestTemplate;
+import org.apache.bifromq.basekv.raft.proto.ClusterConfig;
+import org.apache.bifromq.basekv.raft.proto.RaftNodeStatus;
+import org.apache.bifromq.basekv.raft.proto.RaftNodeSyncState;
 import org.testng.annotations.Test;
 
 @Slf4j
@@ -587,5 +587,144 @@ public class ChangeClusterConfigTest extends SharedRaftConfigTestTemplate {
         assertTrue(group.awaitIndexCommitted("V1", 3));
         assertTrue(group.awaitIndexCommitted("V2", 3));
         assertEquals(group.latestClusterConfig("V2").getVotersCount(), 2);
+    }
+
+    @Test(groups = "integration")
+    public void testNoOpConfigChangeDirectCommit() {
+        String leader = group.currentLeader().get();
+        ClusterConfig before = group.latestClusterConfig(leader);
+
+        Set<String> newVoters = new HashSet<>(before.getVotersList());
+        Set<String> newLearners = new HashSet<>(before.getLearnersList());
+
+        CompletableFuture<Void> done = group.changeClusterConfig(leader, "cNoop", newVoters, newLearners);
+        done.join();
+        assertTrue(done.isDone() && !done.isCompletedExceptionally());
+
+        ClusterConfig after = group.latestClusterConfig(leader);
+        assertEquals(new HashSet<>(after.getVotersList()), newVoters);
+        assertEquals(new HashSet<>(after.getLearnersList()), newLearners);
+        assertTrue(after.getNextVotersList().isEmpty());
+        assertTrue(after.getNextLearnersList().isEmpty());
+        assertEquals(after.getCorrelateId(), "cNoop");
+    }
+
+    @Test(groups = "integration")
+    public void testLearnerDoesNotBlockChange() {
+        String leader = group.currentLeader().get();
+
+        // add a new learner and isolate it
+        group.addRaftNode("Lx", 0, 0, ClusterConfig.newBuilder().addLearners("Lx").build(), raftConfig());
+        group.connect("Lx");
+        group.isolate("Lx");
+
+        Set<String> newVoters = new HashSet<>(clusterConfig().getVotersList());
+        Set<String> newLearners = new HashSet<>() {{
+            add("Lx");
+        }};
+
+        CompletableFuture<Void> done = group.changeClusterConfig(leader, newVoters, newLearners);
+        done.join();
+
+        assertTrue(done.isDone() && !done.isCompletedExceptionally());
+        // learners may lag, but voters should have committed the change
+        for (String v : newVoters) {
+            assertTrue(group.latestClusterConfig(v).getLearnersList().contains("Lx"));
+        }
+    }
+
+    @Test(groups = "integration")
+    public void testConcurrentChangeRejected() {
+        String leader = group.currentLeader().get();
+
+        // prepare a new voter
+        group.addRaftNode("V4", 0, 0, ClusterConfig.newBuilder().addVoters("V4").build(), raftConfig());
+        group.connect("V4");
+
+        Set<String> newVoters = new HashSet<>(clusterConfig().getVotersList()) {{
+            add("V4");
+        }};
+
+        CompletableFuture<Void> first = group.changeClusterConfig(leader, "c1", newVoters, Collections.emptySet());
+        CompletableFuture<Void> second = group.changeClusterConfig(leader, "c2", newVoters, Collections.emptySet());
+
+        boolean firstFailed;
+        try {
+            first.join();
+            firstFailed = false;
+        } catch (Throwable e) {
+            assertSame(e.getCause().getClass(), ClusterConfigChangeException.ConcurrentChangeException.class);
+            firstFailed = true;
+        }
+        try {
+            second.join();
+            if (firstFailed) {
+                // if first failed, second should succeed
+                assertTrue(second.isDone() && !second.isCompletedExceptionally());
+            }
+        } catch (Throwable e) {
+            // if first succeeded, second must be rejected as concurrent change
+            assertSame(e.getCause().getClass(), ClusterConfigChangeException.ConcurrentChangeException.class);
+        }
+    }
+
+    @Test(groups = "integration")
+    public void testParamValidation() {
+        String leader = group.currentLeader().get();
+
+        // empty voters
+        try {
+            group.changeClusterConfig(leader, "cEmpty", Collections.emptySet(), Collections.emptySet()).join();
+        } catch (Throwable e) {
+            assertSame(e.getCause().getClass(), ClusterConfigChangeException.EmptyVotersException.class);
+        }
+
+        // overlap between voters and learners
+        Set<String> voters = new HashSet<>(Collections.singleton("V1"));
+        Set<String> learners = new HashSet<>(Collections.singleton("V1"));
+        try {
+            group.changeClusterConfig(leader, "cOverlap", voters, learners).join();
+        } catch (Throwable e) {
+            assertSame(e.getCause().getClass(), ClusterConfigChangeException.LearnersOverlapException.class);
+        }
+    }
+
+    @Config(electionTimeoutTick = 2, installSnapshotTimeoutTick = 2)
+    @Test(groups = "integration")
+    public void testCatchingUpTimeoutFallback() {
+        String leader = group.currentLeader().get();
+        ClusterConfig before = group.latestClusterConfig(leader);
+
+        // prepare a new voter that cannot catch up
+        group.addRaftNode("Vx", 0, 0, ClusterConfig.newBuilder().addVoters("Vx").build(), raftConfig());
+        group.connect("Vx");
+        group.isolate("Vx");
+
+        // Choose a next voters set of size 2 to make majority catch-up require both peers;
+        // isolate Vx so peersCatchUp() stays false until timeout, triggering fallback.
+        Set<String> newVoters = new HashSet<>() {{
+            add(leader);
+            add("Vx");
+        }};
+        CompletableFuture<Void> done = group.changeClusterConfig(leader, "cSlow", newVoters, Collections.emptySet());
+
+        try {
+            done.join();
+        } catch (Throwable e) {
+            assertTrue(e.getCause() instanceof ClusterConfigChangeException.SlowLearnerException);
+        }
+
+        ClusterConfig after = group.latestClusterConfig(leader);
+        // should rollback to previous voters/learners, with correlateId set to the submitted one
+        assertEquals(new HashSet<>(after.getVotersList()), new HashSet<>(before.getVotersList()));
+        assertEquals(new HashSet<>(after.getLearnersList()), new HashSet<>(before.getLearnersList()));
+        assertTrue(after.getNextVotersList().isEmpty());
+        assertTrue(after.getNextLearnersList().isEmpty());
+        assertEquals(after.getCorrelateId(), "cSlow");
+
+        // newly added voter is no longer tracked
+        List<RaftNodeSyncState> logs = group.syncStateLogs("Vx");
+        assertFalse(logs.isEmpty());
+        assertSame(logs.get(logs.size() - 1), null);
     }
 }

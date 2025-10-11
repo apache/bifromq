@@ -22,6 +22,8 @@ package org.apache.bifromq.basekv.store.range;
 public interface IKVRangeWriter<T extends IKVRangeWriter<T>> extends IKVRangeWritable<T> {
     void done();
 
+    void reset();
+
     void abort();
 
     int count();

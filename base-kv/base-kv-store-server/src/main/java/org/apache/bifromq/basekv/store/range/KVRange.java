@@ -25,7 +25,6 @@ import static org.apache.bifromq.basekv.store.range.KVRangeKeys.METADATA_STATE_B
 import static org.apache.bifromq.basekv.store.range.KVRangeKeys.METADATA_VER_BYTES;
 import static org.apache.bifromq.basekv.utils.BoundaryUtil.NULL_BOUNDARY;
 
-import com.google.protobuf.ByteString;
 import io.reactivex.rxjava3.core.Observable;
 import io.reactivex.rxjava3.subjects.BehaviorSubject;
 import java.util.concurrent.ConcurrentLinkedQueue;
@@ -40,7 +39,6 @@ import org.apache.bifromq.basekv.raft.proto.ClusterConfig;
 import org.apache.bifromq.basekv.store.api.IKVCloseableReader;
 import org.apache.bifromq.basekv.store.api.IKVRangeReader;
 import org.apache.bifromq.basekv.store.api.IKVReader;
-import org.apache.bifromq.basekv.store.api.IKVWriter;
 
 public class KVRange extends AbstractKVRangeMetadata implements IKVRange {
     @Getter
@@ -69,7 +67,7 @@ public class KVRange extends AbstractKVRangeMetadata implements IKVRange {
 
     public KVRange(KVRangeId id, ICPableKVSpace kvSpace, KVRangeSnapshot snapshot) {
         this(id, kvSpace);
-        toReseter(snapshot).done();
+        startRestore(snapshot, IKVRangeRestoreSession.IKVRestoreProgressListener.NOOP).done();
     }
 
     @Override
@@ -145,96 +143,23 @@ public class KVRange extends AbstractKVRangeMetadata implements IKVRange {
 
     @Override
     public IKVRangeWriter<?> toWriter() {
-        return new KVRangeWriter(id, kvSpace.toWriter());
+        return new KVRangeWriter(id, kvSpace);
     }
 
     @Override
     public IKVRangeWriter<?> toWriter(IKVLoadRecorder recorder) {
-        return new LoadRecordableKVRangeWriter(id, kvSpace.toWriter(), recorder);
+        return new LoadRecordableKVRangeWriter(id, kvSpace, recorder);
     }
 
     @Override
-    public IKVReseter toReseter(KVRangeSnapshot snapshot) {
-        return new IKVReseter() {
-            private IKVRangeWriter<?> rangeWriter;
-            private IKVWriter kvWriter;
-            private boolean closed = false;
-            private boolean dirty = false;
-
-            {
-                IKVRangeWriter<?> newWriter = toWriter();
-                IKVWriter newKVWriter = newWriter
-                    .resetVer(snapshot.getVer())
-                    .lastAppliedIndex(snapshot.getLastAppliedIndex())
-                    .state(snapshot.getState())
-                    .boundary(snapshot.getBoundary())
-                    .clusterConfig(snapshot.getClusterConfig())
-                    .kvWriter();
-                newKVWriter.clear(boundary());
-                rangeWriter = newWriter;
-                kvWriter = newKVWriter;
-            }
-
-            private void initWriter() {
-                rangeWriter = toWriter();
-                kvWriter = rangeWriter.kvWriter();
-                dirty = false;
-            }
-
-            private void rotateWriter() {
-                if (rangeWriter != null) {
-                    rangeWriter.done();
-                }
-                initWriter();
-            }
-
-            private void ensureActive() {
-                if (closed) {
-                    throw new IllegalStateException("KVRange resetter already closed");
-                }
-            }
-
-            @Override
-            public void put(ByteString key, ByteString value) {
-                ensureActive();
-                kvWriter.put(key, value);
-                dirty = true;
-            }
-
-            @Override
-            public void flush() {
-                ensureActive();
-                if (dirty) {
-                    rotateWriter();
-                }
-            }
-
-            @Override
-            public IKVRange abort() {
-                if (!closed) {
-                    closed = true;
-                    if (rangeWriter != null) {
-                        rangeWriter.abort();
-                    }
-                    rangeWriter = null;
-                    kvWriter = null;
-                }
-                return KVRange.this;
-            }
-
-            @Override
-            public IKVRange done() {
-                if (!closed) {
-                    closed = true;
-                    if (rangeWriter != null) {
-                        rangeWriter.done();
-                    }
-                    rangeWriter = null;
-                    kvWriter = null;
-                }
-                return KVRange.this;
-            }
-        };
+    public IKVRangeRestoreSession startRestore(KVRangeSnapshot snapshot,
+                                               IKVRangeRestoreSession.IKVRestoreProgressListener progressListener) {
+        return new KVRangeRestoreSession(kvSpace.startRestore(progressListener::onProgress))
+            .ver(snapshot.getVer())
+            .lastAppliedIndex(snapshot.getLastAppliedIndex())
+            .state(snapshot.getState())
+            .boundary(snapshot.getBoundary())
+            .clusterConfig(snapshot.getClusterConfig());
     }
 
     @Override

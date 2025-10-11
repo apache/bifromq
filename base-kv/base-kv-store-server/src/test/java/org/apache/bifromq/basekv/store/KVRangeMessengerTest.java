@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 
 package org.apache.bifromq.basekv.store;
@@ -23,12 +23,9 @@ import static org.awaitility.Awaitility.await;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.testng.Assert.assertEquals;
+import static org.testng.Assert.assertTrue;
+import static org.testng.Assert.fail;
 
-import org.apache.bifromq.basekv.MockableTest;
-import org.apache.bifromq.basekv.proto.KVRangeId;
-import org.apache.bifromq.basekv.proto.KVRangeMessage;
-import org.apache.bifromq.basekv.proto.StoreMessage;
-import org.apache.bifromq.basekv.utils.KVRangeIdUtil;
 import io.reactivex.rxjava3.observers.TestObserver;
 import io.reactivex.rxjava3.subjects.PublishSubject;
 import java.lang.reflect.Method;
@@ -36,6 +33,12 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 import lombok.SneakyThrows;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.bifromq.basekv.MockableTest;
+import org.apache.bifromq.basekv.proto.KVRangeId;
+import org.apache.bifromq.basekv.proto.KVRangeMessage;
+import org.apache.bifromq.basekv.proto.StoreMessage;
+import org.apache.bifromq.basekv.store.exception.KVRangeException;
+import org.apache.bifromq.basekv.utils.KVRangeIdUtil;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.testng.annotations.Test;
@@ -48,9 +51,6 @@ public class KVRangeMessengerTest extends MockableTest {
 
     protected void doSetup(Method method) {
         incomingStoreMsg = PublishSubject.create();
-    }
-
-    protected void doTearDown(Method method) {
     }
 
     @Test
@@ -86,6 +86,35 @@ public class KVRangeMessengerTest extends MockableTest {
             .setSrcRange(srcRangeId)
             .setPayload(rangeMessage)
             .build();
+        incomingStoreMsg.onNext(storeMessage);
+        rangeMsgObserver.awaitCount(1);
+
+        KVRangeMessage receivedMsg = rangeMsgObserver.values().get(0);
+        assertEquals(receivedMsg.getHostStoreId(), srcStoreId);
+        assertEquals(receivedMsg.getRangeId(), srcRangeId);
+    }
+
+    @Test
+    public void receiveWithoutRangeId() {
+        String srcStoreId = "srcStoreId";
+        KVRangeId srcRangeId = KVRangeIdUtil.generate();
+        String targetStoreId = "targetStoreId";
+        KVRangeId targetRangeId = KVRangeIdUtil.generate();
+        when(storeMessenger.receive()).thenReturn(incomingStoreMsg);
+        KVRangeMessenger messenger = new KVRangeMessenger(targetStoreId, targetRangeId, storeMessenger);
+        TestObserver<KVRangeMessage> rangeMsgObserver = TestObserver.create();
+        messenger.receive().subscribe(rangeMsgObserver);
+
+        // Build a message without rangeId set but with matching hostStoreId
+        KVRangeMessage rangeMessage = KVRangeMessage.newBuilder()
+            .setHostStoreId(targetStoreId)
+            .build();
+        StoreMessage storeMessage = StoreMessage.newBuilder()
+            .setFrom(srcStoreId)
+            .setSrcRange(srcRangeId)
+            .setPayload(rangeMessage)
+            .build();
+
         incomingStoreMsg.onNext(storeMessage);
         rangeMsgObserver.awaitCount(1);
 
@@ -166,5 +195,26 @@ public class KVRangeMessengerTest extends MockableTest {
         CompletableFuture<KVRangeMessage> onceFuture1 = messenger.once(msg -> true);
         incomingStoreMsg.onComplete();
         await().until(() -> onceFuture1.isCompletedExceptionally());
+    }
+
+    @Test
+    public void onceOnError() {
+        String targetStoreId = "targetStoreId";
+        KVRangeId targetRangeId = KVRangeIdUtil.generate();
+        when(storeMessenger.receive()).thenReturn(incomingStoreMsg);
+        KVRangeMessenger messenger = new KVRangeMessenger(targetStoreId, targetRangeId, storeMessenger);
+
+        CompletableFuture<KVRangeMessage> onceFuture = messenger.once(msg -> true);
+        incomingStoreMsg.onError(new RuntimeException("Mocked exception"));
+
+        await().until(onceFuture::isCompletedExceptionally);
+        try {
+            onceFuture.join();
+            fail();
+        } catch (RuntimeException e) {
+            // CompletionException or directly runtime wraps the cause
+            Throwable cause = e.getCause() != null ? e.getCause() : e;
+            assertTrue(cause instanceof KVRangeException.TryLater);
+        }
     }
 }

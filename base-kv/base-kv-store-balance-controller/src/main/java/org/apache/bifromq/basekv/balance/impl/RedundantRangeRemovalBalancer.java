@@ -43,13 +43,16 @@ import org.apache.bifromq.basekv.balance.BalanceResult;
 import org.apache.bifromq.basekv.balance.NoNeedBalance;
 import org.apache.bifromq.basekv.balance.StoreBalancer;
 import org.apache.bifromq.basekv.balance.command.BalanceCommand;
+import org.apache.bifromq.basekv.balance.command.QuitCommand;
 import org.apache.bifromq.basekv.proto.Boundary;
 import org.apache.bifromq.basekv.proto.KVRangeDescriptor;
 import org.apache.bifromq.basekv.proto.KVRangeId;
 import org.apache.bifromq.basekv.proto.KVRangeStoreDescriptor;
 import org.apache.bifromq.basekv.raft.proto.ClusterConfig;
 import org.apache.bifromq.basekv.raft.proto.RaftNodeStatus;
+import org.apache.bifromq.basekv.utils.BoundaryUtil;
 import org.apache.bifromq.basekv.utils.EffectiveEpoch;
+import org.apache.bifromq.basekv.utils.EffectiveRoute;
 import org.apache.bifromq.basekv.utils.KVRangeIdUtil;
 import org.apache.bifromq.basekv.utils.RangeLeader;
 
@@ -102,6 +105,10 @@ public class RedundantRangeRemovalBalancer extends StoreBalancer {
             return;
         }
         scheduled = cleanupBoundaryConflictRange(effectiveEpoch);
+        if (scheduled) {
+            return;
+        }
+        scheduled = cleanupZombieRange(effectiveEpoch);
         if (!scheduled) {
             if (pendingQuitCommand.get() != null) {
                 log.debug("No redundant range found, clear pending quit command");
@@ -194,6 +201,49 @@ public class RedundantRangeRemovalBalancer extends StoreBalancer {
             }
         }
         return false;
+    }
+
+    private boolean cleanupZombieRange(EffectiveEpoch effectiveEpoch) {
+        EffectiveRoute effectiveRoute = getEffectiveRoute(effectiveEpoch);
+        if (BoundaryUtil.isValidSplitSet(effectiveRoute.leaderRanges().navigableKeySet())) {
+            Map<KVRangeId, KVRangeDescriptor> effectiveRangeMap = new HashMap<>();
+            for (RangeLeader rangeLeader : effectiveRoute.leaderRanges().values()) {
+                effectiveRangeMap.put(rangeLeader.descriptor().getId(), rangeLeader.descriptor());
+            }
+            for (KVRangeStoreDescriptor storeDescriptor : effectiveEpoch.storeDescriptors()) {
+                if (!storeDescriptor.getId().equals(localStoreId)) {
+                    // only focus on the zombie ranges in local store
+                    continue;
+                }
+                for (KVRangeDescriptor rangeDescriptor : storeDescriptor.getRangesList()) {
+                    if (isZombieRange(rangeDescriptor, effectiveRangeMap)) {
+                        log.debug("Schedule command to remove zombie range: id={}, boundary={}",
+                            KVRangeIdUtil.toString(rangeDescriptor.getId()), rangeDescriptor.getBoundary());
+                        pendingQuitCommand.set(new PendingQuitCommand(QuitCommand.builder()
+                            .kvRangeId(rangeDescriptor.getId())
+                            .toStore(localStoreId)
+                            .build(), randomSuspicionTimeout()));
+                        return true;
+                    }
+                }
+            }
+        }
+        return false;
+    }
+
+    private boolean isZombieRange(KVRangeDescriptor rangeDescriptor, Map<KVRangeId, KVRangeDescriptor> effectiveRange) {
+        if (rangeDescriptor.getRole() != RaftNodeStatus.Candidate) {
+            return false;
+        }
+        if (!effectiveRange.containsKey(rangeDescriptor.getId())) {
+            return true;
+        }
+        KVRangeDescriptor effectiveRangeDescriptor = effectiveRange.get(rangeDescriptor.getId());
+        Set<String> allReplicas = Sets.newHashSet(effectiveRangeDescriptor.getConfig().getVotersList());
+        allReplicas.addAll(effectiveRangeDescriptor.getConfig().getLearnersList());
+        allReplicas.addAll(effectiveRangeDescriptor.getConfig().getNextVotersList());
+        allReplicas.addAll(effectiveRangeDescriptor.getConfig().getNextLearnersList());
+        return !allReplicas.contains(localStoreId);
     }
 
     private Map<KVRangeId, NavigableSet<RangeLeader>> findConflictingRanges(

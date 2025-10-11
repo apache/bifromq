@@ -37,9 +37,7 @@ import org.apache.bifromq.basekv.localengine.ISyncContext;
 import org.apache.bifromq.basekv.localengine.KVEngineException;
 import org.apache.bifromq.basekv.localengine.metrics.KVSpaceOpMeters;
 import org.apache.bifromq.basekv.proto.Boundary;
-import org.rocksdb.ColumnFamilyHandle;
 import org.rocksdb.Range;
-import org.rocksdb.RocksDB;
 import org.rocksdb.RocksDBException;
 import org.rocksdb.Slice;
 import org.slf4j.Logger;
@@ -50,9 +48,7 @@ abstract class RocksDBKVSpaceReader extends AbstractKVSpaceReader {
         super(id, opMeters, logger);
     }
 
-    protected abstract RocksDB db();
-
-    protected abstract ColumnFamilyHandle cfHandle();
+    protected abstract IKVSpaceDBInstance handle();
 
     protected abstract ISyncContext.IRefresher newRefresher();
 
@@ -64,7 +60,9 @@ abstract class RocksDBKVSpaceReader extends AbstractKVSpaceReader {
         if (compare(start, end) < 0) {
             try (Slice startSlice = new Slice(start); Slice endSlice = new Slice(end)) {
                 Range range = new Range(startSlice, endSlice);
-                return db().getApproximateSizes(cfHandle(), singletonList(range), INCLUDE_MEMTABLES, INCLUDE_FILES)[0];
+                IKVSpaceDBInstance dbHandle = handle();
+                return dbHandle.db()
+                    .getApproximateSizes(dbHandle.cf(), singletonList(range), INCLUDE_MEMTABLES, INCLUDE_FILES)[0];
             }
         }
         return 0;
@@ -78,7 +76,8 @@ abstract class RocksDBKVSpaceReader extends AbstractKVSpaceReader {
     @Override
     protected final Optional<ByteString> doGet(ByteString key) {
         try {
-            byte[] data = db().get(cfHandle(), toDataKey(key));
+            IKVSpaceDBInstance dbHandle = handle();
+            byte[] data = dbHandle.db().get(dbHandle.cf(), toDataKey(key));
             return Optional.ofNullable(data == null ? null : unsafeWrap(data));
         } catch (RocksDBException rocksDBException) {
             throw new KVEngineException("Get failed", rocksDBException);
@@ -87,12 +86,12 @@ abstract class RocksDBKVSpaceReader extends AbstractKVSpaceReader {
 
     @Override
     protected IKVSpaceIterator doNewIterator() {
-        return new RocksDBKVSpaceIterator(db(), cfHandle(), Boundary.getDefaultInstance(), newRefresher());
+        return new RocksDBKVSpaceIterator(this::handle, Boundary.getDefaultInstance(), newRefresher());
     }
 
     @Override
     protected IKVSpaceIterator doNewIterator(Boundary subBoundary) {
         assert isValid(subBoundary);
-        return new RocksDBKVSpaceIterator(db(), cfHandle(), subBoundary, newRefresher());
+        return new RocksDBKVSpaceIterator(this::handle, subBoundary, newRefresher());
     }
 }

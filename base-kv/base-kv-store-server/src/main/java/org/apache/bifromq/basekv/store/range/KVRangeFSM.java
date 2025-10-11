@@ -46,31 +46,37 @@ import static org.apache.bifromq.basekv.store.util.VerUtil.print;
 import static org.apache.bifromq.basekv.utils.BoundaryUtil.NULL_BOUNDARY;
 import static org.apache.bifromq.basekv.utils.BoundaryUtil.canCombine;
 import static org.apache.bifromq.basekv.utils.BoundaryUtil.combine;
+import static org.apache.bifromq.basekv.utils.BoundaryUtil.endKey;
 import static org.apache.bifromq.basekv.utils.BoundaryUtil.isSplittable;
+import static org.apache.bifromq.basekv.utils.BoundaryUtil.startKey;
 
 import com.google.common.collect.Maps;
+import com.google.common.collect.Sets;
 import com.google.protobuf.Any;
 import com.google.protobuf.ByteString;
-import com.google.protobuf.InvalidProtocolBufferException;
 import io.micrometer.core.instrument.Metrics;
 import io.micrometer.core.instrument.Tags;
 import io.micrometer.core.instrument.binder.jvm.ExecutorServiceMetrics;
 import io.reactivex.rxjava3.core.Observable;
 import io.reactivex.rxjava3.disposables.CompositeDisposable;
+import io.reactivex.rxjava3.disposables.Disposable;
 import io.reactivex.rxjava3.schedulers.Schedulers;
 import io.reactivex.rxjava3.subjects.BehaviorSubject;
 import io.reactivex.rxjava3.subjects.Subject;
 import java.time.Duration;
-import java.util.HashSet;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
+import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executor;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.LinkedTransferQueue;
+import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -80,6 +86,7 @@ import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.locks.StampedLock;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
+import org.apache.bifromq.base.util.AsyncRetry;
 import org.apache.bifromq.base.util.AsyncRunner;
 import org.apache.bifromq.baseenv.EnvProvider;
 import org.apache.bifromq.baseenv.ZeroCopyParser;
@@ -89,6 +96,7 @@ import org.apache.bifromq.basekv.proto.CancelMerging;
 import org.apache.bifromq.basekv.proto.CancelMergingReply;
 import org.apache.bifromq.basekv.proto.CancelMergingRequest;
 import org.apache.bifromq.basekv.proto.ChangeConfig;
+import org.apache.bifromq.basekv.proto.DataMergeRequest;
 import org.apache.bifromq.basekv.proto.Delete;
 import org.apache.bifromq.basekv.proto.EnsureRange;
 import org.apache.bifromq.basekv.proto.EnsureRangeReply;
@@ -101,6 +109,7 @@ import org.apache.bifromq.basekv.proto.Merge;
 import org.apache.bifromq.basekv.proto.MergeDone;
 import org.apache.bifromq.basekv.proto.MergeDoneReply;
 import org.apache.bifromq.basekv.proto.MergeDoneRequest;
+import org.apache.bifromq.basekv.proto.MergeHelpRequest;
 import org.apache.bifromq.basekv.proto.MergeReply;
 import org.apache.bifromq.basekv.proto.MergeRequest;
 import org.apache.bifromq.basekv.proto.PrepareMergeTo;
@@ -175,7 +184,7 @@ public class KVRangeFSM implements IKVRangeFSM {
     private final AtomicReference<Lifecycle> lifecycle = new AtomicReference<>(Lifecycle.Init);
     private final CompositeDisposable disposables = new CompositeDisposable();
     private final CompletableFuture<Void> closeSignal = new CompletableFuture<>();
-    private final CompletableFuture<Void> quitSignal = new CompletableFuture<>();
+    private final CompletableFuture<Boolean> quitSignal = new CompletableFuture<>();
     private final CompletableFuture<Void> destroyedSignal = new CompletableFuture<>();
     private final AtomicLong lastShrinkCheckAt = new AtomicLong();
     private final AtomicBoolean shrinkingWAL = new AtomicBoolean();
@@ -183,10 +192,27 @@ public class KVRangeFSM implements IKVRangeFSM {
     private final List<IKVRangeSplitHinter> splitHinters;
     private final StampedLock resetLock = new StampedLock();
     private final String[] tags;
+    private final AtomicReference<CompletableFuture<Boolean>> quitZombie = new AtomicReference<>();
+    private final AtomicBoolean cancelingMerge = new AtomicBoolean();
+    private volatile long mergePendingAt = -1;
     private volatile long zombieAt = -1;
     private IKVRangeMessenger messenger;
     private KVRangeRestorer restorer;
 
+    /**
+     * The constructor of KVRange FSM.
+     *
+     * @param clusterId the cluster id
+     * @param hostStoreId the store id that hosts this range
+     * @param id the range id
+     * @param coProcFactory the coprocessor factory
+     * @param kvRange the backing data range
+     * @param walStore the backing WAL Store
+     * @param queryExecutor the query executor
+     * @param bgExecutor the background task executor
+     * @param opts the options
+     * @param quitListener the listener to be notified when this range is quitting
+     */
     public KVRangeFSM(String clusterId,
                       String hostStoreId,
                       KVRangeId id,
@@ -242,7 +268,7 @@ public class KVRangeFSM implements IKVRangeFSM {
                         () -> KVRangeFSM.this.restore(snapshot, leader, callback));
                 }
             }, fsmExecutor);
-        quitSignal.thenAccept(v -> quitListener.onQuit(this));
+        quitSignal.thenAccept(reset -> quitListener.onQuit(this, reset));
     }
 
     @Override
@@ -357,8 +383,9 @@ public class KVRangeFSM implements IKVRangeFSM {
         statsCollector.tick();
         dumpSessions.values().forEach(KVRangeDumpSession::tick);
         shrinkWAL();
-        checkAndRepairFromZombieState();
+        judgeZombieState();
         estimateSplitHint();
+        checkMergeTimeout();
     }
 
     @Override
@@ -379,26 +406,30 @@ public class KVRangeFSM implements IKVRangeFSM {
                     log.info("Closing range");
                     descriptorSubject.onComplete();
                     disposables.dispose();
-                    walSubscription.stop();
-                    splitHinters.forEach(IKVRangeSplitHinter::close);
-                    coProc.close();
-                    CompletableFuture.allOf(dumpSessions.values()
+                    CompletableFuture.completedFuture(null)
+                        .thenComposeAsync(v -> walSubscription.stop(), mgmtExecutor)
+                        .thenAcceptAsync(v -> {
+                            splitHinters.forEach(IKVRangeSplitHinter::close);
+                            coProc.close();
+                        }, mgmtExecutor)
+                        .thenComposeAsync(v -> CompletableFuture.allOf(dumpSessions.values()
                             .stream()
                             .map(dumpSession -> {
                                 dumpSession.cancel();
                                 return dumpSession.awaitDone();
                             })
-                            .toArray(CompletableFuture<?>[]::new))
-                        .thenCompose(v -> restorer.awaitDone())
-                        .thenCompose(v -> statsCollector.stop())
-                        .thenCompose(v -> mgmtTaskRunner.awaitDone())
-                        .thenCompose(v -> wal.close())
-                        .thenCompose(v -> awaitShutdown(fsmExecutor))
+                            .toArray(CompletableFuture<?>[]::new)), mgmtExecutor)
+                        .thenComposeAsync(v -> restorer.awaitDone(), mgmtExecutor)
+                        .thenComposeAsync(v -> statsCollector.stop(), mgmtExecutor)
+                        .thenComposeAsync(v -> mgmtTaskRunner.awaitDone(), mgmtExecutor)
+                        .thenComposeAsync(v -> wal.close(), mgmtExecutor)
+                        .thenComposeAsync(v -> awaitShutdown(fsmExecutor), mgmtExecutor)
                         .whenComplete((v, e) -> {
                             kvRange.close();
                             metricManager.close();
                             cmdFutures.values()
-                                .forEach(f -> f.completeExceptionally(new KVRangeException.TryLater("Range closed")));
+                                .forEach(
+                                    f -> f.completeExceptionally(new KVRangeException.TryLater("Range closed")));
                             queryRunner.close();
                             log.info("Range closed");
                             lifecycle.set(Closed);
@@ -418,13 +449,13 @@ public class KVRangeFSM implements IKVRangeFSM {
         if (lifecycle.get() == Open) {
             log.info("Destroying range");
             doClose()
-                .thenCompose(v -> {
+                .thenComposeAsync(v -> {
                     if (lifecycle.compareAndSet(Closed, Destroying)) {
                         kvRange.destroy();
                         return wal.destroy();
                     }
                     return CompletableFuture.completedFuture(null);
-                })
+                }, mgmtExecutor)
                 .whenComplete((v, e) -> {
                     if (lifecycle.compareAndSet(Destroying, Destroyed)) {
                         log.info("Range destroyed");
@@ -439,6 +470,12 @@ public class KVRangeFSM implements IKVRangeFSM {
     @Override
     public CompletableFuture<Void> recover() {
         return wal.recover();
+    }
+
+    @Override
+    public CompletableFuture<Boolean> quit() {
+        quitZombie.compareAndSet(null, new CompletableFuture<>());
+        return quitZombie.get();
     }
 
     @Override
@@ -499,12 +536,13 @@ public class KVRangeFSM implements IKVRangeFSM {
     }
 
     @Override
-    public CompletableFuture<Void> merge(long ver, KVRangeId mergeeId) {
+    public CompletableFuture<Void> merge(long ver, KVRangeId mergeeId, Set<String> mergeeVoters) {
         return metricManager.recordMerge(() -> submitManagementCommand(KVRangeCommand.newBuilder()
             .setTaskId(nextTaskId())
             .setVer(ver)
             .setPrepareMergeWith(PrepareMergeWith.newBuilder()
                 .setMergeeId(mergeeId)
+                .addAllVoters(mergeeVoters)
                 .buildPartial())
             .build()));
     }
@@ -607,7 +645,7 @@ public class KVRangeFSM implements IKVRangeFSM {
     }
 
     private String nextTaskId() {
-        return hostStoreId + "-" + taskSeqNo.getAndIncrement();
+        return hostStoreId + "-" + id.getId() + "-" + taskSeqNo.getAndIncrement();
     }
 
     @SuppressWarnings("unchecked")
@@ -699,14 +737,15 @@ public class KVRangeFSM implements IKVRangeFSM {
                     State state = kvRange.state();
                     Boundary boundary = kvRange.boundary();
                     ClusterConfig clusterConfig = kvRange.clusterConfig();
-                    applyCommand(isLeader, version, state, boundary, clusterConfig,
-                        entry.getTerm(), entry.getIndex(), command, recordableReader, rangeWriter)
-                        .whenComplete((callback, e) -> {
+                    CompletableFuture<Runnable> applyFuture = applyCommand(isLeader, version, state, boundary,
+                        clusterConfig, entry.getTerm(), entry.getIndex(), command, recordableReader, rangeWriter)
+                        .whenCompleteAsync((callback, e) -> {
                             if (onDone.isCancelled()) {
                                 rangeWriter.abort();
                             } else {
                                 try {
                                     if (e != null) {
+                                        log.debug("Failed to apply log: {}", log, e);
                                         rangeWriter.abort();
                                         onDone.completeExceptionally(e);
                                     } else {
@@ -728,9 +767,14 @@ public class KVRangeFSM implements IKVRangeFSM {
                                 }
                             }
                             kvRange.returnDataReader(borrowedReader);
-                        });
+                        }, fsmExecutor);
+                    onDone.whenCompleteAsync((v, e) -> {
+                        if (onDone.isCancelled()) {
+                            applyFuture.cancel(true);
+                        }
+                    });
                 } catch (Throwable t) {
-                    log.error("Failed to apply command", t);
+                    log.error("Failed to apply log: {}", log, t);
                     onDone.completeExceptionally(t);
                 }
             }
@@ -745,9 +789,10 @@ public class KVRangeFSM implements IKVRangeFSM {
                                                                 long index,
                                                                 ClusterConfig config,
                                                                 IKVRangeWritable<?> rangeWriter) {
+        long ver = rangeWriter.version();
         State state = rangeWriter.state();
-        log.info("Apply new config[term={}, index={}]: state={}, leader={}\n{}",
-            term, index, state, wal.isLeader(), config);
+        log.info("Apply new config[term={}, index={}]: state={}, ver={}, leader={}\n{}",
+            term, index, print(ver), state, wal.isLeader(), config);
         rangeWriter.clusterConfig(config);
         if (config.getNextVotersCount() != 0 || config.getNextLearnersCount() != 0) {
             // skip joint-config
@@ -771,7 +816,7 @@ public class KVRangeFSM implements IKVRangeFSM {
                             .setTaskId(taskId)
                             .build());
                         return () -> {
-                            quitSignal.complete(null);
+                            quitSignal.complete(false);
                             finishCommand(taskId);
                             return CompletableFuture.completedFuture(null);
                         };
@@ -780,28 +825,11 @@ public class KVRangeFSM implements IKVRangeFSM {
                             .setType(Normal)
                             .setTaskId(taskId)
                             .build());
-                        return () -> compactWAL().thenRun(() -> finishCommand(taskId));
+                        return () -> compactWAL().thenRunAsync(() -> finishCommand(taskId), fsmExecutor);
                     }
                 } else {
-                    // request config change failed, the config entry is appended due to leader reelection
-                    boolean remove = !members.contains(hostStoreId);
-                    if (remove) {
-                        rangeWriter.state(State.newBuilder()
-                            .setType(Removed)
-                            .setTaskId(taskId)
-                            .build());
-                        return () -> {
-                            quitSignal.complete(null);
-                            finishCommand(taskId);
-                            return CompletableFuture.completedFuture(null);
-                        };
-                    } else {
-                        rangeWriter.state(State.newBuilder()
-                            .setType(Normal)
-                            .setTaskId(taskId)
-                            .build());
-                        return () -> compactWAL().thenRun(() -> finishCommand(taskId));
-                    }
+                    // config entry append during leader change
+                    return () -> CompletableFuture.completedFuture(null);
                 }
             }
             case MergedQuiting -> {
@@ -822,7 +850,7 @@ public class KVRangeFSM implements IKVRangeFSM {
                 return () -> {
                     finishCommand(taskId);
                     if (remove) {
-                        quitSignal.complete(null);
+                        quitSignal.complete(false);
                     }
                     return CompletableFuture.completedFuture(null);
                 };
@@ -837,7 +865,7 @@ public class KVRangeFSM implements IKVRangeFSM {
                         .build());
                     return () -> {
                         finishCommand(taskId);
-                        quitSignal.complete(null);
+                        quitSignal.complete(false);
                         return CompletableFuture.completedFuture(null);
                     };
                 } else {
@@ -845,11 +873,11 @@ public class KVRangeFSM implements IKVRangeFSM {
                         .setType(Normal)
                         .setTaskId(taskId)
                         .build());
-                    return () -> compactWAL().thenRun(() -> {
+                    return () -> compactWAL().thenRunAsync(() -> {
                         // purge failed due to leader change, reset back to normal
                         log.debug("Purge failed due to leader change[newConfig={}]", config);
                         finishCommand(taskId);
-                    });
+                    }, fsmExecutor);
                 }
             }
             default -> {
@@ -1068,31 +1096,24 @@ public class KVRangeFSM implements IKVRangeFSM {
                         .build();
                     rangeWriter.boundary(leftBoundary).bumpVer(true);
                     // migrate data to right-hand keyspace which created implicitly
-                    rangeWriter.migrateTo(request.getNewId(), rightBoundary)
-                        .resetVer(rhsSS.getVer())
-                        .boundary(rhsSS.getBoundary())
-                        .lastAppliedIndex(rhsSS.getLastAppliedIndex())
-                        .state(rhsSS.getState())
-                        .clusterConfig(rhsSS.getClusterConfig())
-                        .done();
-                    onDone.complete(() -> {
-                        try {
-                            log.debug("Range split completed[taskId={}]", taskId);
-                            // reset hinter when boundary changed
-                            splitHinters.forEach(hinter -> hinter.reset(leftBoundary));
-                            factSubject.onNext(reset(leftBoundary));
-                        } catch (Throwable t) {
-                            log.error("Failed to reset hinter or coProc", t);
-                            finishCommandWithError(taskId, t);
-                        } finally {
-                            finishCommand(taskId);
+                    rangeWriter.migrateTo(request.getNewId(), rhsSS);
+                    onDone.complete(() -> compactWAL().whenCompleteAsync((v, e) -> {
+                        if (e != null) {
+                            log.error("WAL compact failed after split", e);
+                            quitSignal.complete(true);
+                            return;
                         }
+                        log.debug("Range split completed[taskId={}]", taskId);
+                        resetHinterAndCoProc(leftBoundary);
+                        finishCommand(taskId);
                         messenger.once(KVRangeMessage::hasEnsureRangeReply)
                             .orTimeout(300, TimeUnit.SECONDS)
-                            .whenCompleteAsync((v, e) -> {
-                                if (e != null || v.getEnsureRangeReply().getResult() != EnsureRangeReply.Result.OK) {
+                            .whenCompleteAsync((rangeMsg, t) -> {
+                                if (t != null
+                                    ||
+                                    rangeMsg.getEnsureRangeReply().getResult() != EnsureRangeReply.Result.OK) {
                                     log.error("Failed to load rhs range[taskId={}]: newRangeId={}",
-                                        taskId, request.getNewId(), e);
+                                        taskId, request.getNewId(), t);
                                 }
                             }, fsmExecutor);
                         // ensure the new range is loaded in the store
@@ -1111,7 +1132,7 @@ public class KVRangeFSM implements IKVRangeFSM {
                                     .setData(rhsSS.toByteString())
                                     .build())
                                 .build()).build());
-                    });
+                    }, fsmExecutor));
                 } else {
                     onDone.complete(() -> finishCommandWithError(taskId,
                         new KVRangeException.BadRequest("Invalid split key")));
@@ -1129,315 +1150,313 @@ public class KVRangeFSM implements IKVRangeFSM {
                         "Merge abort, range is in state:" + state.getType().name())));
                     break;
                 }
-                log.info(
-                    "Merging[term={}, index={}, taskId={}, ver={}, state={}]: mergerId={}, mergeeId={}",
-                    logTerm, logIndex, taskId, print(ver), state,
-                    KVRangeIdUtil.toString(id), KVRangeIdUtil.toString(command.getPrepareMergeWith().getMergeeId()));
-
-                CompletableFuture<KVRangeMessage> onceFuture = messenger.once(m -> m.hasPrepareMergeToReply()
-                    && m.getPrepareMergeToReply().getTaskId().equals(taskId)
-                    && m.getPrepareMergeToReply().getAccept());
-                onDone.whenCompleteAsync((v, e) -> {
-                    if (onDone.isCancelled()) {
-                        onceFuture.cancel(true);
-                    }
-                }, fsmExecutor);
-                onceFuture.orTimeout(5, TimeUnit.SECONDS)
-                    .whenCompleteAsync((v, e) -> {
-                        if (e != null) {
-                            onceFuture.cancel(true);
-                            onDone.completeExceptionally(e);
-                        } else {
-                            Map<String, Boolean> waitingList = clusterConfig.getVotersList().stream()
-                                .collect(Collectors.toMap(voter -> voter, voter -> false));
-                            rangeWriter.state(State.newBuilder()
-                                .setType(PreparedMerging)
-                                .setTaskId(taskId)
-                                .putAllWaitingList(waitingList)
-                                .build());
-                            rangeWriter.bumpVer(false);
-                            onDone.complete(NOOP);
-                        }
-                    }, fsmExecutor);
+                if (!clusterConfig.getNextVotersList().isEmpty() || !clusterConfig.getNextLearnersList().isEmpty()) {
+                    onDone.complete(() -> finishCommandWithError(taskId,
+                        new KVRangeException.TryLater("Merge abort, range is in config changing")));
+                    break;
+                }
 
                 PrepareMergeWith request = command.getPrepareMergeWith();
-                // broadcast
-                messenger.send(KVRangeMessage.newBuilder()
-                    .setRangeId(request.getMergeeId())
-                    .setPrepareMergeToRequest(PrepareMergeToRequest.newBuilder()
-                        .setTaskId(taskId)
-                        .setId(id)
-                        .setVer(VerUtil.bump(ver, false))
-                        .setBoundary(boundary)
-                        .setConfig(clusterConfig)
-                        .build())
-                    .build());
-            }
-            case CANCELMERGING -> {
-                if (reqVer != ver) {
+                if (request.getVotersList().isEmpty()) {
+                    onDone.complete(() -> finishCommandWithError(taskId,
+                        new KVRangeException.BadRequest("Merge abort, empty mergee voter set")));
+                    break;
+                }
+                boolean isVoter = clusterConfig.getVotersList().contains(hostStoreId);
+                if (!isVoter) {
+                    rangeWriter
+                        .bumpVer(false)
+                        .state(State.newBuilder()
+                            .setType(PreparedMerging)
+                            .setTaskId(taskId)
+                            .build());
                     onDone.complete(NOOP);
                     break;
                 }
-                log.info(
-                    "Merge canceled[term={}, index={}, taskId={}, ver={}, state={}]: mergerId={}, mergeeId={}",
-                    logTerm, logIndex, taskId, print(ver), state,
-                    KVRangeIdUtil.toString(id), KVRangeIdUtil.toString(command.getPrepareMergeWith().getMergeeId()));
-                if (state.getType() == PreparedMerging && state.hasTaskId() && taskId.equals(state.getTaskId())) {
-                    rangeWriter.state(State.newBuilder()
-                        .setType(Normal)
-                        .setTaskId(taskId)
-                        .build());
-                    rangeWriter.bumpVer(false);
-                    onDone.complete(
-                        () -> finishCommandWithError(taskId, new KVRangeException.TryLater("Merge canceled")));
-                } else {
-                    onDone.complete(NOOP);
+                CompletableFuture<Void> requestFuture = trySendPrepareMergeToRequest(taskId, request.getMergeeId(), ver,
+                    boundary, request.getVotersList(),
+                    clusterConfig)
+                    .thenAcceptAsync(v -> {
+                        rangeWriter
+                            .bumpVer(false)
+                            .state(State.newBuilder()
+                                .setType(PreparedMerging)
+                                .setTaskId(taskId)
+                                .build());
+                        onDone.complete(NOOP);
+                    }, fsmExecutor);
+                onDone.whenCompleteAsync((v, e) -> {
+                    if (onDone.isCancelled()) {
+                        requestFuture.cancel(true);
+                    }
+                });
+            }
+            case CANCELMERGING -> {
+                switch (state.getType()) {
+                    case PreparedMerging -> {
+                        // merger cancel workflow
+                        if (reqVer != ver) {
+                            onDone.complete(NOOP);
+                            break;
+                        }
+                        log.info("Merger canceled[term={}, index={}, taskId={}, ver={}, state={}]",
+                            logTerm, logIndex, taskId, print(ver), state);
+                        rangeWriter
+                            .bumpVer(false)
+                            .state(State.newBuilder()
+                                .setType(Normal)
+                                .setTaskId(taskId)
+                                .build());
+                        onDone.complete(() -> compactWAL()
+                            .whenCompleteAsync((v, e) -> {
+                                if (e != null) {
+                                    log.error("WAL compact failed after merger cancel", e);
+                                }
+                                finishCommandWithError(taskId, new KVRangeException.TryLater("Merger canceled"));
+                            }, fsmExecutor));
+                    }
+                    case WaitingForMerge -> {
+                        // mergee cancel workflow
+                        if (reqVer != ver) {
+                            onDone.complete(NOOP);
+                            break;
+                        }
+                        log.info("Mergee canceled[term={}, index={}, taskId={}, ver={}, state={}]",
+                            logTerm, logIndex, taskId, print(ver), state);
+                        rangeWriter.state(State.newBuilder()
+                            .setType(Normal)
+                            .setTaskId(taskId)
+                            .build());
+                        rangeWriter.bumpVer(false);
+                        onDone.complete(() -> compactWAL()
+                            .whenComplete((v, e) -> {
+                                if (e != null) {
+                                    log.error("WAL compact failed after mergee cancel", e);
+                                }
+                            }));
+                    }
+                    default -> onDone.complete(NOOP);
                 }
             }
             case PREPAREMERGETO -> {
                 PrepareMergeTo request = command.getPrepareMergeTo();
-                if (reqVer != ver) {
+                // skip PrepareMergeTo command either redundant from same merger or another merger
+                // which will not receive any response and cancel itself eventually
+                if (state.getType() == WaitingForMerge) {
                     onDone.complete(NOOP);
                     break;
                 }
-                // here is the formal mergeable condition check
+                // we don't compare request ver and current ver here
+                // the formal mergeable condition check
+                boolean isVoter = clusterConfig.getVotersList().contains(hostStoreId);
+                ClusterConfig mergerConfig = request.getConfig();
+                List<String> mergerVoters = mergerConfig.getVotersList();
                 if (state.getType() != Normal
-                    || !isCompatible(request.getConfig(), clusterConfig)
+                    || !clusterConfig.getNextVotersList().isEmpty() // config changing
+                    || !clusterConfig.getNextLearnersList().isEmpty() // config changing
                     || !canCombine(request.getBoundary(), boundary)) {
-                    if (!taskId.equals(state.getTaskId())) {
-                        log.debug("Cancel the loser merger[{}]",
-                            KVRangeIdUtil.toString(request.getMergerId()));
-                        // help the loser merger cancel its operation by broadcast CancelMerging
-                        // via store message and wait for at lease one response to make sure
-                        // the loser merger has got canceled
-                        log.debug("Loser merger[{}] not found in local store",
-                            KVRangeIdUtil.toString(request.getMergerId()));
-                        CompletableFuture<KVRangeMessage> onceFuture = messenger.once(m ->
-                            m.hasCancelMergingReply()
-                                && m.getCancelMergingReply().getTaskId().equals(taskId)
-                                && m.getCancelMergingReply().getAccept());
-                        // cancel the future
-                        onDone.whenCompleteAsync((v, e) -> {
-                            if (onceFuture.isCancelled()) {
-                                onceFuture.cancel(true);
-                            }
-                        }, fsmExecutor);
-                        onceFuture.orTimeout(5, TimeUnit.SECONDS)
-                            .whenCompleteAsync((v, e) -> {
-                                if (e != null) {
-                                    onDone.completeExceptionally(e);
-                                } else {
-                                    onDone.complete(NOOP);
-                                }
-                            }, fsmExecutor);
-                        // broadcast
-                        messenger.send(KVRangeMessage.newBuilder()
-                            .setRangeId(request.getMergerId())
-                            .setCancelMergingRequest(CancelMergingRequest.newBuilder()
-                                .setTaskId(taskId)
-                                .setVer(request.getMergerVer())
-                                .setRequester(id)
-                                .build())
-                            .build());
-                    } else {
-                        // ignore duplicated requests from same merger
+                    if (!isVoter) {
+                        rangeWriter.bumpVer(false);
                         onDone.complete(NOOP);
+                        break;
                     }
+                    CompletableFuture<Void> requestFuture = trySendCancelMergingRequest(taskId, request.getMergerId(),
+                        request.getMergerVer(), mergerVoters,
+                        clusterConfig.getVotersList())
+                        .whenCompleteAsync((reply, e) -> {
+                            rangeWriter.bumpVer(false);
+                            onDone.complete(NOOP);
+                        }, fsmExecutor);
+                    onDone.whenCompleteAsync((v, e) -> {
+                        if (onDone.isCancelled()) {
+                            requestFuture.cancel(true);
+                        }
+                    });
                     break;
                 }
-                // tell merger replica to start merge by broadcast Merge command which may end up
-                // multiple Merge commands targeting to same merger replica
-                CompletableFuture<KVRangeMessage> onceFuture = messenger.once(m ->
-                    m.hasMergeReply()
-                        && m.getMergeReply().getTaskId().equals(taskId)
-                        && m.getMergeReply().getAccept());
-                // cancel the future
-                onDone.whenCompleteAsync((v, e) -> {
-                    if (onDone.isCancelled()) {
-                        onceFuture.cancel(true);
-                    }
-                }, fsmExecutor);
-                onceFuture.orTimeout(5, TimeUnit.SECONDS)
-                    .whenCompleteAsync((v, e) -> {
-                        if (e != null) {
-                            onceFuture.cancel(true);
-                            onDone.completeExceptionally(e);
-                        } else {
-                            rangeWriter.state(State.newBuilder()
+                // merge condition met
+                if (!isVoter) {
+                    rangeWriter
+                        .bumpVer(false)
+                        .state(State.newBuilder()
+                            .setType(WaitingForMerge)
+                            .setTaskId(taskId)
+                            .build());
+                    onDone.complete(NOOP);
+                    break;
+                }
+                CompletableFuture<Void> requestFuture = trySendMergeRequest(taskId, request.getMergerId(),
+                    request.getMergerVer(), ver, boundary, mergerVoters, clusterConfig)
+                    .thenAcceptAsync(v -> {
+                        rangeWriter
+                            .bumpVer(false)
+                            .state(State.newBuilder()
                                 .setType(WaitingForMerge)
                                 .setTaskId(taskId)
                                 .build());
-                            rangeWriter.bumpVer(false);
-                            onDone.complete(NOOP);
-                        }
+                        onDone.complete(NOOP);
                     }, fsmExecutor);
-                // broadcast
-                messenger.send(KVRangeMessage.newBuilder()
-                    .setRangeId(request.getMergerId())
-                    .setMergeRequest(MergeRequest.newBuilder()
-                        .setTaskId(taskId)
-                        .setVer(request.getMergerVer())
-                        .setMergeeId(id)
-                        .setMergeeVer(VerUtil.bump(ver, false))
-                        .setBoundary(boundary)
-                        .setStoreId(hostStoreId)
-                        .build())
-                    .build());
+                onDone.whenCompleteAsync((v, e) -> {
+                    if (onDone.isCancelled()) {
+                        requestFuture.cancel(true);
+                    }
+                });
             }
             case MERGE -> {
                 Merge request = command.getMerge();
-                if (reqVer != ver) {
-                    onDone.complete(NOOP);
-                    break;
-                }
-                assert state.getType() == PreparedMerging;
-                Map<String, Boolean> waitingList = Maps.newHashMap(state.getWaitingListMap());
-                // waiting list only track voter's progress
-                if (waitingList.containsKey(request.getStoreId())) {
-                    waitingList.put(request.getStoreId(), true);
-                }
-                int quorumSize = waitingList.size() / 2 + 1;
-                int readyNum = Maps.filterValues(waitingList, v -> v).size();
-                if (readyNum < quorumSize) {
-                    // not ready for merge
-                    // update waiting list only
-                    rangeWriter.state(state.toBuilder()
-                        .clearWaitingList()
-                        .putAllWaitingList(waitingList)
-                        .build());
-                    onDone.complete(NOOP);
-                    break;
-                }
-                // quorum meets
-                CompletableFuture<Void> readyToMerge;
-                if (waitingList.containsKey(hostStoreId) && waitingList.get(hostStoreId)) {
-                    // if local merger is a voter and is ready to merge
-                    readyToMerge = CompletableFuture.completedFuture(null);
-                } else {
-                    // waiting for Merge command from local mergee committed in merger's WAL
-                    readyToMerge = wal.once(logIndex,
-                            l -> {
-                                if (l.hasData()) {
-                                    try {
-                                        KVRangeCommand nextCmd = ZeroCopyParser.parse(l.getData(), KVRangeCommand.parser());
-                                        if (nextCmd.hasMerge()
-                                            && nextCmd.getMerge().getStoreId().equals(hostStoreId)) {
-                                            return true;
-                                        }
-                                    } catch (InvalidProtocolBufferException ex) {
-                                        throw new KVRangeException.InternalException("Unable to parse logEntry",
-                                            ex);
+                switch (state.getType()) {
+                    case PreparedMerging -> {
+                        if (reqVer != ver) {
+                            onDone.complete(NOOP);
+                            break;
+                        }
+                        KVRangeId mergeeId = request.getMergeeId();
+                        ClusterConfig mergeeConfig = request.getConfig();
+                        boolean isVoter = clusterConfig.getVotersList().contains(hostStoreId);
+                        List<String> mergeeReplicas = new ArrayList<>(mergeeConfig.getVotersList());
+                        mergeeReplicas.addAll(mergeeConfig.getLearnersList());
+                        IKVRangeWritable.Migrater migrater = rangeWriter.startMerging(((count, bytes) -> {
+                            mergePendingAt = -1;
+                            log.info("Merging data from mergee: taskId={}, received entries={}, bytes={}",
+                                taskId, count, bytes);
+                        }));
+                        CompletableFuture<Void> migrateFuture = tryMigrate(mergeeId, mergeeReplicas,
+                            clusterConfig.getVotersList(), migrater)
+                            .thenComposeAsync(result -> {
+                                switch (result) {
+                                    case SUCCESS_AFTER_RESET -> {
+                                        return CompletableFuture.completedFuture(() -> {
+                                            // quit and restore from leader
+                                            log.debug("Restore from leader: mergeeId={}",
+                                                KVRangeIdUtil.toString(mergeeId));
+                                            quitSignal.complete(true);
+                                        });
+                                    }
+                                    case SUCCESS -> {
+                                        return tryConfirmMerged(taskId, ver)
+                                            .thenComposeAsync(mergeResult -> {
+                                                if (mergeResult == TryConfirmMergedResult.ALREADY_CANCELED) {
+                                                    // rollback
+                                                    migrater.abort();
+                                                    return CompletableFuture.completedFuture(
+                                                        TryConfirmMergedResult.ALREADY_CANCELED);
+                                                }
+                                                if (isVoter) {
+                                                    return trySendMergeDoneRequest(taskId, mergeeId,
+                                                        request.getMergeeVer(), mergeeConfig.getVotersList(),
+                                                        clusterConfig.getVotersList())
+                                                        .thenApply(v -> TryConfirmMergedResult.MERGED);
+                                                }
+                                                return CompletableFuture.completedFuture(TryConfirmMergedResult.MERGED);
+                                            }, fsmExecutor)
+                                            .thenApplyAsync(mergeResult -> {
+                                                if (mergeResult == TryConfirmMergedResult.ALREADY_CANCELED) {
+                                                    migrater.abort();
+                                                    // leave state & ver unchanged
+                                                    return NOOP;
+                                                } else {
+                                                    long newVer = Math.max(ver, request.getMergeeVer());
+                                                    Boundary mergedBoundary = combine(boundary, request.getBoundary());
+                                                    migrater
+                                                        .ver(VerUtil.bump(newVer, true))
+                                                        .boundary(mergedBoundary)
+                                                        .state(State.newBuilder()
+                                                            .setType(Normal)
+                                                            .setTaskId(taskId)
+                                                            .build());
+                                                    return () -> {
+                                                        log.info("Merger done[term={}, index={}, taskId={}, "
+                                                                + "ver={}, state={}]: mergeeId={}, boundary={}",
+                                                            logTerm, logIndex, taskId, print(ver), state,
+                                                            KVRangeIdUtil.toString(request.getMergeeId()),
+                                                            mergedBoundary);
+                                                        compactWAL()
+                                                            .whenCompleteAsync((v, t) -> {
+                                                                if (t != null) {
+                                                                    log.error("WAL compact failed after merge", t);
+                                                                }
+                                                                resetHinterAndCoProc(mergedBoundary);
+                                                                finishCommand(taskId);
+                                                            }, fsmExecutor);
+                                                    };
+                                                }
+                                            }, fsmExecutor);
+                                    }
+                                    default -> {
+                                        // retry failed
+                                        return tryCancelMerging(taskId, ver)
+                                            .thenApplyAsync(cancelMergingResult -> {
+                                                if (cancelMergingResult == TryCancelMergingResult.CANCELLED) {
+                                                    return NOOP;
+                                                }
+                                                // merged
+                                                return (Runnable) () -> {
+                                                    log.info("Merge confirmed, restore from leader: mergeeId={}",
+                                                        KVRangeIdUtil.toString(mergeeId));
+                                                    quitSignal.complete(true);
+                                                };
+                                            }, fsmExecutor);
                                     }
                                 }
-                                return false;
                             }, fsmExecutor)
-                        .thenAccept(v -> {
-                        });
-                    // cancel the future
-                    onDone.whenCompleteAsync((v, e) -> {
-                        if (onDone.isCancelled()) {
-                            readyToMerge.cancel(true);
-                        }
-                    }, fsmExecutor);
-                }
-                readyToMerge.whenCompleteAsync((v1, e1) -> {
-                    if (e1 != null) {
-                        onDone.completeExceptionally(
-                            new KVRangeException.TryLater("Merge condition not met"));
-                        return;
-                    }
-                    // migrate data from mergee, and commit the migration after getting merge done reply
-                    long newVer = Math.max(ver, request.getMergeeVer());
-                    // make sure the version is odd
-                    Boundary mergedBoundary = combine(boundary, request.getBoundary());
-                    IKVRangeMetadataWriter<?> rightRangeWriter = rangeWriter.resetVer(VerUtil.bump(newVer, true))
-                        .boundary(mergedBoundary)
-                        .state(State.newBuilder()
-                            .setType(Normal)
-                            .setTaskId(taskId)
-                            .build())
-                        .migrateFrom(request.getMergeeId(), request.getBoundary());
-                    rightRangeWriter.done();
-                    CompletableFuture<KVRangeMessage> onceFuture = messenger.once(m ->
-                        m.hasMergeDoneReply() && m.getMergeDoneReply().getTaskId().equals(taskId));
-                    // cancel the future
-                    onDone.whenCompleteAsync((v, e) -> {
-                        if (onDone.isCancelled()) {
-                            onceFuture.cancel(true);
-                        }
-                    }, fsmExecutor);
-                    onceFuture.orTimeout(5, TimeUnit.SECONDS)
-                        .whenCompleteAsync((v, e) -> {
-                            if (e != null || !v.getMergeDoneReply().getAccept()) {
-                                log.debug("Failed to send MergeDone request", e);
-                                onceFuture.cancel(true);
-                                onDone.completeExceptionally(e != null
-                                    ? e : new KVRangeException.InternalException("Failed to send MergeDone request"));
-                            } else {
-                                log.info(
-                                    "Merger done[term={}, index={}, taskId={}, ver={}, state={}]: mergerId={}, boundary={}",
-                                    logTerm, logIndex, taskId, print(ver), state, KVRangeIdUtil.toString(id),
-                                    mergedBoundary);
-                                onDone.complete(() -> {
-                                    try {
-                                        // reset hinter when boundary changed
-                                        splitHinters.forEach(hinter -> hinter.reset(mergedBoundary));
-                                        factSubject.onNext(reset(mergedBoundary));
-                                    } catch (Throwable t) {
-                                        log.error("Failed to reset hinter and coProc", t);
-                                    } finally {
-                                        finishCommand(taskId);
-                                    }
-                                });
+                            .thenAccept(onDone::complete);
+                        onDone.whenCompleteAsync((v, e) -> {
+                            if (onDone.isCancelled()) {
+                                migrater.abort();
+                                migrateFuture.cancel(true);
                             }
-                        }, fsmExecutor);
-                    // send merge done request to local mergee
-                    log.debug("Send MergeDone request to Mergee[{}]", KVRangeIdUtil.toString(request.getMergeeId()));
-                    messenger.send(KVRangeMessage.newBuilder()
-                        .setRangeId(request.getMergeeId())
-                        .setHostStoreId(hostStoreId)
-                        .setMergeDoneRequest(MergeDoneRequest.newBuilder()
-                            .setId(id)
-                            .setTaskId(taskId)
-                            .setMergeeVer(request.getMergeeVer())
-                            .setStoreId(hostStoreId)
-                            .build())
-                        .build());
-                }, fsmExecutor);
+                        });
+                    }
+                    case Normal -> {
+                        if (VerUtil.boundaryCompatible(reqVer, ver)) {
+                            // Cancel happens before Merge command is applied
+                            if (!clusterConfig.getVotersList().contains(hostStoreId)) {
+                                onDone.complete(NOOP);
+                                break;
+                            }
+                            CompletableFuture<Void> requestFuture = trySendCancelMergingRequest(taskId,
+                                request.getMergeeId(), request.getMergeeVer(),
+                                request.getConfig().getVotersList(), clusterConfig.getVotersList())
+                                .whenCompleteAsync((reply, e) -> {
+                                    onDone.complete(NOOP);
+                                }, fsmExecutor);
+                            onDone.whenCompleteAsync((v, e) -> {
+                                if (onDone.isCancelled()) {
+                                    requestFuture.cancel(true);
+                                }
+                            });
+                        } else {
+                            // merge has been done, ignore late Merge
+                            log.debug("Late Merge command ignored: mergeeId={}",
+                                KVRangeIdUtil.toString(request.getMergeeId()));
+                            onDone.complete(NOOP);
+                        }
+                    }
+                    default -> onDone.complete(NOOP); // ignore the Merge command in other states
+                }
             }
             case MERGEDONE -> {
-                MergeDone request = command.getMergeDone();
-                if (reqVer != ver) {
+                if (state.getType() != WaitingForMerge || reqVer != ver) {
                     onDone.complete(NOOP);
                     break;
                 }
-                log.info(
-                    "Mergee done[term={}, index={}, taskId={}, ver={}, state={}]: mergeeId={}",
+                log.info("Mergee done[term={}, index={}, taskId={}, ver={}, state={}]: mergeeId={}",
                     logTerm, logIndex, taskId, print(ver), state, KVRangeIdUtil.toString(id));
-                if (request.getStoreId().equals(hostStoreId)) {
-                    assert state.getType() == WaitingForMerge
-                        && state.hasTaskId()
-                        && taskId.equals(state.getTaskId());
-                    rangeWriter.boundary(NULL_BOUNDARY)
-                        .bumpVer(true)
-                        .state(State.newBuilder()
-                            .setType(Merged)
-                            .setTaskId(taskId)
-                            .build());
-                    onDone.complete(() -> {
-                        // reset hinter when boundary changed
-                        splitHinters.forEach(hinter -> hinter.reset(NULL_BOUNDARY));
-                        factSubject.onNext(reset(NULL_BOUNDARY));
-                    });
-                } else {
-                    Map<String, Boolean> waitingList = Maps.newHashMap(state.getWaitingListMap());
-                    waitingList.put(request.getStoreId(), true);
-                    rangeWriter.state(state.toBuilder()
-                        .clearWaitingList()
-                        .putAllWaitingList(waitingList)
+                rangeWriter.boundary(NULL_BOUNDARY)
+                    .bumpVer(true)
+                    .state(State.newBuilder()
+                        .setType(Merged)
+                        .setTaskId(taskId)
                         .build());
-                    onDone.complete(NOOP);
-                }
+                onDone.complete(() -> compactWAL()
+                    .whenCompleteAsync((v, e) -> {
+                        if (e != null) {
+                            log.error("WAL compact failed after merge", e);
+                            quitSignal.complete(true);
+                            return;
+                        }
+                        resetHinterAndCoProc(NULL_BOUNDARY);
+                    }, fsmExecutor));
             }
             case PUT, DELETE, RWCOPROC -> {
                 if (!boundaryCompatible(reqVer, ver)) {
@@ -1500,6 +1519,340 @@ public class KVRangeFSM implements IKVRangeFSM {
         return onDone;
     }
 
+    private String randomPickOne(List<String> remoteVoters, List<String> localVoters) {
+        if (remoteVoters.contains(hostStoreId)) {
+            return hostStoreId;
+        }
+        Set<String> shared = Sets.intersection(Sets.newHashSet(remoteVoters), Sets.newHashSet(localVoters));
+        if (shared.isEmpty()) {
+            return remoteVoters.get(ThreadLocalRandom.current().nextInt(remoteVoters.size()));
+        }
+        return shared.iterator().next();
+    }
+
+    private CompletableFuture<TryMigrateResult> tryMigrate(KVRangeId mergeeId,
+                                                           List<String> mergeeReplicas,
+                                                           List<String> mergerVoters,
+                                                           IKVRangeWritable.Migrater migrater) {
+        String sessionId = UUID.randomUUID().toString();
+        String mergeeVoter = randomPickOne(mergeeReplicas, mergerVoters);
+        IKVRangeSnapshotReceiver receiver = new KVRangeSnapshotReceiver(sessionId, mergeeId,
+            mergeeVoter, messenger, metricManager, fsmExecutor, Math.max(1, opts.getMergeTimeoutSec() / 4), log);
+        log.debug("Start migrating data from mergee: mergeeId={}, store={}, session={}",
+            KVRangeIdUtil.toString(mergeeId), mergeeVoter, sessionId);
+        CompletableFuture<TryMigrateResult> migrateTask = receiver.start(migrater::put)
+            .thenCompose(result -> {
+                switch (result.code()) {
+                    case TIME_OUT, NOT_FOUND, ERROR -> {
+                        // restore failed, abort and check if merge has done
+                        migrater.abort();
+                        log.debug("Migration failed: mergeeId={}, store={}, result={}",
+                            KVRangeIdUtil.toString(mergeeId), mergeeVoter, result);
+                        return wal.retrieveCommitted(kvRange.lastAppliedIndex() + 1, Long.MAX_VALUE)
+                            .handle((logEntryItr, e) -> {
+                                if (e != null) {
+                                    log.error("Failed to retrieve log from wal from index[{}]",
+                                        kvRange.lastAppliedIndex() + 1, e);
+                                    return TryMigrateResult.FAILED;
+                                }
+                                boolean migrationDone = false;
+                                while (logEntryItr.hasNext()) {
+                                    LogEntry logEntry = logEntryItr.next();
+                                    if (logEntry.hasData()) {
+                                        try {
+                                            KVRangeCommand command = ZeroCopyParser.parse(logEntry.getData(),
+                                                KVRangeCommand.parser());
+                                            if (command.hasMergeDone()) {
+                                                log.debug("Merge has done by {}",
+                                                    command.getMergeDone().getStoreId());
+                                                migrationDone = true;
+                                                break;
+                                            }
+                                        } catch (Throwable t) {
+                                            // should not happen
+                                            log.error("Failed to parse logEntry", t);
+                                            break;
+                                        }
+                                    }
+                                }
+                                return migrationDone
+                                    ? TryMigrateResult.SUCCESS_AFTER_RESET : TryMigrateResult.FAILED;
+                            });
+                    }
+                    default -> {
+                        log.debug("Migration completed: mergeeId={}, store={}",
+                            KVRangeIdUtil.toString(mergeeId), mergeeVoter);
+                        return CompletableFuture.completedFuture(TryMigrateResult.SUCCESS);
+                    }
+                }
+            });
+        messenger.send(KVRangeMessage.newBuilder()
+            .setRangeId(mergeeId)
+            .setHostStoreId(mergeeVoter)
+            .setDataMergeRequest(DataMergeRequest.newBuilder()
+                .setSessionId(sessionId)
+                .setMergerId(id)
+                .build())
+            .build());
+        return migrateTask;
+    }
+
+    private CompletableFuture<TryCancelMergingResult> tryCancelMerging(String taskId, long ver) {
+        Supplier<CompletableFuture<Long>> proposeCancelTask = () -> wal.propose(KVRangeCommand.newBuilder()
+            .setTaskId(taskId)
+            .setVer(ver)
+            .setCancelMerging(CancelMerging.newBuilder().build())
+            .build());
+        // retry propose until success, the quorum must be hold to process
+        return AsyncRetry.exec(proposeCancelTask, (index, e) -> e != null,
+                Duration.ofSeconds(5).toNanos(), Long.MAX_VALUE)
+            .thenComposeAsync((index) -> wal.once(kvRange.lastAppliedIndex(), (logEntry) -> {
+                if (logEntry.hasData()) {
+                    try {
+                        KVRangeCommand command = ZeroCopyParser.parse(logEntry.getData(), KVRangeCommand.parser());
+                        if (command.hasMergeDone() || command.hasCancelMerging()) {
+                            return true;
+                        }
+                    } catch (Throwable t) {
+                        // should not happen
+                        log.error("Failed to parse logEntry", t);
+                    }
+                }
+                return false;
+            }, fsmExecutor), fsmExecutor)
+            .thenApply(logEntry -> {
+                try {
+                    KVRangeCommand command = ZeroCopyParser.parse(logEntry.getData(), KVRangeCommand.parser());
+                    return command.hasCancelMerging() ? TryCancelMergingResult.CANCELLED :
+                        TryCancelMergingResult.ALREADY_MERGED;
+                } catch (Throwable t) {
+                    throw new KVRangeException("Should never happen", t);
+                }
+            });
+    }
+
+    private CompletableFuture<TryConfirmMergedResult> tryConfirmMerged(String taskId, long ver) {
+        Supplier<CompletableFuture<Long>> proposeCancelTask = () -> wal.propose(KVRangeCommand.newBuilder()
+            .setTaskId(taskId)
+            .setVer(ver)
+            .setMergeDone(MergeDone.newBuilder().setStoreId(hostStoreId).build())
+            .build());
+        // retry propose until success, the quorum must be hold to process
+        return AsyncRetry.exec(proposeCancelTask, (index, e) -> e != null,
+                Duration.ofSeconds(5).toNanos(), Long.MAX_VALUE)
+            .thenComposeAsync((index) -> wal.once(kvRange.lastAppliedIndex(), (logEntry) -> {
+                if (logEntry.hasData()) {
+                    try {
+                        KVRangeCommand command = ZeroCopyParser.parse(logEntry.getData(), KVRangeCommand.parser());
+                        if (command.hasMergeDone() || command.hasCancelMerging()) {
+                            return true;
+                        }
+                    } catch (Throwable t) {
+                        // should not happen
+                        log.error("Failed to parse logEntry", t);
+                    }
+                }
+                return false;
+            }, fsmExecutor), fsmExecutor)
+            .thenApply(logEntry -> {
+                try {
+                    KVRangeCommand command = ZeroCopyParser.parse(logEntry.getData(), KVRangeCommand.parser());
+                    return command.hasCancelMerging() ? TryConfirmMergedResult.ALREADY_CANCELED :
+                        TryConfirmMergedResult.MERGED;
+                } catch (Throwable t) {
+                    throw new KVRangeException("Should never happen", t);
+                }
+            });
+    }
+
+    private CompletableFuture<Void> trySendPrepareMergeToRequest(String taskId,
+                                                                 KVRangeId mergeeId,
+                                                                 long mergerVer,
+                                                                 Boundary mergerBoundary,
+                                                                 List<String> mergeeVoters,
+                                                                 ClusterConfig mergerConfig) {
+        Supplier<CompletableFuture<PrepareMergeToReply>> sendTask = () -> {
+            String mergeeVoter = randomPickOne(mergeeVoters, mergerConfig.getVotersList());
+            CompletableFuture<PrepareMergeToReply> replyFuture = messenger.once(m -> m.hasPrepareMergeToReply()
+                    && m.getRangeId().equals(mergeeId)
+                    && m.getPrepareMergeToReply().getTaskId().equals(taskId))
+                .orTimeout(1, TimeUnit.SECONDS)
+                .thenApply(KVRangeMessage::getPrepareMergeToReply)
+                .exceptionally(e -> PrepareMergeToReply.newBuilder()
+                    .setTaskId(taskId)
+                    .setAccept(false)
+                    .build());
+            log.debug("Send PrepareMergeTo request: mergeeId={}, mergeeStore={}", KVRangeIdUtil.toString(mergeeId),
+                mergeeVoter);
+            messenger.send(KVRangeMessage.newBuilder()
+                .setHostStoreId(mergeeVoter)
+                .setRangeId(mergeeId)
+                .setPrepareMergeToRequest(PrepareMergeToRequest.newBuilder()
+                    .setTaskId(taskId)
+                    .setId(id)
+                    .setVer(VerUtil.bump(mergerVer, false))
+                    .setBoundary(mergerBoundary)
+                    .setConfig(mergerConfig)
+                    .build())
+                .build());
+            return replyFuture;
+        };
+        return AsyncRetry.exec(sendTask, (reply, e) -> !reply.getAccept(),
+                Duration.ofSeconds(opts.getMergeTimeoutSec() / 2).toNanos(),
+                Duration.ofSeconds(opts.getMergeTimeoutSec()).toNanos())
+            .handle((reply, e) -> {
+                if (e != null) {
+                    log.warn("Failed to send PrepareMergeTo request: mergeeId={}", KVRangeIdUtil.toString(mergeeId), e);
+                } else if (!reply.getAccept()) {
+                    log.debug("Mergee rejected PrepareMergeTo request: mergeeId={} ", KVRangeIdUtil.toString(mergeeId));
+                } else {
+                    log.debug("Mergee accepted PrepareMergeTo request: mergeeId={} ", KVRangeIdUtil.toString(mergeeId));
+                }
+                return null;
+            });
+    }
+
+    private CompletableFuture<Void> trySendMergeDoneRequest(String taskId,
+                                                            KVRangeId mergeeId,
+                                                            long mergeeVer,
+                                                            List<String> mergeeVoters,
+                                                            List<String> mergerVoters) {
+        Supplier<CompletableFuture<MergeDoneReply>> sendTask = () -> {
+            String mergeeVoter = randomPickOne(mergeeVoters, mergerVoters);
+            CompletableFuture<MergeDoneReply> replyFuture = messenger.once(m -> m.hasMergeDoneReply()
+                    && m.getRangeId().equals(mergeeId)
+                    && m.getMergeDoneReply().getTaskId().equals(taskId))
+                .thenApply(KVRangeMessage::getMergeDoneReply)
+                .orTimeout(1, TimeUnit.SECONDS)
+                .exceptionally(e -> MergeDoneReply.newBuilder().setTaskId(taskId).setAccept(false).build());
+            log.debug("Send MergeDone request: mergeeId={}, mergeeStore={}",
+                KVRangeIdUtil.toString(mergeeId), mergeeVoter);
+            messenger.send(KVRangeMessage.newBuilder()
+                .setRangeId(mergeeId)
+                .setHostStoreId(mergeeVoter)
+                .setMergeDoneRequest(MergeDoneRequest.newBuilder()
+                    .setId(id)
+                    .setTaskId(taskId)
+                    .setMergeeVer(mergeeVer)
+                    .setStoreId(hostStoreId)
+                    .build())
+                .build());
+            return replyFuture;
+        };
+        return AsyncRetry.exec(sendTask, (reply, e) -> !reply.getAccept(),
+                Duration.ofSeconds(opts.getMergeTimeoutSec() / 2).toNanos(),
+                Duration.ofSeconds(opts.getMergeTimeoutSec()).toNanos())
+            .handle((reply, e) -> {
+                if (e != null) {
+                    log.warn("Failed to send MergeDone request: mergeeId={}", KVRangeIdUtil.toString(mergeeId), e);
+                } else if (!reply.getAccept()) {
+                    log.debug("Mergee rejected MergeDone request: mergeeId={} ", KVRangeIdUtil.toString(mergeeId));
+                } else {
+                    log.debug("Mergee accepted MergeDone request: mergeeId={} ", KVRangeIdUtil.toString(mergeeId));
+                }
+                return null;
+            });
+    }
+
+    private CompletableFuture<Void> trySendCancelMergingRequest(String taskId,
+                                                                KVRangeId remoteRangeId,
+                                                                long remoteRangeVer,
+                                                                List<String> remoteRangeVoters,
+                                                                List<String> localVoters) {
+        Supplier<CompletableFuture<CancelMergingReply>> sendCancelRequestTask = () -> {
+            String mergerVoter = randomPickOne(remoteRangeVoters, localVoters);
+            CompletableFuture<CancelMergingReply> cancelReplyFuture = messenger.once(m -> m.hasCancelMergingReply()
+                    && m.getRangeId().equals(remoteRangeId)
+                    && m.getCancelMergingReply().getTaskId().equals(taskId))
+                .orTimeout(1, TimeUnit.SECONDS)
+                .thenApply(KVRangeMessage::getCancelMergingReply)
+                .exceptionally(v -> CancelMergingReply.newBuilder().setTaskId(taskId).setAccept(false).build());
+            log.debug("Send CancelMerging request: remoteRangeId={}, storeId={}", KVRangeIdUtil.toString(remoteRangeId),
+                mergerVoter);
+            messenger.send(KVRangeMessage.newBuilder()
+                .setRangeId(remoteRangeId)
+                .setHostStoreId(mergerVoter)
+                .setCancelMergingRequest(CancelMergingRequest.newBuilder()
+                    .setTaskId(taskId)
+                    .setVer(remoteRangeVer)
+                    .setRequester(id)
+                    .build())
+                .build());
+            return cancelReplyFuture;
+        };
+        return AsyncRetry.exec(sendCancelRequestTask, (reply, e) -> !reply.getAccept(),
+                Duration.ofSeconds(opts.getMergeTimeoutSec() / 2).toNanos(),
+                Duration.ofSeconds(opts.getMergeTimeoutSec()).toNanos())
+            .handle((reply, e) -> {
+                if (e != null) {
+                    log.warn("Failed to send CancelMerging request: remoteRangeId={}",
+                        KVRangeIdUtil.toString(remoteRangeId), e);
+                } else if (!reply.getAccept()) {
+                    log.debug("Mergee rejected CancelMerging request: remoteRangeId={} ",
+                        KVRangeIdUtil.toString(remoteRangeId));
+                } else {
+                    log.debug("Mergee accepted CancelMerging request: remoteRangeId={} ",
+                        KVRangeIdUtil.toString(remoteRangeId));
+                }
+                return null;
+            });
+    }
+
+    private CompletableFuture<Void> trySendMergeRequest(String taskId,
+                                                        KVRangeId mergerId,
+                                                        long mergerVer,
+                                                        long mergeeVer,
+                                                        Boundary boundary,
+                                                        List<String> mergerVoters,
+                                                        ClusterConfig mergeeConfig) {
+        Supplier<CompletableFuture<MergeReply>> sendMergeRequestTask = () -> {
+            String mergerVoter = randomPickOne(mergerVoters, mergeeConfig.getVotersList());
+            CompletableFuture<MergeReply> replyFuture = messenger.once(m -> m.hasMergeReply()
+                    && m.getRangeId().equals(mergerId)
+                    && m.getMergeReply().getTaskId().equals(taskId))
+                .orTimeout(1, TimeUnit.SECONDS)
+                .thenApply(KVRangeMessage::getMergeReply)
+                .exceptionally(e -> MergeReply.newBuilder().setTaskId(taskId).setAccept(false).build());
+            log.debug("Send Merge request: mergerId={}, storeId={}", KVRangeIdUtil.toString(mergerId), mergerVoter);
+            messenger.send(KVRangeMessage.newBuilder()
+                .setHostStoreId(mergerVoter)
+                .setRangeId(mergerId)
+                .setMergeRequest(MergeRequest.newBuilder()
+                    .setTaskId(taskId)
+                    .setVer(mergerVer)
+                    .setMergeeId(id)
+                    .setMergeeVer(VerUtil.bump(mergeeVer, false))
+                    .setStoreId(hostStoreId)
+                    .setBoundary(boundary)
+                    .setConfig(mergeeConfig)
+                    .build())
+                .build());
+            return replyFuture;
+        };
+        return AsyncRetry.exec(sendMergeRequestTask, (reply, e) -> !reply.getAccept(),
+                Duration.ofSeconds(opts.getMergeTimeoutSec() / 2).toNanos(),
+                Duration.ofSeconds(opts.getMergeTimeoutSec()).toNanos())
+            .handle((reply, e) -> {
+                if (e != null) {
+                    log.warn("Failed to send Merge request: mergerId={}", KVRangeIdUtil.toString(mergerId), e);
+                } else if (!reply.getAccept()) {
+                    log.debug("Mergee rejected Merge request: mergerId={} ", KVRangeIdUtil.toString(mergerId));
+                } else {
+                    log.debug("Merger accepted Merge request: mergerId={} ", KVRangeIdUtil.toString(mergerId));
+                }
+                return null;
+            });
+    }
+
+    private void resetHinterAndCoProc(Boundary boundary) {
+        try {
+            splitHinters.forEach(hinter -> hinter.reset(boundary));
+            factSubject.onNext(reset(boundary));
+        } catch (Throwable ex) {
+            log.error("Failed to reset hinter or coProc after boundary change", ex);
+        }
+    }
+
     private boolean isGracefulQuit(ClusterConfig currentConfig, ChangeConfig nextConfig) {
         return Set.of(hostStoreId).containsAll(currentConfig.getVotersList())
             && currentConfig.getLearnersCount() == 0
@@ -1542,7 +1895,6 @@ public class KVRangeFSM implements IKVRangeFSM {
                     if (e != null) {
                         if (e instanceof SnapshotException.ObsoleteSnapshotException) {
                             log.debug("Obsolete snapshot, reset kvRange to latest snapshot: \n{}", snapshot);
-                            kvRange.toReseter(wal.latestSnapshot()).done();
                         }
                     } else {
                         linearizer.afterLogApplied(snapshot.getLastAppliedIndex());
@@ -1633,7 +1985,8 @@ public class KVRangeFSM implements IKVRangeFSM {
         }
     }
 
-    private void checkAndRepairFromZombieState() {
+    private void judgeZombieState() {
+        CompletableFuture<Boolean> checkFuture = quitZombie.getAndSet(null);
         if (zombieAt > 0
             && Duration.ofMillis(HLC.INST.getPhysical() - zombieAt).toSeconds() > opts.getZombieTimeoutSec()) {
             ClusterConfig clusterConfig = wal.latestClusterConfig();
@@ -1643,33 +1996,78 @@ public class KVRangeFSM implements IKVRangeFSM {
                 if (recovering.compareAndSet(false, true)) {
                     log.info("Recovering from lost quorum during changing config from single voter: \n{}",
                         clusterConfig);
-                    wal.recover().whenComplete((v, e) -> recovering.set(false));
+                    wal.recover().whenComplete((v, e) -> {
+                        recovering.set(false);
+                        checkFuture.complete(false);
+                    });
+                } else {
+                    checkFuture.complete(false);
                 }
-            } else if (!clusterConfig.getVotersList().contains(hostStoreId)
-                && !clusterConfig.getLearnersList().contains(hostStoreId)) {
-                log.info("Zombie state detected, send quit signal.");
-                quitSignal.complete(null);
+            } else {
+                if (checkFuture != null) {
+                    log.info("Zombie state detected, send quit signal.");
+                    quitSignal.complete(false);
+                    checkFuture.complete(true);
+                }
             }
+        } else if (checkFuture != null) {
+            checkFuture.complete(false);
+        }
+    }
+
+    private void checkMergeTimeout() {
+        State state = kvRange.state();
+        switch (state.getType()) {
+            case PreparedMerging -> {
+                if (mergePendingAt < 0) {
+                    mergePendingAt = System.nanoTime();
+                } else {
+                    boolean timeout = Duration.ofSeconds(opts.getMergeTimeoutSec())
+                        .compareTo(Duration.ofNanos(System.nanoTime() - mergePendingAt)) <= 0;
+                    if (timeout) {
+                        if (wal.isLeader() && cancelingMerge.compareAndSet(false, true)) {
+                            log.debug("Merge timeout, auto cancel merging: mergeeId={}", KVRangeIdUtil.toString(id));
+                            wal.propose(KVRangeCommand.newBuilder()
+                                    .setTaskId(state.getTaskId())
+                                    .setVer(kvRange.version())
+                                    .setCancelMerging(CancelMerging.newBuilder().build())
+                                    .build())
+                                .thenRun(() -> mergePendingAt = -1)
+                                .whenComplete((logIdx, e) -> cancelingMerge.set(false));
+                        }
+                    }
+                }
+            }
+            case WaitingForMerge -> {
+                if (mergePendingAt < 0) {
+                    mergePendingAt = System.nanoTime();
+                } else {
+                    boolean timeout = Duration.ofSeconds(opts.getMergeTimeoutSec())
+                        .compareTo(Duration.ofNanos(System.nanoTime() - mergePendingAt)) <= 0;
+                    if (timeout) {
+                        if (wal.isLeader()) {
+                            log.debug("Merge timeout, broadcast merge help: mergeeId={}", KVRangeIdUtil.toString(id));
+                            messenger.send(KVRangeMessage.newBuilder()
+                                .setMergeHelpRequest(MergeHelpRequest.newBuilder()
+                                    .setTaskId(state.getTaskId())
+                                    .setMergeeId(id)
+                                    .setVer(kvRange.version())
+                                    .setBoundary(boundary())
+                                    .setConfig(wal.latestClusterConfig())
+                                    .build())
+                                .build());
+                            mergePendingAt = -1;
+                        }
+                    }
+                }
+            }
+            default -> mergePendingAt = -1;
         }
     }
 
     private boolean isNotOpening() {
         Lifecycle state = lifecycle.get();
         return state != Open;
-    }
-
-    private boolean isCompatible(ClusterConfig config1, ClusterConfig config2) {
-        // both merger and mergee are not in config change process
-        Set<String> voterSet1 = new HashSet<>(config1.getVotersList());
-        Set<String> voterSet2 = new HashSet<>(config2.getVotersList());
-        Set<String> learnerSet1 = new HashSet<>(config1.getLearnersList());
-        Set<String> learnerSet2 = new HashSet<>(config2.getLearnersList());
-        return voterSet1.equals(voterSet2)
-            && learnerSet1.equals(learnerSet2)
-            && config1.getNextVotersList().isEmpty()
-            && config2.getNextVotersList().isEmpty()
-            && config1.getNextLearnersList().isEmpty()
-            && config2.getNextLearnersList().isEmpty();
     }
 
     private void handleMessage(KVRangeMessage message) {
@@ -1684,6 +2082,8 @@ public class KVRangeFSM implements IKVRangeFSM {
             case CANCELMERGINGREQUEST ->
                 handleCancelMergingRequest(message.getHostStoreId(), message.getCancelMergingRequest());
             case MERGEDONEREQUEST -> handleMergeDoneRequest(message.getHostStoreId(), message.getMergeDoneRequest());
+            case DATAMERGEREQUEST -> handleDataMergeRequest(message.getHostStoreId(), message.getDataMergeRequest());
+            case MERGEHELPREQUEST -> handleMergeHelpRequest(message.getHostStoreId(), message.getMergeHelpRequest());
             default -> {
                 // do nothing
             }
@@ -1697,67 +2097,48 @@ public class KVRangeFSM implements IKVRangeFSM {
     private void handleSnapshotSyncRequest(String follower, SnapshotSyncRequest request) {
         log.info("Dumping snapshot: session={}: follower={}\n{}",
             request.getSessionId(), follower, request.getSnapshot());
-        KVRangeDumpSession session = new KVRangeDumpSession(follower, request, kvRange, messenger,
-            Duration.ofSeconds(opts.getSnapshotSyncIdleTimeoutSec()),
-            opts.getSnapshotSyncBytesPerSec(), snapshotBandwidthGovernor, metricManager::reportDump, tags);
-        dumpSessions.put(session.id(), session);
-        session.awaitDone().whenComplete((result, e) -> {
-            switch (result) {
-                case OK -> log.info("Snapshot dumped: session={}, follower={}", session.id(), follower);
-                case Canceled -> log.info("Snapshot dump canceled: session={}, follower={}", session.id(), follower);
-                case NoCheckpoint -> {
-                    log.info("No checkpoint found, compact WAL now");
-                    compactWAL();
-                }
-                case Abort -> log.info("Snapshot dump aborted: session={}, follower={}", session.id(), follower);
-                case Error -> log.warn("Snapshot dump failed: session={}, follower={}", session.id(), follower);
-                default -> {
-                    // do nothing
-                }
-            }
-            dumpSessions.remove(session.id(), session);
-        });
+        startDumpSession(request.getSessionId(), request.getSnapshot(), request.getSnapshot().getId(), follower);
     }
 
     private void handlePrepareMergeToRequest(String peer, PrepareMergeToRequest request) {
         log.debug("Handle PrepareMergeTo request \n{}", request);
         // I'm the mergee
-        descriptorSubject.firstElement()
-            .timeout(5, TimeUnit.SECONDS)
-            .subscribe(rangeDescriptor ->
-                    wal.propose(KVRangeCommand.newBuilder()
-                            .setTaskId(request.getTaskId())
-                            .setVer(rangeDescriptor.getVer())
-                            .setPrepareMergeTo(PrepareMergeTo.newBuilder()
-                                .setMergerId(request.getId())
-                                .setMergerVer(request.getVer())
-                                .setBoundary(request.getBoundary())
-                                .setConfig(request.getConfig())
-                                .build())
-                            .build())
-                        .whenCompleteAsync((v, e) -> {
-                            if (e != null) {
-                                log.debug("Failed to propose command[PrepareMergeTo]: \n{}", request, e);
-                            } else {
-                                log.debug("Command[PrepareMergeTo] proposed: index={}\n{}", v, request);
-                            }
-                            messenger.send(KVRangeMessage.newBuilder()
-                                .setRangeId(request.getId())
-                                .setHostStoreId(peer)
-                                .setPrepareMergeToReply(PrepareMergeToReply.newBuilder()
-                                    .setTaskId(request.getTaskId())
-                                    .setAccept(e == null)
-                                    .build())
-                                .build());
-                        }, fsmExecutor),
-                e -> messenger.send(KVRangeMessage.newBuilder()
-                    .setRangeId(request.getId())
-                    .setHostStoreId(peer)
-                    .setPrepareMergeToReply(PrepareMergeToReply.newBuilder()
+        AtomicReference<Disposable> disposableRef = new AtomicReference<>();
+        disposables.add(descriptorSubject.firstElement()
+            .observeOn(Schedulers.from(mgmtExecutor))
+            .doOnSubscribe(disposableRef::set)
+            .doOnDispose(() -> {
+                Disposable disposable = disposableRef.get();
+                if (disposable != null) {
+                    disposables.delete(disposableRef.get());
+                }
+            })
+            .subscribe(latestDesc ->
+                wal.propose(KVRangeCommand.newBuilder()
                         .setTaskId(request.getTaskId())
-                        .setAccept(false)
+                        .setVer(latestDesc.getVer()) // use current fsm ver, may be mismatched when applied
+                        .setPrepareMergeTo(PrepareMergeTo.newBuilder()
+                            .setMergerId(request.getId())
+                            .setMergerVer(request.getVer())
+                            .setBoundary(request.getBoundary())
+                            .setConfig(request.getConfig())
+                            .build())
                         .build())
-                    .build()));
+                    .whenCompleteAsync((proposalIndex, e) -> {
+                        if (e != null) {
+                            log.debug("Failed to propose command[PrepareMergeTo]: \n{}", request, e);
+                        } else {
+                            log.debug("Command[PrepareMergeTo] proposed: index={}\n{}", proposalIndex, request);
+                        }
+                        messenger.send(KVRangeMessage.newBuilder()
+                            .setRangeId(request.getId())
+                            .setHostStoreId(peer)
+                            .setPrepareMergeToReply(PrepareMergeToReply.newBuilder()
+                                .setTaskId(request.getTaskId())
+                                .setAccept(e == null)
+                                .build())
+                            .build());
+                    }, fsmExecutor)));
     }
 
     private void handleMergeRequest(String peer, MergeRequest request) {
@@ -1770,6 +2151,7 @@ public class KVRangeFSM implements IKVRangeFSM {
                     .setMergeeVer(request.getMergeeVer())
                     .setBoundary(request.getBoundary())
                     .setStoreId(request.getStoreId())
+                    .setConfig(request.getConfig())
                     .build())
                 .build())
             .whenCompleteAsync((v, e) -> {
@@ -1840,6 +2222,97 @@ public class KVRangeFSM implements IKVRangeFSM {
             }, fsmExecutor);
     }
 
+    private void handleDataMergeRequest(String peer, DataMergeRequest request) {
+        log.debug("Handle DataMerge request: \n{}", request);
+        AtomicReference<Disposable> disposableRef = new AtomicReference<>();
+        disposables.add(descriptorSubject
+            .filter(desc -> desc.getState() == WaitingForMerge)
+            .firstElement()
+            .observeOn(Schedulers.from(mgmtExecutor))
+            .doOnSubscribe(disposableRef::set)
+            .doOnDispose(() -> {
+                Disposable disposable = disposableRef.get();
+                if (disposable != null) {
+                    disposables.delete(disposableRef.get());
+                }
+            })
+            .subscribe(desc -> {
+                KVRangeSnapshot checkpoint = kvRange.checkpoint();
+                startDumpSession(request.getSessionId(), checkpoint, request.getMergerId(), peer);
+            }));
+    }
+
+    private void handleMergeHelpRequest(String peer, MergeHelpRequest request) {
+        log.debug("Handle MergeHelp request: \n{}", request);
+        KVRangeId mergeeId = request.getMergeeId();
+        Boundary mergeeBoundary = request.getBoundary();
+        Boundary myBoundary = boundary();
+        ByteString myEndKey = endKey(myBoundary);
+        ByteString mergeeStartKey = startKey(mergeeBoundary);
+        // handle help request only when I'm in Normal state and the request is in same epoch
+        if (kvRange.state().getType() == Normal && mergeeId.getEpoch() == id.getEpoch()) {
+            if (Objects.equals(myEndKey, mergeeStartKey)) {
+                log.debug("help mergee cancel: mergeeId={}", KVRangeIdUtil.toString(request.getMergeeId()));
+                messenger.send(KVRangeMessage.newBuilder()
+                    .setRangeId(mergeeId)
+                    .setHostStoreId(peer)
+                    .setCancelMergingRequest(CancelMergingRequest.newBuilder()
+                        .setTaskId(request.getTaskId())
+                        .setVer(request.getVer())
+                        .setRequester(id)
+                        .build())
+                    .build());
+            } else if (BoundaryUtil.inRange(mergeeBoundary, myBoundary)) {
+                log.debug("help mergee finish: mergeeId={}", KVRangeIdUtil.toString(request.getMergeeId()));
+                messenger.send(KVRangeMessage.newBuilder()
+                    .setRangeId(mergeeId)
+                    .setHostStoreId(peer)
+                    .setMergeDoneRequest(MergeDoneRequest.newBuilder()
+                        .setId(id)
+                        .setTaskId(request.getTaskId())
+                        .setMergeeVer(request.getVer())
+                        .setStoreId(hostStoreId)
+                        .build())
+                    .build());
+            }
+        }
+    }
+
+    private void startDumpSession(String sessionId,
+                                  KVRangeSnapshot snapshot,
+                                  KVRangeId targetRangeId,
+                                  String targetStoreId) {
+        KVRangeDumpSession session = new KVRangeDumpSession(sessionId, snapshot, targetRangeId, targetStoreId,
+            kvRange, messenger, Duration.ofSeconds(opts.getSnapshotSyncIdleTimeoutSec()),
+            opts.getSnapshotSyncBytesPerSec(),
+            snapshotBandwidthGovernor,
+            bytes -> {
+                // reset merge timeout timer if there is a live data dump activity
+                if (kvRange.state().getType() == WaitingForMerge) {
+                    mergePendingAt = -1;
+                }
+                metricManager.reportDump(bytes);
+            }, tags);
+        dumpSessions.put(session.id(), session);
+        session.awaitDone().whenComplete((result, e) -> {
+            switch (result) {
+                case OK -> log.info("Snapshot dumped: session={}, follower={}", session.id(), targetStoreId);
+                case Canceled ->
+                    log.info("Snapshot dump canceled: session={}, follower={}", session.id(), targetStoreId);
+                case NoCheckpoint -> {
+                    log.info("No checkpoint found, compact WAL now");
+                    compactWAL();
+                }
+                case Abort -> log.info("Snapshot dump aborted: session={}, follower={}", session.id(), targetStoreId);
+                case Error -> log.warn("Snapshot dump failed: session={}, follower={}", session.id(), targetStoreId);
+                default -> {
+                    // do nothing
+                }
+            }
+            dumpSessions.remove(session.id(), session);
+        });
+    }
+
     private Any reset(Boundary boundary) {
         long startAt = System.nanoTime();
         long stamp = resetLock.writeLock();
@@ -1851,6 +2324,18 @@ public class KVRangeFSM implements IKVRangeFSM {
             queryReadySubject.onNext(true);
             log.debug("Reset coProc done, took {} ms", Duration.ofNanos(System.nanoTime() - startAt).toMillis());
         }
+    }
+
+    private enum TryMigrateResult {
+        SUCCESS_AFTER_RESET, SUCCESS, FAILED
+    }
+
+    private enum TryCancelMergingResult {
+        CANCELLED, ALREADY_MERGED
+    }
+
+    private enum TryConfirmMergedResult {
+        ALREADY_CANCELED, MERGED
     }
 
     enum Lifecycle {
@@ -1867,6 +2352,6 @@ public class KVRangeFSM implements IKVRangeFSM {
      * Callback for listening the quit signal which generated as the result of config change operation.
      */
     public interface QuitListener {
-        void onQuit(IKVRangeFSM rangeToQuit);
+        void onQuit(IKVRangeFSM rangeToQuit, boolean reset);
     }
 }

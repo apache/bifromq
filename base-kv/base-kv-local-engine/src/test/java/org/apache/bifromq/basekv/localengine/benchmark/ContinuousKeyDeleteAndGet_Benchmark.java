@@ -22,15 +22,15 @@ package org.apache.bifromq.basekv.localengine.benchmark;
 
 import static org.apache.bifromq.basekv.localengine.TestUtil.toByteString;
 
-import org.apache.bifromq.basekv.localengine.IKVSpace;
-import org.apache.bifromq.basekv.localengine.IKVSpaceIterator;
-import org.apache.bifromq.basekv.localengine.IKVSpaceWriter;
-import org.apache.bifromq.basekv.proto.Boundary;
 import com.google.protobuf.ByteString;
 import java.util.Optional;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.TimeUnit;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.bifromq.basekv.localengine.ICPableKVSpace;
+import org.apache.bifromq.basekv.localengine.IKVSpaceIterator;
+import org.apache.bifromq.basekv.localengine.IKVSpaceWriter;
+import org.apache.bifromq.basekv.proto.Boundary;
 import org.openjdk.jmh.annotations.Benchmark;
 import org.openjdk.jmh.annotations.BenchmarkMode;
 import org.openjdk.jmh.annotations.Group;
@@ -47,19 +47,9 @@ import org.openjdk.jmh.annotations.State;
 public class ContinuousKeyDeleteAndGet_Benchmark extends BenchmarkTemplate {
     private static int keyCount = 1000000;
     private ByteString key = ByteString.copyFromUtf8("key");
-    private IKVSpace kvSpace;
+    private ICPableKVSpace kvSpace;
     private IKVSpaceIterator itr;
     private String rangeId = "testRange";
-
-    @State(Scope.Thread)
-    public static class BenchmarkThreadState {
-        volatile int i = ThreadLocalRandom.current().nextInt(keyCount);
-
-        @Setup(Level.Invocation)
-        public void inc() {
-            i = ThreadLocalRandom.current().nextInt(keyCount);
-        }
-    }
 
     @Override
     protected void doSetup() {
@@ -89,5 +79,15 @@ public class ContinuousKeyDeleteAndGet_Benchmark extends BenchmarkTemplate {
     @OutputTimeUnit(TimeUnit.SECONDS)
     public Optional<ByteString> get(BenchmarkThreadState state) {
         return kvSpace.get(key.concat(toByteString(state.i)));
+    }
+
+    @State(Scope.Thread)
+    public static class BenchmarkThreadState {
+        volatile int i = ThreadLocalRandom.current().nextInt(keyCount);
+
+        @Setup(Level.Invocation)
+        public void inc() {
+            i = ThreadLocalRandom.current().nextInt(keyCount);
+        }
     }
 }

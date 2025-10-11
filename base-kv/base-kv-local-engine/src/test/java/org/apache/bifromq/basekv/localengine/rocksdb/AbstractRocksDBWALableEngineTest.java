@@ -19,23 +19,20 @@
 
 package org.apache.bifromq.basekv.localengine.rocksdb;
 
-import static org.apache.bifromq.basekv.localengine.rocksdb.AutoCleaner.autoRelease;
-import static org.awaitility.Awaitility.await;
 import static org.testng.Assert.assertEquals;
-import static org.testng.Assert.assertFalse;
 import static org.testng.Assert.assertTrue;
 
-import org.apache.bifromq.basekv.localengine.AbstractKVEngineTest;
-import org.apache.bifromq.basekv.localengine.IKVSpace;
-import org.apache.bifromq.basekv.localengine.TestUtil;
 import com.google.protobuf.ByteString;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.concurrent.atomic.AtomicBoolean;
 import lombok.SneakyThrows;
+import org.apache.bifromq.basekv.localengine.AbstractWALableEngineTest;
+import org.apache.bifromq.basekv.localengine.IKVSpace;
+import org.apache.bifromq.basekv.localengine.IWALableKVSpace;
+import org.apache.bifromq.basekv.localengine.TestUtil;
 import org.testng.annotations.Test;
 
-public abstract class AbstractRocksDBKVEngineTest extends AbstractKVEngineTest {
+public abstract class AbstractRocksDBWALableEngineTest extends AbstractWALableEngineTest {
     protected Path dbRootDir;
 
     @SneakyThrows
@@ -66,7 +63,7 @@ public abstract class AbstractRocksDBKVEngineTest extends AbstractKVEngineTest {
         ByteString metaValue = ByteString.copyFromUtf8("metaValue");
         ByteString key = ByteString.copyFromUtf8("key");
         ByteString value = ByteString.copyFromUtf8("value");
-        IKVSpace keyRange = engine.createIfMissing(rangeId);
+        IWALableKVSpace keyRange = engine.createIfMissing(rangeId);
         keyRange.toWriter().put(key, value).metadata(metaKey, metaValue).done();
         assertTrue(keyRange.metadata(metaKey).isPresent());
         assertTrue(keyRange.metadata().blockingFirst().containsKey(metaKey));
@@ -102,33 +99,12 @@ public abstract class AbstractRocksDBKVEngineTest extends AbstractKVEngineTest {
         String rangeId = "test_range1";
         ByteString key = ByteString.copyFromUtf8("key");
         ByteString value = ByteString.copyFromUtf8("value");
-        IKVSpace keyRange = engine.createIfMissing(rangeId);
+        IWALableKVSpace keyRange = engine.createIfMissing(rangeId);
         keyRange.toWriter().put(key, value).done();
         engine.stop();
         engine = newEngine();
         engine.start();
         keyRange = engine.createIfMissing(rangeId);
         assertTrue(keyRange.exist(key));
-    }
-
-    @Test
-    public void autoReleaseTest() {
-        Object owner = new Object();
-        class Closeable implements AutoCloseable {
-            AtomicBoolean closed = new AtomicBoolean();
-
-            @Override
-            public void close() {
-                closed.set(true);
-            }
-        }
-        Closeable closeable = autoRelease(new Closeable(), owner);
-        assertFalse(closeable.closed.get());
-
-        owner = null;
-        await().until(() -> {
-            System.gc();
-            return closeable.closed.get();
-        });
     }
 }

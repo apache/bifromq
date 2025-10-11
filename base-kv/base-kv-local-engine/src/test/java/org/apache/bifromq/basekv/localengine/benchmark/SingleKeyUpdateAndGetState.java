@@ -22,9 +22,9 @@ package org.apache.bifromq.basekv.localengine.benchmark;
 
 import static org.apache.bifromq.basekv.localengine.TestUtil.toByteStringNativeOrder;
 
-import org.apache.bifromq.basekv.localengine.IKVSpace;
 import com.google.protobuf.ByteString;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.bifromq.basekv.localengine.ICPableKVSpace;
 import org.openjdk.jmh.annotations.Scope;
 import org.openjdk.jmh.annotations.State;
 
@@ -32,9 +32,8 @@ import org.openjdk.jmh.annotations.State;
 @State(Scope.Group)
 public class SingleKeyUpdateAndGetState extends BenchmarkState {
     ByteString key = ByteString.copyFromUtf8("key");
+    ICPableKVSpace kvSpace;
     private String rangeId = "testRange";
-    IKVSpace kvSpace;
-
 
     @Override
     protected void afterSetup() {

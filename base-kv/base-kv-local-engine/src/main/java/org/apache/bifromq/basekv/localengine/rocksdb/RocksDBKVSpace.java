@@ -22,19 +22,16 @@ package org.apache.bifromq.basekv.localengine.rocksdb;
 import static com.google.protobuf.UnsafeByteOperations.unsafeWrap;
 import static io.reactivex.rxjava3.subjects.BehaviorSubject.createDefault;
 import static java.util.Collections.emptyMap;
-import static java.util.Collections.singletonList;
-import static org.apache.bifromq.basekv.localengine.IKVEngine.DEFAULT_NS;
 import static org.apache.bifromq.basekv.localengine.metrics.KVSpaceMeters.getCounter;
-import static org.apache.bifromq.basekv.localengine.metrics.KVSpaceMeters.getGauge;
 import static org.apache.bifromq.basekv.localengine.metrics.KVSpaceMeters.getTimer;
 import static org.apache.bifromq.basekv.localengine.rocksdb.Keys.META_SECTION_END;
 import static org.apache.bifromq.basekv.localengine.rocksdb.Keys.META_SECTION_START;
 import static org.apache.bifromq.basekv.localengine.rocksdb.Keys.fromMetaKey;
+import static org.apache.bifromq.basekv.localengine.rocksdb.RocksDBHelper.deleteDir;
 
 import com.google.common.collect.Maps;
 import com.google.protobuf.ByteString;
 import io.micrometer.core.instrument.Counter;
-import io.micrometer.core.instrument.Gauge;
 import io.micrometer.core.instrument.Metrics;
 import io.micrometer.core.instrument.Tags;
 import io.micrometer.core.instrument.Timer;
@@ -43,15 +40,8 @@ import io.reactivex.rxjava3.core.Observable;
 import io.reactivex.rxjava3.subjects.BehaviorSubject;
 import java.io.File;
 import java.io.IOException;
-import java.nio.file.FileVisitResult;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.SimpleFileVisitor;
-import java.nio.file.attribute.BasicFileAttributes;
-import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
-import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.ExecutorService;
@@ -63,20 +53,15 @@ import java.util.concurrent.atomic.AtomicReference;
 import lombok.SneakyThrows;
 import org.apache.bifromq.baseenv.EnvProvider;
 import org.apache.bifromq.basekv.localengine.IKVSpace;
-import org.apache.bifromq.basekv.localengine.IKVSpaceWriter;
+import org.apache.bifromq.basekv.localengine.IKVSpaceIterator;
 import org.apache.bifromq.basekv.localengine.ISyncContext;
 import org.apache.bifromq.basekv.localengine.KVEngineException;
 import org.apache.bifromq.basekv.localengine.KVSpaceDescriptor;
 import org.apache.bifromq.basekv.localengine.SyncContext;
 import org.apache.bifromq.basekv.localengine.metrics.KVSpaceOpMeters;
 import org.apache.bifromq.basekv.localengine.rocksdb.metrics.RocksDBKVSpaceMetric;
-import org.rocksdb.BlockBasedTableConfig;
-import org.rocksdb.ColumnFamilyDescriptor;
-import org.rocksdb.ColumnFamilyHandle;
+import org.apache.bifromq.basekv.proto.Boundary;
 import org.rocksdb.CompactRangeOptions;
-import org.rocksdb.DBOptions;
-import org.rocksdb.RocksDB;
-import org.rocksdb.RocksDBException;
 import org.rocksdb.WriteOptions;
 import org.slf4j.Logger;
 
@@ -87,21 +72,19 @@ abstract class RocksDBKVSpace<
     >
     extends RocksDBKVSpaceReader implements IKVSpace {
 
-    protected final RocksDB db;
-    protected final ColumnFamilyHandle cfHandle;
+    protected final C configurator;
+    protected final E engine;
+    protected final ISyncContext syncContext = new SyncContext();
+    protected final IWriteStatsRecorder writeStats;
+    protected final Tags tags;
     private final AtomicReference<State> state = new AtomicReference<>(State.Init);
     private final File keySpaceDBDir;
-    private final DBOptions dbOptions;
-    private final ColumnFamilyDescriptor cfDesc;
-    private final IWriteStatsRecorder writeStats;
     private final ExecutorService compactionExecutor;
-    private final E engine;
     private final Runnable onDestroy;
     private final AtomicBoolean compacting = new AtomicBoolean(false);
     private final BehaviorSubject<Map<ByteString, ByteString>> metadataSubject = createDefault(emptyMap());
-    private final ISyncContext syncContext = new SyncContext();
     private final ISyncContext.IRefresher metadataRefresher = syncContext.refresher();
-    private final SpaceMetrics spaceMetrics;
+    private SpaceMetrics spaceMetrics;
     private volatile long lastCompactAt;
     private volatile long nextCompactAt;
 
@@ -114,54 +97,31 @@ abstract class RocksDBKVSpace<
                           Logger logger,
                           String... tags) {
         super(id, opMeters, logger);
+        this.configurator = configurator;
         this.onDestroy = onDestroy;
-        this.writeStats = configurator.heuristicCompaction() ? new RocksDBKVSpaceCompactionTrigger(id,
-            configurator.compactMinTombstoneKeys(),
-            configurator.compactMinTombstoneRanges(),
-            configurator.compactTombstoneKeysRatio(),
-            this::scheduleCompact, tags) : NoopWriteStatsRecorder.INSTANCE;
         this.engine = engine;
         compactionExecutor = ExecutorServiceMetrics.monitor(Metrics.globalRegistry, new ThreadPoolExecutor(1, 1,
                 0L, TimeUnit.MILLISECONDS, new LinkedBlockingQueue<>(),
                 EnvProvider.INSTANCE.newThreadFactory("kvspace-compactor-" + id)),
             "compactor", "kvspace", Tags.of(tags));
-        dbOptions = configurator.dbOptions();
+        this.writeStats = configurator.heuristicCompaction() ? new RocksDBKVSpaceCompactionTrigger(id,
+            configurator.compactMinTombstoneKeys(),
+            configurator.compactMinTombstoneRanges(),
+            configurator.compactTombstoneKeysRatio(),
+            this::scheduleCompact, tags) : NoopWriteStatsRecorder.INSTANCE;
         keySpaceDBDir = new File(configurator.dbRootDir(), id);
-        try {
-            Files.createDirectories(keySpaceDBDir.getAbsoluteFile().toPath());
-            cfDesc = new ColumnFamilyDescriptor(DEFAULT_NS.getBytes(), configurator.cfOptions(DEFAULT_NS));
-            List<ColumnFamilyDescriptor> cfDescs = singletonList(cfDesc);
-            List<ColumnFamilyHandle> cfHandles = new ArrayList<>();
-            db = RocksDB.open(dbOptions, keySpaceDBDir.getAbsolutePath(), cfDescs, cfHandles);
-            assert cfHandles.size() == 1;
-            cfHandle = cfHandles.get(0);
-        } catch (Throwable e) {
-            throw new KVEngineException("Failed to initialize RocksDBKVSpace", e);
-        }
-        spaceMetrics = new SpaceMetrics(Tags.of(tags).and("spaceId", id));
-    }
-
-    protected static void deleteDir(Path path) throws IOException {
-        Files.walkFileTree(path, new SimpleFileVisitor<>() {
-            @Override
-            public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) throws IOException {
-                Files.delete(file);
-                return FileVisitResult.CONTINUE;
-            }
-
-            @Override
-            public FileVisitResult postVisitDirectory(Path dir, IOException exc) throws IOException {
-                Files.delete(dir);
-                return FileVisitResult.CONTINUE;
-            }
-        });
+        this.tags = Tags.of(tags).and("spaceId", id);
     }
 
     public void open() {
         if (state.compareAndSet(State.Init, State.Opening)) {
-            doLoad();
+            doOpen();
+            spaceMetrics = new SpaceMetrics(tags);
+            reloadMetadata();
         }
     }
+
+    protected abstract void doOpen();
 
     public Observable<Map<ByteString, ByteString>> metadata() {
         return metadataSubject;
@@ -188,24 +148,23 @@ abstract class RocksDBKVSpace<
         return stats;
     }
 
-    protected void doLoad() {
-        metadataRefresher.runIfNeeded(() -> {
-            try (RocksDBKVEngineIterator metaItr =
-                     new RocksDBKVEngineIterator(db, cfHandle, null, META_SECTION_START, META_SECTION_END)) {
-                Map<ByteString, ByteString> metaMap = new HashMap<>();
-                for (metaItr.seekToFirst(); metaItr.isValid(); metaItr.next()) {
-                    metaMap.put(fromMetaKey(metaItr.key()), unsafeWrap(metaItr.value()));
-                }
-                metadataSubject.onNext(Collections.unmodifiableMap(metaMap));
+    // Load metadata from DB and publish, without refresher gating
+    protected void reloadMetadata() {
+        try (RocksDBKVEngineIterator metaItr =
+                 new RocksDBKVEngineIterator(handle(), null, META_SECTION_START, META_SECTION_END)) {
+            Map<ByteString, ByteString> metaMap = new HashMap<>();
+            for (metaItr.seekToFirst(); metaItr.isValid(); metaItr.next()) {
+                metaMap.put(fromMetaKey(metaItr.key()), unsafeWrap(metaItr.value()));
             }
-        });
+            metadataSubject.onNext(Collections.unmodifiableMap(metaMap));
+        }
     }
 
-    private void updateMetadata(Map<ByteString, ByteString> metadataUpdates) {
-        metadataRefresher.runIfNeeded(() -> {
-            if (metadataUpdates.isEmpty()) {
-                return;
-            }
+    protected void updateMetadata(Map<ByteString, ByteString> metadataUpdates) {
+        if (metadataUpdates.isEmpty()) {
+            return;
+        }
+        metadataRefresher.runIfNeeded((genBumped) -> {
             Map<ByteString, ByteString> metaMap = Maps.newHashMap(metadataSubject.getValue());
             metaMap.putAll(metadataUpdates);
             metadataSubject.onNext(Collections.unmodifiableMap(metaMap));
@@ -226,12 +185,6 @@ abstract class RocksDBKVSpace<
         }
     }
 
-    @Override
-    public IKVSpaceWriter toWriter() {
-        return new RocksDBKVSpaceWriter<>(id, db, cfHandle, engine, writeOptions(), syncContext,
-            writeStats.newRecorder(), this::updateMetadata, opMeters, logger);
-    }
-
     public void close() {
         if (state.compareAndSet(State.Opening, State.Closing)) {
             try {
@@ -248,43 +201,41 @@ abstract class RocksDBKVSpace<
 
     protected void doClose() {
         logger.debug("Close key range[{}]", id);
-        spaceMetrics.close();
-        synchronized (compacting) {
-            db.destroyColumnFamilyHandle(cfHandle);
+        if (spaceMetrics != null) {
+            spaceMetrics.close();
         }
-        cfDesc.getOptions().close();
-        try {
-            db.syncWal();
-        } catch (RocksDBException e) {
-            logger.error("SyncWAL RocksDBKVSpace[{}] error", id, e);
-        }
-        db.close();
-        dbOptions.close();
         metadataSubject.onComplete();
     }
 
     protected void doDestroy() {
         doClose();
+        // Destroy the whole space root directory, including pointer file and all generations.
         try {
-            deleteDir(keySpaceDBDir.toPath());
+            if (keySpaceDBDir.exists()) {
+                deleteDir(keySpaceDBDir.toPath());
+            }
         } catch (IOException e) {
-            logger.error("Failed to delete key range dir: {}", keySpaceDBDir, e);
+            logger.error("Failed to delete space root dir: {}", keySpaceDBDir, e);
         }
-    }
-
-    @Override
-    protected RocksDB db() {
-        return db;
-    }
-
-    @Override
-    protected ColumnFamilyHandle cfHandle() {
-        return cfHandle;
     }
 
     @Override
     protected ISyncContext.IRefresher newRefresher() {
         return syncContext.refresher();
+    }
+
+    @Override
+    protected IKVSpaceIterator doNewIterator() {
+        return new RocksDBKVSpaceIterator(this::handle, Boundary.getDefaultInstance(), newRefresher());
+    }
+
+    @Override
+    protected IKVSpaceIterator doNewIterator(Boundary subBoundary) {
+        return new RocksDBKVSpaceIterator(this::handle, subBoundary, newRefresher());
+    }
+
+    protected File spaceRootDir() {
+        return keySpaceDBDir;
     }
 
     private void scheduleCompact() {
@@ -302,7 +253,8 @@ abstract class RocksDBKVSpace<
                     .setExclusiveManualCompaction(false)) {
                     synchronized (compacting) {
                         if (state.get() == State.Opening) {
-                            db.compactRange(cfHandle, null, null, options);
+                            IKVSpaceDBInstance handle = handle();
+                            handle.db().compactRange(handle.cf(), null, null, options);
                         }
                     }
                     logger.debug("KeyRange[{}] compacted", id);
@@ -325,61 +277,15 @@ abstract class RocksDBKVSpace<
     }
 
     private class SpaceMetrics {
-        private final Gauge blockCacheSizeGauge;
-        private final Gauge tableReaderSizeGauge;
-        private final Gauge memtableSizeGauges;
-        private final Gauge pinedMemorySizeGauges;
         private final Counter compactionSchedCounter;
         private final Timer compactionTimer;
 
         SpaceMetrics(Tags metricTags) {
             compactionSchedCounter = getCounter(id, RocksDBKVSpaceMetric.CompactionCounter, metricTags);
             compactionTimer = getTimer(id, RocksDBKVSpaceMetric.CompactionTimer, metricTags);
-            blockCacheSizeGauge = getGauge(id, RocksDBKVSpaceMetric.BlockCache, () -> {
-                try {
-                    if (!((BlockBasedTableConfig) cfDesc.getOptions().tableFormatConfig()).noBlockCache()) {
-                        return db.getLongProperty(cfHandle, "rocksdb.block-cache-usage");
-                    }
-                    return 0;
-                } catch (RocksDBException e) {
-                    logger.warn("Unable to get long property {}", "rocksdb.block-cache-usage", e);
-                    return 0;
-                }
-            }, metricTags);
-            tableReaderSizeGauge = getGauge(id, RocksDBKVSpaceMetric.TableReader, () -> {
-                try {
-                    return db.getLongProperty(cfHandle, "rocksdb.estimate-table-readers-mem");
-                } catch (RocksDBException e) {
-                    logger.warn("Unable to get long property {}", "rocksdb.estimate-table-readers-mem", e);
-                    return 0;
-                }
-            }, metricTags);
-            memtableSizeGauges = getGauge(id, RocksDBKVSpaceMetric.MemTable, () -> {
-                try {
-                    return db.getLongProperty(cfHandle, "rocksdb.cur-size-all-mem-tables");
-                } catch (RocksDBException e) {
-                    logger.warn("Unable to get long property {}", "rocksdb.cur-size-all-mem-tables", e);
-                    return 0;
-                }
-            }, metricTags);
-            pinedMemorySizeGauges = getGauge(id, RocksDBKVSpaceMetric.PinnedMem, () -> {
-                try {
-                    if (!((BlockBasedTableConfig) cfDesc.getOptions().tableFormatConfig()).noBlockCache()) {
-                        return db.getLongProperty(cfHandle, "rocksdb.block-cache-pinned-usage");
-                    }
-                    return 0;
-                } catch (RocksDBException e) {
-                    logger.warn("Unable to get long property {}", "rocksdb.block-cache-pinned-usage", e);
-                    return 0;
-                }
-            }, metricTags);
         }
 
         void close() {
-            blockCacheSizeGauge.close();
-            memtableSizeGauges.close();
-            tableReaderSizeGauge.close();
-            pinedMemorySizeGauges.close();
             compactionSchedCounter.close();
             compactionTimer.close();
         }

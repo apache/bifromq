@@ -14,21 +14,26 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 
 package org.apache.bifromq.basekv.store.range;
 
+import com.google.protobuf.ByteString;
 import org.apache.bifromq.basekv.localengine.IKVSpaceWriter;
 import org.apache.bifromq.basekv.proto.Boundary;
 import org.apache.bifromq.basekv.store.api.IKVWriter;
-import com.google.protobuf.ByteString;
 
 public class KVWriter implements IKVWriter {
     private final IKVSpaceWriter writer;
 
     public KVWriter(IKVSpaceWriter writer) {
         this.writer = writer;
+    }
+
+    @Override
+    public void reset() {
+        writer.reset();
     }
 
     @Override

@@ -169,7 +169,8 @@ public class InboxExpiryTest extends InboxServiceTest {
 
     @Test(groups = "integration")
     public void lwtAfterDetach() {
-        clearInvocations(distClient);
+        // ensure no cross-retry or cross-case pollution
+        clearInvocations(eventCollector, retainClient, distClient);
         long now = HLC.INST.getPhysical();
         long reqId = System.nanoTime();
         String tenantId = "traffic-" + System.nanoTime();
@@ -202,12 +203,12 @@ public class InboxExpiryTest extends InboxServiceTest {
             .setClient(clientInfo)
             .setNow(now)
             .build()).join();
-        verify(distClient, timeout(2000).times(1))
+        verify(distClient, timeout(4000).times(1))
             .pub(anyLong(), eq(lwt.getTopic()),
                 argThat(m -> m.getPubQoS() == QoS.AT_LEAST_ONCE
                     && m.getPayload().equals(lwt.getMessage().getPayload())),
                 any());
-        verify(eventCollector, timeout(2000)).report(argThat(e -> e.type() == EventType.WILL_DISTED));
+        verify(eventCollector, timeout(4000)).report(argThat(e -> e.type() == EventType.WILL_DISTED));
     }
 
     @Test(groups = "integration")

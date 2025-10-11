@@ -148,6 +148,7 @@ public class CommandUtil {
                                 .kvRangeId(currentRangeLeader.descriptor().getId())
                                 .expectedVer(currentRangeLeader.descriptor().getVer())
                                 .mergeeId(nextRangeLeader.descriptor().getId())
+                                .voters(setOf(nextRangeLeader.descriptor().getConfig().getVotersList()))
                                 .build();
                         } else {
                             // align mergee layout with merger layout

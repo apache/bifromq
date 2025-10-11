@@ -14,25 +14,47 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 
 package org.apache.bifromq.basekv.store;
 
+import static com.google.protobuf.ByteString.copyFromUtf8;
+import static java.util.Collections.emptyMap;
+import static java.util.Collections.emptySet;
 import static org.apache.bifromq.basekv.proto.State.StateType.Merged;
 import static org.apache.bifromq.basekv.proto.State.StateType.Normal;
 import static org.apache.bifromq.basekv.utils.BoundaryUtil.FULL_BOUNDARY;
 import static org.apache.bifromq.basekv.utils.BoundaryUtil.NULL_BOUNDARY;
 import static org.apache.bifromq.basekv.utils.BoundaryUtil.combine;
-import static com.google.protobuf.ByteString.copyFromUtf8;
-import static java.util.Collections.emptyMap;
-import static java.util.Collections.emptySet;
 import static org.awaitility.Awaitility.await;
 import static org.testng.Assert.assertEquals;
 import static org.testng.Assert.assertFalse;
 import static org.testng.Assert.assertTrue;
 import static org.testng.Assert.fail;
 
+import com.google.common.collect.Sets;
+import com.google.protobuf.ByteString;
+import io.reactivex.rxjava3.core.Observable;
+import io.reactivex.rxjava3.subjects.PublishSubject;
+import java.io.File;
+import java.io.IOException;
+import java.lang.reflect.Method;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.time.Duration;
+import java.util.Comparator;
+import java.util.List;
+import java.util.Optional;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.LinkedTransferQueue;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledThreadPoolExecutor;
+import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
+import lombok.SneakyThrows;
+import lombok.extern.slf4j.Slf4j;
 import org.apache.bifromq.baseenv.EnvProvider;
 import org.apache.bifromq.basekv.MockableTest;
 import org.apache.bifromq.basekv.TestCoProcFactory;
@@ -55,27 +77,6 @@ import org.apache.bifromq.basekv.store.proto.ROCoProcInput;
 import org.apache.bifromq.basekv.store.proto.RWCoProcInput;
 import org.apache.bifromq.basekv.store.util.VerUtil;
 import org.apache.bifromq.basekv.utils.KVRangeIdUtil;
-import com.google.protobuf.ByteString;
-import io.reactivex.rxjava3.core.Observable;
-import io.reactivex.rxjava3.subjects.PublishSubject;
-import java.io.File;
-import java.io.IOException;
-import java.lang.reflect.Method;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.Paths;
-import java.time.Duration;
-import java.util.Comparator;
-import java.util.List;
-import java.util.Optional;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.LinkedTransferQueue;
-import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.ScheduledThreadPoolExecutor;
-import java.util.concurrent.ThreadPoolExecutor;
-import java.util.concurrent.TimeUnit;
-import lombok.SneakyThrows;
-import lombok.extern.slf4j.Slf4j;
 import org.testng.annotations.Test;
 
 @Slf4j
@@ -476,12 +477,13 @@ public class KVRangeStoreTest extends MockableTest {
             }
         );
         log.info("{}", storeDescriptor);
-        KVRangeDescriptor merger = storeDescriptor.getRangesList().get(0).getId().equals(id) ?
-            storeDescriptor.getRangesList().get(0) : storeDescriptor.getRangesList().get(1);
-        KVRangeDescriptor mergee = storeDescriptor.getRangesList().get(1).getId().equals(id) ?
-            storeDescriptor.getRangesList().get(0) : storeDescriptor.getRangesList().get(1);
+        KVRangeDescriptor merger = storeDescriptor.getRangesList().get(0).getId().equals(id)
+            ? storeDescriptor.getRangesList().get(0) : storeDescriptor.getRangesList().get(1);
+        KVRangeDescriptor mergee = storeDescriptor.getRangesList().get(1).getId().equals(id)
+            ? storeDescriptor.getRangesList().get(0) : storeDescriptor.getRangesList().get(1);
         log.info("Start Merging");
-        rangeStore.merge(merger.getVer(), merger.getId(), mergee.getId()).toCompletableFuture().join();
+        rangeStore.merge(merger.getVer(), merger.getId(), mergee.getId(),
+            Sets.newHashSet(mergee.getConfig().getVotersList())).toCompletableFuture().join();
         KVRangeDescriptor mergeeDesc = await().atMost(Duration.ofSeconds(10000)).until(() ->
                 rangeStore.describe()
                     .flatMap(sd -> Observable.fromIterable(sd.getRangesList()))

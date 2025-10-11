@@ -54,6 +54,8 @@ public class KVRangeOptions {
     @Builder.Default
     private int zombieTimeoutSec = 60; // 1min
     @Builder.Default
+    private int mergeTimeoutSec = 60; // 1min
+    @Builder.Default
     private RaftConfig walRaftConfig = new RaftConfig()
         .setPreVote(true)
         .setHeartbeatTimeoutTick(5) // 500ms

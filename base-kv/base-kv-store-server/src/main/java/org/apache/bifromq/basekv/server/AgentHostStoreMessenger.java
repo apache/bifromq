@@ -23,6 +23,9 @@ import static org.apache.bifromq.basekv.Constants.toBaseKVAgentId;
 
 import com.google.protobuf.InvalidProtocolBufferException;
 import io.reactivex.rxjava3.core.Observable;
+import io.reactivex.rxjava3.disposables.CompositeDisposable;
+import io.reactivex.rxjava3.subjects.PublishSubject;
+import io.reactivex.rxjava3.subjects.Subject;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicBoolean;
 import org.apache.bifromq.basecluster.IAgentHost;
@@ -41,8 +44,10 @@ class AgentHostStoreMessenger implements IStoreMessenger {
     private final IAgentHost agentHost;
     private final IAgent agent;
     private final IAgentMember agentMember;
+    private final Subject<StoreMessage> receiveSubject = PublishSubject.<StoreMessage>create().toSerialized();
     private final String clusterId;
     private final String storeId;
+    private final CompositeDisposable disposables = new CompositeDisposable();
 
     AgentHostStoreMessenger(IAgentHost agentHost, String clusterId, String storeId) {
         this.agentHost = agentHost;
@@ -51,24 +56,7 @@ class AgentHostStoreMessenger implements IStoreMessenger {
         this.agent = agentHost.host(toBaseKVAgentId(clusterId));
         this.agentMember = agent.register(storeId);
         log = MDCLogger.getLogger(AgentHostStoreMessenger.class, "clusterId", clusterId, "storeId", storeId);
-    }
-
-    static String agentId(String clusterId) {
-        return "BaseKV:" + clusterId;
-    }
-
-    @Override
-    public void send(StoreMessage message) {
-        if (message.getPayload().hasHostStoreId()) {
-            agentMember.multicast(message.getPayload().getHostStoreId(), message.toByteString(), true);
-        } else {
-            agentMember.broadcast(message.toByteString(), true);
-        }
-    }
-
-    @Override
-    public Observable<StoreMessage> receive() {
-        return agentMember.receive()
+        disposables.add(agentMember.receive()
             .mapOptional(agentMessage -> {
                 try {
                     StoreMessage message = ZeroCopyParser.parse(agentMessage.getPayload(), StoreMessage.parser());
@@ -84,12 +72,36 @@ class AgentHostStoreMessenger implements IStoreMessenger {
                     log.warn("Unable to parse store message", e);
                     return Optional.empty();
                 }
-            });
+            }).subscribe(receiveSubject::onNext));
+    }
+
+    static String agentId(String clusterId) {
+        return "BaseKV:" + clusterId;
+    }
+
+    @Override
+    public void send(StoreMessage message) {
+        if (message.getPayload().hasHostStoreId()) {
+            if (message.getPayload().getHostStoreId().equals(storeId)) {
+                receiveSubject.onNext(message);
+                return;
+            }
+            agentMember.multicast(message.getPayload().getHostStoreId(), message.toByteString(), true);
+        } else {
+            agentMember.broadcast(message.toByteString(), true);
+        }
+    }
+
+    @Override
+    public Observable<StoreMessage> receive() {
+        return receiveSubject;
     }
 
     @Override
     public void close() {
         if (stopped.compareAndSet(false, true)) {
+            disposables.dispose();
+            receiveSubject.onComplete();
             agent.deregister(agentMember).join();
         }
     }

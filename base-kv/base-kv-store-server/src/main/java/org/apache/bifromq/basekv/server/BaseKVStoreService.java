@@ -52,6 +52,8 @@ import org.apache.bifromq.basekv.store.proto.RecoverRequest;
 import org.apache.bifromq.basekv.store.proto.ReplyCode;
 import org.apache.bifromq.basekv.store.proto.TransferLeadershipReply;
 import org.apache.bifromq.basekv.store.proto.TransferLeadershipRequest;
+import org.apache.bifromq.basekv.store.proto.ZombieQuitReply;
+import org.apache.bifromq.basekv.store.proto.ZombieQuitRequest;
 import org.apache.bifromq.basekv.utils.KVRangeIdUtil;
 import org.apache.bifromq.logger.MDCLogger;
 import org.slf4j.Logger;
@@ -151,6 +153,22 @@ class BaseKVStoreService extends BaseKVStoreServiceGrpc.BaseKVStoreServiceImplBa
     }
 
     @Override
+    public void zombieQuit(ZombieQuitRequest request, StreamObserver<ZombieQuitReply> responseObserver) {
+        response(tenantId -> kvRangeStore.quit(request.getKvRangeId())
+            .thenApply(result -> ZombieQuitReply.newBuilder()
+                .setReqId(request.getReqId())
+                .setResult(ZombieQuitReply.Result.Ok)
+                .setQuit(result)
+                .build())
+            .exceptionally(e -> ZombieQuitReply.newBuilder()
+                .setReqId(request.getReqId())
+                .setResult(e instanceof KVRangeStoreException
+                    ? ZombieQuitReply.Result.NotFound : ZombieQuitReply.Result.Error)
+                .build())
+            .handle((v, e) -> ZombieQuitReply.newBuilder().setReqId(request.getReqId()).build()), responseObserver);
+    }
+
+    @Override
     public void transferLeadership(TransferLeadershipRequest request,
                                    StreamObserver<TransferLeadershipReply> responseObserver) {
         response(tenantId -> kvRangeStore.transferLeadership(request.getVer(), request.getKvRangeId(),
@@ -232,7 +250,8 @@ class BaseKVStoreService extends BaseKVStoreServiceGrpc.BaseKVStoreServiceImplBa
 
     @Override
     public void merge(KVRangeMergeRequest request, StreamObserver<KVRangeMergeReply> responseObserver) {
-        response(tenantId -> kvRangeStore.merge(request.getVer(), request.getMergerId(), request.getMergeeId())
+        response(tenantId -> kvRangeStore.merge(request.getVer(),
+                request.getMergerId(), request.getMergeeId(), Sets.newHashSet(request.getMergeeVotersList()))
             .thenApply(result -> KVRangeMergeReply.newBuilder()
                 .setReqId(request.getReqId())
                 .setCode(ReplyCode.Ok)
@@ -271,7 +290,8 @@ class BaseKVStoreService extends BaseKVStoreServiceGrpc.BaseKVStoreServiceImplBa
     }
 
     private ReplyCode convertKVRangeException(Throwable e) {
-        if (e instanceof KVRangeException.BadVersion) {
+        if (e instanceof KVRangeStoreException.KVRangeNotFoundException
+            || e instanceof KVRangeException.BadVersion) {
             return ReplyCode.BadVersion;
         }
         if (e instanceof KVRangeException.TryLater) {

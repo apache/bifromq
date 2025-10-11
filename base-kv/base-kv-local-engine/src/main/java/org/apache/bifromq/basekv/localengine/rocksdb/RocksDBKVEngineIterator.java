@@ -21,9 +21,7 @@ package org.apache.bifromq.basekv.localengine.rocksdb;
 
 import java.lang.ref.Cleaner;
 import org.apache.bifromq.basekv.localengine.KVEngineException;
-import org.rocksdb.ColumnFamilyHandle;
 import org.rocksdb.ReadOptions;
-import org.rocksdb.RocksDB;
 import org.rocksdb.RocksIterator;
 import org.rocksdb.Slice;
 import org.rocksdb.Snapshot;
@@ -32,21 +30,15 @@ class RocksDBKVEngineIterator implements AutoCloseable {
     private static final Cleaner CLEANER = Cleaner.create();
     private final RocksIterator rocksIterator;
     private final Cleaner.Cleanable onClose;
+    // keep a strong reference to dbHandle to prevent it from being closed before iterator
+    private final IKVSpaceDBInstance dbHandle;
 
-    RocksDBKVEngineIterator(RocksDB db,
-                            ColumnFamilyHandle cfHandle,
-                            Snapshot snapshot,
-                            byte[] startKey,
-                            byte[] endKey) {
-        this(db, cfHandle, snapshot, startKey, endKey, true);
+    RocksDBKVEngineIterator(IKVSpaceDBInstance dbHandle, Snapshot snapshot, byte[] startKey, byte[] endKey) {
+        this(dbHandle, snapshot, startKey, endKey, true);
     }
 
-    RocksDBKVEngineIterator(RocksDB db,
-                            ColumnFamilyHandle cfHandle,
-                            Snapshot snapshot,
-                            byte[] startKey,
-                            byte[] endKey,
-                            boolean fillCache) {
+    RocksDBKVEngineIterator(IKVSpaceDBInstance dbHandle, Snapshot snapshot, byte[] startKey, byte[] endKey, boolean fillCache) {
+        this.dbHandle = dbHandle;
         ReadOptions readOptions = new ReadOptions().setPinData(true).setFillCache(fillCache);
         Slice lowerSlice = null;
         if (startKey != null) {
@@ -61,7 +53,7 @@ class RocksDBKVEngineIterator implements AutoCloseable {
         if (snapshot != null) {
             readOptions.setSnapshot(snapshot);
         }
-        rocksIterator = db.newIterator(cfHandle, readOptions);
+        rocksIterator = dbHandle.db().newIterator(dbHandle.cf(), readOptions);
         onClose = CLEANER.register(this, new NativeState(rocksIterator, readOptions, lowerSlice, upperSlice));
 
     }

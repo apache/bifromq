@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 
 package org.apache.bifromq.basekv.localengine;
@@ -26,11 +26,23 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.function.Supplier;
 
 public class SyncContext implements ISyncContext {
-    private final AtomicLong stateModVer = new AtomicLong();
+    private final AtomicLong stateGenVer = new AtomicLong(0);
+    private final AtomicLong stateModVer = new AtomicLong(0);
     private final ReadWriteLock rwLock = new ReentrantReadWriteLock();
+
+    @Override
+    public IRefresher refresher() {
+        return new Refresher();
+    }
+
+    @Override
+    public IMutator mutator() {
+        return new Mutator();
+    }
 
     private class Refresher implements IRefresher {
         private final Lock rLock;
+        private long genVer = 0;
         private long readVer = -1;
 
         Refresher() {
@@ -38,14 +50,16 @@ public class SyncContext implements ISyncContext {
         }
 
         @Override
-        public void runIfNeeded(Runnable refresh) {
+        public void runIfNeeded(IRefresh refresh) {
             rLock.lock();
             try {
-                if (readVer == stateModVer.get()) {
+                boolean sameGen = genVer == stateGenVer.get();
+                if (sameGen && readVer == stateModVer.get()) {
                     return;
                 }
+                genVer = stateGenVer.get();
                 readVer = stateModVer.get();
-                refresh.run();
+                refresh.refresh(!sameGen);
             } finally {
                 rLock.unlock();
             }
@@ -70,24 +84,20 @@ public class SyncContext implements ISyncContext {
         }
 
         @Override
-        public void run(Runnable mutation) {
+        public boolean run(IMutation mutation) {
             wLock.lock();
             try {
-                mutation.run();
-                stateModVer.incrementAndGet();
+                boolean genBumped = mutation.mutate();
+                if (genBumped) {
+                    stateGenVer.incrementAndGet();
+                    stateModVer.set(0);
+                } else {
+                    stateModVer.incrementAndGet();
+                }
+                return genBumped;
             } finally {
                 wLock.unlock();
             }
         }
-    }
-
-    @Override
-    public IRefresher refresher() {
-        return new Refresher();
-    }
-
-    @Override
-    public IMutator mutator() {
-        return new Mutator();
     }
 }

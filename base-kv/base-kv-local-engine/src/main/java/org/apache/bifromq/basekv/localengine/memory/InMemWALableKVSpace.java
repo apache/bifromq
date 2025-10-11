@@ -19,9 +19,10 @@
 
 package org.apache.bifromq.basekv.localengine.memory;
 
+import java.util.concurrent.CompletableFuture;
+import org.apache.bifromq.basekv.localengine.IKVSpaceWriter;
 import org.apache.bifromq.basekv.localengine.IWALableKVSpace;
 import org.apache.bifromq.basekv.localengine.metrics.KVSpaceOpMeters;
-import java.util.concurrent.CompletableFuture;
 import org.slf4j.Logger;
 
 public class InMemWALableKVSpace extends InMemKVSpace<InMemWALableKVEngine, InMemWALableKVSpace>
@@ -38,5 +39,15 @@ public class InMemWALableKVSpace extends InMemKVSpace<InMemWALableKVEngine, InMe
     @Override
     public CompletableFuture<Long> flush() {
         return CompletableFuture.completedFuture(System.nanoTime());
+    }
+
+    @Override
+    public IKVSpaceWriter toWriter() {
+        return new InMemKVSpaceWriter<>(id, metadataMap, rangeData, engine, syncContext,
+            metadataUpdated -> {
+                if (metadataUpdated) {
+                    this.loadMetadata();
+                }
+            }, opMeters, logger);
     }
 }

@@ -46,11 +46,4 @@ public interface IKVSpace extends IKVSpaceReader {
      * will transit to destroyed state.
      */
     void destroy();
-
-    /**
-     * Get a writer to update range state.
-     *
-     * @return the writer object
-     */
-    IKVSpaceWriter toWriter();
 }

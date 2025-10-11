@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 
 package org.apache.bifromq.basekv.store.range;
@@ -24,14 +24,14 @@ import static org.testng.Assert.assertEquals;
 import static org.testng.Assert.assertNull;
 import static org.testng.Assert.fail;
 
+import io.reactivex.rxjava3.core.Maybe;
+import java.util.concurrent.TimeUnit;
 import org.apache.bifromq.basekv.localengine.ICPableKVSpace;
 import org.apache.bifromq.basekv.proto.KVRangeId;
 import org.apache.bifromq.basekv.proto.KVRangeSnapshot;
 import org.apache.bifromq.basekv.proto.State;
 import org.apache.bifromq.basekv.raft.proto.ClusterConfig;
 import org.apache.bifromq.basekv.utils.KVRangeIdUtil;
-import io.reactivex.rxjava3.core.Maybe;
-import java.util.concurrent.TimeUnit;
 import org.testng.annotations.Test;
 
 public class KVRangeMetadataTest extends AbstractKVRangeTest {
@@ -58,7 +58,9 @@ public class KVRangeMetadataTest extends AbstractKVRangeTest {
             .setClusterConfig(initConfig)
             .build();
         ICPableKVSpace keyRange = kvEngine.createIfMissing(KVRangeIdUtil.toString(snapshot.getId()));
-        IKVRange accessor = new KVRange(snapshot.getId(), keyRange).toReseter(snapshot).done();
+        IKVRange accessor = new KVRange(snapshot.getId(), keyRange);
+        IKVRangeRestoreSession restoreSession = accessor.startRestore(snapshot, (c, b) -> {});
+        restoreSession.done();
 
         assertEquals(accessor.version(), snapshot.getVer());
         assertEquals(accessor.boundary(), snapshot.getBoundary());
@@ -95,7 +97,9 @@ public class KVRangeMetadataTest extends AbstractKVRangeTest {
             .setBoundary(FULL_BOUNDARY)
             .build();
         ICPableKVSpace keyRange = kvEngine.createIfMissing(KVRangeIdUtil.toString(snapshot.getId()));
-        IKVRange accessor = new KVRange(snapshot.getId(), keyRange).toReseter(snapshot).done();
+        IKVRange accessor = new KVRange(snapshot.getId(), keyRange);
+        IKVRangeRestoreSession restoreSession = accessor.startRestore(snapshot, (c, b) -> {});
+        restoreSession.done();
 
         lastAppliedIndex = 11;
         accessor.toWriter().lastAppliedIndex(lastAppliedIndex).done();

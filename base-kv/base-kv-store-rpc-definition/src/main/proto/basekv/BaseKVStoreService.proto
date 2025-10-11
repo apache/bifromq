@@ -31,6 +31,7 @@ option optimize_for = SPEED;
 service BaseKVStoreService{
   rpc bootstrap(BootstrapRequest) returns (BootstrapReply);
   rpc recover(RecoverRequest) returns(RecoverReply);
+  rpc zombieQuit(ZombieQuitRequest) returns(ZombieQuitReply);
   rpc transferLeadership(TransferLeadershipRequest) returns (TransferLeadershipReply);
   rpc changeReplicaConfig(ChangeReplicaConfigRequest) returns (ChangeReplicaConfigReply);
   rpc split(KVRangeSplitRequest) returns (KVRangeSplitReply);
@@ -72,6 +73,22 @@ message RecoverReply{
   }
   uint64 reqId = 1;
   Result result = 2;
+}
+
+message ZombieQuitRequest{
+  uint64 reqId = 1;
+  basekv.KVRangeId kvRangeId = 2;
+}
+
+message ZombieQuitReply{
+  enum Result {
+    Ok = 0;
+    NotFound = 1;
+    Error = 2;
+  }
+  uint64 reqId = 1;
+  Result result = 2;
+  bool quit = 3;
 }
 
 enum ReplyCode{
@@ -127,6 +144,7 @@ message KVRangeMergeRequest{
   uint64 ver = 2;
   basekv.KVRangeId mergerId = 3;
   basekv.KVRangeId mergeeId = 4;
+  repeated string mergeeVoters = 5; // the mergee voters to contact to trigger the merge workflow
 }
 
 message KVRangeMergeReply{

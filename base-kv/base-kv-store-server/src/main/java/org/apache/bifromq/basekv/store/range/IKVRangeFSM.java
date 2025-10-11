@@ -14,11 +14,17 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 
 package org.apache.bifromq.basekv.store.range;
 
+import com.google.protobuf.ByteString;
+import io.reactivex.rxjava3.core.Observable;
+import java.util.Optional;
+import java.util.Set;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionStage;
 import org.apache.bifromq.basekv.proto.Boundary;
 import org.apache.bifromq.basekv.proto.KVRangeDescriptor;
 import org.apache.bifromq.basekv.proto.KVRangeId;
@@ -26,11 +32,6 @@ import org.apache.bifromq.basekv.store.proto.ROCoProcInput;
 import org.apache.bifromq.basekv.store.proto.ROCoProcOutput;
 import org.apache.bifromq.basekv.store.proto.RWCoProcInput;
 import org.apache.bifromq.basekv.store.proto.RWCoProcOutput;
-import com.google.protobuf.ByteString;
-import io.reactivex.rxjava3.core.Observable;
-import java.util.Optional;
-import java.util.Set;
-import java.util.concurrent.CompletableFuture;
 
 /**
  * The interface of the range finite state machine.
@@ -71,13 +72,20 @@ public interface IKVRangeFSM {
      */
     CompletableFuture<Void> recover();
 
+    /**
+     * Trigger quit, if it's in zombie state.
+     *
+     * @return a future that will be completed with true if the range is in zombie state and quit is triggered,
+     */
+    CompletionStage<Boolean> quit();
+
     CompletableFuture<Void> transferLeadership(long ver, String newLeader);
 
     CompletableFuture<Void> changeReplicaConfig(long ver, Set<String> newVoters, Set<String> newLearners);
 
     CompletableFuture<Void> split(long ver, ByteString splitKey);
 
-    CompletableFuture<Void> merge(long ver, KVRangeId mergeeId);
+    CompletableFuture<Void> merge(long ver, KVRangeId mergeeId, Set<String> mergeeVoters);
 
     CompletableFuture<Boolean> exist(long ver, ByteString key, boolean linearized);
 

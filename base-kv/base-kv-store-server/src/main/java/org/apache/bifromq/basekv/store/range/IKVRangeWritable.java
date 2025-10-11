@@ -14,19 +14,38 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 
 package org.apache.bifromq.basekv.store.range;
 
+import com.google.protobuf.ByteString;
 import org.apache.bifromq.basekv.proto.Boundary;
 import org.apache.bifromq.basekv.proto.KVRangeId;
+import org.apache.bifromq.basekv.proto.KVRangeSnapshot;
+import org.apache.bifromq.basekv.proto.State;
 import org.apache.bifromq.basekv.store.api.IKVWriter;
 
 public interface IKVRangeWritable<T extends IKVRangeWritable<T>> extends IKVRangeMetadataUpdatable<T> {
-    IKVRangeMetadataWriter<?> migrateTo(KVRangeId targetRangeId, Boundary boundary);
+    void migrateTo(KVRangeId targetRangeId, KVRangeSnapshot rightRangeSnapshot);
 
-    IKVRangeMetadataWriter<?> migrateFrom(KVRangeId fromRangeId, Boundary boundary);
+    Migrater startMerging(MigrationProgressListener progressListener);
 
     IKVWriter kvWriter();
+
+    interface Migrater {
+        Migrater ver(long ver);
+
+        Migrater state(State state);
+
+        Migrater boundary(Boundary boundary);
+
+        void put(ByteString key, ByteString value);
+
+        void abort();
+    }
+
+    interface MigrationProgressListener {
+        void onProgress(int count, long bytes);
+    }
 }

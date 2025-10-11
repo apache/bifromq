@@ -17,8 +17,10 @@
  * under the License.
  */
 
-package org.apache.bifromq.basekv.store.range;
+package org.apache.bifromq.basekv.localengine.rocksdb;
 
+// Package-visible adaptive write budget copied from base-kv-store-server module
+// to avoid cross-package visibility; used by RestoreSession to tune flush cadence.
 final class AdaptiveWriteBudget {
     private static final long TARGET_LATENCY_MS = 50;
     private static final double EMA_ALPHA = 0.3;
@@ -115,3 +117,4 @@ final class AdaptiveWriteBudget {
         return current + EMA_ALPHA * (sample - current);
     }
 }
+

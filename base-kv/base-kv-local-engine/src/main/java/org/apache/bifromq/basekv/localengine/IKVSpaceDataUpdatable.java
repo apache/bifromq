@@ -19,8 +19,8 @@
 
 package org.apache.bifromq.basekv.localengine;
 
-import org.apache.bifromq.basekv.proto.Boundary;
 import com.google.protobuf.ByteString;
+import org.apache.bifromq.basekv.proto.Boundary;
 
 /**
  * The interface for update kv space.
@@ -62,15 +62,4 @@ public interface IKVSpaceDataUpdatable<T extends IKVSpaceDataUpdatable<T>> exten
      * @param boundary the boundary
      */
     T clear(Boundary boundary);
-
-    /**
-     * Migrate data in given boundary to target space, and returns the metadata updater for target boundary.
-     *
-     * @param targetSpaceId the id of target range
-     * @param boundary      the boundary of data to be migrated
-     * @return the metadata updater of target boundary
-     */
-    IKVSpaceMetadataWriter migrateTo(String targetSpaceId, Boundary boundary);
-
-    IKVSpaceMetadataWriter migrateFrom(String fromSpaceId, Boundary boundary);
 }

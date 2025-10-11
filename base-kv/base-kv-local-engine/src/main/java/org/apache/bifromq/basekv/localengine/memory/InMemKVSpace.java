@@ -21,12 +21,6 @@ package org.apache.bifromq.basekv.localengine.memory;
 
 import static com.google.protobuf.ByteString.unsignedLexicographicalComparator;
 
-import org.apache.bifromq.basekv.localengine.IKVSpace;
-import org.apache.bifromq.basekv.localengine.IKVSpaceWriter;
-import org.apache.bifromq.basekv.localengine.ISyncContext;
-import org.apache.bifromq.basekv.localengine.KVSpaceDescriptor;
-import org.apache.bifromq.basekv.localengine.SyncContext;
-import org.apache.bifromq.basekv.localengine.metrics.KVSpaceOpMeters;
 import com.google.protobuf.ByteString;
 import io.reactivex.rxjava3.core.Observable;
 import io.reactivex.rxjava3.subjects.BehaviorSubject;
@@ -35,6 +29,11 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentSkipListMap;
+import org.apache.bifromq.basekv.localengine.IKVSpace;
+import org.apache.bifromq.basekv.localengine.ISyncContext;
+import org.apache.bifromq.basekv.localengine.KVSpaceDescriptor;
+import org.apache.bifromq.basekv.localengine.SyncContext;
+import org.apache.bifromq.basekv.localengine.metrics.KVSpaceOpMeters;
 import org.slf4j.Logger;
 
 class InMemKVSpace<E extends InMemKVEngine<E, T>, T extends InMemKVSpace<E, T>> extends InMemKVSpaceReader
@@ -43,10 +42,10 @@ class InMemKVSpace<E extends InMemKVEngine<E, T>, T extends InMemKVSpace<E, T>> 
     protected final Map<ByteString, ByteString> metadataMap = new ConcurrentHashMap<>();
     protected final ConcurrentSkipListMap<ByteString, ByteString> rangeData =
         new ConcurrentSkipListMap<>(unsignedLexicographicalComparator());
-    private final E engine;
-    private final BehaviorSubject<Map<ByteString, ByteString>> metadataSubject = BehaviorSubject.create();
-    private final ISyncContext syncContext = new SyncContext();
+    protected final E engine;
+    protected final ISyncContext syncContext = new SyncContext();
     protected final ISyncContext.IRefresher metadataRefresher = syncContext.refresher();
+    private final BehaviorSubject<Map<ByteString, ByteString>> metadataSubject = BehaviorSubject.create();
     private final Runnable onDestroy;
 
     protected InMemKVSpace(String id,
@@ -110,19 +109,8 @@ class InMemKVSpace<E extends InMemKVEngine<E, T>, T extends InMemKVSpace<E, T>> 
         onDestroy.run();
     }
 
-
-    @Override
-    public IKVSpaceWriter toWriter() {
-        return new InMemKVSpaceWriter<>(id, metadataMap, rangeData, engine, syncContext,
-            metadataUpdated -> {
-                if (metadataUpdated) {
-                    this.loadMetadata();
-                }
-            }, opMeters, logger);
-    }
-
-    private void loadMetadata() {
-        metadataRefresher.runIfNeeded(() -> {
+    protected void loadMetadata() {
+        metadataRefresher.runIfNeeded((genBumped) -> {
             if (!metadataMap.isEmpty()) {
                 metadataSubject.onNext(Collections.unmodifiableMap(new HashMap<>(metadataMap)));
             }

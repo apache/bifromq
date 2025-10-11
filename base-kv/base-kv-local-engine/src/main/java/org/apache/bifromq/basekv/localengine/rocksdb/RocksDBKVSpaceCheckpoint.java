@@ -22,7 +22,7 @@ package org.apache.bifromq.basekv.localengine.rocksdb;
 import static com.google.protobuf.UnsafeByteOperations.unsafeWrap;
 import static org.apache.bifromq.basekv.localengine.IKVEngine.DEFAULT_NS;
 import static org.apache.bifromq.basekv.localengine.rocksdb.Keys.toMetaKey;
-import static org.apache.bifromq.basekv.localengine.rocksdb.RocksDBKVSpace.deleteDir;
+import static org.apache.bifromq.basekv.localengine.rocksdb.RocksDBHelper.deleteDir;
 
 import com.google.protobuf.ByteString;
 import java.io.File;
@@ -50,10 +50,9 @@ class RocksDBKVSpaceCheckpoint extends RocksDBKVSpaceReader implements IRocksDBK
     private static final Cleaner CLEANER = Cleaner.create();
     private final String cpId;
     private final DBOptions dbOptions;
-    private final RocksDB roDB;
     private final ColumnFamilyDescriptor cfDesc;
-    private final ColumnFamilyHandle cfHandle;
     private final Cleaner.Cleanable cleanable;
+    private final IKVSpaceDBInstance handle;
 
     RocksDBKVSpaceCheckpoint(String id,
                              String cpId,
@@ -73,9 +72,20 @@ class RocksDBKVSpaceCheckpoint extends RocksDBKVSpaceReader implements IRocksDBK
             List<ColumnFamilyDescriptor> cfDescs = List.of(cfDesc);
 
             List<ColumnFamilyHandle> handles = new ArrayList<>();
-            roDB = RocksDB.openReadOnly(dbOptions, cpDir.getAbsolutePath(), cfDescs, handles);
+            RocksDB roDB = RocksDB.openReadOnly(dbOptions, cpDir.getAbsolutePath(), cfDescs, handles);
 
-            cfHandle = handles.get(0);
+            ColumnFamilyHandle cfHandle = handles.get(0);
+            handle = new IKVSpaceDBInstance() {
+                @Override
+                public RocksDB db() {
+                    return roDB;
+                }
+
+                @Override
+                public ColumnFamilyHandle cf() {
+                    return cfHandle;
+                }
+            };
             cleanable = CLEANER.register(this, new ClosableResources(id,
                 cpId,
                 cpDir,
@@ -99,7 +109,7 @@ class RocksDBKVSpaceCheckpoint extends RocksDBKVSpaceReader implements IRocksDBK
     @Override
     protected Optional<ByteString> doMetadata(ByteString metaKey) {
         try {
-            byte[] valBytes = roDB.get(cfHandle(), toMetaKey(metaKey));
+            byte[] valBytes = handle.db().get(handle.cf(), toMetaKey(metaKey));
             if (valBytes == null) {
                 return Optional.empty();
             }
@@ -115,13 +125,8 @@ class RocksDBKVSpaceCheckpoint extends RocksDBKVSpaceReader implements IRocksDBK
     }
 
     @Override
-    protected RocksDB db() {
-        return roDB;
-    }
-
-    @Override
-    protected ColumnFamilyHandle cfHandle() {
-        return cfHandle;
+    protected IKVSpaceDBInstance handle() {
+        return handle;
     }
 
     @Override
@@ -129,7 +134,7 @@ class RocksDBKVSpaceCheckpoint extends RocksDBKVSpaceReader implements IRocksDBK
         return new ISyncContext.IRefresher() {
 
             @Override
-            public void runIfNeeded(Runnable runnable) {
+            public void runIfNeeded(ISyncContext.IRefresh refresh) {
                 // no need to do any refresh, since it's readonly
             }
 
@@ -142,12 +147,12 @@ class RocksDBKVSpaceCheckpoint extends RocksDBKVSpaceReader implements IRocksDBK
 
     @Override
     protected IKVSpaceIterator doNewIterator() {
-        return new RocksDBKVSpaceIterator(db(), cfHandle(), null, Boundary.getDefaultInstance(), newRefresher(), false);
+        return new RocksDBKVSpaceIterator(this::handle, Boundary.getDefaultInstance(), newRefresher(), false);
     }
 
     @Override
     protected IKVSpaceIterator doNewIterator(Boundary subBoundary) {
-        return new RocksDBKVSpaceIterator(db(), cfHandle(), null, subBoundary, newRefresher(), false);
+        return new RocksDBKVSpaceIterator(this::handle, subBoundary, newRefresher(), false);
     }
 
     private record ClosableResources(

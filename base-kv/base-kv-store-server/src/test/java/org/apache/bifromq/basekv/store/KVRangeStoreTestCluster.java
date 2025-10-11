@@ -14,33 +14,16 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 
 package org.apache.bifromq.basekv.store;
 
-import static org.apache.bifromq.basekv.utils.BoundaryUtil.FULL_BOUNDARY;
 import static java.util.Collections.emptyMap;
 import static java.util.Collections.emptySet;
+import static org.apache.bifromq.basekv.utils.BoundaryUtil.FULL_BOUNDARY;
 import static org.awaitility.Awaitility.await;
 
-import org.apache.bifromq.baseenv.EnvProvider;
-import org.apache.bifromq.basekv.TestCoProcFactory;
-import org.apache.bifromq.basekv.TestUtil;
-import org.apache.bifromq.basekv.localengine.memory.InMemKVEngineConfigurator;
-import org.apache.bifromq.basekv.localengine.rocksdb.RocksDBCPableKVEngineConfigurator;
-import org.apache.bifromq.basekv.localengine.rocksdb.RocksDBWALableKVEngineConfigurator;
-import org.apache.bifromq.basekv.proto.KVRangeDescriptor;
-import org.apache.bifromq.basekv.proto.KVRangeId;
-import org.apache.bifromq.basekv.proto.KVRangeStoreDescriptor;
-import org.apache.bifromq.basekv.proto.State;
-import org.apache.bifromq.basekv.proto.StoreMessage;
-import org.apache.bifromq.basekv.raft.proto.RaftNodeStatus;
-import org.apache.bifromq.basekv.store.exception.KVRangeException;
-import org.apache.bifromq.basekv.store.option.KVRangeStoreOptions;
-import org.apache.bifromq.basekv.store.proto.ROCoProcInput;
-import org.apache.bifromq.basekv.store.proto.RWCoProcInput;
-import org.apache.bifromq.basekv.utils.KVRangeIdUtil;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -67,9 +50,28 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
+import java.util.function.Function;
+import java.util.function.Predicate;
 import java.util.stream.Collectors;
 import lombok.SneakyThrows;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.bifromq.baseenv.EnvProvider;
+import org.apache.bifromq.basekv.TestCoProcFactory;
+import org.apache.bifromq.basekv.TestUtil;
+import org.apache.bifromq.basekv.localengine.memory.InMemKVEngineConfigurator;
+import org.apache.bifromq.basekv.localengine.rocksdb.RocksDBCPableKVEngineConfigurator;
+import org.apache.bifromq.basekv.localengine.rocksdb.RocksDBWALableKVEngineConfigurator;
+import org.apache.bifromq.basekv.proto.KVRangeDescriptor;
+import org.apache.bifromq.basekv.proto.KVRangeId;
+import org.apache.bifromq.basekv.proto.KVRangeStoreDescriptor;
+import org.apache.bifromq.basekv.proto.State;
+import org.apache.bifromq.basekv.proto.StoreMessage;
+import org.apache.bifromq.basekv.raft.proto.RaftNodeStatus;
+import org.apache.bifromq.basekv.store.exception.KVRangeException;
+import org.apache.bifromq.basekv.store.option.KVRangeStoreOptions;
+import org.apache.bifromq.basekv.store.proto.ROCoProcInput;
+import org.apache.bifromq.basekv.store.proto.RWCoProcInput;
+import org.apache.bifromq.basekv.utils.KVRangeIdUtil;
 
 @Slf4j
 public class KVRangeStoreTestCluster {
@@ -93,6 +95,11 @@ public class KVRangeStoreTestCluster {
         EnvProvider.INSTANCE.newThreadFactory("query-executor"));
     private final ScheduledExecutorService bgTaskExecutor = new ScheduledThreadPoolExecutor(1,
         EnvProvider.INSTANCE.newThreadFactory("bg-task-executor"));
+
+    private final List<NetworkRule> networkRules = Lists.newCopyOnWriteArrayList();
+    private final List<InjectRule> injectRules = Lists.newCopyOnWriteArrayList();
+    private final List<CaptureRule> captureRules = Lists.newCopyOnWriteArrayList();
+    private final List<HoldRule> holdRules = Lists.newCopyOnWriteArrayList();
 
     private final Path dbRootDir;
 
@@ -140,6 +147,11 @@ public class KVRangeStoreTestCluster {
 
     public List<String> allStoreIds() {
         return Lists.newArrayList(rangeStoreMap.keySet());
+    }
+
+    public String leaderOf(KVRangeId kvRangeId) {
+        checkKVRangeId(kvRangeId);
+        return rangeConfigMap.get(kvRangeId).leader;
     }
 
     public boolean hasKVRange(String storeId, KVRangeId kvRangeId) {
@@ -205,6 +217,29 @@ public class KVRangeStoreTestCluster {
         return rangeConfigMap.get(kvRangeId);
     }
 
+    public void awaitKVRangeStateOnAllStores(KVRangeId kvRangeId, State.StateType state, long timeoutInSeconds) {
+        await().atMost(Duration.ofSeconds(timeoutInSeconds)).until(() -> {
+            boolean exists = false;
+            for (KVRangeStoreDescriptor sd : storeDescriptorMap.values()) {
+                for (KVRangeDescriptor rd : sd.getRangesList()) {
+                    if (rd.getId().equals(kvRangeId)) {
+                        exists = true;
+                        if (rd.getState() != state) {
+                            return false;
+                        }
+                    }
+                }
+            }
+            return exists;
+        });
+    }
+
+    public void awaitRangeAbsentAcrossStores(KVRangeId kvRangeId, long timeoutInSeconds) {
+        await().atMost(Duration.ofSeconds(timeoutInSeconds)).until(() ->
+            storeDescriptorMap.values().stream().noneMatch(sd ->
+                sd.getRangesList().stream().anyMatch(rd -> rd.getId().equals(kvRangeId))));
+    }
+
     public CompletionStage<Void> transferLeader(String storeId, long ver, KVRangeId kvRangeId, String newLeader) {
         checkStore(storeId);
         return rangeStoreMap.get(storeId).transferLeadership(ver, kvRangeId, newLeader);
@@ -214,6 +249,13 @@ public class KVRangeStoreTestCluster {
                                                      Set<String> newVoters, Set<String> newLearners) {
         checkStore(storeId);
         return rangeStoreMap.get(storeId).changeReplicaConfig(ver, kvRangeId, newVoters, newLearners);
+    }
+
+    public CompletionStage<Void> purgeRange(KVRangeId kvRangeId) {
+        checkKVRangeId(kvRangeId);
+        KVRangeConfig cfg = rangeConfigMap.get(kvRangeId);
+        return changeReplicaConfig(cfg.leader, cfg.ver, kvRangeId, emptySet(), emptySet())
+            .thenRun(() -> awaitRangeAbsentAcrossStores(kvRangeId, 60));
     }
 
     public void cut(String fromStoreId, String toStoreId) {
@@ -247,7 +289,29 @@ public class KVRangeStoreTestCluster {
 
     public CompletionStage<Void> merge(String storeId, long ver, KVRangeId mergerId, KVRangeId mergeeId) {
         checkStore(storeId);
-        return rangeStoreMap.get(storeId).merge(ver, mergerId, mergeeId);
+        // Prefer voters from cached leader settings; fallback to any descriptor; else empty (absent mergee fast path)
+        Set<String> voters;
+        KVRangeConfig mergeeCfg = rangeConfigMap.get(mergeeId);
+        if (mergeeCfg != null) {
+            voters = Sets.newHashSet(mergeeCfg.clusterConfig.getVotersList());
+        } else {
+            voters = storeDescriptorMap.values().stream()
+                .flatMap(sd -> sd.getRangesList().stream())
+                .filter(rd -> rd.getId().equals(mergeeId))
+                .findFirst()
+                .map(rd -> Sets.newHashSet(rd.getConfig().getVotersList()))
+                .orElseGet(Sets::newHashSet);
+        }
+        return rangeStoreMap.get(storeId).merge(ver, mergerId, mergeeId, voters);
+    }
+
+    public CompletionStage<Void> mergeWithMergeeVoters(String storeId,
+                                                       long ver,
+                                                       KVRangeId mergerId,
+                                                       KVRangeId mergeeId,
+                                                       Set<String> explicitMergeeVoters) {
+        checkStore(storeId);
+        return rangeStoreMap.get(storeId).merge(ver, mergerId, mergeeId, explicitMergeeVoters);
     }
 
     public boolean exist(String storeId, KVRangeId kvRangeId, ByteString key) {
@@ -465,22 +529,7 @@ public class KVRangeStoreTestCluster {
         store.start(new IStoreMessenger() {
             @Override
             public void send(StoreMessage message) {
-                if (message.getPayload().hasHostStoreId()) {
-                    if (rangeStoreMsgSourceMap.containsKey(message.getPayload().getHostStoreId()) &&
-                        !cutMap.getOrDefault(message.getFrom(), emptySet())
-                            .contains(message.getPayload().getHostStoreId())) {
-                        rangeStoreMsgSourceMap.get(message.getPayload().getHostStoreId()).onNext(message);
-                    }
-                } else {
-                    // broadcast
-                    rangeStoreMsgSourceMap.forEach((storeId, msgSubject) ->
-                        msgSubject.onNext(message.toBuilder()
-                            .setPayload(message.getPayload().toBuilder()
-                                // fill the target store
-                                .setHostStoreId(storeId)
-                                .build())
-                            .build()));
-                }
+                deliver(message);
             }
 
             @Override
@@ -497,6 +546,143 @@ public class KVRangeStoreTestCluster {
         rangeStoreMsgSourceMap.put(store.id(), storeMsgSource);
         disposables.add(store.describe().subscribe(this::handleStoreDescriptor));
         return store;
+    }
+
+    private void deliver(StoreMessage message) {
+        // hold first for deterministic delayed delivery
+        for (HoldRule r : holdRules) {
+            if (r.predicate.test(message)) {
+                r.buffer.add(message);
+                return;
+            }
+        }
+        // capture first
+        captureRules.forEach(r -> {
+            if (!r.future.isDone() && r.predicate.test(message)) {
+                r.future.complete(message);
+                if (r.oneShot) {
+                    captureRules.remove(r);
+                }
+            }
+        });
+        // inject once if triggered
+        injectRules.forEach(r -> {
+            if (r.predicate.test(message)) {
+                injectRules.remove(r);
+                StoreMessage injected = r.factory.apply(message);
+                if (injected != null) {
+                    deliver(injected);
+                }
+            }
+        });
+        if (message.getPayload().hasHostStoreId()) {
+            if (shouldDrop(message)) {
+                return;
+            }
+            long delayMs = delayMs(message);
+            Runnable sendTask = () -> {
+                if (rangeStoreMsgSourceMap.containsKey(message.getPayload().getHostStoreId())
+                    && !cutMap.getOrDefault(message.getFrom(), emptySet())
+                    .contains(message.getPayload().getHostStoreId())) {
+                    rangeStoreMsgSourceMap.get(message.getPayload().getHostStoreId()).onNext(message);
+                }
+            };
+            if (delayMs > 0) {
+                bgTaskExecutor.schedule(sendTask, delayMs, TimeUnit.MILLISECONDS);
+            } else {
+                sendTask.run();
+            }
+        } else {
+            rangeStoreMsgSourceMap.forEach((sid, msgSubject) -> {
+                StoreMessage targetMsg = message.toBuilder()
+                    .setPayload(message.getPayload().toBuilder()
+                        .setHostStoreId(sid)
+                        .build())
+                    .build();
+                if (shouldDrop(targetMsg)) {
+                    return;
+                }
+                long delayMs = delayMs(targetMsg);
+                Runnable sendTask = () -> msgSubject.onNext(targetMsg);
+                if (delayMs > 0) {
+                    bgTaskExecutor.schedule(sendTask, delayMs, TimeUnit.MILLISECONDS);
+                } else {
+                    sendTask.run();
+                }
+            });
+        }
+    }
+
+    public AutoCloseable dropIf(Predicate<StoreMessage> predicate) {
+        NetworkRule rule = NetworkRule.drop(predicate, false);
+        networkRules.add(rule);
+        return () -> networkRules.remove(rule);
+    }
+
+    public AutoCloseable dropOnceIf(Predicate<StoreMessage> predicate) {
+        NetworkRule rule = NetworkRule.drop(predicate, true);
+        networkRules.add(rule);
+        return () -> networkRules.remove(rule);
+    }
+
+    public AutoCloseable delayIf(Predicate<StoreMessage> predicate, long delayMs) {
+        NetworkRule rule = NetworkRule.delay(predicate, delayMs, false);
+        networkRules.add(rule);
+        return () -> networkRules.remove(rule);
+    }
+
+    public AutoCloseable delayOnceIf(Predicate<StoreMessage> predicate, long delayMs) {
+        NetworkRule rule = NetworkRule.delay(predicate, delayMs, true);
+        networkRules.add(rule);
+        return () -> networkRules.remove(rule);
+    }
+
+    public void clearNetworkRules() {
+        networkRules.clear();
+    }
+
+    public HoldHandle holdIf(Predicate<StoreMessage> predicate) {
+        HoldRule rule = new HoldRule(predicate);
+        holdRules.add(rule);
+        return new HoldHandle(rule);
+    }
+
+    public AutoCloseable injectOnceIf(Predicate<StoreMessage> trigger,
+                                      Function<StoreMessage, StoreMessage> factory) {
+        InjectRule r = new InjectRule(trigger, factory, true);
+        injectRules.add(r);
+        return () -> injectRules.remove(r);
+    }
+
+    public CompletableFuture<StoreMessage> captureOnce(Predicate<StoreMessage> predicate) {
+        CompletableFuture<StoreMessage> fut = new CompletableFuture<>();
+        CaptureRule r = new CaptureRule(predicate, fut, true);
+        captureRules.add(r);
+        return fut;
+    }
+
+    private boolean shouldDrop(StoreMessage m) {
+        for (NetworkRule r : networkRules) {
+            if (r.action == NetworkRule.Action.DROP && r.predicate.test(m)) {
+                if (r.oneShot) {
+                    networkRules.remove(r);
+                }
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private long delayMs(StoreMessage m) {
+        for (NetworkRule r : networkRules) {
+            if (r.action == NetworkRule.Action.DELAY && r.predicate.test(m)) {
+                if (r.oneShot) {
+                    networkRules.remove(r);
+                }
+                return r.delayMs;
+            }
+        }
+        return 0L;
     }
 
     private void handleStoreDescriptor(KVRangeStoreDescriptor storeDescriptor) {
@@ -538,5 +724,102 @@ public class KVRangeStoreTestCluster {
 
     private long reqId() {
         return System.nanoTime();
+    }
+
+    private static class NetworkRule {
+        final Predicate<StoreMessage> predicate;
+        final Action action;
+        final long delayMs;
+        final boolean oneShot;
+
+        private NetworkRule(Predicate<StoreMessage> predicate, Action action, long delayMs,
+                            boolean oneShot) {
+            this.predicate = predicate;
+            this.action = action;
+            this.delayMs = delayMs;
+            this.oneShot = oneShot;
+        }
+
+        static NetworkRule drop(Predicate<StoreMessage> predicate, boolean oneShot) {
+            return new NetworkRule(predicate, Action.DROP, 0L, oneShot);
+        }
+
+        static NetworkRule delay(Predicate<StoreMessage> predicate, long delayMs, boolean oneShot) {
+            return new NetworkRule(predicate, Action.DELAY, delayMs, oneShot);
+        }
+
+        enum Action { DROP, DELAY }
+    }
+
+    private static class InjectRule {
+        final java.util.function.Predicate<StoreMessage> predicate;
+        final java.util.function.Function<StoreMessage, StoreMessage> factory;
+        final boolean oneShot;
+
+        InjectRule(java.util.function.Predicate<StoreMessage> predicate,
+                   java.util.function.Function<StoreMessage, StoreMessage> factory,
+                   boolean oneShot) {
+            this.predicate = predicate;
+            this.factory = factory;
+            this.oneShot = oneShot;
+        }
+    }
+
+    private static class CaptureRule {
+        final java.util.function.Predicate<StoreMessage> predicate;
+        final java.util.concurrent.CompletableFuture<StoreMessage> future;
+        final boolean oneShot;
+
+        CaptureRule(java.util.function.Predicate<StoreMessage> predicate,
+                    java.util.concurrent.CompletableFuture<StoreMessage> future,
+                    boolean oneShot) {
+            this.predicate = predicate;
+            this.future = future;
+            this.oneShot = oneShot;
+        }
+    }
+
+    private static class HoldRule {
+        final java.util.function.Predicate<StoreMessage> predicate;
+        final java.util.concurrent.ConcurrentLinkedQueue<StoreMessage> buffer =
+            new java.util.concurrent.ConcurrentLinkedQueue<>();
+
+        HoldRule(java.util.function.Predicate<StoreMessage> predicate) {
+            this.predicate = predicate;
+        }
+    }
+
+    public final class HoldHandle implements AutoCloseable {
+        private final HoldRule rule;
+
+        private HoldHandle(HoldRule rule) {
+            this.rule = rule;
+        }
+
+        public void releaseOne() {
+            StoreMessage msg = rule.buffer.poll();
+            if (msg != null) {
+                // temporarily remove rule to avoid re-hold
+                holdRules.remove(rule);
+                try {
+                    deliver(msg);
+                } finally {
+                    holdRules.add(rule);
+                }
+            }
+        }
+
+        public void releaseAll() {
+            holdRules.remove(rule);
+            StoreMessage msg;
+            while ((msg = rule.buffer.poll()) != null) {
+                deliver(msg);
+            }
+        }
+
+        @Override
+        public void close() {
+            releaseAll();
+        }
     }
 }

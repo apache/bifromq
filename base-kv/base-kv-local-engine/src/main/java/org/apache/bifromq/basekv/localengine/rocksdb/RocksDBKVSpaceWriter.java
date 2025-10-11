@@ -26,15 +26,11 @@ import com.google.protobuf.ByteString;
 import java.util.Map;
 import java.util.Optional;
 import java.util.function.Consumer;
-import org.apache.bifromq.basekv.localengine.IKVSpaceIterator;
-import org.apache.bifromq.basekv.localengine.IKVSpaceMetadataWriter;
 import org.apache.bifromq.basekv.localengine.IKVSpaceWriter;
 import org.apache.bifromq.basekv.localengine.ISyncContext;
 import org.apache.bifromq.basekv.localengine.KVEngineException;
 import org.apache.bifromq.basekv.localengine.metrics.KVSpaceOpMeters;
 import org.apache.bifromq.basekv.proto.Boundary;
-import org.rocksdb.ColumnFamilyHandle;
-import org.rocksdb.RocksDB;
 import org.rocksdb.RocksDBException;
 import org.rocksdb.WriteOptions;
 import org.slf4j.Logger;
@@ -42,42 +38,48 @@ import org.slf4j.Logger;
 class RocksDBKVSpaceWriter<E extends RocksDBKVEngine<E, T, C>, T extends
     RocksDBKVSpace<E, T, C>, C extends RocksDBKVEngineConfigurator<C>>
     extends RocksDBKVSpaceReader implements IKVSpaceWriter {
-    private static final long MIGRATION_FLUSH_BYTES = 4L * 1024 * 1024;
-    private static final int MIGRATION_FLUSH_OPS = 4096;
-    private final RocksDB db;
-    private final ColumnFamilyHandle cfHandle;
+    protected final E engine;
+    protected final RocksDBKVSpaceWriterHelper helper;
+    private final IKVSpaceDBHandle dbHandle;
     private final ISyncContext syncContext;
-    private final E engine;
-    private final RocksDBKVSpaceWriterHelper helper;
     private final IWriteStatsRecorder.IRecorder writeStatsRecorder;
 
-    RocksDBKVSpaceWriter(String id, RocksDB db, ColumnFamilyHandle cfHandle, E engine, WriteOptions writeOptions,
-                         ISyncContext syncContext, IWriteStatsRecorder.IRecorder writeStatsRecorder,
-                         Consumer<Map<ByteString, ByteString>> afterWrite, KVSpaceOpMeters opMeters, Logger logger) {
-        this(id, db, cfHandle, engine, syncContext, new RocksDBKVSpaceWriterHelper(db, writeOptions),
+    RocksDBKVSpaceWriter(String id,
+                         IKVSpaceDBHandle dbHandle,
+                         E engine,
+                         WriteOptions writeOptions,
+                         ISyncContext syncContext,
+                         IWriteStatsRecorder.IRecorder writeStatsRecorder,
+                         Consumer<Map<ByteString, ByteString>> afterWrite,
+                         KVSpaceOpMeters opMeters,
+                         Logger logger) {
+        this(id, dbHandle, engine, syncContext, new RocksDBKVSpaceWriterHelper(dbHandle.db(), writeOptions),
             writeStatsRecorder, afterWrite, opMeters, logger);
     }
 
-    private RocksDBKVSpaceWriter(String id, RocksDB db, ColumnFamilyHandle cfHandle, E engine, ISyncContext syncContext,
+    private RocksDBKVSpaceWriter(String id,
+                                 IKVSpaceDBHandle dbHandle,
+                                 E engine,
+                                 ISyncContext syncContext,
                                  RocksDBKVSpaceWriterHelper writerHelper,
                                  IWriteStatsRecorder.IRecorder writeStatsRecorder,
-                                 Consumer<Map<ByteString, ByteString>> afterWrite, KVSpaceOpMeters opMeters,
+                                 Consumer<Map<ByteString, ByteString>> afterWrite,
+                                 KVSpaceOpMeters opMeters,
                                  Logger logger) {
         super(id, opMeters, logger);
-        this.db = db;
-        this.cfHandle = cfHandle;
+        this.dbHandle = dbHandle;
         this.engine = engine;
         this.syncContext = syncContext;
         this.helper = writerHelper;
         this.writeStatsRecorder = writeStatsRecorder;
         writerHelper.addMutators(syncContext.mutator());
-        writerHelper.addAfterWriteCallback(cfHandle, afterWrite);
+        writerHelper.addAfterWriteCallback(dbHandle.cf(), afterWrite);
     }
 
     @Override
     public IKVSpaceWriter metadata(ByteString metaKey, ByteString metaValue) {
         try {
-            helper.metadata(cfHandle(), metaKey, metaValue);
+            helper.metadata(dbHandle.cf(), metaKey, metaValue);
             return this;
         } catch (RocksDBException e) {
             throw new KVEngineException("Put in batch failed", e);
@@ -87,7 +89,7 @@ class RocksDBKVSpaceWriter<E extends RocksDBKVEngine<E, T, C>, T extends
     @Override
     public IKVSpaceWriter insert(ByteString key, ByteString value) {
         try {
-            helper.insert(cfHandle(), key, value);
+            helper.insert(dbHandle.cf(), key, value);
             writeStatsRecorder.recordInsert();
             return this;
         } catch (RocksDBException e) {
@@ -98,7 +100,7 @@ class RocksDBKVSpaceWriter<E extends RocksDBKVEngine<E, T, C>, T extends
     @Override
     public IKVSpaceWriter put(ByteString key, ByteString value) {
         try {
-            helper.put(cfHandle(), key, value);
+            helper.put(dbHandle.cf(), key, value);
             writeStatsRecorder.recordPut();
             return this;
         } catch (RocksDBException e) {
@@ -109,7 +111,7 @@ class RocksDBKVSpaceWriter<E extends RocksDBKVEngine<E, T, C>, T extends
     @Override
     public IKVSpaceWriter delete(ByteString key) {
         try {
-            helper.delete(cfHandle(), key);
+            helper.delete(dbHandle.cf(), key);
             writeStatsRecorder.recordDelete();
             return this;
         } catch (RocksDBException e) {
@@ -125,56 +127,12 @@ class RocksDBKVSpaceWriter<E extends RocksDBKVEngine<E, T, C>, T extends
     @Override
     public IKVSpaceWriter clear(Boundary boundary) {
         try {
-            helper.clear(cfHandle(), boundary);
+            helper.clear(dbHandle.cf(), boundary);
             writeStatsRecorder.recordDeleteRange();
         } catch (Throwable e) {
             throw new KVEngineException("Delete range in batch failed", e);
         }
         return this;
-    }
-
-    @Override
-    public IKVSpaceMetadataWriter migrateTo(String targetSpaceId, Boundary boundary) {
-        try {
-            RocksDBKVSpace<?, ?, ?> targetKVSpace = engine.createIfMissing(targetSpaceId);
-            RocksDBKVSpaceWriter<?, ?, ?> targetKVSpaceWriter = (RocksDBKVSpaceWriter<?, ?, ?>) targetKVSpace.toWriter();
-            // move data
-            int c = 0;
-            try (IKVSpaceIterator itr = newIterator(boundary)) {
-                for (itr.seekToFirst(); itr.isValid(); itr.next()) {
-                    targetKVSpaceWriter.put(itr.key(), itr.value());
-                    targetKVSpaceWriter.flushIfNeededForMigration();
-                    c++;
-                }
-            }
-            logger.debug("Migrate {} kv to range[{}] from range[{}]: startKey={}, endKey={}", c, targetSpaceId, id,
-                boundary.getStartKey().toStringUtf8(), boundary.getEndKey().toStringUtf8());
-            // clear moved data in left range
-            helper.clear(cfHandle(), boundary);
-            return targetKVSpaceWriter;
-        } catch (Throwable e) {
-            throw new KVEngineException("Delete range in batch failed", e);
-        }
-    }
-
-    @Override
-    public IKVSpaceMetadataWriter migrateFrom(String fromSpaceId, Boundary boundary) {
-        try {
-            RocksDBKVSpace<?, ?, ?> sourceKVSpace = engine.createIfMissing(fromSpaceId);
-            IKVSpaceWriter sourceKVSpaceWriter = sourceKVSpace.toWriter();
-            // move data
-            try (IKVSpaceIterator itr = sourceKVSpace.newIterator(boundary)) {
-                for (itr.seekToFirst(); itr.isValid(); itr.next()) {
-                    helper.put(cfHandle(), itr.key(), itr.value());
-                    flushIfNeededForMigration();
-                }
-            }
-            // clear moved data in right range
-            sourceKVSpaceWriter.clear(boundary);
-            return sourceKVSpaceWriter;
-        } catch (Throwable e) {
-            throw new KVEngineException("Delete range in batch failed", e);
-        }
     }
 
     @Override
@@ -192,6 +150,11 @@ class RocksDBKVSpaceWriter<E extends RocksDBKVEngine<E, T, C>, T extends
     }
 
     @Override
+    public void reset() {
+        helper.reset();
+    }
+
+    @Override
     public void abort() {
         helper.abort();
     }
@@ -204,7 +167,7 @@ class RocksDBKVSpaceWriter<E extends RocksDBKVEngine<E, T, C>, T extends
     @Override
     protected Optional<ByteString> doMetadata(ByteString metaKey) {
         try {
-            byte[] metaValBytes = db.get(cfHandle, toMetaKey(metaKey));
+            byte[] metaValBytes = dbHandle.db().get(dbHandle.cf(), toMetaKey(metaKey));
             return Optional.ofNullable(metaValBytes == null ? null : unsafeWrap(metaValBytes));
         } catch (RocksDBException e) {
             throw new RuntimeException(e);
@@ -212,21 +175,8 @@ class RocksDBKVSpaceWriter<E extends RocksDBKVEngine<E, T, C>, T extends
     }
 
     @Override
-    protected RocksDB db() {
-        return db;
-    }
-
-    @Override
-    protected ColumnFamilyHandle cfHandle() {
-        return cfHandle;
-    }
-
-    private void flushIfNeededForMigration() {
-        // ensure metadata changes are flushed atomically
-        if (!helper.hasPendingMetadata()
-            && (helper.count() >= MIGRATION_FLUSH_OPS || helper.dataSize() >= MIGRATION_FLUSH_BYTES)) {
-            helper.flush();
-        }
+    protected IKVSpaceDBInstance handle() {
+        return dbHandle;
     }
 
     @Override

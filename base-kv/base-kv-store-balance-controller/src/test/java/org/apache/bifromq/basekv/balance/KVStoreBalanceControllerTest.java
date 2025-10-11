@@ -189,16 +189,19 @@ public class KVStoreBalanceControllerTest {
     public void testMerge() {
         KVRangeId id = KVRangeIdUtil.generate();
         Set<KVRangeStoreDescriptor> storeDescriptors = generateDescriptor();
-        MergeCommand command =
-            MergeCommand.builder().kvRangeId(id).mergeeId(KVRangeIdUtil.generate()).toStore(LOCAL_STORE_ID)
-                .expectedVer(2L).build();
+        MergeCommand command = MergeCommand.builder()
+            .kvRangeId(id)
+            .mergeeId(KVRangeIdUtil.generate())
+            .toStore(LOCAL_STORE_ID)
+            .voters(Set.of(LOCAL_STORE_ID))
+            .expectedVer(2L).build();
         when(storeBalancer.balance()).thenReturn(BalanceNow.of(command));
         when(storeClient.mergeRanges(eq(LOCAL_STORE_ID), any())).thenReturn(new CompletableFuture<>());
         storeDescSubject.onNext(storeDescriptors);
         awaitExecute(200);
         verify(storeClient, times(1)).mergeRanges(eq(LOCAL_STORE_ID), argThat(
-            r -> r.getMergerId().equals(id) && r.getVer() == command.getExpectedVer() &&
-                r.getMergeeId().equals(command.getMergeeId())));
+            r -> r.getMergerId().equals(id) && r.getVer() == command.getExpectedVer()
+                && r.getMergeeId().equals(command.getMergeeId())));
     }
 
     @Test

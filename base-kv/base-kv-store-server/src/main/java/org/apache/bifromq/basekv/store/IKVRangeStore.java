@@ -19,6 +19,12 @@
 
 package org.apache.bifromq.basekv.store;
 
+import com.google.protobuf.ByteString;
+import io.reactivex.rxjava3.core.Observable;
+import java.util.Optional;
+import java.util.Set;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionStage;
 import org.apache.bifromq.basekv.proto.Boundary;
 import org.apache.bifromq.basekv.proto.KVRangeId;
 import org.apache.bifromq.basekv.proto.KVRangeStoreDescriptor;
@@ -26,12 +32,6 @@ import org.apache.bifromq.basekv.store.proto.ROCoProcInput;
 import org.apache.bifromq.basekv.store.proto.ROCoProcOutput;
 import org.apache.bifromq.basekv.store.proto.RWCoProcInput;
 import org.apache.bifromq.basekv.store.proto.RWCoProcOutput;
-import com.google.protobuf.ByteString;
-import io.reactivex.rxjava3.core.Observable;
-import java.util.Optional;
-import java.util.Set;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.CompletionStage;
 
 /**
  * The interface of a KVRangeStore, which is responsible for hosting a KVRange.
@@ -87,6 +87,14 @@ public interface IKVRangeStore {
     CompletionStage<Void> recover(KVRangeId rangeId);
 
     /**
+     * Quit a zombie KVRange hosted in current store. A 'zombie' state is detected when the KVRange kept in Candidate state.
+     *
+     * @param rangeId the id of the zombie KVRange
+     * @return the future of the quit task
+     */
+    CompletionStage<Boolean> quit(KVRangeId rangeId);
+
+    /**
      * The observable of the KVRangeStoreDescriptor, which is used for store discovery.
      *
      * @return the observable of the KVRangeStoreDescriptor
@@ -129,9 +137,10 @@ public interface IKVRangeStore {
      * @param ver the version of the KVRange
      * @param mergerId the id of the KVRange to be merged
      * @param mergeeId the id of the KVRange to be merged into
+     * @param mergeeVoters the voters of the mergee KVRange
      * @return the future of the task
      */
-    CompletionStage<Void> merge(long ver, KVRangeId mergerId, KVRangeId mergeeId);
+    CompletionStage<Void> merge(long ver, KVRangeId mergerId, KVRangeId mergeeId, Set<String> mergeeVoters);
 
     /**
      * Check if the specified key exists in the KVRange.

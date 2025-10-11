@@ -47,6 +47,7 @@ import org.apache.bifromq.basekv.balance.command.BalanceCommand;
 import org.apache.bifromq.basekv.balance.command.BootstrapCommand;
 import org.apache.bifromq.basekv.balance.command.ChangeConfigCommand;
 import org.apache.bifromq.basekv.balance.command.MergeCommand;
+import org.apache.bifromq.basekv.balance.command.QuitCommand;
 import org.apache.bifromq.basekv.balance.command.RangeCommand;
 import org.apache.bifromq.basekv.balance.command.RecoveryCommand;
 import org.apache.bifromq.basekv.balance.command.SplitCommand;
@@ -73,6 +74,8 @@ import org.apache.bifromq.basekv.store.proto.RecoverRequest;
 import org.apache.bifromq.basekv.store.proto.ReplyCode;
 import org.apache.bifromq.basekv.store.proto.TransferLeadershipReply;
 import org.apache.bifromq.basekv.store.proto.TransferLeadershipRequest;
+import org.apache.bifromq.basekv.store.proto.ZombieQuitRequest;
+import org.apache.bifromq.basekv.utils.KVRangeIdUtil;
 import org.apache.bifromq.logger.MDCLogger;
 import org.slf4j.Logger;
 
@@ -416,6 +419,7 @@ public class KVStoreBalanceController {
                     .setVer(mergeCommand.getExpectedVer())
                     .setMergerId(mergeCommand.getKvRangeId())
                     .setMergeeId(mergeCommand.getMergeeId())
+                    .addAllMergeeVoters(mergeCommand.getVoters())
                     .build();
                 yield handleStoreReplyCode(command,
                     storeClient.mergeRanges(command.getToStore(), rangeMergeRequest)
@@ -459,6 +463,23 @@ public class KVStoreBalanceController {
                         if (e != null) {
                             log.error("Unexpected error when recover, req: {}", recoverRequest, e);
                         }
+                        return true;
+                    });
+            }
+            case QUIT -> {
+                assert command instanceof QuitCommand;
+                QuitCommand quitCommand = (QuitCommand) command;
+                ZombieQuitRequest zombieQuitRequest = ZombieQuitRequest.newBuilder()
+                    .setReqId(System.nanoTime())
+                    .setKvRangeId(quitCommand.getKvRangeId())
+                    .build();
+                yield storeClient.zombieQuit(command.getToStore(), zombieQuitRequest)
+                    .handle((r, e) -> {
+                        if (e != null) {
+                            log.error("Unexpected error when recover, req: {}", zombieQuitRequest, e);
+                        }
+                        log.debug("Range[{}] in zombie state and quit?: {}",
+                            KVRangeIdUtil.toString(quitCommand.getKvRangeId()), r.getQuit());
                         return true;
                     });
             }

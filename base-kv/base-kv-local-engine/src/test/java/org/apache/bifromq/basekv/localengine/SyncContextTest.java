@@ -14,13 +14,15 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 
 package org.apache.bifromq.basekv.localengine;
 
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 import org.mockito.Mock;
 import org.testng.annotations.Test;
@@ -28,10 +30,10 @@ import org.testng.annotations.Test;
 public class SyncContextTest extends MockableTest {
 
     @Mock
-    private Runnable refresh;
+    private ISyncContext.IRefresh refresh;
 
     @Mock
-    private Runnable mutate;
+    private ISyncContext.IMutation mutate;
 
     @Test
     public void refreshAsNeeded() {
@@ -42,17 +44,25 @@ public class SyncContextTest extends MockableTest {
 
         refresher1.runIfNeeded(refresh);
         refresher2.runIfNeeded(refresh);
-        verify(refresh, times(2)).run();
+        verify(refresh, times(2)).refresh(eq(false));
 
         mutator.run(mutate);
-        verify(mutate, times(1)).run();
+        verify(mutate, times(1)).mutate();
 
         refresher1.runIfNeeded(refresh);
         refresher2.runIfNeeded(refresh);
-        verify(refresh, times(4)).run();
+        verify(refresh, times(4)).refresh(eq(false));
 
+        when(mutate.mutate()).thenReturn(false);
+        mutator.run(mutate);
         refresher1.runIfNeeded(refresh);
         refresher2.runIfNeeded(refresh);
-        verify(refresh, times(4)).run();
+        verify(refresh, times(6)).refresh(eq(false));
+
+        when(mutate.mutate()).thenReturn(true);
+        mutator.run(mutate);
+        refresher1.runIfNeeded(refresh);
+        refresher2.runIfNeeded(refresh);
+        verify(refresh, times(2)).refresh(eq(true));
     }
 }

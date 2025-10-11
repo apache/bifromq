@@ -39,6 +39,7 @@ message SplitRange {
 
 message PrepareMergeWith{
   basekv.KVRangeId mergeeId = 1;
+  repeated string voters = 2; // mergee's voter set seen at the time when request was made
 }
 
 message CancelMerging{
@@ -56,6 +57,7 @@ message Merge{
   uint64 mergeeVer = 2;
   basekv.Boundary Boundary = 3;
   string storeId = 4;
+  raft.ClusterConfig config = 5; // mergee's config at the moment
 }
 
 message MergeDone{

@@ -14,11 +14,15 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 
 package org.apache.bifromq.basekv.client;
 
+import io.reactivex.rxjava3.core.Observable;
+import java.util.NavigableMap;
+import java.util.Set;
+import java.util.concurrent.CompletableFuture;
 import org.apache.bifromq.basekv.proto.Boundary;
 import org.apache.bifromq.basekv.proto.KVRangeStoreDescriptor;
 import org.apache.bifromq.basekv.store.proto.BootstrapReply;
@@ -37,11 +41,9 @@ import org.apache.bifromq.basekv.store.proto.RecoverReply;
 import org.apache.bifromq.basekv.store.proto.RecoverRequest;
 import org.apache.bifromq.basekv.store.proto.TransferLeadershipReply;
 import org.apache.bifromq.basekv.store.proto.TransferLeadershipRequest;
+import org.apache.bifromq.basekv.store.proto.ZombieQuitReply;
+import org.apache.bifromq.basekv.store.proto.ZombieQuitRequest;
 import org.apache.bifromq.baserpc.client.IConnectable;
-import io.reactivex.rxjava3.core.Observable;
-import java.util.NavigableMap;
-import java.util.Set;
-import java.util.concurrent.CompletableFuture;
 
 /**
  * The interface of BaseKV Store Client.
@@ -60,6 +62,8 @@ public interface IBaseKVStoreClient extends IConnectable, AutoCloseable {
     CompletableFuture<BootstrapReply> bootstrap(String storeId, BootstrapRequest request);
 
     CompletableFuture<RecoverReply> recover(String storeId, RecoverRequest request);
+
+    CompletableFuture<ZombieQuitReply> zombieQuit(String storeId, ZombieQuitRequest request);
 
     CompletableFuture<TransferLeadershipReply> transferLeadership(String storeId, TransferLeadershipRequest request);
 
@@ -122,7 +126,6 @@ public interface IBaseKVStoreClient extends IConnectable, AutoCloseable {
      * @return the future of the reply
      */
     CompletableFuture<KVRangeROReply> linearizedQuery(String storeId, KVRangeRORequest request, String orderKey);
-
 
     /**
      * Create a caller-managed pipeline for executing rw command orderly.

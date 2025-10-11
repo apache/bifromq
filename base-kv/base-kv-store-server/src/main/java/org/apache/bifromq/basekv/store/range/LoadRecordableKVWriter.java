@@ -19,9 +19,9 @@
 
 package org.apache.bifromq.basekv.store.range;
 
+import com.google.protobuf.ByteString;
 import org.apache.bifromq.basekv.proto.Boundary;
 import org.apache.bifromq.basekv.store.api.IKVWriter;
-import com.google.protobuf.ByteString;
 
 class LoadRecordableKVWriter implements IKVWriter {
     private final IKVWriter delegate;
@@ -30,6 +30,13 @@ class LoadRecordableKVWriter implements IKVWriter {
     public LoadRecordableKVWriter(IKVWriter delegate, IKVLoadRecorder recorder) {
         this.delegate = delegate;
         this.recorder = recorder;
+    }
+
+    @Override
+    public void reset() {
+        long start = System.nanoTime();
+        delegate.reset();
+        recorder.record(System.nanoTime() - start);
     }
 
     @Override

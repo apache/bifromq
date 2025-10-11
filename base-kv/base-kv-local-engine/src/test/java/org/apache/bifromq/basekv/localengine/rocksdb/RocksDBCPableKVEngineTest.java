@@ -22,16 +22,16 @@ package org.apache.bifromq.basekv.localengine.rocksdb;
 import static org.testng.Assert.assertFalse;
 import static org.testng.Assert.assertTrue;
 
-import org.apache.bifromq.basekv.localengine.ICPableKVSpace;
-import org.apache.bifromq.basekv.localengine.IKVEngine;
-import org.apache.bifromq.basekv.localengine.IKVSpace;
 import io.reactivex.rxjava3.disposables.Disposable;
 import java.io.File;
 import java.nio.file.Paths;
 import lombok.SneakyThrows;
+import org.apache.bifromq.basekv.localengine.ICPableKVSpace;
+import org.apache.bifromq.basekv.localengine.IKVEngine;
+import org.apache.bifromq.basekv.localengine.IKVSpace;
 import org.testng.annotations.Test;
 
-public class RocksDBCPableKVEngineTest extends AbstractRocksDBKVEngineTest {
+public class RocksDBCPableKVEngineTest extends AbstractRocksDBCPableEngineTest {
     private final String DB_NAME = "testDB";
     private final String DB_CHECKPOINT_DIR = "testDB_cp";
     private RocksDBCPableKVEngineConfigurator configurator;

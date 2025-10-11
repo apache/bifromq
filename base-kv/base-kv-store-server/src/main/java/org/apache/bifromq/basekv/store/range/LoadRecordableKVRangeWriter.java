@@ -19,15 +19,15 @@
 
 package org.apache.bifromq.basekv.store.range;
 
-import org.apache.bifromq.basekv.localengine.IKVSpaceWriter;
+import org.apache.bifromq.basekv.localengine.ICPableKVSpace;
 import org.apache.bifromq.basekv.proto.KVRangeId;
 import org.apache.bifromq.basekv.store.api.IKVWriter;
 
 public class LoadRecordableKVRangeWriter extends KVRangeWriter {
     private final IKVLoadRecorder recorder;
 
-    public LoadRecordableKVRangeWriter(KVRangeId id, IKVSpaceWriter spaceWriter, IKVLoadRecorder recorder) {
-        super(id, spaceWriter);
+    public LoadRecordableKVRangeWriter(KVRangeId id, ICPableKVSpace space, IKVLoadRecorder recorder) {
+        super(id, space);
         this.recorder = recorder;
     }
 

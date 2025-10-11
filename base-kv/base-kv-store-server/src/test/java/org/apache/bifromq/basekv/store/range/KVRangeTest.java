@@ -326,7 +326,7 @@ public class KVRangeTest extends AbstractKVRangeTest {
         rangeWriter.kvWriter().put(key, val);
         rangeWriter.done();
 
-        accessor.toReseter(snapshot).done();
+        accessor.startRestore(snapshot, (c, b) -> {}).done();
         IKVReader rangeReader = accessor.newDataReader();
         assertFalse(rangeReader.exist(key));
     }
@@ -356,68 +356,5 @@ public class KVRangeTest extends AbstractKVRangeTest {
         IKVReader rangeReader = accessor.newDataReader();
         assertEquals(accessor.version(), 0);
         assertFalse(accessor.newDataReader().exist(key));
-    }
-
-    @Test
-    public void resetFlushSegments() {
-        KVRangeSnapshot snapshot = KVRangeSnapshot.newBuilder()
-            .setId(KVRangeIdUtil.generate())
-            .setVer(3)
-            .setLastAppliedIndex(5)
-            .setState(State.newBuilder().setType(State.StateType.Normal).build())
-            .setBoundary(FULL_BOUNDARY)
-            .setClusterConfig(ClusterConfig.newBuilder().addVoters("A").build())
-            .build();
-        ICPableKVSpace keyRange = kvEngine.createIfMissing(KVRangeIdUtil.toString(snapshot.getId()));
-        KVRange range = new KVRange(snapshot.getId(), keyRange);
-        IKVReseter reseter = range.toReseter(snapshot);
-        ByteString key1 = ByteString.copyFromUtf8("key1");
-        ByteString val1 = ByteString.copyFromUtf8("value1");
-        ByteString key2 = ByteString.copyFromUtf8("key2");
-        ByteString val2 = ByteString.copyFromUtf8("value2");
-        reseter.put(key1, val1);
-        reseter.flush();
-        reseter.put(key2, val2);
-        reseter.done();
-
-        IKVReader reader = range.newDataReader();
-        assertEquals(reader.get(key1).get(), val1);
-        assertEquals(reader.get(key2).get(), val2);
-        assertEquals(range.version(), snapshot.getVer());
-        assertEquals(range.boundary(), snapshot.getBoundary());
-        assertEquals(range.lastAppliedIndex(), snapshot.getLastAppliedIndex());
-        assertEquals(range.state(), snapshot.getState());
-        assertEquals(range.clusterConfig(), snapshot.getClusterConfig());
-    }
-
-    @Test
-    public void resetWithoutFlush() {
-        KVRangeSnapshot snapshot = KVRangeSnapshot.newBuilder()
-            .setId(KVRangeIdUtil.generate())
-            .setVer(4)
-            .setLastAppliedIndex(6)
-            .setState(State.newBuilder().setType(State.StateType.Normal).build())
-            .setBoundary(FULL_BOUNDARY)
-            .setClusterConfig(ClusterConfig.newBuilder().addVoters("B").build())
-            .build();
-        ICPableKVSpace keyRange = kvEngine.createIfMissing(KVRangeIdUtil.toString(snapshot.getId()));
-        KVRange range = new KVRange(snapshot.getId(), keyRange);
-        IKVReseter reseter = range.toReseter(snapshot);
-        ByteString key1 = ByteString.copyFromUtf8("segKey1");
-        ByteString val1 = ByteString.copyFromUtf8("segVal1");
-        ByteString key2 = ByteString.copyFromUtf8("segKey2");
-        ByteString val2 = ByteString.copyFromUtf8("segVal2");
-        reseter.put(key1, val1);
-        reseter.put(key2, val2);
-        reseter.done();
-
-        IKVReader reader = range.newDataReader();
-        assertEquals(reader.get(key1).get(), val1);
-        assertEquals(reader.get(key2).get(), val2);
-        assertEquals(range.version(), snapshot.getVer());
-        assertEquals(range.boundary(), snapshot.getBoundary());
-        assertEquals(range.lastAppliedIndex(), snapshot.getLastAppliedIndex());
-        assertEquals(range.state(), snapshot.getState());
-        assertEquals(range.clusterConfig(), snapshot.getClusterConfig());
     }
 }

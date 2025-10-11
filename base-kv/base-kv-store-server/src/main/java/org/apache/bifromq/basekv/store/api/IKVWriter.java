@@ -14,15 +14,17 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 
 package org.apache.bifromq.basekv.store.api;
 
-import org.apache.bifromq.basekv.proto.Boundary;
 import com.google.protobuf.ByteString;
+import org.apache.bifromq.basekv.proto.Boundary;
 
 public interface IKVWriter {
+
+    void reset();
 
     void delete(ByteString key);
 

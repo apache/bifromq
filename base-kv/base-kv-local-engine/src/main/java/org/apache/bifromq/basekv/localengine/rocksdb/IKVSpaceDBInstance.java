@@ -17,16 +17,13 @@
  * under the License.
  */
 
-package org.apache.bifromq.basekv.store.range;
+package org.apache.bifromq.basekv.localengine.rocksdb;
 
-import com.google.protobuf.ByteString;
+import org.rocksdb.ColumnFamilyHandle;
+import org.rocksdb.RocksDB;
 
-public interface IKVReseter {
-    void put(ByteString key, ByteString value);
+public interface IKVSpaceDBInstance {
+    RocksDB db();
 
-    void flush();
-
-    IKVRange abort();
-
-    IKVRange done();
+    ColumnFamilyHandle cf();
 }

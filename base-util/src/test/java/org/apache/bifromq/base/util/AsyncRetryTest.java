@@ -19,16 +19,20 @@
 
 package org.apache.bifromq.base.util;
 
+import static org.awaitility.Awaitility.await;
 import static org.testng.Assert.assertEquals;
 import static org.testng.Assert.assertThrows;
 import static org.testng.Assert.fail;
 import static org.testng.AssertJUnit.assertTrue;
 
-import org.apache.bifromq.base.util.exception.RetryTimeoutException;
+import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Supplier;
+import org.apache.bifromq.base.util.exception.RetryTimeoutException;
 import org.testng.annotations.Test;
 
 public class AsyncRetryTest {
@@ -85,5 +89,37 @@ public class AsyncRetryTest {
             assertTrue(cause instanceof RetryTimeoutException);
         }
         assertTrue(counter.get() > 0);
+    }
+
+    @Test
+    public void testCancelCancelsInFlightTask() {
+        AtomicInteger attempts = new AtomicInteger(0);
+        AtomicReference<CompletableFuture<String>> inFlightRef = new AtomicReference<>();
+
+        Supplier<CompletableFuture<String>> taskSupplier = () -> {
+            attempts.incrementAndGet();
+            CompletableFuture<String> f = new CompletableFuture<>();
+            inFlightRef.set(f);
+            return f; // never completes unless cancelled by AsyncRetry
+        };
+
+        CompletableFuture<String> resultFuture = AsyncRetry.exec(taskSupplier, (result, e) -> true,
+            TimeUnit.MILLISECONDS.toNanos(10), TimeUnit.SECONDS.toNanos(1)
+        );
+
+        await().atMost(1, TimeUnit.SECONDS).until(() -> inFlightRef.get() != null);
+
+        resultFuture.cancel(true);
+
+        await().atMost(1, TimeUnit.SECONDS).until(() -> {
+            CompletableFuture<String> f = inFlightRef.get();
+            return f != null && f.isCancelled();
+        });
+
+        await().atMost(1, TimeUnit.SECONDS).until(resultFuture::isCancelled);
+
+        assertThrows(CancellationException.class, resultFuture::join);
+
+        assertEquals(attempts.get(), 1);
     }
 }

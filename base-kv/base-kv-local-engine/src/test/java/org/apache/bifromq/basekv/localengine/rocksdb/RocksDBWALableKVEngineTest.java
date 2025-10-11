@@ -19,12 +19,12 @@
 
 package org.apache.bifromq.basekv.localengine.rocksdb;
 
-import org.apache.bifromq.basekv.localengine.IKVEngine;
-import org.apache.bifromq.basekv.localengine.IKVSpace;
 import java.nio.file.Paths;
 import lombok.SneakyThrows;
+import org.apache.bifromq.basekv.localengine.IKVEngine;
+import org.apache.bifromq.basekv.localengine.IWALableKVSpace;
 
-public class RocksDBWALableKVEngineTest extends AbstractRocksDBKVEngineTest {
+public class RocksDBWALableKVEngineTest extends AbstractRocksDBWALableEngineTest {
     protected RocksDBWALableKVEngineConfigurator configurator;
 
     @SneakyThrows
@@ -39,7 +39,7 @@ public class RocksDBWALableKVEngineTest extends AbstractRocksDBKVEngineTest {
 
     @SneakyThrows
     @Override
-    protected IKVEngine<? extends IKVSpace> newEngine() {
+    protected IKVEngine<? extends IWALableKVSpace> newEngine() {
         return new RocksDBWALableKVEngine(null, configurator);
     }
 }

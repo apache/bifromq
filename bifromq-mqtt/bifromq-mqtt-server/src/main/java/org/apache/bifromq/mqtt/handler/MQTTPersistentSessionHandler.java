@@ -50,6 +50,8 @@ import java.util.NavigableMap;
 import java.util.SortedMap;
 import java.util.TreeMap;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ScheduledFuture;
+import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 import lombok.extern.slf4j.Slf4j;
@@ -103,6 +105,9 @@ public abstract class MQTTPersistentSessionHandler extends MQTTSessionHandler im
     private long inboxConfirmedUpToSeq = -1;
     private IInboxClient.IInboxReader inboxReader;
     private State state = State.INIT;
+    private ScheduledFuture<?> confirmTimeout;
+    private ScheduledFuture<?> hintTimeout;
+    private int currentHint = 1;
 
     protected MQTTPersistentSessionHandler(TenantSettings settings,
                                            ITenantMeter tenantMeter,
@@ -140,6 +145,9 @@ public abstract class MQTTPersistentSessionHandler extends MQTTSessionHandler im
     @Override
     public void channelInactive(ChannelHandlerContext ctx) {
         super.channelInactive(ctx);
+        if (hintTimeout != null && !hintTimeout.isCancelled()) {
+            hintTimeout.cancel(false);
+        }
         if (inboxReader != null) {
             inboxReader.close();
         }
@@ -357,10 +365,27 @@ public abstract class MQTTPersistentSessionHandler extends MQTTSessionHandler im
         inboxReader = inboxClient.openInboxReader(clientInfo().getTenantId(), userSessionId,
             inboxVersion.getIncarnation());
         inboxReader.fetch(this::consume);
-        inboxReader.hint(clientReceiveMaximum());
+        currentHint = clientReceiveQuota();
+        scheduleHintTimeout();
+        inboxReader.hint(currentHint);
         // resume channel read after inbox being setup
         onInitialized();
         resumeChannelRead();
+    }
+
+    private void scheduleHintTimeout() {
+        hintTimeout = ctx.executor().schedule(() -> {
+            inboxReader.hint(currentHint);
+            scheduleHintTimeout();
+        }, ThreadLocalRandom.current().nextLong(15, 45), TimeUnit.SECONDS);
+    }
+
+    private void scheduleConfirmTimeout(long upToSeq) {
+        confirmTimeout = ctx.executor().schedule(() -> {
+            if (upToSeq < inboxConfirmedUpToSeq) {
+                confirmSendBuffer();
+            }
+        }, ThreadLocalRandom.current().nextLong(15, 45), TimeUnit.SECONDS);
     }
 
     private void confirmQoS0() {
@@ -419,6 +444,9 @@ public abstract class MQTTPersistentSessionHandler extends MQTTSessionHandler im
     }
 
     private void confirmSendBuffer() {
+        if (confirmTimeout != null && !confirmTimeout.isCancelled()) {
+            confirmTimeout.cancel(false);
+        }
         if (inboxConfirming) {
             return;
         }
@@ -439,19 +467,27 @@ public abstract class MQTTPersistentSessionHandler extends MQTTSessionHandler im
                         if (upToSeq < inboxConfirmedUpToSeq) {
                             confirmSendBuffer();
                         } else {
-                            inboxReader.hint(clientReceiveQuota());
+                            currentHint = clientReceiveQuota();
+                            inboxReader.hint(currentHint);
                         }
                     }
                     case NO_INBOX, CONFLICT ->
                         handleProtocolResponse(helper().onInboxTransientError(v.getCode().name()));
-                    case BACK_PRESSURE_REJECTED -> inboxConfirming = false;
+                    case BACK_PRESSURE_REJECTED -> {
+                        inboxConfirming = false;
+                        if (upToSeq < inboxConfirmedUpToSeq) {
+                            scheduleConfirmTimeout(upToSeq);
+                        }
+                    }
                     case TRY_LATER -> {
                         // try again with same version
                         inboxConfirming = false;
                         if (upToSeq < inboxConfirmedUpToSeq) {
                             confirmSendBuffer();
                         } else {
-                            inboxReader.hint(clientReceiveQuota());
+                            currentHint = clientReceiveQuota();
+                            inboxReader.hint(currentHint);
+                            scheduleHintTimeout();
                         }
                     }
                     default -> {
@@ -463,6 +499,9 @@ public abstract class MQTTPersistentSessionHandler extends MQTTSessionHandler im
 
     private void consume(Fetched fetched) {
         ctx.executor().execute(() -> {
+            if (hintTimeout != null && !hintTimeout.isCancelled()) {
+                hintTimeout.cancel(false);
+            }
             switch (fetched.getResult()) {
                 case OK -> {
                     // deal with qos0
@@ -478,9 +517,17 @@ public abstract class MQTTPersistentSessionHandler extends MQTTSessionHandler im
                     }
                 }
                 case BACK_PRESSURE_REJECTED -> {
-                    // ignore
+                    if (stagingBuffer.isEmpty()) {
+                        currentHint = clientReceiveQuota();
+                        scheduleHintTimeout();
+                        inboxReader.hint(currentHint);
+                    }
                 }
-                case TRY_LATER -> inboxReader.hint(clientReceiveQuota());
+                case TRY_LATER -> {
+                    currentHint = clientReceiveQuota();
+                    scheduleHintTimeout();
+                    inboxReader.hint(currentHint);
+                }
                 case NO_INBOX, ERROR ->
                     handleProtocolResponse(helper().onInboxTransientError(fetched.getResult().name()));
                 default -> {

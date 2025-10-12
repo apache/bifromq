@@ -20,29 +20,20 @@
 package org.apache.bifromq.inbox.store;
 
 import static org.apache.bifromq.basekv.utils.BoundaryUtil.inRange;
-import static org.apache.bifromq.basekv.utils.BoundaryUtil.upperBound;
 import static org.apache.bifromq.inbox.store.canon.TenantIdCanon.TENANT_ID_INTERNER;
 import static org.apache.bifromq.inbox.store.schema.KVSchemaUtil.inboxStartKeyPrefix;
-import static org.apache.bifromq.inbox.store.schema.KVSchemaUtil.isInboxInstanceKey;
-import static org.apache.bifromq.inbox.store.schema.KVSchemaUtil.isInboxInstanceStartKey;
-import static org.apache.bifromq.inbox.store.schema.KVSchemaUtil.parseInboxInstanceStartKeyPrefix;
 
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
-import com.google.protobuf.ByteString;
-import com.google.protobuf.InvalidProtocolBufferException;
 import java.time.Duration;
 import java.util.Optional;
-import java.util.SortedMap;
-import java.util.concurrent.ConcurrentSkipListMap;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.bifromq.basekv.proto.Boundary;
-import org.apache.bifromq.basekv.store.api.IKVIterator;
 import org.apache.bifromq.inbox.storage.proto.InboxMetadata;
 
 @Slf4j
 class InboxMetaCache implements IInboxMetaCache {
-    private final Cache<CacheKey, SortedMap<Long, InboxMetadata>> cache;
+    private final Cache<CacheKey, InboxMetadata> cache;
 
     InboxMetaCache(Duration expireAfterAccess) {
         this.cache = Caffeine.newBuilder()
@@ -51,34 +42,21 @@ class InboxMetaCache implements IInboxMetaCache {
     }
 
     @Override
-    public SortedMap<Long, InboxMetadata> get(String tenantId, String inboxId, IKVIterator itr) {
-        return cache.get(new CacheKey(TENANT_ID_INTERNER.intern(tenantId), inboxId),
-            key -> getFromStore(key.tenantId, key.inboxId, itr));
+    public Optional<InboxMetadata> get(String tenantId, String inboxId, long incarnation,
+                                       InboxMetadataProvider provider) {
+        return Optional.ofNullable(cache.get(new CacheKey(TENANT_ID_INTERNER.intern(tenantId), inboxId, incarnation),
+            key -> provider.get(key.tenantId, key.inboxId, key.incarnation)));
     }
 
     @Override
-    public Optional<InboxMetadata> get(String tenantId, String inboxId, long incarnation, IKVIterator itr) {
-        SortedMap<Long, InboxMetadata> inboxInstances = get(tenantId, inboxId, itr);
-        return Optional.ofNullable(inboxInstances.get(incarnation));
+    public void upsert(String tenantId, InboxMetadata metadata) {
+        cache.put(new CacheKey(TENANT_ID_INTERNER.intern(tenantId), metadata.getInboxId(),
+            metadata.getIncarnation()), metadata);
     }
 
     @Override
-    public boolean upsert(String tenantId, InboxMetadata metadata, IKVIterator itr) {
-        SortedMap<Long, InboxMetadata> inboxInstances = get(tenantId, metadata.getInboxId(), itr);
-        boolean isNew = inboxInstances.isEmpty();
-        inboxInstances.put(metadata.getIncarnation(), metadata);
-        return isNew;
-    }
-
-    @Override
-    public boolean remove(String tenantId, String inboxId, long incarnation, IKVIterator itr) {
-        SortedMap<Long, InboxMetadata> inboxInstances = get(tenantId, inboxId, itr);
-        inboxInstances.remove(incarnation);
-        if (inboxInstances.isEmpty()) {
-            cache.invalidate(new CacheKey(tenantId, inboxId));
-            return true;
-        }
-        return false;
+    public void remove(String tenantId, String inboxId, long incarnation) {
+        cache.invalidate(new CacheKey(TENANT_ID_INTERNER.intern(tenantId), inboxId, incarnation));
     }
 
     @Override
@@ -95,44 +73,7 @@ class InboxMetaCache implements IInboxMetaCache {
         cache.invalidateAll();
     }
 
-    private SortedMap<Long, InboxMetadata> getFromStore(String tenantId, String inboxId, IKVIterator itr) {
-        int probe = 0;
-        SortedMap<Long, InboxMetadata> inboxInstances = new ConcurrentSkipListMap<>();
-        ByteString inboxStartKey = inboxStartKeyPrefix(tenantId, inboxId);
-        for (itr.seek(inboxStartKey); itr.isValid(); ) {
-            if (itr.key().startsWith(inboxStartKey)) {
-                if (isInboxInstanceStartKey(itr.key())) {
-                    probe = 0;
-                    try {
-                        InboxMetadata inboxMetadata = InboxMetadata.parseFrom(itr.value());
-                        inboxInstances.put(inboxMetadata.getIncarnation(), inboxMetadata);
-                    } catch (InvalidProtocolBufferException e) {
-                        log.error("Unexpected error", e);
-                    } finally {
-                        itr.next();
-                        probe++;
-                    }
-                } else {
-                    if (probe < 20) {
-                        itr.next();
-                        probe++;
-                    } else {
-                        if (isInboxInstanceKey(itr.key())) {
-                            itr.seek(upperBound(parseInboxInstanceStartKeyPrefix(itr.key())));
-                        } else {
-                            itr.next();
-                            probe++;
-                        }
-                    }
-                }
-            } else {
-                break;
-            }
-        }
-        return inboxInstances;
-    }
-
-    private record CacheKey(String tenantId, String inboxId) {
+    private record CacheKey(String tenantId, String inboxId, long incarnation) {
 
     }
 }

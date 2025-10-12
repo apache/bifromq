@@ -20,24 +20,24 @@
 package org.apache.bifromq.inbox.store;
 
 import java.util.Optional;
-import java.util.SortedMap;
 import org.apache.bifromq.basekv.proto.Boundary;
-import org.apache.bifromq.basekv.store.api.IKVIterator;
 import org.apache.bifromq.inbox.storage.proto.InboxMetadata;
 
-public interface IInboxMetaCache {
+interface IInboxMetaCache {
 
-    SortedMap<Long, InboxMetadata> get(String tenantId, String inboxId, IKVIterator itr);
+    Optional<InboxMetadata> get(String tenantId, String inboxId, long incarnation, InboxMetadataProvider provider);
 
-    Optional<InboxMetadata> get(String tenantId, String inboxId, long incarnation, IKVIterator itr);
+    void upsert(String tenantId, InboxMetadata metadata);
 
-    boolean upsert(String tenantId, InboxMetadata metadata, IKVIterator itr);
-
-    boolean remove(String tenantId, String inboxId, long incarnation, IKVIterator itr);
+    void remove(String tenantId, String inboxId, long incarnation);
 
     void reset(Boundary boundary);
 
     void close();
+
+    interface InboxMetadataProvider {
+        InboxMetadata get(String tenantId, String inboxId, long incarnation);
+    }
 }
 
 

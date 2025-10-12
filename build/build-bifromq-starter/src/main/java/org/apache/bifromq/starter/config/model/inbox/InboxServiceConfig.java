@@ -14,11 +14,12 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 
 package org.apache.bifromq.starter.config.model.inbox;
 
+import com.fasterxml.jackson.annotation.JsonMerge;
 import com.fasterxml.jackson.annotation.JsonSetter;
 import com.fasterxml.jackson.annotation.Nulls;
 import lombok.Getter;
@@ -28,14 +29,18 @@ import lombok.Setter;
 @Setter
 public class InboxServiceConfig {
     @JsonSetter(nulls = Nulls.SKIP)
+    @JsonMerge
     private InboxClientConfig client = new InboxClientConfig();
 
     @JsonSetter(nulls = Nulls.SKIP)
+    @JsonMerge
     private InboxServerConfig server = new InboxServerConfig();
 
     @JsonSetter(nulls = Nulls.SKIP)
+    @JsonMerge
     private InboxStoreClientConfig storeClient = new InboxStoreClientConfig();
 
     @JsonSetter(nulls = Nulls.SKIP)
+    @JsonMerge
     private InboxStoreConfig store = new InboxStoreConfig();
 }

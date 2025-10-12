@@ -14,11 +14,12 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 
 package org.apache.bifromq.starter.config.model.dist;
 
+import com.fasterxml.jackson.annotation.JsonMerge;
 import com.fasterxml.jackson.annotation.JsonSetter;
 import com.fasterxml.jackson.annotation.Nulls;
 import lombok.Getter;
@@ -28,14 +29,18 @@ import lombok.Setter;
 @Setter
 public class DistServiceConfig {
     @JsonSetter(nulls = Nulls.SKIP)
+    @JsonMerge
     private DistClientConfig client = new DistClientConfig();
 
     @JsonSetter(nulls = Nulls.SKIP)
+    @JsonMerge
     private DistServerConfig server = new DistServerConfig();
 
     @JsonSetter(nulls = Nulls.SKIP)
+    @JsonMerge
     private DistWorkerClientConfig workerClient = new DistWorkerClientConfig();
 
     @JsonSetter(nulls = Nulls.SKIP)
+    @JsonMerge
     private DistWorkerConfig worker = new DistWorkerConfig();
 }

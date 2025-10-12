@@ -14,11 +14,12 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 
 package org.apache.bifromq.starter.config.model.mqtt;
 
+import com.fasterxml.jackson.annotation.JsonMerge;
 import com.fasterxml.jackson.annotation.JsonSetter;
 import com.fasterxml.jackson.annotation.Nulls;
 import lombok.Getter;
@@ -28,8 +29,10 @@ import lombok.Setter;
 @Setter
 public class MQTTServiceConfig {
     @JsonSetter(nulls = Nulls.SKIP)
+    @JsonMerge
     private MQTTBrokerClientConfig client = new MQTTBrokerClientConfig();
 
     @JsonSetter(nulls = Nulls.SKIP)
+    @JsonMerge
     private MQTTServerConfig server = new MQTTServerConfig();
 }

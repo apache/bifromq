@@ -19,6 +19,7 @@
 
 package org.apache.bifromq.starter.config.model.mqtt;
 
+import com.fasterxml.jackson.annotation.JsonMerge;
 import com.fasterxml.jackson.annotation.JsonSetter;
 import com.fasterxml.jackson.annotation.Nulls;
 import com.fasterxml.jackson.databind.annotation.JsonDeserialize;
@@ -53,11 +54,15 @@ public class MQTTServerConfig {
     @JsonSetter(nulls = Nulls.SKIP)
     private Map<String, Struct> userPropsCustomizerFactoryConfig = new HashMap<>();
     @JsonSetter(nulls = Nulls.SKIP)
+    @JsonMerge
     private TCPListenerConfig tcpListener = new TCPListenerConfig();
     @JsonSetter(nulls = Nulls.SKIP)
+    @JsonMerge
     private TLSListenerConfig tlsListener = new TLSListenerConfig();
     @JsonSetter(nulls = Nulls.SKIP)
+    @JsonMerge
     private WSListenerConfig wsListener = new WSListenerConfig();
     @JsonSetter(nulls = Nulls.SKIP)
+    @JsonMerge
     private WSSListenerConfig wssListener = new WSSListenerConfig();
 }

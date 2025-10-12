@@ -14,11 +14,12 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 
 package org.apache.bifromq.starter.config.model.retain;
 
+import com.fasterxml.jackson.annotation.JsonMerge;
 import com.fasterxml.jackson.annotation.JsonSetter;
 import com.fasterxml.jackson.annotation.Nulls;
 import lombok.Getter;
@@ -28,14 +29,18 @@ import lombok.Setter;
 @Setter
 public class RetainServiceConfig {
     @JsonSetter(nulls = Nulls.SKIP)
+    @JsonMerge
     private RetainClientConfig client = new RetainClientConfig();
 
     @JsonSetter(nulls = Nulls.SKIP)
+    @JsonMerge
     private RetainServerConfig server = new RetainServerConfig();
 
     @JsonSetter(nulls = Nulls.SKIP)
+    @JsonMerge
     private RetainStoreClientConfig storeClient = new RetainStoreClientConfig();
 
     @JsonSetter(nulls = Nulls.SKIP)
+    @JsonMerge
     private RetainStoreConfig store = new RetainStoreConfig();
 }

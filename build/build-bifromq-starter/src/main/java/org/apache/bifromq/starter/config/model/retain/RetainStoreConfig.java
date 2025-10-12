@@ -14,11 +14,12 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 
 package org.apache.bifromq.starter.config.model.retain;
 
+import com.fasterxml.jackson.annotation.JsonMerge;
 import com.fasterxml.jackson.annotation.JsonSetter;
 import com.fasterxml.jackson.annotation.Nulls;
 import com.google.protobuf.Struct;
@@ -44,13 +45,16 @@ public class RetainStoreConfig {
     private int compactWALThreshold = 2500;
     private int gcIntervalSeconds = 600;
     @JsonSetter(nulls = Nulls.SKIP)
+    @JsonMerge
     private StorageEngineConfig dataEngineConfig = new RocksDBEngineConfig();
     @JsonSetter(nulls = Nulls.SKIP)
+    @JsonMerge
     private StorageEngineConfig walEngineConfig = new RocksDBEngineConfig()
         .setManualCompaction(true)
         .setCompactMinTombstoneKeys(2500)
         .setCompactMinTombstoneRanges(2);
     @JsonSetter(nulls = Nulls.SKIP)
+    @JsonMerge
     private BalancerOptions balanceConfig = new BalancerOptions();
     @JsonSetter(nulls = Nulls.SKIP)
     private Map<String, String> attributes = new HashMap<>();

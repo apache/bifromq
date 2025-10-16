@@ -26,7 +26,7 @@ class DevOnlySettingProvider implements ISettingProvider {
 
     DevOnlySettingProvider() {
         for (Setting setting : Setting.values()) {
-            initialValues.put(setting, setting.current("DevOnly"));
+            initialValues.put(setting, setting.initialValue());
         }
     }
 

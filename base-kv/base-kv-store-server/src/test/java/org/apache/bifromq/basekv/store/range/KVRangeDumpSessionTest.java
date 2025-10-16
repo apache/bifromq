@@ -44,6 +44,8 @@ import org.apache.bifromq.basekv.proto.KVRangeSnapshot;
 import org.apache.bifromq.basekv.proto.SaveSnapshotDataReply;
 import org.apache.bifromq.basekv.proto.SaveSnapshotDataRequest;
 import org.apache.bifromq.basekv.proto.SnapshotSyncRequest;
+import org.apache.bifromq.basekv.store.api.IKVIterator;
+import org.apache.bifromq.basekv.store.api.IKVRangeReader;
 import org.apache.bifromq.basekv.utils.KVRangeIdUtil;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
@@ -56,11 +58,9 @@ public class KVRangeDumpSessionTest extends MockableTest {
     @Mock
     private IKVRangeMessenger messenger;
     @Mock
-    private IKVRangeCheckpointReader rangeCPReader;
+    private IKVRangeReader checkpointReader;
     @Mock
-    private IKVCheckpointReader rangeCPDataReader;
-    @Mock
-    private IKVCheckpointIterator rangeCPDataItr;
+    private IKVIterator checkpointItr;
 
     @Mock
     private KVRangeDumpSession.DumpBytesRecorder dumpBytesRecorder;
@@ -148,19 +148,18 @@ public class KVRangeDumpSessionTest extends MockableTest {
 
         when(rangeAccessor.id()).thenReturn(rangeId);
         when(rangeAccessor.hasCheckpoint(snapshot)).thenReturn(true);
-        when(rangeAccessor.open(snapshot)).thenReturn(rangeCPReader);
-        when(rangeCPReader.newDataReader()).thenReturn(rangeCPDataReader);
-        when(rangeCPDataReader.iterator()).thenReturn(rangeCPDataItr);
+        when(rangeAccessor.open(snapshot)).thenReturn(checkpointReader);
+        when(checkpointReader.iterator()).thenReturn(checkpointItr);
         when(messenger.receive()).thenReturn(incomingMsgs);
 
-        when(rangeCPDataItr.isValid()).thenReturn(true, false);
-        when(rangeCPDataItr.key()).thenReturn(ByteString.copyFromUtf8("key"));
-        when(rangeCPDataItr.value()).thenReturn(ByteString.copyFromUtf8("value"));
+        when(checkpointItr.isValid()).thenReturn(true, false);
+        when(checkpointItr.key()).thenReturn(ByteString.copyFromUtf8("key"));
+        when(checkpointItr.value()).thenReturn(ByteString.copyFromUtf8("value"));
         KVRangeDumpSession dumpSession = new KVRangeDumpSession(sessionId, snapshot, rangeId, peerStoreId,
             rangeAccessor, messenger, Duration.ofSeconds(5), 1024, new SnapshotBandwidthGovernor(0), dumpBytesRecorder);
         assertEquals(dumpSession.checkpointId(), checkpointId);
-        verify(rangeCPDataItr, timeout(100)).seekToFirst();
-        verify(rangeCPDataItr, timeout(100)).next();
+        verify(checkpointItr, timeout(100)).seekToFirst();
+        verify(checkpointItr, timeout(100)).next();
         assertFalse(dumpSession.awaitDone().toCompletableFuture().isDone());
         ArgumentCaptor<KVRangeMessage> messageCap = ArgumentCaptor.forClass(KVRangeMessage.class);
         verify(messenger).send(messageCap.capture());
@@ -176,7 +175,8 @@ public class KVRangeDumpSessionTest extends MockableTest {
             .build());
         verify(dumpBytesRecorder).record(anyInt());
         await().until(() -> dumpSession.awaitDone().toCompletableFuture().isDone());
-        verify(rangeCPDataItr).close();
+        verify(checkpointItr).close();
+        verify(checkpointReader).close();
     }
 
     @Test
@@ -197,9 +197,8 @@ public class KVRangeDumpSessionTest extends MockableTest {
 
         when(rangeAccessor.id()).thenReturn(rangeId);
         when(rangeAccessor.hasCheckpoint(snapshot)).thenReturn(true);
-        when(rangeAccessor.open(snapshot)).thenReturn(rangeCPReader);
-        when(rangeCPReader.newDataReader()).thenReturn(rangeCPDataReader);
-        when(rangeCPDataReader.iterator()).thenReturn(rangeCPDataItr);
+        when(rangeAccessor.open(snapshot)).thenReturn(checkpointReader);
+        when(checkpointReader.iterator()).thenReturn(checkpointItr);
 
         when(messenger.receive()).thenReturn(incomingMsgs);
 
@@ -212,13 +211,13 @@ public class KVRangeDumpSessionTest extends MockableTest {
             ByteString.copyFrom(new byte[200_000]),
             ByteString.copyFrom(new byte[200_000])
         };
-        when(rangeCPDataItr.isValid()).thenAnswer(invocation -> index.get() < values.length);
-        when(rangeCPDataItr.key()).thenAnswer(invocation -> keys[index.get()]);
-        when(rangeCPDataItr.value()).thenAnswer(invocation -> values[index.get()]);
+        when(checkpointItr.isValid()).thenAnswer(invocation -> index.get() < values.length);
+        when(checkpointItr.key()).thenAnswer(invocation -> keys[index.get()]);
+        when(checkpointItr.value()).thenAnswer(invocation -> values[index.get()]);
         doAnswer(invocation -> {
             index.incrementAndGet();
             return null;
-        }).when(rangeCPDataItr).next();
+        }).when(checkpointItr).next();
 
         KVRangeDumpSession dumpSession = new KVRangeDumpSession(sessionId, snapshot, rangeId, peerStoreId, rangeAccessor, messenger,
             Duration.ofMillis(100), 0, new SnapshotBandwidthGovernor(0), dumpBytesRecorder);
@@ -248,15 +247,14 @@ public class KVRangeDumpSessionTest extends MockableTest {
 
         when(rangeAccessor.id()).thenReturn(rangeId);
         when(rangeAccessor.hasCheckpoint(snapshot)).thenReturn(true);
-        when(rangeAccessor.open(snapshot)).thenReturn(rangeCPReader);
-        when(rangeCPReader.newDataReader()).thenReturn(rangeCPDataReader);
-        when(rangeCPDataReader.iterator()).thenReturn(rangeCPDataItr);
+        when(rangeAccessor.open(snapshot)).thenReturn(checkpointReader);
+        when(checkpointReader.iterator()).thenReturn(checkpointItr);
 
         when(messenger.receive()).thenReturn(incomingMsgs);
 
-        when(rangeCPDataItr.isValid()).thenReturn(true, false);
-        when(rangeCPDataItr.key()).thenReturn(ByteString.copyFromUtf8("key"));
-        when(rangeCPDataItr.value()).thenReturn(ByteString.copyFromUtf8("value"));
+        when(checkpointItr.isValid()).thenReturn(true, false);
+        when(checkpointItr.key()).thenReturn(ByteString.copyFromUtf8("key"));
+        when(checkpointItr.value()).thenReturn(ByteString.copyFromUtf8("value"));
         KVRangeDumpSession dumpSession = new KVRangeDumpSession(sessionId, snapshot, rangeId, peerStoreId, rangeAccessor, messenger,
             Duration.ofMillis(100), 1024, new SnapshotBandwidthGovernor(0), dumpBytesRecorder);
         Thread.sleep(60);
@@ -285,22 +283,22 @@ public class KVRangeDumpSessionTest extends MockableTest {
 
         when(rangeAccessor.id()).thenReturn(rangeId);
         when(rangeAccessor.hasCheckpoint(snapshot)).thenReturn(true);
-        when(rangeAccessor.open(snapshot)).thenReturn(rangeCPReader);
-        when(rangeCPReader.newDataReader()).thenReturn(rangeCPDataReader);
-        when(rangeCPDataReader.iterator()).thenReturn(rangeCPDataItr);
+        when(rangeAccessor.open(snapshot)).thenReturn(checkpointReader);
+        when(checkpointReader.iterator()).thenReturn(checkpointItr);
 
         when(messenger.receive()).thenReturn(incomingMsgs);
 
-        when(rangeCPDataItr.isValid()).thenReturn(true, false);
-        when(rangeCPDataItr.key()).thenReturn(ByteString.copyFromUtf8("key"));
-        when(rangeCPDataItr.value()).thenReturn(ByteString.copyFromUtf8("value"));
+        when(checkpointItr.isValid()).thenReturn(true, false);
+        when(checkpointItr.key()).thenReturn(ByteString.copyFromUtf8("key"));
+        when(checkpointItr.value()).thenReturn(ByteString.copyFromUtf8("value"));
         KVRangeDumpSession dumpSession = new KVRangeDumpSession(sessionId, snapshot, rangeId, peerStoreId, rangeAccessor, messenger,
             Duration.ofMillis(10), 1024, new SnapshotBandwidthGovernor(0), dumpBytesRecorder);
         Thread.sleep(20);
         dumpSession.tick();
         verify(messenger, timeout(100).times(2)).send(any());
         assertTrue(dumpSession.awaitDone().toCompletableFuture().isDone());
-        verify(rangeCPDataItr).close();
+        verify(checkpointItr).close();
+        verify(checkpointReader).close();
     }
 
     @Test
@@ -321,21 +319,21 @@ public class KVRangeDumpSessionTest extends MockableTest {
 
         when(rangeAccessor.id()).thenReturn(rangeId);
         when(rangeAccessor.hasCheckpoint(snapshot)).thenReturn(true);
-        when(rangeAccessor.open(snapshot)).thenReturn(rangeCPReader);
-        when(rangeCPReader.newDataReader()).thenReturn(rangeCPDataReader);
-        when(rangeCPDataReader.iterator()).thenReturn(rangeCPDataItr);
+        when(rangeAccessor.open(snapshot)).thenReturn(checkpointReader);
+        when(checkpointReader.iterator()).thenReturn(checkpointItr);
 
         when(messenger.receive()).thenReturn(incomingMsgs);
 
-        when(rangeCPDataItr.isValid()).thenReturn(true, false);
-        when(rangeCPDataItr.key()).thenReturn(ByteString.copyFromUtf8("key"));
-        when(rangeCPDataItr.value()).thenReturn(ByteString.copyFromUtf8("value"));
+        when(checkpointItr.isValid()).thenReturn(true, false);
+        when(checkpointItr.key()).thenReturn(ByteString.copyFromUtf8("key"));
+        when(checkpointItr.value()).thenReturn(ByteString.copyFromUtf8("value"));
         KVRangeDumpSession dumpSession = new KVRangeDumpSession(sessionId, snapshot, rangeId, peerStoreId, rangeAccessor, messenger,
             Duration.ofMillis(10), 1024, new SnapshotBandwidthGovernor(0), dumpBytesRecorder);
         assertFalse(dumpSession.awaitDone().toCompletableFuture().isDone());
         dumpSession.cancel();
         verify(messenger, timeout(100).times(2)).send(any());
         assertTrue(dumpSession.awaitDone().toCompletableFuture().isDone());
-        verify(rangeCPDataItr).close();
+        verify(checkpointItr).close();
+        verify(checkpointReader).close();
     }
 }

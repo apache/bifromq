@@ -21,7 +21,7 @@ package org.apache.bifromq.basekv.store.range;
 
 import java.util.concurrent.CompletionStage;
 
-public interface IKVRangeQueryLinearizer {
+interface IKVRangeQueryLinearizer {
     CompletionStage<Void> linearize();
 
     void afterLogApplied(long logIndex);

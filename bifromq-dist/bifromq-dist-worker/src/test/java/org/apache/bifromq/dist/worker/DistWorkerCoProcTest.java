@@ -48,13 +48,14 @@ import java.util.function.Supplier;
 import lombok.SneakyThrows;
 import org.apache.bifromq.basekv.proto.Boundary;
 import org.apache.bifromq.basekv.proto.KVRangeId;
-import org.apache.bifromq.basekv.store.api.IKVCloseableReader;
 import org.apache.bifromq.basekv.store.api.IKVIterator;
 import org.apache.bifromq.basekv.store.api.IKVRangeCoProc;
+import org.apache.bifromq.basekv.store.api.IKVRangeReader;
 import org.apache.bifromq.basekv.store.api.IKVWriter;
 import org.apache.bifromq.basekv.store.proto.ROCoProcInput;
 import org.apache.bifromq.basekv.store.proto.ROCoProcOutput;
 import org.apache.bifromq.basekv.store.proto.RWCoProcInput;
+import org.apache.bifromq.basekv.store.range.IKVRangeRefreshableReader;
 import org.apache.bifromq.dist.rpc.proto.BatchDistReply;
 import org.apache.bifromq.dist.rpc.proto.BatchDistRequest;
 import org.apache.bifromq.dist.rpc.proto.BatchMatchReply;
@@ -86,8 +87,9 @@ public class DistWorkerCoProcTest {
     private ITenantsStats tenantsState;
     private IDeliverExecutorGroup deliverExecutorGroup;
     private ISubscriptionCleaner subscriptionChecker;
-    private Supplier<IKVCloseableReader> readerProvider;
-    private IKVCloseableReader reader;
+    private Supplier<IKVRangeRefreshableReader> refreshableReaderProvider;
+    private IKVRangeRefreshableReader refreshableReader;
+    private IKVRangeReader reader;
     private IKVWriter writer;
     private IKVIterator iterator;
     private KVRangeId rangeId;
@@ -99,16 +101,20 @@ public class DistWorkerCoProcTest {
         tenantsState = mock(ITenantsStats.class);
         deliverExecutorGroup = mock(IDeliverExecutorGroup.class);
         subscriptionChecker = mock(ISubscriptionCleaner.class);
-        readerProvider = mock(Supplier.class);
-        reader = mock(IKVCloseableReader.class);
+        refreshableReaderProvider = mock(Supplier.class);
+        reader = mock(IKVRangeReader.class);
+        refreshableReader = mock(IKVRangeRefreshableReader.class);
         iterator = mock(IKVIterator.class);
         writer = mock(IKVWriter.class);
         rangeId = KVRangeId.newBuilder().setId(1).setEpoch(1).build();
-        when(readerProvider.get()).thenReturn(reader);
+        when(refreshableReaderProvider.get()).thenReturn(refreshableReader);
+        when(refreshableReader.boundary()).thenReturn(FULL_BOUNDARY);
+        when(refreshableReader.iterator()).thenReturn(iterator);
+
         when(reader.boundary()).thenReturn(FULL_BOUNDARY);
         when(reader.iterator()).thenReturn(iterator);
         when(iterator.isValid()).thenReturn(false);
-        distWorkerCoProc = new DistWorkerCoProc(rangeId, readerProvider, routeCache, tenantsState, deliverExecutorGroup,
+        distWorkerCoProc = new DistWorkerCoProc(rangeId, refreshableReaderProvider, routeCache, tenantsState, deliverExecutorGroup,
             subscriptionChecker);
         distWorkerCoProc.reset(FULL_BOUNDARY);
         distWorkerCoProc.onLeader(true);
@@ -303,7 +309,7 @@ public class DistWorkerCoProcTest {
         verify(routeCache, atLeast(1)).refresh(any());
         verify(tenantsState, times(1)).incNormalRoutes(eq("tenant0"), eq(1));
 
-        verify(reader, times(1)).refresh();
+        verify(refreshableReader, times(1)).refresh();
     }
 
     @SneakyThrows
@@ -346,7 +352,7 @@ public class DistWorkerCoProcTest {
         verify(routeCache, atLeast(1)).refresh(any());
         verify(tenantsState, times(1)).incNormalRoutes(eq("tenantC"), eq(1));
 
-        verify(reader, times(1)).refresh();
+        verify(refreshableReader, times(1)).refresh();
     }
 
     @SneakyThrows
@@ -389,7 +395,7 @@ public class DistWorkerCoProcTest {
             && m.get("tenantA").routes.keySet()
             .contains(TopicUtil.from("topicA"))));
         verify(tenantsState, times(1)).decNormalRoutes(eq("tenantA"), eq(1));
-        verify(reader, times(1)).refresh();
+        verify(refreshableReader, times(1)).refresh();
     }
 
     @SneakyThrows
@@ -431,7 +437,7 @@ public class DistWorkerCoProcTest {
         verify(routeCache, times(1)).refresh(argThat(m -> m.containsKey("tenantB")
             && m.get("tenantB").routes.keySet().contains(TopicUtil.from("topicB"))));
         verify(tenantsState, times(1)).decNormalRoutes(eq("tenantB"), eq(1));
-        verify(reader, times(1)).refresh();
+        verify(refreshableReader, times(1)).refresh();
     }
 
     @Test

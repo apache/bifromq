@@ -26,14 +26,14 @@ public interface IKVLoadRecord {
     long startNanos();
 
     /**
-     * Get the kv io times
+     * Get the kv io times.
      *
      * @return the access times to kv engine
      */
     int getKVIOs();
 
     /**
-     * Get the total time spent on io of kv engine
+     * Get the total time spent on io of kv engine.
      *
      * @return the total time in nanos
      */

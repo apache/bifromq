@@ -28,6 +28,7 @@ import com.google.protobuf.ByteString;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import org.apache.bifromq.basekv.localengine.ICPableKVSpace;
+import org.apache.bifromq.basekv.localengine.IKVSpaceReader;
 import org.testng.annotations.AfterMethod;
 import org.testng.annotations.BeforeMethod;
 import org.testng.annotations.Test;
@@ -86,6 +87,8 @@ public class RocksDBCPableKVSpaceFreshBootstrapTest {
 
         ICPableKVSpace space = engine.spaces().get(spaceId);
         space.toWriter().put(ByteString.copyFromUtf8("k"), ByteString.copyFromUtf8("v")).done();
-        assertTrue(space.get(ByteString.copyFromUtf8("k")).isPresent());
+        try (IKVSpaceReader reader = space.reader()) {
+            assertTrue(reader.get(ByteString.copyFromUtf8("k")).isPresent());
+        }
     }
 }

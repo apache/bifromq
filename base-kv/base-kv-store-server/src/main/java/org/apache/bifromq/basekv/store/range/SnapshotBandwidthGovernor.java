@@ -21,7 +21,7 @@ package org.apache.bifromq.basekv.store.range;
 
 import com.google.common.util.concurrent.RateLimiter;
 
-final class SnapshotBandwidthGovernor {
+class SnapshotBandwidthGovernor {
     private final RateLimiter rateLimiter;
 
     SnapshotBandwidthGovernor(long bytesPerSec) {

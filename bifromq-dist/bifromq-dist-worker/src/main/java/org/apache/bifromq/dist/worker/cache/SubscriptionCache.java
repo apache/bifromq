@@ -43,7 +43,7 @@ import lombok.EqualsAndHashCode;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.bifromq.basekv.proto.Boundary;
 import org.apache.bifromq.basekv.proto.KVRangeId;
-import org.apache.bifromq.basekv.store.api.IKVCloseableReader;
+import org.apache.bifromq.basekv.store.range.IKVRangeRefreshableReader;
 import org.apache.bifromq.basekv.utils.KVRangeIdUtil;
 import org.apache.bifromq.dist.worker.cache.task.RefreshEntriesTask;
 import org.apache.bifromq.dist.worker.schema.cache.Matching;
@@ -62,7 +62,7 @@ public class SubscriptionCache implements ISubscriptionCache {
     private volatile Boundary boundary;
 
     public SubscriptionCache(KVRangeId id,
-                             Supplier<IKVCloseableReader> rangeReaderProvider,
+                             Supplier<IKVRangeRefreshableReader> rangeReaderProvider,
                              ISettingProvider settingProvider,
                              IEventCollector eventCollector,
                              Executor matchExecutor) {

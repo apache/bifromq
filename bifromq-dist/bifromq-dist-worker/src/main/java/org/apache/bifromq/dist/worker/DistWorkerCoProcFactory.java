@@ -33,10 +33,10 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Supplier;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.bifromq.basekv.proto.KVRangeId;
-import org.apache.bifromq.basekv.store.api.IKVCloseableReader;
 import org.apache.bifromq.basekv.store.api.IKVRangeCoProc;
 import org.apache.bifromq.basekv.store.api.IKVRangeCoProcFactory;
 import org.apache.bifromq.basekv.store.api.IKVRangeSplitHinter;
+import org.apache.bifromq.basekv.store.range.IKVRangeRefreshableReader;
 import org.apache.bifromq.basekv.store.range.hinter.MutationKVLoadBasedSplitHinter;
 import org.apache.bifromq.basekv.utils.KVRangeIdUtil;
 import org.apache.bifromq.deliverer.IMessageDeliverer;
@@ -99,7 +99,7 @@ public class DistWorkerCoProcFactory implements IKVRangeCoProcFactory {
 
     @Override
     public List<IKVRangeSplitHinter> createHinters(String clusterId, String storeId, KVRangeId id,
-                                                   Supplier<IKVCloseableReader> readerProvider) {
+                                                   Supplier<IKVRangeRefreshableReader> readerProvider) {
         return List.of(
             new FanoutSplitHinter(readerProvider, fanoutSplitThreshold,
                 "clusterId", clusterId, "storeId", storeId, "rangeId", KVRangeIdUtil.toString(id)),
@@ -109,7 +109,7 @@ public class DistWorkerCoProcFactory implements IKVRangeCoProcFactory {
 
     @Override
     public IKVRangeCoProc createCoProc(String clusterId, String storeId, KVRangeId id,
-                                       Supplier<IKVCloseableReader> rangeReaderProvider) {
+                                       Supplier<IKVRangeRefreshableReader> rangeReaderProvider) {
         ISubscriptionCache routeCache = new SubscriptionCache(id, rangeReaderProvider,
             settingProvider, eventCollector, matchExecutor);
         ITenantsStats tenantsState = new TenantsStats(rangeReaderProvider,

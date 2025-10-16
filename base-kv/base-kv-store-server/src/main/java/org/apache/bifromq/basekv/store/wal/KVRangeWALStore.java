@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 
 package org.apache.bifromq.basekv.store.wal;
@@ -41,7 +41,6 @@ import com.google.protobuf.InvalidProtocolBufferException;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.util.Deque;
-import java.util.Iterator;
 import java.util.List;
 import java.util.NoSuchElementException;
 import java.util.Optional;
@@ -50,10 +49,12 @@ import java.util.concurrent.ConcurrentLinkedDeque;
 import java.util.function.Consumer;
 import org.apache.bifromq.baseenv.ZeroCopyParser;
 import org.apache.bifromq.basekv.localengine.IKVSpaceIterator;
+import org.apache.bifromq.basekv.localengine.IKVSpaceRefreshableReader;
 import org.apache.bifromq.basekv.localengine.IKVSpaceWriter;
 import org.apache.bifromq.basekv.localengine.IWALableKVSpace;
 import org.apache.bifromq.basekv.proto.Boundary;
 import org.apache.bifromq.basekv.proto.KVRangeId;
+import org.apache.bifromq.basekv.raft.ILogEntryIterator;
 import org.apache.bifromq.basekv.raft.proto.ClusterConfig;
 import org.apache.bifromq.basekv.raft.proto.LogEntry;
 import org.apache.bifromq.basekv.raft.proto.Snapshot;
@@ -74,7 +75,6 @@ class KVRangeWALStore implements IKVRangeWALStore {
     private final TreeMap<Long, ClusterConfig> configEntryMap = Maps.newTreeMap();
     private final Deque<StabilizingIndex> stabilizingIndices = new ConcurrentLinkedDeque<>();
     private final Consumer<KVRangeWALStore> onDestroy;
-    private final LogEntryIteratorPool logEntryIteratorPool;
     private long currentTerm = 0;
     private Voting currentVoting;
     private Snapshot latestSnapshot;
@@ -90,7 +90,6 @@ class KVRangeWALStore implements IKVRangeWALStore {
         this.onDestroy = onDestroy;
         log = MDCLogger.getLogger(KVRangeWALStore.class, "clusterId", clusterId, "storeId", storeId, "rangeId",
             KVRangeIdUtil.toString(rangeId));
-        logEntryIteratorPool = new LogEntryIteratorPool(kvSpace);
         load();
     }
 
@@ -160,7 +159,8 @@ class KVRangeWALStore implements IKVRangeWALStore {
                 }
             }
             log.trace("Truncating logs before index[{}]", truncateBeforeIndex);
-            try (IKVSpaceIterator it = kvSpace.newIterator()) {
+            try (IKVSpaceRefreshableReader reader = kvSpace.reader();) {
+                IKVSpaceIterator it = reader.newIterator();
                 // truncate log entry
                 writer.clear(Boundary.newBuilder()
                     .setStartKey(logEntriesKeyPrefixInfix(0))
@@ -235,8 +235,8 @@ class KVRangeWALStore implements IKVRangeWALStore {
         if (index < firstIndex() || index > lastIndex()) {
             return Optional.empty();
         }
-        try {
-            ByteString data = kvSpace.get(logEntryKey(logEntriesKeyInfix, index)).get();
+        try (IKVSpaceRefreshableReader reader = kvSpace.reader()) {
+            ByteString data = reader.get(logEntryKey(logEntriesKeyInfix, index)).get();
             return Optional.of(ZeroCopyParser.parse(data, LogEntry.parser()));
         } catch (Throwable e) {
             log.error("Failed to parse log entry[index={}]", index, e);
@@ -245,7 +245,7 @@ class KVRangeWALStore implements IKVRangeWALStore {
     }
 
     @Override
-    public Iterator<LogEntry> entries(long lo, long hi, long maxSize) {
+    public ILogEntryIterator entries(long lo, long hi, long maxSize) {
         if (lo < firstIndex()) {
             throw new IndexOutOfBoundsException(
                 "lo[" + lo + "] must not be less than firstIndex[" + firstIndex() + "]");
@@ -257,7 +257,7 @@ class KVRangeWALStore implements IKVRangeWALStore {
         if (maxSize < 0) {
             maxSize = Long.MAX_VALUE;
         }
-        return logEntryIteratorPool.acquire(lo, hi, maxSize, logEntriesKeyInfix);
+        return new LogEntryIterator(kvSpace, lo, hi, maxSize, logEntriesKeyInfix);
     }
 
     @Override
@@ -363,18 +363,20 @@ class KVRangeWALStore implements IKVRangeWALStore {
     }
 
     private void load() {
-        loadLogEntryInfix();
-        loadVoting();
-        loadCurrentTerm();
-        loadLatestSnapshot();
-        loadConfigEntryIndexes();
-        loadLastIndex();
+        try (IKVSpaceRefreshableReader reader = kvSpace.reader()) {
+            loadLogEntryInfix(reader);
+            loadVoting(reader);
+            loadCurrentTerm(reader);
+            loadLatestSnapshot(reader);
+            loadConfigEntryIndexes(reader);
+            loadLastIndex(reader);
+        }
         trace("New raft state storage loaded");
     }
 
-    private void loadVoting() {
+    private void loadVoting(IKVSpaceRefreshableReader reader) {
         try {
-            Optional<ByteString> votingBytes = kvSpace.get(KEY_CURRENT_VOTING_BYTES);
+            Optional<ByteString> votingBytes = reader.get(KEY_CURRENT_VOTING_BYTES);
             if (votingBytes.isPresent()) {
                 currentVoting = ZeroCopyParser.parse(votingBytes.get(), Voting.parser());
             }
@@ -383,32 +385,31 @@ class KVRangeWALStore implements IKVRangeWALStore {
         }
     }
 
-    private void loadCurrentTerm() {
-        currentTerm = kvSpace.get(KEY_CURRENT_TERM_BYTES).map(KVUtil::toLong).orElse(0L);
+    private void loadCurrentTerm(IKVSpaceRefreshableReader reader) {
+        currentTerm = reader.get(KEY_CURRENT_TERM_BYTES).map(KVUtil::toLong).orElse(0L);
     }
 
-    private void loadLatestSnapshot() {
+    private void loadLatestSnapshot(IKVSpaceRefreshableReader reader) {
         try {
-            ByteString latestSnapshotBytes = kvSpace.get(KEY_LATEST_SNAPSHOT_BYTES).get();
+            ByteString latestSnapshotBytes = reader.get(KEY_LATEST_SNAPSHOT_BYTES).get();
             latestSnapshot = ZeroCopyParser.parse(latestSnapshotBytes, Snapshot.parser());
         } catch (InvalidProtocolBufferException e) {
             throw new KVRangeStoreException("Failed to parse snapshot", e);
         }
     }
 
-    private void loadConfigEntryIndexes() {
-        try (IKVSpaceIterator it = kvSpace.newIterator()) {
-            ByteString prefix = KEY_CONFIG_ENTRY_INDEXES_BYTES;
-            for (it.seek(prefix); it.isValid() && it.key().startsWith(prefix); it.next()) {
-                long configEntryIndex = it.value().asReadOnlyByteBuffer().getLong();
-                configEntryMap.put(configEntryIndex, loadConfigEntry(configEntryIndex));
-            }
+    private void loadConfigEntryIndexes(IKVSpaceRefreshableReader reader) {
+        IKVSpaceIterator it = reader.newIterator();
+        ByteString prefix = KEY_CONFIG_ENTRY_INDEXES_BYTES;
+        for (it.seek(prefix); it.isValid() && it.key().startsWith(prefix); it.next()) {
+            long configEntryIndex = it.value().asReadOnlyByteBuffer().getLong();
+            configEntryMap.put(configEntryIndex, loadConfigEntry(configEntryIndex));
         }
     }
 
     private ClusterConfig loadConfigEntry(long configEntryIndex) {
-        try {
-            ByteString data = kvSpace.get(logEntryKey(logEntriesKeyInfix, configEntryIndex)).get();
+        try (IKVSpaceRefreshableReader reader = kvSpace.reader()) {
+            ByteString data = reader.get(logEntryKey(logEntriesKeyInfix, configEntryIndex)).get();
             LogEntry logEntry = ZeroCopyParser.parse(data, LogEntry.parser());
             assert logEntry.hasConfig();
             return logEntry.getConfig();
@@ -420,19 +421,18 @@ class KVRangeWALStore implements IKVRangeWALStore {
         }
     }
 
-    private void loadLastIndex() {
-        try (IKVSpaceIterator it = kvSpace.newIterator()) {
-            it.seekToLast();
-            if (it.isValid() && it.key().startsWith(KEY_PREFIX_LOG_ENTRIES_BYTES)) {
-                lastIndex = KVRangeWALKeys.parseLogIndex(it.key());
-            } else {
-                lastIndex = latestSnapshot.getIndex();
-            }
+    private void loadLastIndex(IKVSpaceRefreshableReader reader) {
+        IKVSpaceIterator it = reader.newIterator();
+        it.seekToLast();
+        if (it.isValid() && it.key().startsWith(KEY_PREFIX_LOG_ENTRIES_BYTES)) {
+            lastIndex = KVRangeWALKeys.parseLogIndex(it.key());
+        } else {
+            lastIndex = latestSnapshot.getIndex();
         }
     }
 
-    private void loadLogEntryInfix() {
-        logEntriesKeyInfix = kvSpace.get(KEY_LOG_ENTRIES_INCAR).map(KVUtil::toInt).orElse(0);
+    private void loadLogEntryInfix(IKVSpaceRefreshableReader reader) {
+        logEntriesKeyInfix = reader.get(KEY_LOG_ENTRIES_INCAR).map(KVUtil::toInt).orElse(0);
     }
 
     private void trace(String msg, Object... args) {

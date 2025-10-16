@@ -26,10 +26,27 @@ import java.util.Map;
 /**
  * The interface of KV space, which is a logical range of key-value pairs.
  */
-public interface IKVSpace extends IKVSpaceReader {
+public interface IKVSpace extends IKVSpaceIdentifiable, IKVSpaceSizeable {
+    /**
+     * Get an observable stream of metadata key-value pairs.
+     *
+     * @return the observable stream
+     */
     Observable<Map<ByteString, ByteString>> metadata();
 
+    /**
+     * Get the descriptor of the space.
+     *
+     * @return the descriptor
+     */
     KVSpaceDescriptor describe();
+
+    /**
+     * Get a refreshable consistent-view reader for the space.
+     *
+     * @return the reader
+     */
+    IKVSpaceRefreshableReader reader();
 
     /**
      * Open the space.
@@ -42,8 +59,7 @@ public interface IKVSpace extends IKVSpaceReader {
     void close();
 
     /**
-     * Destroy the range, after destroy all data and associated resources will be cleared and released. The range object
-     * will transit to destroyed state.
+     * Destroy the space, all data and associated resources will be cleared and released.
      */
     void destroy();
 }

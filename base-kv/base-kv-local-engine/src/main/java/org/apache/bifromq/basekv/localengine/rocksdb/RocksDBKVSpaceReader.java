@@ -19,79 +19,80 @@
 
 package org.apache.bifromq.basekv.localengine.rocksdb;
 
-import static com.google.protobuf.UnsafeByteOperations.unsafeWrap;
-import static java.util.Collections.singletonList;
-import static org.apache.bifromq.basekv.localengine.rocksdb.Keys.DATA_SECTION_END;
-import static org.apache.bifromq.basekv.localengine.rocksdb.Keys.DATA_SECTION_START;
-import static org.apache.bifromq.basekv.localengine.rocksdb.Keys.toDataKey;
-import static org.apache.bifromq.basekv.utils.BoundaryUtil.compare;
 import static org.apache.bifromq.basekv.utils.BoundaryUtil.isValid;
-import static org.rocksdb.SizeApproximationFlag.INCLUDE_FILES;
-import static org.rocksdb.SizeApproximationFlag.INCLUDE_MEMTABLES;
 
+import com.google.common.collect.Sets;
 import com.google.protobuf.ByteString;
+import java.util.Map;
 import java.util.Optional;
-import org.apache.bifromq.basekv.localengine.AbstractKVSpaceReader;
+import java.util.Set;
+import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Supplier;
 import org.apache.bifromq.basekv.localengine.IKVSpaceIterator;
+import org.apache.bifromq.basekv.localengine.IKVSpaceRefreshableReader;
 import org.apache.bifromq.basekv.localengine.ISyncContext;
-import org.apache.bifromq.basekv.localengine.KVEngineException;
 import org.apache.bifromq.basekv.localengine.metrics.KVSpaceOpMeters;
 import org.apache.bifromq.basekv.proto.Boundary;
-import org.rocksdb.Range;
-import org.rocksdb.RocksDBException;
-import org.rocksdb.Slice;
 import org.slf4j.Logger;
 
-abstract class RocksDBKVSpaceReader extends AbstractKVSpaceReader {
+class RocksDBKVSpaceReader extends AbstractRocksDBKVSpaceReader implements IKVSpaceRefreshableReader {
+    private final ISyncContext.IRefresher refresher;
+    private final Supplier<IRocksDBKVSpaceEpoch> dbSupplier;
+    private final Supplier<Map<ByteString, ByteString>> metadataSupplier;
+    private final AtomicReference<RocksDBSnapshot> snapshot = new AtomicReference<>();
+    private final Set<RocksDBKVSpaceIterator> openedIterators = Sets.newConcurrentHashSet();
 
-    protected RocksDBKVSpaceReader(String id, KVSpaceOpMeters opMeters, Logger logger) {
+    RocksDBKVSpaceReader(String id,
+                         KVSpaceOpMeters opMeters,
+                         Logger logger,
+                         ISyncContext.IRefresher refresher,
+                         Supplier<IRocksDBKVSpaceEpoch> dbSupplier,
+                         Supplier<Map<ByteString, ByteString>> metadataSupplier) {
         super(id, opMeters, logger);
-    }
-
-    protected abstract IKVSpaceDBInstance handle();
-
-    protected abstract ISyncContext.IRefresher newRefresher();
-
-    protected final long doSize(Boundary boundary) {
-        byte[] start =
-            !boundary.hasStartKey() ? DATA_SECTION_START : toDataKey(boundary.getStartKey().toByteArray());
-        byte[] end =
-            !boundary.hasEndKey() ? DATA_SECTION_END : toDataKey(boundary.getEndKey().toByteArray());
-        if (compare(start, end) < 0) {
-            try (Slice startSlice = new Slice(start); Slice endSlice = new Slice(end)) {
-                Range range = new Range(startSlice, endSlice);
-                IKVSpaceDBInstance dbHandle = handle();
-                return dbHandle.db()
-                    .getApproximateSizes(dbHandle.cf(), singletonList(range), INCLUDE_MEMTABLES, INCLUDE_FILES)[0];
-            }
-        }
-        return 0;
+        this.refresher = refresher;
+        this.dbSupplier = dbSupplier;
+        this.metadataSupplier = metadataSupplier;
+        this.snapshot.set(RocksDBSnapshot.take(dbSupplier.get()));
     }
 
     @Override
-    protected final boolean doExist(ByteString key) {
-        return get(key).isPresent();
+    public void refresh() {
+        refresher.runIfNeeded((genBumped) -> {
+            snapshot.getAndSet(RocksDBSnapshot.take(dbSupplier.get())).release();
+            openedIterators.forEach(itr -> itr.refresh(snapshot.get()));
+        });
     }
 
     @Override
-    protected final Optional<ByteString> doGet(ByteString key) {
-        try {
-            IKVSpaceDBInstance dbHandle = handle();
-            byte[] data = dbHandle.db().get(dbHandle.cf(), toDataKey(key));
-            return Optional.ofNullable(data == null ? null : unsafeWrap(data));
-        } catch (RocksDBException rocksDBException) {
-            throw new KVEngineException("Get failed", rocksDBException);
-        }
+    public void close() {
+        openedIterators.forEach(RocksDBKVSpaceIterator::close);
+        RocksDBSnapshot oldSnapshot = snapshot.getAndSet(null);
+        oldSnapshot.release();
     }
 
     @Override
-    protected IKVSpaceIterator doNewIterator() {
-        return new RocksDBKVSpaceIterator(this::handle, Boundary.getDefaultInstance(), newRefresher());
+    protected IRocksDBKVSpaceEpoch handle() {
+        return dbSupplier.get();
+    }
+
+    @Override
+    protected RocksDBSnapshot snapshot() {
+        return snapshot.get();
+    }
+
+    @Override
+    protected Optional<ByteString> doMetadata(ByteString metaKey) {
+        return refresher.call(() -> {
+            Map<ByteString, ByteString> metaMap = metadataSupplier.get();
+            return Optional.ofNullable(metaMap.get(metaKey));
+        });
     }
 
     @Override
     protected IKVSpaceIterator doNewIterator(Boundary subBoundary) {
         assert isValid(subBoundary);
-        return new RocksDBKVSpaceIterator(this::handle, subBoundary, newRefresher());
+        RocksDBKVSpaceIterator itr = new RocksDBKVSpaceIterator(snapshot(), subBoundary, true, openedIterators::remove);
+        openedIterators.add(itr);
+        return itr;
     }
 }

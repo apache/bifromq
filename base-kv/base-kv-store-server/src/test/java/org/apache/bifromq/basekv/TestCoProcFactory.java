@@ -19,16 +19,16 @@
 
 package org.apache.bifromq.basekv;
 
+import java.util.function.Supplier;
 import org.apache.bifromq.basekv.proto.KVRangeId;
-import org.apache.bifromq.basekv.store.api.IKVCloseableReader;
 import org.apache.bifromq.basekv.store.api.IKVRangeCoProc;
 import org.apache.bifromq.basekv.store.api.IKVRangeCoProcFactory;
-import java.util.function.Supplier;
+import org.apache.bifromq.basekv.store.range.IKVRangeRefreshableReader;
 
 public class TestCoProcFactory implements IKVRangeCoProcFactory {
     @Override
     public IKVRangeCoProc createCoProc(String clusterId, String storeId, KVRangeId id,
-                                       Supplier<IKVCloseableReader> readerProvider) {
+                                       Supplier<IKVRangeRefreshableReader> readerProvider) {
         return new TestCoProc(id, readerProvider);
     }
 }

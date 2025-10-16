@@ -90,8 +90,10 @@ public abstract class AbstractKVEngineTest<T extends IKVSpace> extends MockableT
         ByteString value = ByteString.copyFromUtf8("value");
         IKVSpace space = engine.createIfMissing(rangeId);
         writerOf((T) space).metadata(key, value).done();
-        assertTrue(space.metadata(key).isPresent());
-        assertEquals(space.metadata(key).get(), value);
+        try (IKVSpaceRefreshableReader reader = space.reader()) {
+            assertTrue(reader.metadata(key).isPresent());
+            assertEquals(reader.metadata(key).get(), value);
+        }
     }
 
     @Test
@@ -128,13 +130,17 @@ public abstract class AbstractKVEngineTest<T extends IKVSpace> extends MockableT
         ByteString value = ByteString.copyFromUtf8("value");
         IKVSpace space = engine.createIfMissing(rangeId);
         writerOf((T) space).put(key, value).done();
-        assertTrue(space.exist(key));
+        try (IKVSpaceRefreshableReader reader = space.reader()) {
+            assertTrue(reader.exist(key));
+        }
         space.destroy();
-
         space = engine.createIfMissing(rangeId);
-        assertFalse(space.exist(key));
-        writerOf((T) space).put(key, value).done();
-        assertTrue(space.exist(key));
+        try (IKVSpaceRefreshableReader reader = space.reader()) {
+            assertFalse(reader.exist(key));
+            writerOf((T) space).put(key, value).done();
+            reader.refresh();
+            assertTrue(reader.exist(key));
+        }
     }
 
     @Test
@@ -143,13 +149,17 @@ public abstract class AbstractKVEngineTest<T extends IKVSpace> extends MockableT
         ByteString key = ByteString.copyFromUtf8("key");
         ByteString value = ByteString.copyFromUtf8("value");
         IKVSpace space = engine.createIfMissing(rangeId);
-        assertFalse(space.exist(key));
+        try (IKVSpaceRefreshableReader reader = space.reader()) {
+            assertFalse(reader.exist(key));
 
-        IKVSpaceWriter writer = writerOf((T) space).put(key, value);
-        assertFalse(space.exist(key));
+            IKVSpaceWriter writer = writerOf((T) space).put(key, value);
+            reader.refresh();
+            assertFalse(reader.exist(key));
 
-        writer.done();
-        assertTrue(space.exist(key));
+            writer.done();
+            reader.refresh();
+            assertTrue(reader.exist(key));
+        }
     }
 
     @Test
@@ -158,14 +168,18 @@ public abstract class AbstractKVEngineTest<T extends IKVSpace> extends MockableT
         ByteString key = ByteString.copyFromUtf8("key");
         ByteString value = ByteString.copyFromUtf8("value");
         IKVSpace space = engine.createIfMissing(rangeId);
-        assertFalse(space.get(key).isPresent());
+        try (IKVSpaceRefreshableReader reader = space.reader()) {
+            assertFalse(reader.get(key).isPresent());
 
-        IKVSpaceWriter writer = writerOf((T) space).put(key, value);
-        assertFalse(space.get(key).isPresent());
+            IKVSpaceWriter writer = writerOf((T) space).put(key, value);
+            reader.refresh();
+            assertFalse(reader.get(key).isPresent());
 
-        writer.done();
-        assertTrue(space.get(key).isPresent());
-        assertEquals(space.get(key).get(), value);
+            writer.done();
+            reader.refresh();
+            assertTrue(reader.get(key).isPresent());
+            assertEquals(reader.get(key).get(), value);
+        }
     }
 
     @Test
@@ -175,14 +189,15 @@ public abstract class AbstractKVEngineTest<T extends IKVSpace> extends MockableT
         ByteString value = ByteString.copyFromUtf8("value");
         IKVSpace space = engine.createIfMissing(rangeId);
 
-        try (IKVSpaceIterator itr = space.newIterator()) {
+        try (IKVSpaceRefreshableReader reader = space.reader()) {
+            IKVSpaceIterator itr = reader.newIterator();
             itr.seekToFirst();
             assertFalse(itr.isValid());
             writerOf((T) space).put(key, value).done();
 
             itr.seekToFirst();
             assertFalse(itr.isValid());
-            itr.refresh();
+            reader.refresh();
 
             itr.seekToFirst();
             assertTrue(itr.isValid());
@@ -214,14 +229,15 @@ public abstract class AbstractKVEngineTest<T extends IKVSpace> extends MockableT
         ByteString value = ByteString.copyFromUtf8("value");
         IKVSpace space = engine.createIfMissing(rangeId);
 
-        try (IKVSpaceIterator itr = space.newIterator(Boundary.newBuilder().setStartKey(key).build())) {
+        try (IKVSpaceRefreshableReader reader = space.reader()) {
+            IKVSpaceIterator itr = reader.newIterator(Boundary.newBuilder().setStartKey(key).build());
             itr.seekToFirst();
             assertFalse(itr.isValid());
             writerOf((T) space).put(key, value).done();
 
             itr.seekToFirst();
             assertFalse(itr.isValid());
-            itr.refresh();
+            reader.refresh();
 
             itr.seekToFirst();
             assertTrue(itr.isValid());
@@ -230,13 +246,14 @@ public abstract class AbstractKVEngineTest<T extends IKVSpace> extends MockableT
             itr.next();
             assertFalse(itr.isValid());
         }
-        try (IKVSpaceIterator itr = space.newIterator(Boundary.newBuilder()
-            .setStartKey(ByteString.copyFromUtf8("0"))
-            .setEndKey(ByteString.copyFromUtf8("9")).build())) {
+        try (IKVSpaceRefreshableReader reader = space.reader()) {
+            IKVSpaceIterator itr = reader.newIterator(Boundary.newBuilder()
+                .setStartKey(ByteString.copyFromUtf8("0"))
+                .setEndKey(ByteString.copyFromUtf8("9")).build());
             itr.seekToFirst();
             assertFalse(itr.isValid());
             writerOf((T) space).put(key, value).done();
-            itr.refresh();
+            reader.refresh();
             itr.seekToFirst();
             assertFalse(itr.isValid());
         }
@@ -249,15 +266,19 @@ public abstract class AbstractKVEngineTest<T extends IKVSpace> extends MockableT
         ByteString value = ByteString.copyFromUtf8("value");
         IKVSpace space = engine.createIfMissing(rangeId);
         writerOf((T) space).put(key, value).delete(key).metadata(key, value).done();
-        assertFalse(space.exist(key));
+        try (IKVSpaceRefreshableReader reader = space.reader()) {
+            assertFalse(reader.exist(key));
 
-        IKVSpaceWriter writer = writerOf((T) space);
-        assertEquals(writer.metadata(key).get(), value);
-        writer.insert(key, value).done();
-        assertTrue(space.exist(key));
+            IKVSpaceWriter writer = writerOf((T) space);
+            assertEquals(reader.metadata(key).get(), value);
+            writer.insert(key, value).done();
+            reader.refresh();
+            assertTrue(reader.exist(key));
 
-        writerOf((T) space).clear().done();
-        assertFalse(space.exist(key));
+            writerOf((T) space).clear().done();
+            reader.refresh();
+            assertFalse(reader.exist(key));
+        }
     }
 
     @Test
@@ -272,6 +293,8 @@ public abstract class AbstractKVEngineTest<T extends IKVSpace> extends MockableT
                 .setStartKey(ByteString.copyFromUtf8("0"))
                 .setEndKey(ByteString.copyFromUtf8("9")).build())
             .done();
-        assertTrue(space.exist(key));
+        try (IKVSpaceRefreshableReader reader = space.reader()) {
+            assertTrue(reader.exist(key));
+        }
     }
 }

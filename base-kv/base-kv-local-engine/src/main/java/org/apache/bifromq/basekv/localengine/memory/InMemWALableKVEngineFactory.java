@@ -17,11 +17,16 @@
  * under the License.
  */
 
-package org.apache.bifromq.basekv.store.range;
+package org.apache.bifromq.basekv.localengine.memory;
 
-import org.apache.bifromq.basekv.store.api.IKVIterator;
+import org.apache.bifromq.basekv.localengine.IKVEngine;
+import org.apache.bifromq.basekv.localengine.IWALableKVEngineConfigurator;
+import org.apache.bifromq.basekv.localengine.IWALableKVSpace;
 
-public interface IKVCheckpointIterator extends IKVIterator, AutoCloseable {
-    @Override
-    void close();
+public class InMemWALableKVEngineFactory {
+    public static IKVEngine<? extends IWALableKVSpace> createWALable(String overrideIdentity,
+                                                                     IWALableKVEngineConfigurator configurator) {
+        assert configurator instanceof InMemKVEngineConfigurator;
+        return new InMemWALableKVEngine(overrideIdentity, (InMemKVEngineConfigurator) configurator);
+    }
 }

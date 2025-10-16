@@ -25,6 +25,7 @@ import static org.apache.bifromq.basekv.proto.State.StateType.Removed;
 import static org.apache.bifromq.basekv.proto.State.StateType.ToBePurged;
 import static org.apache.bifromq.basekv.store.util.VerUtil.boundaryCompatible;
 
+import com.google.common.base.Preconditions;
 import com.google.common.collect.Sets;
 import com.google.protobuf.ByteString;
 import java.util.List;
@@ -40,10 +41,10 @@ import org.apache.bifromq.basekv.proto.State;
 import org.apache.bifromq.basekv.store.api.IKVLoadRecord;
 import org.apache.bifromq.basekv.store.api.IKVRangeCoProc;
 import org.apache.bifromq.basekv.store.api.IKVRangeSplitHinter;
-import org.apache.bifromq.basekv.store.api.IKVReader;
 import org.apache.bifromq.basekv.store.exception.KVRangeException;
 import org.apache.bifromq.basekv.store.proto.ROCoProcInput;
 import org.apache.bifromq.basekv.store.proto.ROCoProcOutput;
+import org.apache.bifromq.basekv.utils.BoundaryUtil;
 import org.apache.bifromq.logger.MDCLogger;
 import org.slf4j.Logger;
 
@@ -80,19 +81,25 @@ class KVRangeQueryRunner implements IKVRangeQueryRunner {
     // Execute a ROCommand
     @Override
     public CompletableFuture<Boolean> exist(long ver, ByteString key, boolean linearized) {
-        return submit(ver, rangeReader -> completedFuture(rangeReader.exist(key)), linearized);
+        return submit(ver, rangeReader -> {
+            Preconditions.checkArgument(BoundaryUtil.inRange(key, rangeReader.boundary()));
+            return completedFuture(rangeReader.exist(key));
+        }, linearized);
     }
 
     @Override
     public CompletableFuture<Optional<ByteString>> get(long ver, ByteString key, boolean linearized) {
-        return submit(ver, rangeReader -> completedFuture(rangeReader.get(key)), linearized);
+        return submit(ver, rangeReader -> {
+            Preconditions.checkArgument(BoundaryUtil.inRange(key, rangeReader.boundary()));
+            return completedFuture(rangeReader.get(key));
+        }, linearized);
     }
 
     @Override
     public CompletableFuture<ROCoProcOutput> queryCoProc(long ver, ROCoProcInput query, boolean linearized) {
         return submit(ver, rangeReader -> {
             IKVLoadRecorder loadRecorder = new KVLoadRecorder();
-            IKVReader loadRecordableReader = new LoadRecordableKVReader(rangeReader, loadRecorder);
+            IKVRangeRefreshableReader loadRecordableReader = new LoadRecordableKVReader(rangeReader, loadRecorder);
             return coProc.query(query, loadRecordableReader)
                 .whenComplete((v, e) -> {
                     try {
@@ -116,7 +123,7 @@ class KVRangeQueryRunner implements IKVRangeQueryRunner {
     private <ReqT, ResultT> CompletableFuture<ResultT> submit(long ver,
                                                               QueryFunction<ReqT, ResultT> queryFn,
                                                               boolean linearized) {
-        if (!boundaryCompatible(ver, kvRange.version())) {
+        if (!boundaryCompatible(ver, kvRange.currentVer())) {
             return CompletableFuture.failedFuture(
                 new KVRangeException.BadVersion("Version Mismatch", descriptorSupplier.get()));
         }
@@ -164,11 +171,11 @@ class KVRangeQueryRunner implements IKVRangeQueryRunner {
                 return CompletableFuture.failedFuture(
                     new KVRangeException.TryLater("Range is resetting or busy", descriptorSupplier.get()));
             }
-            IKVReader dataReader = kvRange.borrowDataReader();
+            IKVRangeRefreshableReader refreshableReader = kvRange.newReader();
             // return the borrowed reader when future completed
-            onDone.whenComplete((v, e) -> kvRange.returnDataReader(dataReader));
-            State state = kvRange.state();
-            if (!boundaryCompatible(ver, kvRange.version())) {
+            onDone.whenComplete((v, e) -> refreshableReader.close());
+            State state = kvRange.currentState();
+            if (!boundaryCompatible(ver, kvRange.currentVer())) {
                 queryLock.unlockRead(stamp);
                 onDone.completeExceptionally(
                     new KVRangeException.BadVersion("Version Mismatch", descriptorSupplier.get()));
@@ -180,7 +187,8 @@ class KVRangeQueryRunner implements IKVRangeQueryRunner {
                     new KVRangeException.TryLater("Range has been in state: " + state.getType().name().toLowerCase()));
                 return onDone;
             }
-            return queryFn.apply(dataReader)
+            refreshableReader.refresh();
+            return queryFn.apply(refreshableReader)
                 .whenCompleteAsync((v, e) -> {
                     queryLock.unlockRead(stamp);
                     if (e != null) {
@@ -199,6 +207,6 @@ class KVRangeQueryRunner implements IKVRangeQueryRunner {
     }
 
     private interface QueryFunction<Req, Resp> {
-        CompletableFuture<Resp> apply(IKVReader dataReader);
+        CompletableFuture<Resp> apply(IKVRangeRefreshableReader rangeReader);
     }
 }

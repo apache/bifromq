@@ -26,7 +26,6 @@ import com.google.protobuf.ByteString;
 import io.reactivex.rxjava3.core.Observable;
 import io.reactivex.rxjava3.subjects.BehaviorSubject;
 import io.reactivex.rxjava3.subjects.PublishSubject;
-import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -41,6 +40,7 @@ import org.apache.bifromq.baseenv.ZeroCopyParser;
 import org.apache.bifromq.basekv.proto.KVRangeCommand;
 import org.apache.bifromq.basekv.proto.KVRangeId;
 import org.apache.bifromq.basekv.proto.KVRangeSnapshot;
+import org.apache.bifromq.basekv.raft.ILogEntryIterator;
 import org.apache.bifromq.basekv.raft.IRaftNode;
 import org.apache.bifromq.basekv.raft.RaftConfig;
 import org.apache.bifromq.basekv.raft.RaftNode;
@@ -186,7 +186,7 @@ public class KVRangeWAL implements IKVRangeWAL, IRaftNode.ISnapshotInstaller {
     }
 
     @Override
-    public CompletableFuture<Iterator<LogEntry>> retrieveCommitted(long fromIndex, long maxSize) {
+    public CompletableFuture<ILogEntryIterator> retrieveCommitted(long fromIndex, long maxSize) {
         return raftNode.retrieveCommitted(fromIndex, maxSize);
     }
 
@@ -272,7 +272,12 @@ public class KVRangeWAL implements IKVRangeWAL, IRaftNode.ISnapshotInstaller {
         snapRestoreTaskPublisher.onComplete();
         electionPublisher.onComplete();
         syncStatePublisher.onComplete();
-        return raftNode.stop().whenComplete((v, e) -> log.debug("KVRangeWAL closed"));
+        return raftNode.stop()
+            .exceptionally(e -> {
+                log.error("Raft node stop error", e);
+                return null;
+            })
+            .whenComplete((v, e) -> log.debug("KVRangeWAL closed"));
     }
 
     @Override

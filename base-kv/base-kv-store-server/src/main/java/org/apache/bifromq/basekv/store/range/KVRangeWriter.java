@@ -20,40 +20,70 @@
 package org.apache.bifromq.basekv.store.range;
 
 import static org.apache.bifromq.basekv.store.range.KVRangeKeys.METADATA_CLUSTER_CONFIG_BYTES;
+import static org.apache.bifromq.basekv.store.range.KVRangeKeys.METADATA_LAST_APPLIED_INDEX_BYTES;
 import static org.apache.bifromq.basekv.store.range.KVRangeKeys.METADATA_RANGE_BOUND_BYTES;
 import static org.apache.bifromq.basekv.store.range.KVRangeKeys.METADATA_STATE_BYTES;
 import static org.apache.bifromq.basekv.store.range.KVRangeKeys.METADATA_VER_BYTES;
 
 import com.google.protobuf.ByteString;
 import java.util.HashSet;
-import java.util.Optional;
 import java.util.Set;
 import org.apache.bifromq.basekv.localengine.ICPableKVSpace;
 import org.apache.bifromq.basekv.localengine.IKVSpaceMigratableWriter;
-import org.apache.bifromq.basekv.localengine.IKVSpaceWriter;
 import org.apache.bifromq.basekv.proto.Boundary;
 import org.apache.bifromq.basekv.proto.KVRangeId;
 import org.apache.bifromq.basekv.proto.KVRangeSnapshot;
 import org.apache.bifromq.basekv.proto.State;
 import org.apache.bifromq.basekv.raft.proto.ClusterConfig;
 import org.apache.bifromq.basekv.store.api.IKVWriter;
+import org.apache.bifromq.basekv.store.util.KVUtil;
 import org.apache.bifromq.basekv.utils.KVRangeIdUtil;
 
-public class KVRangeWriter extends AbstractKVRangeMetadataUpdatable<KVRangeWriter>
-    implements IKVRangeWriter<KVRangeWriter> {
+class KVRangeWriter implements IKVRangeWriter<KVRangeWriter> {
+    private final KVRangeId id;
     private final ICPableKVSpace space;
     private final IKVSpaceMigratableWriter spaceWriter;
     private final Set<IKVRangeRestoreSession> activeRestoreSessions = new HashSet<>();
 
-    public KVRangeWriter(KVRangeId id, ICPableKVSpace space) {
-        super(id, space);
+    KVRangeWriter(KVRangeId id, ICPableKVSpace space) {
+        this.id = id;
         this.space = space;
         this.spaceWriter = space.toWriter();
     }
 
     @Override
-    protected IKVSpaceWriter keyRangeWriter() {
-        return spaceWriter;
+    public KVRangeId id() {
+        return id;
+    }
+
+    @Override
+    public final KVRangeWriter ver(long ver) {
+        spaceWriter.metadata(METADATA_VER_BYTES, KVUtil.toByteStringNativeOrder(ver));
+        return this;
+    }
+
+    @Override
+    public final KVRangeWriter lastAppliedIndex(long lastAppliedIndex) {
+        spaceWriter.metadata(METADATA_LAST_APPLIED_INDEX_BYTES, KVUtil.toByteString(lastAppliedIndex));
+        return this;
+    }
+
+    @Override
+    public final KVRangeWriter boundary(Boundary boundary) {
+        spaceWriter.metadata(METADATA_RANGE_BOUND_BYTES, boundary.toByteString());
+        return this;
+    }
+
+    @Override
+    public final KVRangeWriter state(State state) {
+        spaceWriter.metadata(METADATA_STATE_BYTES, state.toByteString());
+        return this;
+    }
+
+    @Override
+    public final KVRangeWriter clusterConfig(ClusterConfig clusterConfig) {
+        spaceWriter.metadata(METADATA_CLUSTER_CONFIG_BYTES, clusterConfig.toByteString());
+        return this;
     }
 
     @Override
@@ -110,7 +140,7 @@ public class KVRangeWriter extends AbstractKVRangeMetadataUpdatable<KVRangeWrite
 
     @Override
     public void abort() {
-        keyRangeWriter().abort();
+        spaceWriter.abort();
         for (IKVRangeRestoreSession session : activeRestoreSessions) {
             session.abort();
         }
@@ -119,42 +149,15 @@ public class KVRangeWriter extends AbstractKVRangeMetadataUpdatable<KVRangeWrite
 
     @Override
     public int count() {
-        return keyRangeWriter().count();
+        return spaceWriter.count();
     }
 
     @Override
     public void done() {
-        keyRangeWriter().done();
+        spaceWriter.done();
         for (IKVRangeRestoreSession session : activeRestoreSessions) {
             session.done();
         }
         activeRestoreSessions.clear();
-    }
-
-    @Override
-    public void reset() {
-        keyRangeWriter().reset();
-    }
-
-    @Override
-    public long version() {
-        Optional<ByteString> verBytes = spaceWriter.metadata(METADATA_VER_BYTES);
-        return version(verBytes.orElse(null));
-    }
-
-    @Override
-    public State state() {
-        Optional<ByteString> stateData = spaceWriter.metadata(METADATA_STATE_BYTES);
-        return state(stateData.orElse(null));
-    }
-
-    @Override
-    public Boundary boundary() {
-        return boundary(spaceWriter.metadata(METADATA_RANGE_BOUND_BYTES).orElse(null));
-    }
-
-    @Override
-    public ClusterConfig clusterConfig() {
-        return clusterConfig(spaceWriter.metadata(METADATA_CLUSTER_CONFIG_BYTES).orElse(null));
     }
 }

@@ -28,6 +28,7 @@ import java.util.concurrent.TimeUnit;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.bifromq.basekv.localengine.ICPableKVSpace;
 import org.apache.bifromq.basekv.localengine.IKVSpaceIterator;
+import org.apache.bifromq.basekv.localengine.IKVSpaceRefreshableReader;
 import org.apache.bifromq.basekv.localengine.IKVSpaceWriter;
 import org.apache.bifromq.basekv.proto.Boundary;
 import org.openjdk.jmh.annotations.Benchmark;
@@ -47,6 +48,7 @@ public class ContinuousKeyDeleteAndSeek_Benchmark extends BenchmarkTemplate {
     private static int keyCount = 1000000;
     private static ByteString key = ByteString.copyFromUtf8("key");
     private ICPableKVSpace kvSpace;
+    private IKVSpaceRefreshableReader reader;
     private IKVSpaceIterator itr;
     private String rangeId = "testRange";
 
@@ -55,7 +57,8 @@ public class ContinuousKeyDeleteAndSeek_Benchmark extends BenchmarkTemplate {
     @Override
     protected void doSetup() {
         kvSpace = kvEngine.createIfMissing(rangeId);
-        itr = kvSpace.newIterator();
+        reader = kvSpace.reader();
+        itr = reader.newIterator();
         IKVSpaceWriter writer = kvSpace.toWriter();
         for (int i = 0; i < keyCount; i++) {
             writer.insert(key.concat(toByteString(i)), ByteString.copyFromUtf8("val" + i));
@@ -73,7 +76,7 @@ public class ContinuousKeyDeleteAndSeek_Benchmark extends BenchmarkTemplate {
     @BenchmarkMode(Mode.Throughput)
     @OutputTimeUnit(TimeUnit.SECONDS)
     public boolean iterator(BenchmarkThreadState state) {
-        IKVSpaceIterator itr = kvSpace.newIterator(Boundary.newBuilder()
+        IKVSpaceIterator itr = reader.newIterator(Boundary.newBuilder()
             .setStartKey(key.concat(toByteString(state.i)))
             .setEndKey(key.concat(toByteString(state.i + 1)))
             .build());

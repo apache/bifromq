@@ -14,27 +14,27 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 
 package org.apache.bifromq.basekv.localengine;
 
-import org.apache.bifromq.basekv.localengine.memory.InMemCPableKVEngine;
+import org.apache.bifromq.basekv.localengine.memory.InMemCPableKVEngineFactory;
 import org.apache.bifromq.basekv.localengine.memory.InMemKVEngineConfigurator;
-import org.apache.bifromq.basekv.localengine.memory.InMemWALableKVEngine;
-import org.apache.bifromq.basekv.localengine.rocksdb.RocksDBCPableKVEngine;
+import org.apache.bifromq.basekv.localengine.memory.InMemWALableKVEngineFactory;
 import org.apache.bifromq.basekv.localengine.rocksdb.RocksDBCPableKVEngineConfigurator;
-import org.apache.bifromq.basekv.localengine.rocksdb.RocksDBWALableKVEngine;
+import org.apache.bifromq.basekv.localengine.rocksdb.RocksDBCPableKVEngineFactory;
 import org.apache.bifromq.basekv.localengine.rocksdb.RocksDBWALableKVEngineConfigurator;
+import org.apache.bifromq.basekv.localengine.rocksdb.RocksDBWALableKVEngineFactory;
 
 public class KVEngineFactory {
     public static IKVEngine<? extends ICPableKVSpace> createCPable(String overrideIdentity,
                                                                    ICPableKVEngineConfigurator configurator) {
         if (configurator instanceof InMemKVEngineConfigurator) {
-            return new InMemCPableKVEngine(overrideIdentity, (InMemKVEngineConfigurator) configurator);
+            return InMemCPableKVEngineFactory.createCPable(overrideIdentity, configurator);
         }
         if (configurator instanceof RocksDBCPableKVEngineConfigurator) {
-            return new RocksDBCPableKVEngine(overrideIdentity, (RocksDBCPableKVEngineConfigurator) configurator);
+            return RocksDBCPableKVEngineFactory.create(overrideIdentity, configurator);
         }
         throw new UnsupportedOperationException();
     }
@@ -42,10 +42,10 @@ public class KVEngineFactory {
     public static IKVEngine<? extends IWALableKVSpace> createWALable(String overrideIdentity,
                                                                      IWALableKVEngineConfigurator configurator) {
         if (configurator instanceof InMemKVEngineConfigurator) {
-            return new InMemWALableKVEngine(overrideIdentity, (InMemKVEngineConfigurator) configurator);
+            return InMemWALableKVEngineFactory.createWALable(overrideIdentity, configurator);
         }
         if (configurator instanceof RocksDBWALableKVEngineConfigurator) {
-            return new RocksDBWALableKVEngine(overrideIdentity, (RocksDBWALableKVEngineConfigurator) configurator);
+            return RocksDBWALableKVEngineFactory.create(overrideIdentity, configurator);
         }
         throw new UnsupportedOperationException();
     }

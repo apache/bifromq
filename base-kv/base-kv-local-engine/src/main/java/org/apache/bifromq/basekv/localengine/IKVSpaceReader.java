@@ -19,16 +19,63 @@
 
 package org.apache.bifromq.basekv.localengine;
 
-import org.apache.bifromq.basekv.proto.Boundary;
 import com.google.protobuf.ByteString;
 import java.util.Optional;
+import org.apache.bifromq.basekv.proto.Boundary;
 
-public interface IKVSpaceReader extends IKVSpaceMetadata {
+/**
+ * The interface of a consistent-view reader for a KV space.
+ */
+public interface IKVSpaceReader extends IKVSpaceIdentifiable, AutoCloseable {
+    /**
+     * Get the metadata in key-value pair.
+     *
+     * @param metaKey the key of the metadata
+     * @return the value of the metadata
+     */
+    Optional<ByteString> metadata(ByteString metaKey);
+
+    /**
+     * Check if a key exists.
+     *
+     * @param key the key
+     * @return true if the key exists, false otherwise
+     */
     boolean exist(ByteString key);
 
+    /**
+     * Get the value of a key.
+     *
+     * @param key the key
+     * @return the value of the key, or empty if the key does not exist
+     */
     Optional<ByteString> get(ByteString key);
 
+    /**
+     * Create a new iterator for the space.
+     *
+     * @return the iterator
+     */
     IKVSpaceIterator newIterator();
 
+    /**
+     * Create a new iterator for a sub-boundary of the space.
+     *
+     * @param subBoundary the sub-boundary
+     * @return the iterator
+     */
     IKVSpaceIterator newIterator(Boundary subBoundary);
+
+    /**
+     * Get the estimated size of the data in the specified boundary.
+     *
+     * @param boundary the boundary
+     * @return the size of the space in the specified boundary
+     */
+    long size(Boundary boundary);
+
+    /**
+     * Close the reader and release all resources.
+     */
+    void close();
 }

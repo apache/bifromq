@@ -26,7 +26,7 @@ import com.google.protobuf.ByteString;
  *
  * @param <T> the type of the updater
  */
-public interface IKVSpaceMetadataUpdatable<T extends IKVSpaceMetadataUpdatable<T>> extends IKVSpaceMetadata {
+public interface IKVSpaceMetadataUpdatable<T extends IKVSpaceMetadataUpdatable<T>> {
     /**
      * Update metadata in key-value pair.
      *

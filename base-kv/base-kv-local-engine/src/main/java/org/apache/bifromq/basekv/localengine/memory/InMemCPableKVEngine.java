@@ -22,8 +22,8 @@ package org.apache.bifromq.basekv.localengine.memory;
 import org.apache.bifromq.basekv.localengine.metrics.KVSpaceOpMeters;
 import org.slf4j.Logger;
 
-public class InMemCPableKVEngine extends InMemKVEngine<InMemCPableKVEngine, InMemCPableKVSpace> {
-    public InMemCPableKVEngine(String overrideIdentity, InMemKVEngineConfigurator c) {
+class InMemCPableKVEngine extends InMemKVEngine<InMemCPableKVEngine, InMemCPableKVSpace> {
+    InMemCPableKVEngine(String overrideIdentity, InMemKVEngineConfigurator c) {
         super(overrideIdentity, c);
     }
 

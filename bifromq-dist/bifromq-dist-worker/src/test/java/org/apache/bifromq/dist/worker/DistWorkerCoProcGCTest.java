@@ -40,10 +40,11 @@ import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.function.Supplier;
 import org.apache.bifromq.basekv.proto.KVRangeId;
-import org.apache.bifromq.basekv.store.api.IKVCloseableReader;
 import org.apache.bifromq.basekv.store.api.IKVIterator;
+import org.apache.bifromq.basekv.store.api.IKVRangeReader;
 import org.apache.bifromq.basekv.store.proto.ROCoProcInput;
 import org.apache.bifromq.basekv.store.proto.ROCoProcOutput;
+import org.apache.bifromq.basekv.store.range.IKVRangeRefreshableReader;
 import org.apache.bifromq.dist.rpc.proto.DistServiceROCoProcInput;
 import org.apache.bifromq.dist.rpc.proto.GCReply;
 import org.apache.bifromq.dist.rpc.proto.GCRequest;
@@ -61,8 +62,10 @@ public class DistWorkerCoProcGCTest {
     private ITenantsStats tenantsState;
     private IDeliverExecutorGroup deliverExecutorGroup;
     private ISubscriptionCleaner subscriptionChecker;
-    private Supplier<IKVCloseableReader> readerProvider;
-    private IKVCloseableReader reader;
+    private Supplier<IKVRangeReader> readerProvider;
+    private Supplier<IKVRangeRefreshableReader> refreshableReaderProvider;
+    private IKVRangeReader reader;
+    private IKVRangeRefreshableReader refreshableReader;
     private DistWorkerCoProc coProc;
     private List<KV> currentData = new ArrayList<>();
 
@@ -81,13 +84,20 @@ public class DistWorkerCoProcGCTest {
         deliverExecutorGroup = mock(IDeliverExecutorGroup.class);
         subscriptionChecker = mock(ISubscriptionCleaner.class);
         readerProvider = mock(Supplier.class);
-        reader = mock(IKVCloseableReader.class);
+        refreshableReaderProvider = mock(Supplier.class);
+        reader = mock(IKVRangeReader.class);
+        refreshableReader = mock(IKVRangeRefreshableReader.class);
         when(reader.boundary()).thenReturn(FULL_BOUNDARY);
         when(readerProvider.get()).thenReturn(reader);
         when(reader.iterator()).thenReturn(new FakeIterator(java.util.List.of()));
+
+        when(refreshableReader.boundary()).thenReturn(FULL_BOUNDARY);
+        when(refreshableReaderProvider.get()).thenReturn(refreshableReader);
+        when(refreshableReader.iterator()).thenReturn(new FakeIterator(java.util.List.of()));
+
         when(routeCache.isCached(anyString(), anyList())).thenReturn(false);
         coProc = new DistWorkerCoProc(KVRangeId.newBuilder().setId(1).setEpoch(1).build(),
-            readerProvider, routeCache, tenantsState, deliverExecutorGroup, subscriptionChecker);
+            refreshableReaderProvider, routeCache, tenantsState, deliverExecutorGroup, subscriptionChecker);
         coProc.reset(FULL_BOUNDARY);
         coProc.onLeader(true);
     }
@@ -286,6 +296,11 @@ public class DistWorkerCoProcGCTest {
                 i--;
             }
             idx = (i >= 0) ? i : -1;
+        }
+
+        @Override
+        public void close() {
+
         }
     }
 }

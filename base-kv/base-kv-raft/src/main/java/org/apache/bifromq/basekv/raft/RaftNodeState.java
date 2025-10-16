@@ -163,7 +163,7 @@ abstract class RaftNodeState implements IRaftNodeState {
     }
 
     final void retrieveCommitted(long fromIndex, long maxSize,
-                                 CompletableFuture<Iterator<LogEntry>> onDone) {
+                                 CompletableFuture<ILogEntryIterator> onDone) {
         if (fromIndex < stateStorage.firstIndex() || fromIndex > stateStorage.lastIndex()) {
             onDone.completeExceptionally(new IndexOutOfBoundsException("Index out of range"));
         } else {

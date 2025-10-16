@@ -14,35 +14,34 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 
 package org.apache.bifromq.dist.worker.cache;
 
-import org.apache.bifromq.basekv.store.api.IKVCloseableReader;
-import org.apache.bifromq.basekv.store.api.IKVReader;
 import com.google.common.collect.Sets;
 import java.util.Set;
 import java.util.function.Supplier;
+import org.apache.bifromq.basekv.store.range.IKVRangeRefreshableReader;
 
-class ThreadLocalKVReader implements Supplier<IKVReader> {
-    private final Set<IKVCloseableReader> threadReaders = Sets.newConcurrentHashSet();
-    private final ThreadLocal<IKVReader> threadLocalReader;
+class ThreadLocalKVReader implements Supplier<IKVRangeRefreshableReader> {
+    private final Set<IKVRangeRefreshableReader> threadReaders = Sets.newConcurrentHashSet();
+    private final ThreadLocal<IKVRangeRefreshableReader> threadLocalReader;
 
-    public ThreadLocalKVReader(Supplier<IKVCloseableReader> readerProvider) {
+    public ThreadLocalKVReader(Supplier<IKVRangeRefreshableReader> readerProvider) {
         this.threadLocalReader = ThreadLocal.withInitial(() -> {
-            IKVCloseableReader reader = readerProvider.get();
+            IKVRangeRefreshableReader reader = readerProvider.get();
             threadReaders.add(reader);
             return reader;
         });
     }
 
     @Override
-    public IKVReader get() {
+    public IKVRangeRefreshableReader get() {
         return threadLocalReader.get();
     }
 
     public void close() {
-        threadReaders.forEach(IKVCloseableReader::close);
+        threadReaders.forEach(IKVRangeRefreshableReader::close);
     }
 }

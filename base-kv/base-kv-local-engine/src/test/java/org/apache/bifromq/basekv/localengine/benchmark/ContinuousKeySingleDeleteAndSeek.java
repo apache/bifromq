@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 
 package org.apache.bifromq.basekv.localengine.benchmark;
@@ -56,7 +56,7 @@ public class ContinuousKeySingleDeleteAndSeek {
 //        IKVEngineIterator itr = kvEngine.newIterator(DEFAULT_NS, key.concat(toByteString(state.i)),
 //                key.concat(toByteString(state.i + 1)));
 //        try (IKVEngineIterator itr = state.kvEngine.newIterator(DEFAULT_NS)) {
-        state.itr.refresh();
+        state.reader.refresh();
 //        state.itr.seekToLast();
         state.itr.seek(state.key.concat(toByteString(ThreadLocalRandom.current().nextInt(state.keyCount))));
         bl.consume(state.itr.isValid());

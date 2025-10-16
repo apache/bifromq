@@ -17,18 +17,16 @@
  * under the License.
  */
 
-package org.apache.bifromq.basekv.store.range;
+package org.apache.bifromq.basekv.localengine.memory;
 
-import com.google.protobuf.ByteString;
+import org.apache.bifromq.basekv.localengine.ICPableKVEngineConfigurator;
+import org.apache.bifromq.basekv.localengine.ICPableKVSpace;
+import org.apache.bifromq.basekv.localengine.IKVEngine;
 
-public interface IKVRangeRestorer {
-    void put(ByteString key, ByteString value);
-
-    void flush();
-
-    void abort();
-
-    void done();
-
-    void reset();
+public class InMemCPableKVEngineFactory {
+    public static IKVEngine<? extends ICPableKVSpace> createCPable(String overrideIdentity,
+                                                                   ICPableKVEngineConfigurator configurator) {
+        assert configurator instanceof InMemKVEngineConfigurator;
+        return new InMemCPableKVEngine(overrideIdentity, (InMemKVEngineConfigurator) configurator);
+    }
 }

@@ -26,7 +26,7 @@ import java.time.Duration;
 import java.util.concurrent.Executor;
 import java.util.function.Supplier;
 import org.apache.bifromq.basekv.proto.KVRangeId;
-import org.apache.bifromq.basekv.store.api.IKVCloseableReader;
+import org.apache.bifromq.basekv.store.range.IKVRangeRefreshableReader;
 import org.apache.bifromq.plugin.eventcollector.IEventCollector;
 import org.apache.bifromq.plugin.settingprovider.ISettingProvider;
 
@@ -34,12 +34,12 @@ class TenantRouteCacheFactory implements ITenantRouteCacheFactory {
     private final ISettingProvider settingProvider;
     private final IEventCollector eventCollector;
     private final Executor matchExecutor;
-    private final ThreadLocalKVReader threadLocalReader;
+    private final Supplier<IKVRangeRefreshableReader> readerSupplier;
     private final Timer internalMatchTimer;
     private final Duration expiry;
     private final Duration fanoutCheckInterval;
 
-    public TenantRouteCacheFactory(Supplier<IKVCloseableReader> readerSupplier,
+    public TenantRouteCacheFactory(Supplier<IKVRangeRefreshableReader> readerSupplier,
                                    ISettingProvider settingProvider,
                                    IEventCollector eventCollector,
                                    Duration expiry,
@@ -49,7 +49,7 @@ class TenantRouteCacheFactory implements ITenantRouteCacheFactory {
         this.settingProvider = settingProvider;
         this.eventCollector = eventCollector;
         this.matchExecutor = matchExecutor;
-        this.threadLocalReader = new ThreadLocalKVReader(readerSupplier);
+        this.readerSupplier = readerSupplier;
         this.expiry = expiry;
         this.fanoutCheckInterval = fanoutCheckInterval;
         internalMatchTimer = Timer.builder("dist.match.internal")
@@ -66,13 +66,12 @@ class TenantRouteCacheFactory implements ITenantRouteCacheFactory {
     @Override
     public ITenantRouteCache create(KVRangeId rangeId, String tenantId) {
         return new TenantRouteCache(rangeId, tenantId,
-            new TenantRouteMatcher(tenantId, threadLocalReader, eventCollector, internalMatchTimer),
+            new TenantRouteMatcher(tenantId, readerSupplier, eventCollector, internalMatchTimer),
             settingProvider, expiry, fanoutCheckInterval, matchExecutor);
     }
 
     @Override
     public void close() {
-        threadLocalReader.close();
         Metrics.globalRegistry.remove(internalMatchTimer);
     }
 }

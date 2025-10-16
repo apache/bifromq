@@ -27,16 +27,15 @@ import static org.testng.Assert.assertNotEquals;
 import static org.testng.Assert.assertTrue;
 import static org.testng.Assert.fail;
 
+import com.google.protobuf.ByteString;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.apache.bifromq.basekv.raft.proto.ClusterConfig;
 import org.apache.bifromq.basekv.raft.proto.LogEntry;
 import org.apache.bifromq.basekv.raft.proto.Snapshot;
 import org.apache.bifromq.basekv.raft.proto.Voting;
-import com.google.protobuf.ByteString;
-import java.util.ArrayList;
-import java.util.Iterator;
-import java.util.List;
-import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.atomic.AtomicInteger;
 import org.testng.Assert;
 import org.testng.annotations.Test;
 
@@ -247,11 +246,12 @@ public abstract class BasicStateStoreTest {
         assertNotEquals(stateStorage.latestClusterConfig(), updatedClusterConfig);
         assertEquals(stateStorage.firstIndex(), 1);
         assertEquals(stateStorage.lastIndex(), 8);
-        Iterator<LogEntry> entries5To8 = stateStorage.entries(5, 9, -1);
-        for (int i = 0; entries5To8.hasNext(); i++) {
-            LogEntry entry = entries5To8.next();
-            assertEquals(entry.getTerm(), 2);
-            assertEquals(entry.getIndex(), i + 5);
+        try (ILogEntryIterator entries5To8 = stateStorage.entries(5, 9, -1)) {
+            for (int i = 0; entries5To8.hasNext(); i++) {
+                LogEntry entry = entries5To8.next();
+                assertEquals(entry.getTerm(), 2);
+                assertEquals(entry.getIndex(), i + 5);
+            }
         }
     }
 
@@ -564,8 +564,9 @@ public abstract class BasicStateStoreTest {
     @Test
     public void testFetchEntries() {
         IRaftStateStore stateStorage = setupStateStorage();
-        Iterator<LogEntry> entries = stateStorage.entries(stateStorage.firstIndex(), stateStorage.lastIndex(), -1);
-        assertFalse(entries.hasNext());
+        try (ILogEntryIterator entries = stateStorage.entries(stateStorage.firstIndex(), stateStorage.lastIndex(), -1)) {
+            assertFalse(entries.hasNext());
+        }
         int count = 10;
         while (count-- > 0) {
             LogEntry entry = LogEntry.newBuilder()
@@ -576,17 +577,20 @@ public abstract class BasicStateStoreTest {
             stateStorage.append(singletonList(entry), true);
         }
         AtomicInteger counter = new AtomicInteger(0);
-        stateStorage.entries(stateStorage.firstIndex(), stateStorage.lastIndex() + 1, -1)
-            .forEachRemaining(e -> counter.incrementAndGet());
+        try (ILogEntryIterator it = stateStorage.entries(stateStorage.firstIndex(), stateStorage.lastIndex() + 1, -1)) {
+            it.forEachRemaining(e -> counter.incrementAndGet());
+        }
         assertEquals(counter.get(), 10);
         counter.set(0);
-        stateStorage.entries(stateStorage.firstIndex(), stateStorage.lastIndex() + 1, 2)
-            .forEachRemaining(e -> counter.incrementAndGet());
+        try (ILogEntryIterator it = stateStorage.entries(stateStorage.firstIndex(), stateStorage.lastIndex() + 1, 2)) {
+            it.forEachRemaining(e -> counter.incrementAndGet());
+        }
         assertEquals(counter.get(), 1);
 
         counter.set(0);
-        stateStorage.entries(stateStorage.firstIndex(), stateStorage.lastIndex() + 1, 10)
-            .forEachRemaining(e -> counter.incrementAndGet());
+        try (ILogEntryIterator it = stateStorage.entries(stateStorage.firstIndex(), stateStorage.lastIndex() + 1, 10)) {
+            it.forEachRemaining(e -> counter.incrementAndGet());
+        }
         assertEquals(counter.get(), 2);
     }
 

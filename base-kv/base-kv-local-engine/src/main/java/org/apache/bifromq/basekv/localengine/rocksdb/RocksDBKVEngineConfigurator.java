@@ -14,22 +14,22 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 
 package org.apache.bifromq.basekv.localengine.rocksdb;
 
-import static org.apache.bifromq.basekv.localengine.rocksdb.AutoCleaner.autoRelease;
 import static java.lang.Math.max;
+import static org.apache.bifromq.basekv.localengine.rocksdb.AutoCleaner.autoRelease;
 
-import org.apache.bifromq.baseenv.EnvProvider;
-import org.apache.bifromq.basekv.localengine.IKVEngineConfigurator;
 import lombok.Builder;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
 import lombok.experimental.Accessors;
 import lombok.experimental.SuperBuilder;
+import org.apache.bifromq.baseenv.EnvProvider;
+import org.apache.bifromq.basekv.localengine.IKVEngineConfigurator;
 import org.rocksdb.BlockBasedTableConfig;
 import org.rocksdb.BloomFilter;
 import org.rocksdb.ColumnFamilyOptions;

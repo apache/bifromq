@@ -14,27 +14,23 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 
 package org.apache.bifromq.basekv.store.range;
 
-import org.apache.bifromq.basekv.store.api.IKVRangeReader;
-import org.apache.bifromq.basekv.store.stats.StatsCollector;
-import org.apache.bifromq.basekv.store.wal.IKVRangeWAL;
 import java.time.Duration;
 import java.util.Map;
 import java.util.concurrent.Executor;
+import org.apache.bifromq.basekv.store.stats.StatsCollector;
+import org.apache.bifromq.basekv.store.wal.IKVRangeWAL;
 
-final class KVRangeStatsCollector extends StatsCollector {
-    private final IKVRangeReader reader;
+class KVRangeStatsCollector extends StatsCollector {
+    private final IKVRange reader;
 
     private final IKVRangeWAL wal;
 
-    public KVRangeStatsCollector(IKVRangeReader rangeState,
-                                 IKVRangeWAL wal,
-                                 Duration interval,
-                                 Executor executor) {
+    public KVRangeStatsCollector(IKVRange rangeState, IKVRangeWAL wal, Duration interval, Executor executor) {
         super(interval, executor);
         this.reader = rangeState;
         this.wal = wal;

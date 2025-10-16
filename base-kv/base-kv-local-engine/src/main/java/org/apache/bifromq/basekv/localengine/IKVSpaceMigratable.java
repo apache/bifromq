@@ -21,6 +21,9 @@ package org.apache.bifromq.basekv.localengine;
 
 import org.apache.bifromq.basekv.proto.Boundary;
 
+/**
+ * The interface for a space that supports data migration.
+ */
 public interface IKVSpaceMigratable {
     /**
      * Migrate data in given boundary to target space, and returns the metadata updater for target boundary.

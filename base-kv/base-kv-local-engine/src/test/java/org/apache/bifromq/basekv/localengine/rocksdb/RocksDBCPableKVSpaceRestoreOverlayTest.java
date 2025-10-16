@@ -28,6 +28,7 @@ import com.google.protobuf.ByteString;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import org.apache.bifromq.basekv.localengine.ICPableKVSpace;
+import org.apache.bifromq.basekv.localengine.IKVSpaceReader;
 import org.apache.bifromq.basekv.localengine.IRestoreSession;
 import org.testng.annotations.AfterMethod;
 import org.testng.annotations.BeforeMethod;
@@ -100,11 +101,13 @@ public class RocksDBCPableKVSpaceRestoreOverlayTest {
         session.done();
 
         // A overridden, B kept, C added
-        assertEquals(space.get(keyA).get().toStringUtf8(), "newA");
-        assertEquals(space.get(keyB).get().toStringUtf8(), "oldB");
-        assertEquals(space.get(keyC).get().toStringUtf8(), "valC");
-        assertTrue(space.metadata(mx).isPresent());
-        assertTrue(space.metadata(my).isPresent());
+        try (IKVSpaceReader reader = space.reader()) {
+            assertEquals(reader.get(keyA).get().toStringUtf8(), "newA");
+            assertEquals(reader.get(keyB).get().toStringUtf8(), "oldB");
+            assertEquals(reader.get(keyC).get().toStringUtf8(), "valC");
+            assertTrue(reader.metadata(mx).isPresent());
+            assertTrue(reader.metadata(my).isPresent());
+        }
 
         String after = Files.readString(pointer).trim();
         assertNotEquals(after, before);

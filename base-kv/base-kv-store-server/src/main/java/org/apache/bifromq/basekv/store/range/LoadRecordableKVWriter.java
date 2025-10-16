@@ -33,13 +33,6 @@ class LoadRecordableKVWriter implements IKVWriter {
     }
 
     @Override
-    public void reset() {
-        long start = System.nanoTime();
-        delegate.reset();
-        recorder.record(System.nanoTime() - start);
-    }
-
-    @Override
     public void delete(ByteString key) {
         long start = System.nanoTime();
         delegate.delete(key);

@@ -29,8 +29,8 @@ import static org.mockito.Mockito.when;
 
 import java.util.function.Supplier;
 import lombok.SneakyThrows;
-import org.apache.bifromq.basekv.store.api.IKVCloseableReader;
 import org.apache.bifromq.basekv.store.api.IKVIterator;
+import org.apache.bifromq.basekv.store.range.IKVRangeRefreshableReader;
 import org.mockito.Mock;
 import org.mockito.MockitoAnnotations;
 import org.testng.annotations.AfterMethod;
@@ -39,9 +39,9 @@ import org.testng.annotations.Test;
 
 public class TenantsStatesTest extends MeterTest {
     @Mock
-    private Supplier<IKVCloseableReader> readerSupplier;
+    private Supplier<IKVRangeRefreshableReader> readerSupplier;
     @Mock
-    private IKVCloseableReader reader;
+    private IKVRangeRefreshableReader reader;
     @Mock
     private IKVIterator iterator;
     private AutoCloseable closeable;
@@ -121,6 +121,9 @@ public class TenantsStatesTest extends MeterTest {
         assertGauge(tenantId, MqttRouteSpaceGauge);
         assertGauge(tenantId, MqttRouteNumGauge);
         assertGauge(tenantId, MqttSharedSubNumGauge);
+
+        // ensure reader is created and closed via gauge sampling
+        assertGaugeValue(tenantId, MqttRouteSpaceGauge, 1);
 
         tenantsState.close();
         assertNoGauge(tenantId, MqttRouteSpaceGauge);

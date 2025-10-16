@@ -19,13 +19,7 @@
 
 package org.apache.bifromq.retain.store;
 
-import static org.apache.bifromq.basekv.utils.BoundaryUtil.FULL_BOUNDARY;
-import static org.apache.bifromq.basekv.utils.BoundaryUtil.intersect;
-import static org.apache.bifromq.basekv.utils.BoundaryUtil.toBoundary;
-import static org.apache.bifromq.basekv.utils.BoundaryUtil.upperBound;
-import static org.apache.bifromq.retain.store.schema.KVSchemaUtil.tenantBeginKey;
 import static org.awaitility.Awaitility.await;
-import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 import static org.testng.Assert.assertEquals;
@@ -36,7 +30,7 @@ import io.micrometer.core.instrument.Meter;
 import io.micrometer.core.instrument.Metrics;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.util.Optional;
-import org.apache.bifromq.basekv.store.api.IKVReader;
+import java.util.function.Supplier;
 import org.apache.bifromq.metrics.ITenantMeter;
 import org.apache.bifromq.metrics.TenantMetric;
 import org.testng.annotations.AfterMethod;
@@ -45,12 +39,12 @@ import org.testng.annotations.Test;
 
 public class TenantStatsTest {
     private SimpleMeterRegistry meterRegistry;
-    private IKVReader reader;
+    private Supplier<Number> usedSpaceProvider;
 
 
     @BeforeMethod
     public void setup() {
-        reader = mock(IKVReader.class);
+        usedSpaceProvider = mock(Supplier.class);
         meterRegistry = new SimpleMeterRegistry();
         Metrics.globalRegistry.add(meterRegistry);
     }
@@ -64,11 +58,8 @@ public class TenantStatsTest {
     @Test
     public void metricValue() {
         String tenantId = "tenant" + System.nanoTime();
-        when(reader.boundary()).thenReturn(FULL_BOUNDARY);
-        when(reader.size(
-            eq(intersect(FULL_BOUNDARY, toBoundary(tenantBeginKey(tenantId), upperBound(tenantBeginKey(tenantId)))))))
-            .thenReturn(10L);
-        TenantStats tenantStats = new TenantStats(tenantId, reader);
+        when(usedSpaceProvider.get()).thenReturn(10L);
+        TenantStats tenantStats = new TenantStats(tenantId, usedSpaceProvider);
         tenantStats.incrementTopicCount(10);
         assertGaugeValue(tenantId, TenantMetric.MqttRetainSpaceGauge, 10);
         assertNoGauge(tenantId, TenantMetric.MqttRetainNumGauge);

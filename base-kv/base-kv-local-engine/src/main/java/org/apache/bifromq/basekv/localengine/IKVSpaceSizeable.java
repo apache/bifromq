@@ -14,30 +14,19 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 
-package org.apache.bifromq.basekv.store.api;
+package org.apache.bifromq.basekv.localengine;
 
-import org.apache.bifromq.basekv.proto.Boundary;
-import org.apache.bifromq.basekv.proto.KVRangeId;
-import org.apache.bifromq.basekv.proto.State;
-import org.apache.bifromq.basekv.raft.proto.ClusterConfig;
-
-public interface IKVRangeMetadata {
-    KVRangeId id();
-
-    long version();
-
-    State state();
-
-    long lastAppliedIndex();
-
-    Boundary boundary();
-
-    ClusterConfig clusterConfig();
-
+/**
+ * Interface for accessing space metadata.
+ */
+public interface IKVSpaceSizeable {
+    /**
+     * Get the size of the space.
+     *
+     * @return the size of the space
+     */
     long size();
-
-    long size(Boundary boundary);
 }

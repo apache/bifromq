@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 
 package org.apache.bifromq.basekv.store.range;
@@ -40,8 +40,10 @@ class KVRangeQueryLinearizer implements IKVRangeQueryLinearizer {
     private final AtomicBoolean linearizing = new AtomicBoolean();
     private volatile long lastAppliedIndex = 0;
 
-    KVRangeQueryLinearizer(Supplier<CompletableFuture<Long>> readIndexProvider, Executor executor,
-                           long lastAppliedIndex, String... tags) {
+    KVRangeQueryLinearizer(Supplier<CompletableFuture<Long>> readIndexProvider,
+                           Executor executor,
+                           long lastAppliedIndex,
+                           String... tags) {
         this.readIndexProvider = readIndexProvider;
         this.executor = executor;
         this.lastAppliedIndex = lastAppliedIndex;

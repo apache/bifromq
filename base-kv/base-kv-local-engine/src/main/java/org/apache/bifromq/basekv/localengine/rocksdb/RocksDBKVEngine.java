@@ -36,9 +36,10 @@ import org.apache.bifromq.basekv.localengine.KVEngineException;
 import org.rocksdb.RocksDB;
 
 abstract class RocksDBKVEngine<
-    E extends RocksDBKVEngine<E, T, C>,
-    T extends RocksDBKVSpace<E, T, C>,
-    C extends RocksDBKVEngineConfigurator<C>
+    E extends RocksDBKVEngine<E, T, C, P>,
+    T extends RocksDBKVSpace<E, T, C, P>,
+    C extends RocksDBKVEngineConfigurator<C>,
+    P extends RocksDBKVSpaceEpochHandle<C>
     > extends AbstractKVEngine<T, C> {
 
     public static final String IDENTITY_FILE = "IDENTITY";

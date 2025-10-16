@@ -14,25 +14,32 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 
 package org.apache.bifromq.basekv.store;
 
 import static java.util.Collections.emptySet;
 import static org.awaitility.Awaitility.await;
+import static org.testng.Assert.assertEquals;
+import static org.testng.Assert.assertTrue;
 
-import org.apache.bifromq.basekv.annotation.Cluster;
-import org.apache.bifromq.basekv.proto.KVRangeId;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 import com.google.protobuf.ByteString;
 import java.util.List;
 import java.util.Objects;
 import java.util.Set;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.bifromq.basekv.annotation.Cluster;
+import org.apache.bifromq.basekv.proto.KVRangeDescriptor;
+import org.apache.bifromq.basekv.proto.KVRangeId;
+import org.apache.bifromq.basekv.proto.State;
+import org.apache.bifromq.basekv.store.exception.KVRangeException;
 import org.testng.annotations.Test;
 
 @Slf4j
@@ -307,5 +314,55 @@ public class KVRangeStoreClusterConfigChangeTest extends KVRangeStoreClusterTest
 
         cluster.put(setting.leader, ver, rangeId, ByteString.copyFromUtf8("key"), ByteString.copyFromUtf8("value"))
             .toCompletableFuture().join();
+    }
+
+    @Test(groups = "integration")
+    public void correlateIdMismatchRollsBackToNormalAndTryLater() {
+        KVRangeId rangeId = cluster.genesisKVRangeId();
+        // ensure cluster ready and capture current leader/voters
+        KVRangeConfig setting = cluster.awaitAllKVRangeReady(rangeId, 1, 40);
+        String leader = setting.leader;
+        Set<String> currentVoters = Sets.newHashSet(setting.clusterConfig.getVotersList());
+
+        // Phase 1: hold all WAL messages from leader to step through deterministically
+        try (KVRangeStoreTestCluster.HoldHandle hold = cluster.holdIf(
+            m -> m.getFrom().equals(leader) && m.getPayload().hasWalRaftMessages())) {
+            CompletableFuture<Void> changeFuture = cluster
+                .changeReplicaConfig(leader, setting.ver, rangeId, currentVoters, Sets.newHashSet())
+                .toCompletableFuture();
+
+            long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(15);
+            boolean inConfigChanging = false;
+            while (System.nanoTime() < deadline) {
+                hold.releaseOne();
+                KVRangeDescriptor rd = cluster.getKVRange(leader, rangeId);
+                if (rd != null && rd.getState() == State.StateType.ConfigChanging) {
+                    inConfigChanging = true;
+                    break;
+                }
+            }
+            assertTrue(inConfigChanging);
+
+            long latestVer = cluster.kvRangeSetting(rangeId).ver;
+            // Ensure election messages are not blocked
+            hold.releaseAll();
+            String newLeader = nonLeaderStore(setting);
+            cluster.transferLeader(leader, latestVer, rangeId, newLeader).toCompletableFuture().join();
+
+            Throwable thrown = null;
+            try {
+                changeFuture.join();
+            } catch (Throwable t) {
+                thrown = (t instanceof CompletionException && t.getCause() != null) ? t.getCause() : t;
+            }
+            assertTrue(thrown instanceof KVRangeException.TryLater);
+        }
+
+        // FSM should rollback to Normal across replicas
+        cluster.awaitKVRangeStateOnAllStores(rangeId, State.StateType.Normal, 30);
+
+        // voters should remain unchanged
+        KVRangeConfig after = cluster.kvRangeSetting(rangeId);
+        assertEquals(Sets.newHashSet(after.clusterConfig.getVotersList()), currentVoters);
     }
 }

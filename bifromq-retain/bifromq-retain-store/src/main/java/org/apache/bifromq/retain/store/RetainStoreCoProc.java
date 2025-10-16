@@ -43,15 +43,15 @@ import lombok.extern.slf4j.Slf4j;
 import org.apache.bifromq.basehlc.HLC;
 import org.apache.bifromq.basekv.proto.Boundary;
 import org.apache.bifromq.basekv.proto.KVRangeId;
-import org.apache.bifromq.basekv.store.api.IKVCloseableReader;
 import org.apache.bifromq.basekv.store.api.IKVIterator;
 import org.apache.bifromq.basekv.store.api.IKVRangeCoProc;
-import org.apache.bifromq.basekv.store.api.IKVReader;
+import org.apache.bifromq.basekv.store.api.IKVRangeReader;
 import org.apache.bifromq.basekv.store.api.IKVWriter;
 import org.apache.bifromq.basekv.store.proto.ROCoProcInput;
 import org.apache.bifromq.basekv.store.proto.ROCoProcOutput;
 import org.apache.bifromq.basekv.store.proto.RWCoProcInput;
 import org.apache.bifromq.basekv.store.proto.RWCoProcOutput;
+import org.apache.bifromq.basekv.store.range.IKVRangeRefreshableReader;
 import org.apache.bifromq.basekv.utils.KVRangeIdUtil;
 import org.apache.bifromq.retain.rpc.proto.BatchMatchReply;
 import org.apache.bifromq.retain.rpc.proto.BatchMatchRequest;
@@ -74,7 +74,7 @@ import org.apache.bifromq.type.TopicMessage;
 
 @Slf4j
 class RetainStoreCoProc implements IKVRangeCoProc {
-    private final Supplier<IKVCloseableReader> rangeReaderProvider;
+    private final Supplier<IKVRangeRefreshableReader> rangeReaderProvider;
     private final TenantsStats tenantsStats;
     private final String[] tags;
     private RetainTopicIndex index;
@@ -82,14 +82,14 @@ class RetainStoreCoProc implements IKVRangeCoProc {
     RetainStoreCoProc(String clusterId,
                       String storeId,
                       KVRangeId id,
-                      Supplier<IKVCloseableReader> rangeReaderProvider) {
+                      Supplier<IKVRangeRefreshableReader> rangeReaderProvider) {
         this.tags = new String[] {"clusterId", clusterId, "storeId", storeId, "rangeId", KVRangeIdUtil.toString(id)};
         this.rangeReaderProvider = rangeReaderProvider;
-        this.tenantsStats = new TenantsStats(rangeReaderProvider.get(), tags);
+        this.tenantsStats = new TenantsStats(rangeReaderProvider, tags);
     }
 
     @Override
-    public CompletableFuture<ROCoProcOutput> query(ROCoProcInput input, IKVReader reader) {
+    public CompletableFuture<ROCoProcOutput> query(ROCoProcInput input, IKVRangeReader reader) {
         RetainServiceROCoProcInput coProcInput = input.getRetainService();
         return switch (coProcInput.getTypeCase()) {
             case BATCHMATCH -> batchMatch(coProcInput.getBatchMatch(), reader)
@@ -106,7 +106,8 @@ class RetainStoreCoProc implements IKVRangeCoProc {
 
     @SneakyThrows
     @Override
-    public Supplier<MutationResult> mutate(RWCoProcInput input, IKVReader reader, IKVWriter writer, boolean isLeader) {
+    public Supplier<MutationResult> mutate(RWCoProcInput input, IKVRangeReader reader, IKVWriter writer,
+                                           boolean isLeader) {
         RetainServiceRWCoProcInput coProcInput = input.getRetainService();
         RetainServiceRWCoProcOutput.Builder outputBuilder = RetainServiceRWCoProcOutput.newBuilder();
         AtomicReference<Runnable> afterMutate = new AtomicReference<>();
@@ -143,10 +144,10 @@ class RetainStoreCoProc implements IKVRangeCoProc {
     @Override
     public void close() {
         index = null;
-        tenantsStats.destroy();
+        tenantsStats.close();
     }
 
-    private CompletableFuture<BatchMatchReply> batchMatch(BatchMatchRequest request, IKVReader reader) {
+    private CompletableFuture<BatchMatchReply> batchMatch(BatchMatchRequest request, IKVRangeReader reader) {
         BatchMatchReply.Builder replyBuilder = BatchMatchReply.newBuilder().setReqId(request.getReqId());
         for (String tenantId : request.getMatchParamsMap().keySet()) {
             MatchResultPack.Builder resultPackBuilder = MatchResultPack.newBuilder();
@@ -167,7 +168,7 @@ class RetainStoreCoProc implements IKVRangeCoProc {
                                      String topicFilter,
                                      int limit,
                                      long now,
-                                     IKVReader reader) {
+                                     IKVRangeReader reader) {
         if (limit == 0) {
             return emptyList();
         }
@@ -277,10 +278,9 @@ class RetainStoreCoProc implements IKVRangeCoProc {
 
     private void load() {
         index = new RetainTopicIndex();
-        tenantsStats.destroy();
+        tenantsStats.reset();
 
-        try (IKVCloseableReader reader = rangeReaderProvider.get()) {
-            IKVIterator itr = reader.iterator();
+        try (IKVRangeRefreshableReader reader = rangeReaderProvider.get(); IKVIterator itr = reader.iterator()) {
             for (itr.seekToFirst(); itr.isValid(); itr.next()) {
                 try {
                     String tenantId = parseTenantId(itr.key());

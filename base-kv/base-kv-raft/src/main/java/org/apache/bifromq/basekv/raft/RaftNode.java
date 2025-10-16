@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 
 package org.apache.bifromq.basekv.raft;
@@ -27,7 +27,6 @@ import io.micrometer.core.instrument.Timer;
 import io.micrometer.core.instrument.binder.jvm.ExecutorServiceMetrics;
 import java.util.EnumMap;
 import java.util.HashMap;
-import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -45,7 +44,6 @@ import org.apache.bifromq.basekv.raft.event.RaftEvent;
 import org.apache.bifromq.basekv.raft.event.RaftEventType;
 import org.apache.bifromq.basekv.raft.exception.InternalError;
 import org.apache.bifromq.basekv.raft.proto.ClusterConfig;
-import org.apache.bifromq.basekv.raft.proto.LogEntry;
 import org.apache.bifromq.basekv.raft.proto.RaftMessage;
 import org.apache.bifromq.basekv.raft.proto.RaftNodeStatus;
 import org.apache.bifromq.logger.MDCLogger;
@@ -213,7 +211,7 @@ public final class RaftNode implements IRaftNode {
     }
 
     @Override
-    public CompletableFuture<Iterator<LogEntry>> retrieveCommitted(long fromIndex, long maxSize) {
+    public CompletableFuture<ILogEntryIterator> retrieveCommitted(long fromIndex, long maxSize) {
         return submit(onDone -> stateRef.get().retrieveCommitted(fromIndex, maxSize,
             sampleLatency(onDone, metricMgr.retrieveEntriesTimer)));
     }

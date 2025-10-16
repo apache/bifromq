@@ -19,6 +19,14 @@
 
 package org.apache.bifromq.basekv.localengine.rocksdb;
 
-public interface IKVSpaceDBHandle extends IKVSpaceDBInstance {
-    void close();
+import org.apache.bifromq.basekv.localengine.IKVEngine;
+import org.apache.bifromq.basekv.localengine.IWALableKVEngineConfigurator;
+import org.apache.bifromq.basekv.localengine.IWALableKVSpace;
+
+public class RocksDBWALableKVEngineFactory {
+    public static IKVEngine<? extends IWALableKVSpace> create(String overrideIdentity,
+                                                              IWALableKVEngineConfigurator configurator) {
+        assert configurator instanceof RocksDBWALableKVEngineConfigurator;
+        return new RocksDBWALableKVEngine(overrideIdentity, (RocksDBWALableKVEngineConfigurator) configurator);
+    }
 }

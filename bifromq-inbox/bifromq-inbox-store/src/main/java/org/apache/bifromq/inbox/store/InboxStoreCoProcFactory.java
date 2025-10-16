@@ -34,10 +34,10 @@ import java.util.Optional;
 import java.util.function.Supplier;
 import org.apache.bifromq.basekv.proto.Boundary;
 import org.apache.bifromq.basekv.proto.KVRangeId;
-import org.apache.bifromq.basekv.store.api.IKVCloseableReader;
 import org.apache.bifromq.basekv.store.api.IKVRangeCoProc;
 import org.apache.bifromq.basekv.store.api.IKVRangeCoProcFactory;
 import org.apache.bifromq.basekv.store.api.IKVRangeSplitHinter;
+import org.apache.bifromq.basekv.store.range.IKVRangeRefreshableReader;
 import org.apache.bifromq.basekv.store.range.hinter.MutationKVLoadBasedSplitHinter;
 import org.apache.bifromq.basekv.utils.KVRangeIdUtil;
 import org.apache.bifromq.dist.client.IDistClient;
@@ -88,15 +88,17 @@ public class InboxStoreCoProcFactory implements IKVRangeCoProcFactory {
 
     @Override
     public List<IKVRangeSplitHinter> createHinters(String clusterId, String storeId, KVRangeId id,
-                                                   Supplier<IKVCloseableReader> rangeReaderProvider) {
+                                                   Supplier<IKVRangeRefreshableReader> rangeReaderProvider) {
         // load-based hinter only split range around up to the inbox bucket boundary
         return Collections.singletonList(new MutationKVLoadBasedSplitHinter(loadEstWindow, key -> {
             ByteString splitKey = upperBound(parseInboxBucketPrefix(key));
             if (splitKey != null) {
-                Boundary boundary = rangeReaderProvider.get().boundary();
-                if (compareStartKey(startKey(boundary), splitKey) < 0
-                    && compareEndKeys(splitKey, endKey(boundary)) < 0) {
-                    return Optional.of(splitKey);
+                try (IKVRangeRefreshableReader reader = rangeReaderProvider.get()) {
+                    Boundary boundary = reader.boundary();
+                    if (compareStartKey(startKey(boundary), splitKey) < 0
+                        && compareEndKeys(splitKey, endKey(boundary)) < 0) {
+                        return Optional.of(splitKey);
+                    }
                 }
             }
             return Optional.empty();
@@ -109,7 +111,7 @@ public class InboxStoreCoProcFactory implements IKVRangeCoProcFactory {
     public IKVRangeCoProc createCoProc(String clusterId,
                                        String storeId,
                                        KVRangeId id,
-                                       Supplier<IKVCloseableReader> rangeReaderProvider) {
+                                       Supplier<IKVRangeRefreshableReader> rangeReaderProvider) {
         return new InboxStoreCoProc(clusterId,
             storeId,
             id,

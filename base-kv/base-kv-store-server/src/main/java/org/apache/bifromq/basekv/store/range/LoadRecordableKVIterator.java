@@ -19,14 +19,14 @@
 
 package org.apache.bifromq.basekv.store.range;
 
-import org.apache.bifromq.basekv.store.api.IKVIterator;
 import com.google.protobuf.ByteString;
+import org.apache.bifromq.basekv.store.api.IKVIterator;
 
-public class LoadRecordableKVIterator implements IKVIterator {
+class LoadRecordableKVIterator implements IKVIterator {
     private final IKVIterator delegate;
     private final IKVLoadRecorder recorder;
 
-    public LoadRecordableKVIterator(IKVIterator delegate, IKVLoadRecorder recorder) {
+    LoadRecordableKVIterator(IKVIterator delegate, IKVLoadRecorder recorder) {
         this.delegate = delegate;
         this.recorder = recorder;
     }
@@ -92,5 +92,10 @@ public class LoadRecordableKVIterator implements IKVIterator {
         long start = System.nanoTime();
         delegate.seekForPrev(key);
         recorder.record(key, System.nanoTime() - start);
+    }
+
+    @Override
+    public void close() {
+        delegate.close();
     }
 }

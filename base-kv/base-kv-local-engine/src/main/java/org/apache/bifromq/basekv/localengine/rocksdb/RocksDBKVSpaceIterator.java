@@ -28,123 +28,174 @@ import static org.apache.bifromq.basekv.utils.BoundaryUtil.endKeyBytes;
 import static org.apache.bifromq.basekv.utils.BoundaryUtil.startKeyBytes;
 
 import com.google.protobuf.ByteString;
-import java.lang.ref.Cleaner;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
-import java.util.function.Supplier;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.bifromq.basekv.localengine.IKVSpaceIterator;
-import org.apache.bifromq.basekv.localengine.ISyncContext;
+import org.apache.bifromq.basekv.localengine.KVEngineException;
 import org.apache.bifromq.basekv.proto.Boundary;
+import org.rocksdb.ReadOptions;
+import org.rocksdb.RocksIterator;
+import org.rocksdb.Slice;
 
 @Slf4j
 class RocksDBKVSpaceIterator implements IKVSpaceIterator {
-    private static final Cleaner CLEANER = Cleaner.create();
-    private final Supplier<IKVSpaceDBInstance> dbHandleProvider;
-    private final ISyncContext.IRefresher refresher;
     private final byte[] startKey;
     private final byte[] endKey;
     private final boolean fillCache;
-    private final AtomicReference<RocksItrHolder> rocksItrHolder = new AtomicReference<>();
+    private final AtomicReference<RocksDBItrHolder> rocksItrHolder = new AtomicReference<>();
+    private final AtomicBoolean closed = new AtomicBoolean();
+    private final CloseListener closeListener;
 
-    public RocksDBKVSpaceIterator(Supplier<IKVSpaceDBInstance> dbHandleProvider,
-                                  Boundary boundary,
-                                  ISyncContext.IRefresher refresher) {
-        this(dbHandleProvider, boundary, refresher, true);
+    public RocksDBKVSpaceIterator(RocksDBSnapshot snapshot, Boundary boundary, boolean fillCache) {
+        this(snapshot, boundary, fillCache, itr -> {
+        });
     }
 
-    public RocksDBKVSpaceIterator(Supplier<IKVSpaceDBInstance> dbHandleProvider,
+    public RocksDBKVSpaceIterator(RocksDBSnapshot snapshot,
                                   Boundary boundary,
-                                  ISyncContext.IRefresher refresher,
-                                  boolean fillCache) {
-        this.dbHandleProvider = dbHandleProvider;
+                                  boolean fillCache,
+                                  CloseListener closeListener) {
         byte[] boundaryStartKey = startKeyBytes(boundary);
         byte[] boundaryEndKey = endKeyBytes(boundary);
         startKey = boundaryStartKey != null ? toDataKey(boundaryStartKey) : DATA_SECTION_START;
         endKey = boundaryEndKey != null ? toDataKey(boundaryEndKey) : DATA_SECTION_END;
         this.fillCache = fillCache;
-        this.refresher = refresher;
-        this.rocksItrHolder.set(newRocksItrHolder());
+        this.closeListener = closeListener;
+        refresh(snapshot);
     }
 
     @Override
     public ByteString key() {
-        return fromDataKey(this.rocksItrHolder.get().rocksItr.key());
+        return fromDataKey(rocksItrHolder.get().rocksIterator.key());
     }
 
     @Override
     public ByteString value() {
-        return unsafeWrap(this.rocksItrHolder.get().rocksItr.value());
+        return unsafeWrap(rocksItrHolder.get().rocksIterator.value());
     }
 
     @Override
     public boolean isValid() {
-        return this.rocksItrHolder.get().rocksItr.isValid();
+        return rocksItrHolder.get().rocksIterator.isValid();
     }
 
     @Override
     public void next() {
-        this.rocksItrHolder.get().rocksItr.next();
+        rocksItrHolder.get().rocksIterator.next();
     }
 
     @Override
     public void prev() {
-        this.rocksItrHolder.get().rocksItr.prev();
+        rocksItrHolder.get().rocksIterator.prev();
     }
 
     @Override
     public void seekToFirst() {
-        this.rocksItrHolder.get().rocksItr.seekToFirst();
+        rocksItrHolder.get().rocksIterator.seekToFirst();
     }
 
     @Override
     public void seekToLast() {
-        this.rocksItrHolder.get().rocksItr.seekToLast();
+        rocksItrHolder.get().rocksIterator.seekToLast();
     }
 
     @Override
     public void seek(ByteString target) {
-        this.rocksItrHolder.get().rocksItr.seek(toDataKey(target));
+        rocksItrHolder.get().rocksIterator.seek(toDataKey(target));
     }
 
     @Override
     public void seekForPrev(ByteString target) {
-        this.rocksItrHolder.get().rocksItr.seekForPrev(toDataKey(target));
+        rocksItrHolder.get().rocksIterator.seekForPrev(toDataKey(target));
     }
 
-    @Override
-    public void refresh() {
-        refresher.runIfNeeded((genBumped) -> {
-            // create new iterator if gen bumped
-            if (genBumped) {
-                RocksItrHolder old = this.rocksItrHolder.getAndSet(newRocksItrHolder());
-                if (old != null) {
-                    old.onClose.clean();
-                }
+    public void refresh(RocksDBSnapshot snapshot) {
+        if (closed.get()) {
+            return;
+        }
+        try {
+            RocksDBItrHolder rocksItrHolder = this.rocksItrHolder.get();
+            if (rocksItrHolder == null) {
+                this.rocksItrHolder.set(build(snapshot));
+            } else if (rocksItrHolder.epoch == snapshot.epoch()) {
+                // same epoch, just refresh the snapshot
+                rocksItrHolder.rocksIterator.refresh(snapshot.snapshot());
             } else {
-                this.rocksItrHolder.get().rocksItr.refresh();
+                this.rocksItrHolder.set(build(snapshot));
+                rocksItrHolder.close();
             }
-        });
+        } catch (Throwable e) {
+            throw new KVEngineException("Unable to refresh iterator", e);
+        }
     }
 
     @Override
     public void close() {
-        this.rocksItrHolder.get().onClose.clean();
+        if (closed.compareAndSet(false, true)) {
+            try {
+                RocksDBItrHolder rocksItrHolder = this.rocksItrHolder.getAndSet(null);
+                if (rocksItrHolder != null) {
+                    rocksItrHolder.close();
+                }
+            } finally {
+                closeListener.onClose(this);
+            }
+        }
     }
 
-    private RocksItrHolder newRocksItrHolder() {
-        RocksDBKVEngineIterator rocksItr = new RocksDBKVEngineIterator(dbHandleProvider.get(), null,
-            startKey, endKey, fillCache);
-        Cleaner.Cleanable onClose = CLEANER.register(this, new State(rocksItr));
-        return new RocksItrHolder(rocksItr, onClose);
+    private RocksDBItrHolder build(RocksDBSnapshot snapshot) {
+        ReadOptions readOptions = new ReadOptions().setPinData(true).setFillCache(fillCache).setAutoPrefixMode(true);
+        Slice lowerSlice = new Slice(startKey);
+        readOptions.setIterateLowerBound(lowerSlice);
+        Slice upperSlice = new Slice(endKey);
+        readOptions.setIterateUpperBound(upperSlice);
+        if (snapshot != null) {
+            readOptions.setSnapshot(snapshot.snapshot());
+        }
+        RocksIterator rocksItr = snapshot.epoch().db().newIterator(snapshot.epoch().cf(), readOptions);
+        return new RocksDBItrHolder(snapshot.epoch(), rocksItr, readOptions, lowerSlice, upperSlice);
     }
 
-    private record RocksItrHolder(RocksDBKVEngineIterator rocksItr, Cleaner.Cleanable onClose) {
+    interface CloseListener {
+        void onClose(RocksDBKVSpaceIterator itr);
     }
 
-    private record State(RocksDBKVEngineIterator rocksItr) implements Runnable {
-        @Override
-        public void run() {
-            rocksItr.close();
+    /**
+     * Holder for RocksDB iterator and its resources; close is idempotent.
+     */
+    private static final class RocksDBItrHolder {
+        final IRocksDBKVSpaceEpoch epoch;
+        final RocksIterator rocksIterator;
+        final ReadOptions readOptions;
+        final Slice lowerSlice;
+        final Slice upperSlice;
+        private final AtomicBoolean closed = new AtomicBoolean();
+
+        RocksDBItrHolder(IRocksDBKVSpaceEpoch epoch,
+                         RocksIterator rocksIterator,
+                         ReadOptions readOptions,
+                         Slice lowerSlice,
+                         Slice upperSlice) {
+            this.epoch = epoch;
+            this.rocksIterator = rocksIterator;
+            this.readOptions = readOptions;
+            this.lowerSlice = lowerSlice;
+            this.upperSlice = upperSlice;
+        }
+
+        public void close() {
+            // Ensure native resources are freed exactly once
+            if (closed.compareAndSet(false, true)) {
+                rocksIterator.close();
+                readOptions.close();
+                if (lowerSlice != null) {
+                    lowerSlice.close();
+                }
+                if (upperSlice != null) {
+                    upperSlice.close();
+                }
+            }
         }
     }
 }

@@ -26,6 +26,7 @@ import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.TimeUnit;
 import lombok.SneakyThrows;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.bifromq.basekv.localengine.IKVSpaceRefreshableReader;
 import org.openjdk.jmh.annotations.Benchmark;
 import org.openjdk.jmh.annotations.BenchmarkMode;
 import org.openjdk.jmh.annotations.Group;
@@ -56,7 +57,9 @@ public class SingleKeyUpdateAndGet {
     @BenchmarkMode(Mode.Throughput)
     @OutputTimeUnit(TimeUnit.SECONDS)
     public void get(SingleKeyUpdateAndGetState state, Blackhole blackhole) {
-        blackhole.consume(state.kvSpace.get(state.key).get());
+        try (IKVSpaceRefreshableReader reader = state.kvSpace.reader()) {
+            blackhole.consume(reader.get(state.key).get());
+        }
     }
 
     @Benchmark

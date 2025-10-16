@@ -24,16 +24,11 @@ import org.apache.bifromq.basekv.localengine.IKVSpaceWriter;
 import org.apache.bifromq.basekv.proto.Boundary;
 import org.apache.bifromq.basekv.store.api.IKVWriter;
 
-public class KVWriter implements IKVWriter {
+class KVWriter implements IKVWriter {
     private final IKVSpaceWriter writer;
 
-    public KVWriter(IKVSpaceWriter writer) {
+    KVWriter(IKVSpaceWriter writer) {
         this.writer = writer;
-    }
-
-    @Override
-    public void reset() {
-        writer.reset();
     }
 
     @Override

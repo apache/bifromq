@@ -23,5 +23,5 @@ package org.apache.bifromq.basekv.localengine;
  * A writer for update range state, only when done method is called the changes are persisted and visible.
  */
 public interface IKVSpaceWriter
-    extends IKVSpaceMetadataWriter, IKVSpaceDataUpdatable<IKVSpaceWriter>, IKVSpaceWriteable {
+    extends IKVSpaceIdentifiable, IKVSpaceMetadataWriter, IKVSpaceDataUpdatable<IKVSpaceWriter>, IKVSpaceWriteable {
 }

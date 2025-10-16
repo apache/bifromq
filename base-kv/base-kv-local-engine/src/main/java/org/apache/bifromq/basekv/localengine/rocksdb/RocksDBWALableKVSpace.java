@@ -19,14 +19,10 @@
 
 package org.apache.bifromq.basekv.localengine.rocksdb;
 
-import static org.apache.bifromq.basekv.localengine.IKVEngine.DEFAULT_NS;
-import static org.apache.bifromq.basekv.localengine.rocksdb.RocksDBHelper.openDBInDir;
-
 import io.micrometer.core.instrument.Metrics;
 import io.micrometer.core.instrument.Tags;
 import io.micrometer.core.instrument.Timer;
 import io.micrometer.core.instrument.binder.jvm.ExecutorServiceMetrics;
-import java.io.File;
 import java.nio.file.Files;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
@@ -42,30 +38,29 @@ import org.apache.bifromq.basekv.localengine.KVEngineException;
 import org.apache.bifromq.basekv.localengine.metrics.KVSpaceMeters;
 import org.apache.bifromq.basekv.localengine.metrics.KVSpaceOpMeters;
 import org.apache.bifromq.basekv.localengine.rocksdb.metrics.RocksDBKVSpaceMetric;
-import org.rocksdb.ColumnFamilyDescriptor;
-import org.rocksdb.ColumnFamilyHandle;
-import org.rocksdb.DBOptions;
-import org.rocksdb.RocksDB;
 import org.rocksdb.WriteOptions;
 import org.slf4j.Logger;
 
-public class RocksDBWALableKVSpace
-    extends RocksDBKVSpace<RocksDBWALableKVEngine, RocksDBWALableKVSpace, RocksDBWALableKVEngineConfigurator>
+class RocksDBWALableKVSpace extends RocksDBKVSpace<
+    RocksDBWALableKVEngine,
+    RocksDBWALableKVSpace,
+    RocksDBWALableKVEngineConfigurator,
+    RocksDBWALableKVSpaceEpochHandle>
     implements IWALableKVSpace {
     private final RocksDBWALableKVEngineConfigurator configurator;
     private final WriteOptions writeOptions;
     private final AtomicReference<CompletableFuture<Long>> flushFutureRef = new AtomicReference<>();
     private final ExecutorService flushExecutor;
     private final MetricManager metricMgr;
-    private WALableKVSpaceDBHandle handle;
+    private RocksDBWALableKVSpaceEpochHandle handle;
 
-    public RocksDBWALableKVSpace(String id,
-                                 RocksDBWALableKVEngineConfigurator configurator,
-                                 RocksDBWALableKVEngine engine,
-                                 Runnable onDestroy,
-                                 KVSpaceOpMeters opMeters,
-                                 Logger logger,
-                                 String... tags) {
+    RocksDBWALableKVSpace(String id,
+                          RocksDBWALableKVEngineConfigurator configurator,
+                          RocksDBWALableKVEngine engine,
+                          Runnable onDestroy,
+                          KVSpaceOpMeters opMeters,
+                          Logger logger,
+                          String... tags) {
         super(id, configurator, engine, onDestroy, opMeters, logger, tags);
         this.configurator = configurator;
         writeOptions = new WriteOptions().setDisableWAL(false);
@@ -85,14 +80,15 @@ public class RocksDBWALableKVSpace
         try {
             // WALable uses space root as DB directory
             Files.createDirectories(spaceRootDir().getAbsoluteFile().toPath());
-            handle = new WALableKVSpaceDBHandle(id, spaceRootDir(), configurator, logger, tags);
+            handle = new RocksDBWALableKVSpaceEpochHandle(id, spaceRootDir(), configurator, logger, tags);
+            super.doOpen();
         } catch (Throwable e) {
             throw new KVEngineException("Failed to open WALable KVSpace", e);
         }
     }
 
     @Override
-    protected IKVSpaceDBInstance handle() {
+    protected RocksDBWALableKVSpaceEpochHandle handle() {
         return handle;
     }
 
@@ -145,7 +141,7 @@ public class RocksDBWALableKVSpace
     @Override
     public IKVSpaceWriter toWriter() {
         return new RocksDBKVSpaceWriter<>(id, handle, engine, writeOptions(), syncContext,
-            writeStats.newRecorder(), this::updateMetadata, opMeters, logger);
+            writeStats.newRecorder(), this::publishMetadata, opMeters, logger);
     }
 
     private void doFlush(CompletableFuture<Long> onDone) {
@@ -169,52 +165,6 @@ public class RocksDBWALableKVSpace
                 onDone.completeExceptionally(new KVEngineException("KVSpace flush error", e));
             }
         });
-    }
-
-    private static class DBKVSpaceDBHandle implements IKVSpaceDBHandle {
-        private final Logger logger;
-        private final DBOptions dbOptions;
-        private final ColumnFamilyDescriptor cfDesc;
-        private final RocksDB db;
-        private final ColumnFamilyHandle cfHandle;
-
-        private DBKVSpaceDBHandle(File dir, RocksDBWALableKVEngineConfigurator configurator, Logger logger) {
-            this.dbOptions = configurator.dbOptions();
-            this.cfDesc = new ColumnFamilyDescriptor(DEFAULT_NS.getBytes(), configurator.cfOptions(DEFAULT_NS));
-            RocksDBHelper.RocksDBHandle dbHandle = openDBInDir(dir, dbOptions, cfDesc);
-            this.db = dbHandle.db();
-            this.cfHandle = dbHandle.cf();
-            this.logger = logger;
-        }
-
-        @Override
-        public RocksDB db() {
-            return db;
-        }
-
-        @Override
-        public ColumnFamilyHandle cf() {
-            return cfHandle;
-        }
-
-        public void close() {
-            try {
-                if (cfHandle != null) {
-                    db.destroyColumnFamilyHandle(cfHandle);
-                }
-            } catch (Throwable t) {
-                logger.warn("Failed to close cf handle", t);
-            }
-            try {
-                if (db != null) {
-                    db.close();
-                }
-            } catch (Throwable t) {
-                logger.warn("Failed to close db", t);
-            }
-            cfDesc.getOptions().close();
-            dbOptions.close();
-        }
     }
 
     private class MetricManager {

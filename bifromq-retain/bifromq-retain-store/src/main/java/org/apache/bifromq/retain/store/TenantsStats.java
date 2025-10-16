@@ -19,24 +19,37 @@
 
 package org.apache.bifromq.retain.store;
 
+import static org.apache.bifromq.basekv.utils.BoundaryUtil.intersect;
+import static org.apache.bifromq.basekv.utils.BoundaryUtil.isNULLRange;
+import static org.apache.bifromq.basekv.utils.BoundaryUtil.toBoundary;
+import static org.apache.bifromq.basekv.utils.BoundaryUtil.upperBound;
+import static org.apache.bifromq.retain.store.schema.KVSchemaUtil.tenantBeginKey;
+
+import com.google.protobuf.ByteString;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
-import org.apache.bifromq.basekv.store.api.IKVReader;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.locks.StampedLock;
+import java.util.function.Supplier;
+import org.apache.bifromq.basekv.proto.Boundary;
+import org.apache.bifromq.basekv.store.range.IKVRangeRefreshableReader;
 
 class TenantsStats {
     private final Map<String, TenantStats> retainedSet = new ConcurrentHashMap<>();
-    private final IKVReader reader;
+    private final Supplier<IKVRangeRefreshableReader> readerSupplier;
     private final String[] tags;
+    private final AtomicBoolean closed = new AtomicBoolean(false);
+    private final StampedLock closeLock = new StampedLock();
 
-    TenantsStats(IKVReader reader, String... tags) {
-        this.reader = reader;
+    TenantsStats(Supplier<IKVRangeRefreshableReader> readerSupplier, String... tags) {
+        this.readerSupplier = readerSupplier;
         this.tags = tags;
     }
 
     void increaseTopicCount(String tenantId, int delta) {
         retainedSet.compute(tenantId, (k, v) -> {
             if (v == null) {
-                v = new TenantStats(tenantId, reader, tags);
+                v = new TenantStats(tenantId, getTenantUsedSpaceProvider(tenantId), tags);
             }
             if (v.incrementTopicCount(delta) == 0) {
                 v.destroy();
@@ -50,8 +63,49 @@ class TenantsStats {
         retainedSet.values().forEach(s -> s.toggleMetering(isLeader));
     }
 
-    void destroy() {
-        retainedSet.values().forEach(TenantStats::destroy);
-        retainedSet.clear();
+    private Supplier<Number> getTenantUsedSpaceProvider(String tenantId) {
+        return () -> {
+            long stamped = closeLock.readLock();
+            if (closed.get()) {
+                closeLock.unlock(stamped);
+                return 0;
+            }
+            ByteString tenantBeginKey = tenantBeginKey(tenantId);
+            try (IKVRangeRefreshableReader reader = readerSupplier.get()) {
+                Boundary tenantBoundary =
+                    intersect(toBoundary(tenantBeginKey, upperBound(tenantBeginKey)), reader.boundary());
+                if (isNULLRange(tenantBoundary)) {
+                    return 0L;
+                }
+                return reader.size(tenantBoundary);
+            } finally {
+                closeLock.unlock(stamped);
+            }
+        };
+    }
+
+    void reset() {
+        // clear gauges without marking closed
+        long stamp = closeLock.writeLock();
+        try {
+            if (!closed.get()) {
+                retainedSet.values().forEach(TenantStats::destroy);
+                retainedSet.clear();
+            }
+        } finally {
+            closeLock.unlock(stamp);
+        }
+    }
+
+    void close() {
+        long stamp = closeLock.writeLock();
+        try {
+            if (closed.compareAndSet(false, true)) {
+                retainedSet.values().forEach(TenantStats::destroy);
+                retainedSet.clear();
+            }
+        } finally {
+            closeLock.unlock(stamp);
+        }
     }
 }

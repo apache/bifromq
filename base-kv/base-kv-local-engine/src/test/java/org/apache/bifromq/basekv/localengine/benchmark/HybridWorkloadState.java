@@ -19,29 +19,31 @@
 
 package org.apache.bifromq.basekv.localengine.benchmark;
 
-import org.apache.bifromq.basekv.localengine.IKVSpace;
-import org.apache.bifromq.basekv.localengine.IKVSpaceIterator;
-import org.apache.bifromq.basekv.localengine.IKVSpaceWriter;
 import com.google.protobuf.ByteString;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ThreadLocalRandom;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.bifromq.basekv.localengine.IKVSpace;
+import org.apache.bifromq.basekv.localengine.IKVSpaceIterator;
+import org.apache.bifromq.basekv.localengine.IKVSpaceRefreshableReader;
+import org.apache.bifromq.basekv.localengine.IKVSpaceWriter;
 import org.openjdk.jmh.annotations.Scope;
 import org.openjdk.jmh.annotations.State;
 
 @Slf4j
 @State(Scope.Benchmark)
 public class HybridWorkloadState extends BenchmarkState {
+    ConcurrentHashMap<Long, IKVSpaceIterator> itrMap = new ConcurrentHashMap<>();
     private String rangeId = "testRange";
     private IKVSpace kvSpace;
+    private IKVSpaceRefreshableReader reader;
     private IKVSpaceWriter writer;
-
-    ConcurrentHashMap<Long, IKVSpaceIterator> itrMap = new ConcurrentHashMap<>();
 
     @Override
     protected void afterSetup() {
         kvSpace = kvEngine.createIfMissing(rangeId);
+        reader = kvSpace.reader();
 //        itr = kvEngine.newIterator(rangeId);
     }
 
@@ -68,24 +70,26 @@ public class HybridWorkloadState extends BenchmarkState {
     }
 
     public Optional<ByteString> randomGet() {
-        return kvSpace.get(randomBS());
+        return reader.get(randomBS());
     }
 
     public boolean randomExist() {
-        return kvSpace.exist(randomBS());
+        return reader.exist(randomBS());
     }
 
     public void seekToFirst() {
         IKVSpaceIterator itr = itrMap.computeIfAbsent(Thread.currentThread().getId(),
-            k -> kvSpace.newIterator());
-        itr.refresh();
+            k -> reader.newIterator());
+        reader.refresh();
+        itr = itrMap.get(Thread.currentThread().getId());
         itr.seekToFirst();
     }
 
     public void randomSeek() {
         IKVSpaceIterator itr = itrMap.computeIfAbsent(Thread.currentThread().getId(),
-            k -> kvSpace.newIterator());
-        itr.refresh();
+            k -> reader.newIterator());
+        reader.refresh();
+        itr = itrMap.get(Thread.currentThread().getId());
         itr.seek(randomBS());
     }
 

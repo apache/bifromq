@@ -14,25 +14,21 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 
-package org.apache.bifromq.basekv.store.api;
+package org.apache.bifromq.basekv.store.range;
 
-import org.apache.bifromq.basekv.proto.Boundary;
-import com.google.protobuf.ByteString;
-import java.util.Optional;
+import org.apache.bifromq.basekv.localengine.ICPableKVSpace;
+import org.apache.bifromq.basekv.proto.KVRangeId;
+import org.apache.bifromq.basekv.proto.KVRangeSnapshot;
 
-public interface IKVReader {
-    Boundary boundary();
+public class KVRangeFactory {
+    public static IKVRange create(KVRangeId id, ICPableKVSpace kvSpace, String... tags) {
+        return new KVRange(id, kvSpace, tags);
+    }
 
-    long size(Boundary boundary);
-
-    boolean exist(ByteString key);
-
-    Optional<ByteString> get(ByteString key);
-
-    IKVIterator iterator();
-
-    void refresh();
+    public static IKVRange create(KVRangeId id, ICPableKVSpace kvSpace, KVRangeSnapshot snapshot, String... tags) {
+        return new KVRange(id, kvSpace, snapshot, tags);
+    }
 }

@@ -19,12 +19,8 @@
 
 package org.apache.bifromq.basekv.localengine.rocksdb;
 
-import static com.google.protobuf.UnsafeByteOperations.unsafeWrap;
-import static org.apache.bifromq.basekv.localengine.rocksdb.Keys.toMetaKey;
-
 import com.google.protobuf.ByteString;
 import java.util.Map;
-import java.util.Optional;
 import java.util.function.Consumer;
 import org.apache.bifromq.basekv.localengine.IKVSpaceWriter;
 import org.apache.bifromq.basekv.localengine.ISyncContext;
@@ -35,17 +31,21 @@ import org.rocksdb.RocksDBException;
 import org.rocksdb.WriteOptions;
 import org.slf4j.Logger;
 
-class RocksDBKVSpaceWriter<E extends RocksDBKVEngine<E, T, C>, T extends
-    RocksDBKVSpace<E, T, C>, C extends RocksDBKVEngineConfigurator<C>>
-    extends RocksDBKVSpaceReader implements IKVSpaceWriter {
+class RocksDBKVSpaceWriter<
+    E extends RocksDBKVEngine<E, T, C, P>,
+    T extends RocksDBKVSpace<E, T, C, P>,
+    C extends RocksDBKVEngineConfigurator<C>,
+    P extends RocksDBKVSpaceEpochHandle<C>> implements IKVSpaceWriter {
+    protected final String id;
+    protected final KVSpaceOpMeters opMeters;
+    protected final Logger logger;
     protected final E engine;
     protected final RocksDBKVSpaceWriterHelper helper;
-    private final IKVSpaceDBHandle dbHandle;
-    private final ISyncContext syncContext;
+    protected final IRocksDBKVSpaceEpochHandle dbHandle;
     private final IWriteStatsRecorder.IRecorder writeStatsRecorder;
 
     RocksDBKVSpaceWriter(String id,
-                         IKVSpaceDBHandle dbHandle,
+                         IRocksDBKVSpaceEpochHandle dbHandle,
                          E engine,
                          WriteOptions writeOptions,
                          ISyncContext syncContext,
@@ -58,7 +58,7 @@ class RocksDBKVSpaceWriter<E extends RocksDBKVEngine<E, T, C>, T extends
     }
 
     private RocksDBKVSpaceWriter(String id,
-                                 IKVSpaceDBHandle dbHandle,
+                                 IRocksDBKVSpaceEpochHandle dbHandle,
                                  E engine,
                                  ISyncContext syncContext,
                                  RocksDBKVSpaceWriterHelper writerHelper,
@@ -66,14 +66,20 @@ class RocksDBKVSpaceWriter<E extends RocksDBKVEngine<E, T, C>, T extends
                                  Consumer<Map<ByteString, ByteString>> afterWrite,
                                  KVSpaceOpMeters opMeters,
                                  Logger logger) {
-        super(id, opMeters, logger);
+        this.id = id;
+        this.opMeters = opMeters;
+        this.logger = logger;
         this.dbHandle = dbHandle;
         this.engine = engine;
-        this.syncContext = syncContext;
         this.helper = writerHelper;
         this.writeStatsRecorder = writeStatsRecorder;
-        writerHelper.addMutators(syncContext.mutator());
+        writerHelper.addMutator(syncContext.mutator());
         writerHelper.addAfterWriteCallback(dbHandle.cf(), afterWrite);
+    }
+
+    @Override
+    public String id() {
+        return id;
     }
 
     @Override
@@ -150,11 +156,6 @@ class RocksDBKVSpaceWriter<E extends RocksDBKVEngine<E, T, C>, T extends
     }
 
     @Override
-    public void reset() {
-        helper.reset();
-    }
-
-    @Override
     public void abort() {
         helper.abort();
     }
@@ -162,25 +163,5 @@ class RocksDBKVSpaceWriter<E extends RocksDBKVEngine<E, T, C>, T extends
     @Override
     public int count() {
         return helper.count();
-    }
-
-    @Override
-    protected Optional<ByteString> doMetadata(ByteString metaKey) {
-        try {
-            byte[] metaValBytes = dbHandle.db().get(dbHandle.cf(), toMetaKey(metaKey));
-            return Optional.ofNullable(metaValBytes == null ? null : unsafeWrap(metaValBytes));
-        } catch (RocksDBException e) {
-            throw new RuntimeException(e);
-        }
-    }
-
-    @Override
-    protected IKVSpaceDBInstance handle() {
-        return dbHandle;
-    }
-
-    @Override
-    protected ISyncContext.IRefresher newRefresher() {
-        return syncContext.refresher();
     }
 }

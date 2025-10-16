@@ -14,46 +14,17 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 
 package org.apache.bifromq.basekv.localengine;
 
-import org.apache.bifromq.basekv.proto.Boundary;
-import com.google.protobuf.ByteString;
-import java.util.Optional;
-
 /**
- * Interface for accessing space metadata.
+ * The interface of a refreshable consistent-view reader for a KV space.
  */
-public interface IKVSpaceMetadata {
+public interface IKVSpaceRefreshableReader extends IKVSpaceReader {
     /**
-     * Get the id of the space.
-     *
-     * @return the id of the space
+     * Refresh the reader to the latest consistent-view of the KV space.
      */
-    String id();
-
-    /**
-     * Get the metadata in key-value pair.
-     *
-     * @param metaKey the key of the metadata
-     * @return the value of the metadata
-     */
-    Optional<ByteString> metadata(ByteString metaKey);
-
-    /**
-     * Get the size of the space.
-     *
-     * @return the size of the space
-     */
-    long size();
-
-    /**
-     * Get the size of the space in the specified boundary.
-     *
-     * @param boundary the boundary
-     * @return the size of the space in the specified boundary
-     */
-    long size(Boundary boundary);
+    void refresh();
 }

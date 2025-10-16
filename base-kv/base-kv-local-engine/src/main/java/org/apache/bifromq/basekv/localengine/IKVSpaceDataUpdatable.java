@@ -23,11 +23,11 @@ import com.google.protobuf.ByteString;
 import org.apache.bifromq.basekv.proto.Boundary;
 
 /**
- * The interface for update kv space.
+ * The interface for updating data in kv space.
  *
  * @param <T> the type of the updater
  */
-public interface IKVSpaceDataUpdatable<T extends IKVSpaceDataUpdatable<T>> extends IKVSpaceReader {
+public interface IKVSpaceDataUpdatable<T extends IKVSpaceDataUpdatable<T>> {
     /**
      * Insert a key-value pair in to the range.
      *

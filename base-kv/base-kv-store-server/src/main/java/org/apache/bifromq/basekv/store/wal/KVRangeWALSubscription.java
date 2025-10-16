@@ -105,6 +105,10 @@ class KVRangeWALSubscription implements IKVRangeWALSubscription {
             applyRunner.cancelAll();
             CompletableFuture
                 .allOf(fetchRunner.awaitDone().toCompletableFuture(), applyRunner.awaitDone().toCompletableFuture())
+                .exceptionally(e -> {
+                    log.error("WAL Subscripiton stop error", e);
+                    return null;
+                })
                 .whenComplete((v, e) -> stopSign.complete(null));
         }
         return stopSign;
@@ -144,6 +148,7 @@ class KVRangeWALSubscription implements IKVRangeWALSubscription {
                                     break;
                                 }
                             }
+                            logEntries.close();
                             if (entry != null) {
                                 if (hasMore) {
                                     lastFetchedIdx.set(Math.max(entry.getIndex() - 1, lastFetchedIdx.get()));

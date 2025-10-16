@@ -19,12 +19,15 @@
 
 package org.apache.bifromq.basekv.localengine;
 
-import org.apache.bifromq.basekv.localengine.metrics.KVSpaceOpMeters;
-import org.apache.bifromq.basekv.proto.Boundary;
 import com.google.protobuf.ByteString;
 import java.util.Optional;
+import org.apache.bifromq.basekv.localengine.metrics.KVSpaceOpMeters;
+import org.apache.bifromq.basekv.proto.Boundary;
 import org.slf4j.Logger;
 
+/**
+ * The base implementation of IKVSpaceReader with operation metrics.
+ */
 public abstract class AbstractKVSpaceReader implements IKVSpaceReader {
     protected final String id;
     protected final KVSpaceOpMeters opMeters;
@@ -46,26 +49,10 @@ public abstract class AbstractKVSpaceReader implements IKVSpaceReader {
         return opMeters.metadataCallTimer.record(() -> doMetadata(metaKey));
     }
 
-    protected abstract Optional<ByteString> doMetadata(ByteString metaKey);
-
-    @Override
-    public final long size() {
-        return size(Boundary.getDefaultInstance());
-    }
-
-    @Override
-    public final long size(Boundary boundary) {
-        return opMeters.sizeCallTimer.record(() -> doSize(boundary));
-    }
-
-    protected abstract long doSize(Boundary boundary);
-
     @Override
     public final boolean exist(ByteString key) {
         return opMeters.existCallTimer.record(() -> doExist(key));
     }
-
-    protected abstract boolean doExist(ByteString key);
 
     @Override
     public final Optional<ByteString> get(ByteString key) {
@@ -75,21 +62,31 @@ public abstract class AbstractKVSpaceReader implements IKVSpaceReader {
         }));
     }
 
-    protected abstract Optional<ByteString> doGet(ByteString key);
-
     @Override
     public final IKVSpaceIterator newIterator() {
-        return opMeters.iterNewCallTimer.record(() -> new MonitoredKeyRangeIterator(doNewIterator()));
+        return this.newIterator(Boundary.getDefaultInstance());
     }
-
-    protected abstract IKVSpaceIterator doNewIterator();
 
     @Override
     public final IKVSpaceIterator newIterator(Boundary subBoundary) {
-        return opMeters.iterNewCallTimer.record(() -> new MonitoredKeyRangeIterator(doNewIterator(subBoundary)));
+        return opMeters.iterNewCallTimer.record(
+            () -> new MonitoredKeyRangeIterator(doNewIterator(subBoundary)));
     }
 
+    @Override
+    public final long size(Boundary boundary) {
+        return opMeters.sizeCallTimer.record(() -> doSize(boundary));
+    }
+
+    protected abstract Optional<ByteString> doMetadata(ByteString metaKey);
+
+    protected abstract boolean doExist(ByteString key);
+
+    protected abstract Optional<ByteString> doGet(ByteString key);
+
     protected abstract IKVSpaceIterator doNewIterator(Boundary subBoundary);
+
+    protected abstract long doSize(Boundary boundary);
 
     private class MonitoredKeyRangeIterator implements IKVSpaceIterator {
         final IKVSpaceIterator delegate;
@@ -145,11 +142,6 @@ public abstract class AbstractKVSpaceReader implements IKVSpaceReader {
         @Override
         public void seekForPrev(ByteString target) {
             opMeters.iterSeekForPrevCallTimer.record(() -> delegate.seekForPrev(target));
-        }
-
-        @Override
-        public void refresh() {
-            opMeters.iterRefreshTimer.record(delegate::refresh);
         }
 
         @Override

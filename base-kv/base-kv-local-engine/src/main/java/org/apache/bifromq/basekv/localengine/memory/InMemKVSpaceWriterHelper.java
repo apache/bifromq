@@ -27,32 +27,27 @@ import java.util.List;
 import java.util.Map;
 import java.util.NavigableSet;
 import java.util.Set;
-import java.util.concurrent.ConcurrentSkipListMap;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 import org.apache.bifromq.basekv.localengine.ISyncContext;
 import org.apache.bifromq.basekv.proto.Boundary;
 
 class InMemKVSpaceWriterHelper {
-    private final Map<String, Map<ByteString, ByteString>> metadataMap;
-    private final Map<String, ConcurrentSkipListMap<ByteString, ByteString>> rangeDataMap;
+    private final Map<String, InMemKVSpaceEpoch> kvSpaceEpochMap;
     private final Map<String, WriteBatch> batchMap;
     private final Map<String, Consumer<Boolean>> afterWriteCallbacks = new HashMap<>();
     private final Map<String, Boolean> metadataChanges = new HashMap<>();
     private final Set<ISyncContext.IMutator> mutators = new HashSet<>();
 
     InMemKVSpaceWriterHelper() {
-        this.metadataMap = new HashMap<>();
-        this.rangeDataMap = new HashMap<>();
+        this.kvSpaceEpochMap = new HashMap<>();
         this.batchMap = new HashMap<>();
     }
 
-    void addMutators(String rangeId,
-                     Map<ByteString, ByteString> metadata,
-                     ConcurrentSkipListMap<ByteString, ByteString> rangeData,
+    void addMutators(String id,
+                     InMemKVSpaceEpoch epoch,
                      ISyncContext.IMutator mutator) {
-        metadataMap.put(rangeId, metadata);
-        rangeDataMap.put(rangeId, rangeData);
+        kvSpaceEpochMap.put(id, epoch);
         mutators.add(mutator);
     }
 
@@ -103,12 +98,8 @@ class InMemKVSpaceWriterHelper {
         }
     }
 
-    void reset() {
-        rangeDataMap.clear();
-    }
-
     void abort() {
-        rangeDataMap.clear();
+        batchMap.clear();
     }
 
     int count() {
@@ -126,8 +117,8 @@ class InMemKVSpaceWriterHelper {
         Map<ByteString, ByteString> metadata = new HashMap<>();
         List<KVAction> actions = new ArrayList<>();
 
-        protected WriteBatch(String rangeId) {
-            this.rangeId = rangeId;
+        protected WriteBatch(String spaceId) {
+            this.rangeId = spaceId;
         }
 
         public void metadata(ByteString key, ByteString value) {
@@ -155,32 +146,39 @@ class InMemKVSpaceWriterHelper {
         }
 
         public void end() {
-            metadataMap.get(rangeId).putAll(metadata);
+            metadata.forEach((k, v) -> kvSpaceEpochMap.get(rangeId).setMetadata(k, v));
             for (KVAction action : actions) {
                 switch (action.type()) {
                     case Put -> {
                         WriteBatch.Put put = (WriteBatch.Put) action;
-                        rangeDataMap.get(rangeId).put(put.key, put.value);
+                        kvSpaceEpochMap.get(rangeId).putData(put.key, put.value);
                     }
                     case Delete -> {
                         WriteBatch.Delete delete = (WriteBatch.Delete) action;
-                        rangeDataMap.get(rangeId).remove(delete.key);
+                        kvSpaceEpochMap.get(rangeId).removeData(delete.key);
                     }
                     case DeleteRange -> {
                         WriteBatch.DeleteRange deleteRange = (WriteBatch.DeleteRange) action;
                         Boundary boundary = deleteRange.boundary;
                         NavigableSet<ByteString> inRangeKeys;
                         if (!boundary.hasStartKey() && !boundary.hasEndKey()) {
-                            inRangeKeys = rangeDataMap.get(rangeId).keySet();
+                            inRangeKeys = kvSpaceEpochMap.get(rangeId).dataMap().navigableKeySet();
                         } else if (!boundary.hasStartKey()) {
-                            inRangeKeys = rangeDataMap.get(rangeId).headMap(boundary.getEndKey()).keySet();
+                            inRangeKeys = kvSpaceEpochMap.get(rangeId).dataMap().headMap(boundary.getEndKey(), false)
+                                .navigableKeySet();
                         } else if (!boundary.hasEndKey()) {
-                            inRangeKeys = rangeDataMap.get(rangeId).tailMap(boundary.getStartKey()).keySet();
+                            inRangeKeys = kvSpaceEpochMap.get(rangeId).dataMap().tailMap(boundary.getStartKey(), true)
+                                .navigableKeySet();
                         } else {
                             inRangeKeys =
-                                rangeDataMap.get(rangeId).subMap(boundary.getStartKey(), boundary.getEndKey()).keySet();
+                                kvSpaceEpochMap.get(rangeId).dataMap()
+                                    .subMap(boundary.getStartKey(), true, boundary.getEndKey(), false)
+                                    .navigableKeySet();
                         }
-                        inRangeKeys.forEach(k -> rangeDataMap.get(rangeId).remove(k));
+                        inRangeKeys.forEach(k -> kvSpaceEpochMap.get(rangeId).removeData(k));
+                    }
+                    default -> {
+
                     }
                 }
             }
@@ -189,7 +187,6 @@ class InMemKVSpaceWriterHelper {
         public void abort() {
 
         }
-
 
         record Put(ByteString key, ByteString value) implements KVAction {
             @Override

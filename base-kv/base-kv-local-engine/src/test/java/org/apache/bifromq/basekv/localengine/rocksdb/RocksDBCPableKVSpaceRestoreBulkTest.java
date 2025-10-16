@@ -27,6 +27,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Random;
 import org.apache.bifromq.basekv.localengine.ICPableKVSpace;
+import org.apache.bifromq.basekv.localengine.IKVSpaceReader;
 import org.apache.bifromq.basekv.localengine.IRestoreSession;
 import org.testng.annotations.AfterMethod;
 import org.testng.annotations.BeforeMethod;
@@ -86,9 +87,11 @@ public class RocksDBCPableKVSpaceRestoreBulkTest {
 
         // random spot-check 10 keys
         Random r = new Random(0);
-        for (int i = 0; i < 10; i++) {
-            int idx = r.nextInt(n);
-            assertEquals(space.get(ByteString.copyFromUtf8("k" + idx)).get().toStringUtf8(), "v" + idx);
+        try (IKVSpaceReader reader = space.reader()) {
+            for (int i = 0; i < 10; i++) {
+                int idx = r.nextInt(n);
+                assertEquals(reader.get(ByteString.copyFromUtf8("k" + idx)).get().toStringUtf8(), "v" + idx);
+            }
         }
         // ensure at least one key exists
         assertTrue(space.size() > 0);

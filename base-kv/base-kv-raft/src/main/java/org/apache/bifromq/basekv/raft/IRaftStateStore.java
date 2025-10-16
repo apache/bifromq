@@ -14,18 +14,17 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 
 package org.apache.bifromq.basekv.raft;
 
+import java.util.List;
+import java.util.Optional;
 import org.apache.bifromq.basekv.raft.proto.ClusterConfig;
 import org.apache.bifromq.basekv.raft.proto.LogEntry;
 import org.apache.bifromq.basekv.raft.proto.Snapshot;
 import org.apache.bifromq.basekv.raft.proto.Voting;
-import java.util.Iterator;
-import java.util.List;
-import java.util.Optional;
 
 /**
  * Local Storage interface used by RAFT state machine to work with its local persistent state. The implementation MUST
@@ -140,14 +139,14 @@ public interface IRaftStateStore {
 
     /**
      * Get an iterator for retrieving log entries between lo and hi(exclusively) and aggregated size no greater than
-     * maxSize.
+     * maxSize. The iterator must be closed explicitly.
      *
      * @param lo the start index of the log entry
      * @param hi the end index of the log entry
      * @param maxSize the max size of the log entries
-     * @return the iterator of the log entries
+     * @return the log iterator of the log entries
      */
-    Iterator<LogEntry> entries(long lo, long hi, long maxSize);
+    ILogEntryIterator entries(long lo, long hi, long maxSize);
 
     /**
      * Append log entries after specified index, if flush is true, registered StableListener must be called immediately

@@ -19,45 +19,35 @@
 
 package org.apache.bifromq.basekv.localengine.memory;
 
-import static com.google.protobuf.ByteString.unsignedLexicographicalComparator;
+import static org.apache.bifromq.basekv.localengine.memory.InMemKVHelper.sizeOfRange;
 
-import com.google.protobuf.ByteString;
-import io.reactivex.rxjava3.core.Observable;
-import io.reactivex.rxjava3.subjects.BehaviorSubject;
 import java.util.Collections;
-import java.util.HashMap;
-import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ConcurrentSkipListMap;
-import org.apache.bifromq.basekv.localengine.IKVSpace;
+import org.apache.bifromq.basekv.localengine.AbstractKVSpace;
+import org.apache.bifromq.basekv.localengine.IKVSpaceRefreshableReader;
 import org.apache.bifromq.basekv.localengine.ISyncContext;
-import org.apache.bifromq.basekv.localengine.KVSpaceDescriptor;
 import org.apache.bifromq.basekv.localengine.SyncContext;
 import org.apache.bifromq.basekv.localengine.metrics.KVSpaceOpMeters;
+import org.apache.bifromq.basekv.proto.Boundary;
 import org.slf4j.Logger;
 
-class InMemKVSpace<E extends InMemKVEngine<E, T>, T extends InMemKVSpace<E, T>> extends InMemKVSpaceReader
-    implements IKVSpace {
-    protected final String id;
-    protected final Map<ByteString, ByteString> metadataMap = new ConcurrentHashMap<>();
-    protected final ConcurrentSkipListMap<ByteString, ByteString> rangeData =
-        new ConcurrentSkipListMap<>(unsignedLexicographicalComparator());
+abstract class InMemKVSpace<
+    E extends InMemKVEngine<E, T>,
+    T extends InMemKVSpace<E, T>> extends AbstractKVSpace<InMemKVSpaceEpoch> {
+    protected final InMemKVEngineConfigurator configurator;
     protected final E engine;
     protected final ISyncContext syncContext = new SyncContext();
     protected final ISyncContext.IRefresher metadataRefresher = syncContext.refresher();
-    private final BehaviorSubject<Map<ByteString, ByteString>> metadataSubject = BehaviorSubject.create();
-    private final Runnable onDestroy;
 
     protected InMemKVSpace(String id,
                            InMemKVEngineConfigurator configurator,
                            E engine,
                            Runnable onDestroy,
-                           KVSpaceOpMeters readOpMeters,
-                           Logger logger) {
-        super(id, readOpMeters, logger);
-        this.id = id;
+                           KVSpaceOpMeters opMeters,
+                           Logger logger,
+                           String... tags) {
+        super(id, onDestroy, opMeters, logger, tags);
+        this.configurator = configurator;
         this.engine = engine;
-        this.onDestroy = onDestroy;
     }
 
     ISyncContext syncContext() {
@@ -65,55 +55,19 @@ class InMemKVSpace<E extends InMemKVEngine<E, T>, T extends InMemKVSpace<E, T>> 
     }
 
     @Override
-    protected Map<ByteString, ByteString> metadataMap() {
-        return metadataRefresher.call(() -> metadataMap);
-    }
-
-    @Override
-    protected ConcurrentSkipListMap<ByteString, ByteString> rangeData() {
-        return rangeData;
-    }
-
-
-    @Override
-    public Observable<Map<ByteString, ByteString>> metadata() {
-        return metadataSubject;
-    }
-
-    @Override
-    public KVSpaceDescriptor describe() {
-        return new KVSpaceDescriptor(id, collectStats());
-    }
-
-    @Override
-    public void open() {
-
-    }
-
-    @Override
-    public void close() {
-
-    }
-
-    private Map<String, Double> collectStats() {
-        Map<String, Double> stats = new HashMap<>();
-        stats.put("size", (double) size());
-        // TODO: more stats
-        return stats;
-    }
-
-
-    @Override
-    public void destroy() {
-        metadataSubject.onComplete();
-        onDestroy.run();
+    public IKVSpaceRefreshableReader reader() {
+        return new InMemKVSpaceReader(id, opMeters, logger, syncContext.refresher(), this::handle);
     }
 
     protected void loadMetadata() {
         metadataRefresher.runIfNeeded((genBumped) -> {
-            if (!metadataMap.isEmpty()) {
-                metadataSubject.onNext(Collections.unmodifiableMap(new HashMap<>(metadataMap)));
+            if (!handle().metadataMap().isEmpty()) {
+                updateMetadata(Collections.unmodifiableMap(handle().metadataMap()));
             }
         });
+    }
+
+    protected long doSize(Boundary boundary) {
+        return sizeOfRange(handle().dataMap(), boundary);
     }
 }

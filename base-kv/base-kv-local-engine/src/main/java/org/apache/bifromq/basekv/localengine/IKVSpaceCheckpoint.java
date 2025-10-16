@@ -14,11 +14,22 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 
 package org.apache.bifromq.basekv.localengine;
 
-public interface IKVSpaceCheckpoint extends IKVSpaceReader {
+/**
+ * The interface for a space that supports checkpointing.
+ */
+public interface IKVSpaceCheckpoint {
+
+    /**
+     * Get the checkpoint id.
+     *
+     * @return the checkpoint id
+     */
     String cpId();
+
+    IKVSpaceReader newReader();
 }

@@ -46,10 +46,8 @@ import java.util.TreeMap;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
 import java.util.concurrent.Executors;
-import java.util.function.Supplier;
 import org.apache.bifromq.basekv.proto.Boundary;
 import org.apache.bifromq.basekv.proto.KVRangeId;
-import org.apache.bifromq.basekv.store.api.IKVCloseableReader;
 import org.apache.bifromq.basekv.utils.KVRangeIdUtil;
 import org.apache.bifromq.dist.worker.Comparators;
 import org.apache.bifromq.dist.worker.cache.task.AddRoutesTask;
@@ -66,7 +64,6 @@ public class SubscriptionCacheTest {
     private SubscriptionCache cache;
     private ITenantRouteCacheFactory tenantRouteCacheFactoryMock;
     private ITenantRouteCache tenantRouteCacheMock;
-    private Supplier<IKVCloseableReader> readerSupplierMock;
     private Executor matchExecutor;
     private Ticker tickerMock;
 
@@ -74,7 +71,6 @@ public class SubscriptionCacheTest {
     public void setUp() {
         tenantRouteCacheFactoryMock = mock(ITenantRouteCacheFactory.class);
         tenantRouteCacheMock = mock(ITenantRouteCache.class);
-        readerSupplierMock = mock(Supplier.class);
         matchExecutor = Executors.newSingleThreadExecutor();
         tickerMock = mock(Ticker.class);
 

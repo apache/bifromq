@@ -28,6 +28,7 @@ import com.google.protobuf.ByteString;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import org.apache.bifromq.basekv.localengine.ICPableKVSpace;
+import org.apache.bifromq.basekv.localengine.IKVSpaceRefreshableReader;
 import org.apache.bifromq.basekv.localengine.IRestoreSession;
 import org.testng.annotations.AfterMethod;
 import org.testng.annotations.BeforeMethod;
@@ -90,6 +91,8 @@ public class RocksDBCPableKVSpaceRestoreSwitchPointerTest {
 
         String after = Files.readString(pointer).trim();
         assertNotEquals(after, before);
-        assertTrue(space.get(ByteString.copyFromUtf8("k1")).isPresent());
+        try (IKVSpaceRefreshableReader reader = space.reader()) {
+            assertTrue(reader.get(ByteString.copyFromUtf8("k1")).isPresent());
+        }
     }
 }

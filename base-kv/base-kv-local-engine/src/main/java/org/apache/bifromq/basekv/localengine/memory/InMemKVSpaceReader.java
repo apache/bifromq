@@ -14,73 +14,75 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 
 package org.apache.bifromq.basekv.localengine.memory;
 
-import org.apache.bifromq.basekv.localengine.AbstractKVSpaceReader;
-import org.apache.bifromq.basekv.localengine.IKVSpaceIterator;
-import org.apache.bifromq.basekv.localengine.metrics.KVSpaceOpMeters;
-import org.apache.bifromq.basekv.proto.Boundary;
+import static org.apache.bifromq.basekv.localengine.memory.InMemKVHelper.sizeOfRange;
+
+import com.google.common.collect.Sets;
 import com.google.protobuf.ByteString;
 import java.util.Map;
-import java.util.Optional;
-import java.util.SortedMap;
-import java.util.concurrent.ConcurrentSkipListMap;
+import java.util.NavigableMap;
+import java.util.Set;
+import java.util.function.Supplier;
+import org.apache.bifromq.basekv.localengine.IKVSpaceIterator;
+import org.apache.bifromq.basekv.localengine.IKVSpaceRefreshableReader;
+import org.apache.bifromq.basekv.localengine.ISyncContext;
+import org.apache.bifromq.basekv.localengine.metrics.KVSpaceOpMeters;
+import org.apache.bifromq.basekv.proto.Boundary;
 import org.slf4j.Logger;
 
-abstract class InMemKVSpaceReader extends AbstractKVSpaceReader {
-    protected InMemKVSpaceReader(String id, KVSpaceOpMeters readOpMeters, Logger logger) {
+class InMemKVSpaceReader extends AbstractInMemKVSpaceReader implements IKVSpaceRefreshableReader {
+    private final ISyncContext.IRefresher refresher;
+    private final Supplier<InMemKVSpaceEpoch> epochSupplier;
+    private final Set<InMemKVSpaceIterator> openedIterators = Sets.newConcurrentHashSet();
+    private volatile InMemKVSpaceEpoch currentEpoch;
+
+    InMemKVSpaceReader(String id,
+                       KVSpaceOpMeters readOpMeters,
+                       Logger logger,
+                       ISyncContext.IRefresher refresher,
+                       Supplier<InMemKVSpaceEpoch> epochSupplier) {
         super(id, readOpMeters, logger);
-    }
-
-    protected abstract Map<ByteString, ByteString> metadataMap();
-
-    protected abstract ConcurrentSkipListMap<ByteString, ByteString> rangeData();
-
-    @Override
-    protected Optional<ByteString> doMetadata(ByteString metaKey) {
-        return Optional.ofNullable(metadataMap().get(metaKey));
+        this.refresher = refresher;
+        this.epochSupplier = epochSupplier;
+        this.currentEpoch = epochSupplier.get();
     }
 
     @Override
-    protected long doSize(Boundary boundary) {
-        SortedMap<ByteString, ByteString> sizedData;
-        ConcurrentSkipListMap<ByteString, ByteString> rangeData = rangeData();
-        if (!boundary.hasStartKey() && !boundary.hasEndKey()) {
-            sizedData = rangeData;
-        } else if (!boundary.hasStartKey()) {
-            sizedData = rangeData.headMap(boundary.getEndKey());
-        } else if (!boundary.hasEndKey()) {
-            sizedData = rangeData.tailMap(boundary.getStartKey());
-        } else {
-            sizedData = rangeData.subMap(boundary.getStartKey(), boundary.getEndKey());
-        }
-        // this may take a long time
-        return sizedData.entrySet()
-            .stream()
-            .map(entry -> entry.getKey().size() + entry.getValue().size())
-            .reduce(0, Integer::sum);
+    protected Map<ByteString, ByteString> metadataMap() {
+        return currentEpoch.metadataMap();
     }
 
     @Override
-    protected boolean doExist(ByteString key) {
-        return rangeData().containsKey(key);
+    protected NavigableMap<ByteString, ByteString> rangeData() {
+        return currentEpoch.dataMap();
     }
 
     @Override
-    protected Optional<ByteString> doGet(ByteString key) {
-        return Optional.ofNullable(rangeData().get(key));
+    public void close() {
+
     }
 
     @Override
-    protected IKVSpaceIterator doNewIterator() {
-        return new InMemKVSpaceIterator(rangeData());
+    public void refresh() {
+        refresher.runIfNeeded((genBumped) -> {
+            currentEpoch = epochSupplier.get();
+            openedIterators.forEach(itr -> itr.refresh(currentEpoch.dataMap()));
+        });
     }
 
     @Override
     protected IKVSpaceIterator doNewIterator(Boundary subBoundary) {
-        return new InMemKVSpaceIterator(rangeData(), subBoundary);
+        InMemKVSpaceIterator itr = new InMemKVSpaceIterator(rangeData(), subBoundary, openedIterators::remove);
+        openedIterators.add(itr);
+        return itr;
+    }
+
+    @Override
+    protected long doSize(Boundary boundary) {
+        return sizeOfRange(currentEpoch.dataMap(), boundary);
     }
 }

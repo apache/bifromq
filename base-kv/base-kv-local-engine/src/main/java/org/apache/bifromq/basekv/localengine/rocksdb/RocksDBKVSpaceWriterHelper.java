@@ -57,7 +57,7 @@ class RocksDBKVSpaceWriterHelper {
 
     }
 
-    void addMutators(ISyncContext.IMutator mutator) {
+    void addMutator(ISyncContext.IMutator mutator) {
         mutators.add(mutator);
     }
 
@@ -133,10 +133,6 @@ class RocksDBKVSpaceWriterHelper {
             afterWriteCallbacks.get(columnFamilyHandle).accept(updatedMetadata);
             updatedMetadata.clear();
         }
-    }
-
-    void reset() {
-        batch.clear();
     }
 
     void abort() {

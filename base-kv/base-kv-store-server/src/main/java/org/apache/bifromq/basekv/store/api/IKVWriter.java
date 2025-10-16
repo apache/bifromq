@@ -24,8 +24,6 @@ import org.apache.bifromq.basekv.proto.Boundary;
 
 public interface IKVWriter {
 
-    void reset();
-
     void delete(ByteString key);
 
     void clear(Boundary boundary);

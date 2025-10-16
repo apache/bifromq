@@ -32,12 +32,15 @@ import org.apache.bifromq.basekv.proto.Boundary;
 import org.rocksdb.WriteOptions;
 import org.slf4j.Logger;
 
-class RocksDBKVSpaceMigratableWriter<E extends RocksDBKVEngine<E, T, C>, T extends
-    RocksDBKVSpace<E, T, C>, C extends RocksDBKVEngineConfigurator<C>> extends RocksDBKVSpaceWriter<E, T, C>
+class RocksDBKVSpaceMigratableWriter<
+    E extends RocksDBKVEngine<E, T, C, P>,
+    T extends RocksDBKVSpace<E, T, C, P>,
+    C extends RocksDBKVEngineConfigurator<C>,
+    P extends RocksDBKVSpaceEpochHandle<C>> extends RocksDBKVSpaceWriter<E, T, C, P>
     implements IKVSpaceMigratableWriter {
 
     RocksDBKVSpaceMigratableWriter(String id,
-                                   IKVSpaceDBHandle dbHandle,
+                                   IRocksDBKVSpaceEpochHandle dbHandle,
                                    E engine,
                                    WriteOptions writeOptions,
                                    ISyncContext syncContext,
@@ -56,13 +59,14 @@ class RocksDBKVSpaceMigratableWriter<E extends RocksDBKVEngine<E, T, C>, T exten
                 logger.debug("Migrate {} kv to space[{}] from space[{}]: startKey={}, endKey={}",
                     count, targetSpaceId, id, boundary.getStartKey().toStringUtf8(),
                     boundary.getEndKey().toStringUtf8()));
-            try (IKVSpaceIterator itr = newIterator(boundary)) {
+            try (IKVSpaceIterator itr = new RocksDBKVSpaceIterator(new RocksDBSnapshot(dbHandle, null), boundary,
+                false)) {
                 for (itr.seekToFirst(); itr.isValid(); itr.next()) {
                     targetSpaceRestoreSession.put(itr.key(), itr.value());
                 }
             }
             // clear moved data in left range
-            helper.clear(handle().cf(), boundary);
+            helper.clear(dbHandle.cf(), boundary);
             return targetSpaceRestoreSession;
         } catch (Throwable e) {
             throw new KVEngineException("Delete range in batch failed", e);

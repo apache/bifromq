@@ -19,10 +19,6 @@
 
 package org.apache.bifromq.basekv.raft;
 
-import org.apache.bifromq.basekv.raft.proto.ClusterConfig;
-import org.apache.bifromq.basekv.raft.proto.LogEntry;
-import org.apache.bifromq.basekv.raft.proto.Snapshot;
-import org.apache.bifromq.basekv.raft.proto.Voting;
 import com.google.protobuf.ByteString;
 import java.util.ArrayList;
 import java.util.Iterator;
@@ -35,6 +31,10 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
+import org.apache.bifromq.basekv.raft.proto.ClusterConfig;
+import org.apache.bifromq.basekv.raft.proto.LogEntry;
+import org.apache.bifromq.basekv.raft.proto.Snapshot;
+import org.apache.bifromq.basekv.raft.proto.Voting;
 
 /**
  * A simple in-memory state store for testing purpose.
@@ -176,7 +176,7 @@ public final class InMemoryStateStore implements IRaftStateStore {
     }
 
     @Override
-    public Iterator<LogEntry> entries(long lo, long hi, long maxSize) {
+    public ILogEntryIterator entries(long lo, long hi, long maxSize) {
         if (lo < firstIndex()) {
             throw new IndexOutOfBoundsException("lo must not be less than firstIndex");
         }
@@ -204,7 +204,24 @@ public final class InMemoryStateStore implements IRaftStateStore {
             }
             lo++;
         }
-        return ret.iterator();
+        return new ILogEntryIterator() {
+            private final Iterator<LogEntry> delegate = ret.iterator();
+
+            @Override
+            public void close() {
+
+            }
+
+            @Override
+            public boolean hasNext() {
+                return delegate.hasNext();
+            }
+
+            @Override
+            public LogEntry next() {
+                return delegate.next();
+            }
+        };
     }
 
     @Override

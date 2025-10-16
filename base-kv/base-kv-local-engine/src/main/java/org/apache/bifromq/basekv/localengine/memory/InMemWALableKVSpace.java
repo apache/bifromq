@@ -25,15 +25,19 @@ import org.apache.bifromq.basekv.localengine.IWALableKVSpace;
 import org.apache.bifromq.basekv.localengine.metrics.KVSpaceOpMeters;
 import org.slf4j.Logger;
 
-public class InMemWALableKVSpace extends InMemKVSpace<InMemWALableKVEngine, InMemWALableKVSpace>
+class InMemWALableKVSpace extends InMemKVSpace<InMemWALableKVEngine, InMemWALableKVSpace>
     implements IWALableKVSpace {
-    protected InMemWALableKVSpace(String id,
-                                  InMemKVEngineConfigurator configurator,
-                                  InMemWALableKVEngine engine,
-                                  Runnable onDestroy,
-                                  KVSpaceOpMeters opMeters,
-                                  Logger logger) {
-        super(id, configurator, engine, onDestroy, opMeters, logger);
+    private final InMemKVSpaceEpoch epoch;
+
+    InMemWALableKVSpace(String id,
+                        InMemKVEngineConfigurator configurator,
+                        InMemWALableKVEngine engine,
+                        Runnable onDestroy,
+                        KVSpaceOpMeters opMeters,
+                        Logger logger,
+                        String... tags) {
+        super(id, configurator, engine, onDestroy, opMeters, logger, tags);
+        epoch = new InMemKVSpaceEpoch();
     }
 
     @Override
@@ -43,11 +47,25 @@ public class InMemWALableKVSpace extends InMemKVSpace<InMemWALableKVEngine, InMe
 
     @Override
     public IKVSpaceWriter toWriter() {
-        return new InMemKVSpaceWriter<>(id, metadataMap, rangeData, engine, syncContext,
-            metadataUpdated -> {
-                if (metadataUpdated) {
-                    this.loadMetadata();
-                }
-            }, opMeters, logger);
+        return new InMemKVSpaceWriter<>(id, epoch, engine, syncContext, metadataUpdated -> {
+            if (metadataUpdated) {
+                this.loadMetadata();
+            }
+        }, opMeters, logger);
+    }
+
+    @Override
+    protected void doClose() {
+
+    }
+
+    @Override
+    protected InMemKVSpaceEpoch handle() {
+        return epoch;
+    }
+
+    @Override
+    protected void doOpen() {
+
     }
 }

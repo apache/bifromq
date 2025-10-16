@@ -44,8 +44,10 @@ import java.util.TreeMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.function.Supplier;
 import org.apache.bifromq.basekv.proto.Boundary;
+import org.apache.bifromq.basekv.proto.State;
+import org.apache.bifromq.basekv.raft.proto.ClusterConfig;
 import org.apache.bifromq.basekv.store.api.IKVIterator;
-import org.apache.bifromq.basekv.store.api.IKVReader;
+import org.apache.bifromq.basekv.store.range.IKVRangeRefreshableReader;
 import org.apache.bifromq.basekv.utils.BoundaryUtil;
 import org.apache.bifromq.dist.rpc.proto.RouteGroup;
 import org.apache.bifromq.dist.worker.schema.cache.GroupMatching;
@@ -247,7 +249,7 @@ public class TenantRouteMatcherTest {
         kvData.put(toNormalRouteKey(OTHER_TENANT, otherTenantRoute.matcher, otherTenantRoute.receiverUrl()),
             BSUtil.toByteString(otherTenantRoute.incarnation()));
 
-        Supplier<IKVReader> readerSupplier = () -> new TreeMapKVReader(kvData);
+        Supplier<IKVRangeRefreshableReader> readerSupplier = () -> new TreeMapKVReader(kvData);
 
         TenantRouteMatcher matcherTenant =
             new TenantRouteMatcher(TENANT_ID, readerSupplier, eventCollector, matchTimer);
@@ -339,12 +341,27 @@ public class TenantRouteMatcherTest {
         assertEquals(event.maxCount(), 1);
     }
 
-    private static final class TreeMapKVReader implements IKVReader {
+    private static final class TreeMapKVReader implements IKVRangeRefreshableReader {
         private final NavigableMap<ByteString, ByteString> data;
         private TreeMapKVIterator lastIterator;
 
         private TreeMapKVReader(NavigableMap<ByteString, ByteString> data) {
             this.data = data;
+        }
+
+        @Override
+        public long version() {
+            return 0;
+        }
+
+        @Override
+        public State state() {
+            return State.newBuilder().setType(State.StateType.Normal).build();
+        }
+
+        @Override
+        public long lastAppliedIndex() {
+            return 0;
         }
 
         @Override
@@ -355,6 +372,11 @@ public class TenantRouteMatcherTest {
             ByteString start = data.firstKey();
             ByteString end = upperBound(data.lastKey());
             return toBoundary(start, end);
+        }
+
+        @Override
+        public ClusterConfig clusterConfig() {
+            return ClusterConfig.newBuilder().build();
         }
 
         @Override
@@ -388,6 +410,27 @@ public class TenantRouteMatcherTest {
         public IKVIterator iterator() {
             lastIterator = new TreeMapKVIterator(data);
             return lastIterator;
+        }
+
+        @Override
+        public IKVIterator iterator(Boundary boundary) {
+            // create iterator limited by boundary
+            ByteString start = BoundaryUtil.startKey(boundary);
+            ByteString end = BoundaryUtil.endKey(boundary);
+            NavigableMap<ByteString, ByteString> sub = data;
+            if (start != null) {
+                sub = sub.tailMap(start, true);
+            }
+            if (end != null) {
+                sub = sub.headMap(end, false);
+            }
+            lastIterator = new TreeMapKVIterator(sub);
+            return lastIterator;
+        }
+
+        @Override
+        public void close() {
+
         }
 
         @Override
@@ -471,6 +514,11 @@ public class TenantRouteMatcherTest {
         public void seekForPrev(ByteString key) {
             current = key == null ? data.lastEntry() : data.floorEntry(key);
             seekCount++;
+        }
+
+        @Override
+        public void close() {
+
         }
 
         int getSeekCount() {

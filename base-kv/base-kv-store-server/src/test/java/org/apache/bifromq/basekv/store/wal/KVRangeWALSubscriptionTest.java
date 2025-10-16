@@ -53,6 +53,7 @@ import lombok.SneakyThrows;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.bifromq.basekv.MockableTest;
 import org.apache.bifromq.basekv.proto.KVRangeSnapshot;
+import org.apache.bifromq.basekv.raft.ILogEntryIterator;
 import org.apache.bifromq.basekv.raft.IRaftNode;
 import org.apache.bifromq.basekv.raft.event.CommitEvent;
 import org.apache.bifromq.basekv.raft.proto.LogEntry;
@@ -76,6 +77,29 @@ public class KVRangeWALSubscriptionTest extends MockableTest {
     private IRaftNode.IAfterInstalledCallback afterInstalled;
     private ExecutorService executor;
 
+    /**
+     * Build a closeable iterator for log entries.
+     */
+    private static ILogEntryIterator it(LogEntry... entries) {
+        Iterator<LogEntry> delegate = Iterators.forArray(entries);
+        return new ILogEntryIterator() {
+            @Override
+            public void close() {
+                // no-op for unit tests
+            }
+
+            @Override
+            public boolean hasNext() {
+                return delegate.hasNext();
+            }
+
+            @Override
+            public LogEntry next() {
+                return delegate.next();
+            }
+        };
+    }
+
     protected void doSetup(Method method) {
         executor = Executors.newSingleThreadScheduledExecutor();
         commitIndexSource = BehaviorSubject.create();
@@ -95,7 +119,7 @@ public class KVRangeWALSubscriptionTest extends MockableTest {
     public void retrieveFailAndRetry() {
         when(wal.retrieveCommitted(0, maxSize)).thenReturn(
             CompletableFuture.failedFuture(new RuntimeException("For Testing")),
-            CompletableFuture.completedFuture(Iterators.forArray(LogEntry.newBuilder()
+            CompletableFuture.completedFuture(it(LogEntry.newBuilder()
                 .setTerm(0)
                 .setIndex(0)
                 .build())));
@@ -118,7 +142,7 @@ public class KVRangeWALSubscriptionTest extends MockableTest {
     public void NoRetryWhenIndexOutOfBound() {
         when(wal.retrieveCommitted(0, maxSize)).thenReturn(
             CompletableFuture.failedFuture(new IndexOutOfBoundsException("For Testing")),
-            CompletableFuture.completedFuture(Iterators.forArray(LogEntry.newBuilder()
+            CompletableFuture.completedFuture(it(LogEntry.newBuilder()
                 .setTerm(0)
                 .setIndex(0)
                 .build())));
@@ -134,7 +158,7 @@ public class KVRangeWALSubscriptionTest extends MockableTest {
     public void stopRetryWhenStop() {
         CountDownLatch latch = new CountDownLatch(2);
         when(wal.retrieveCommitted(0, maxSize))
-            .thenAnswer((Answer<CompletableFuture<Iterator<LogEntry>>>) invocationOnMock -> {
+            .thenAnswer((Answer<CompletableFuture<ILogEntryIterator>>) invocationOnMock -> {
                 latch.countDown();
                 return CompletableFuture.failedFuture(
                     new IllegalArgumentException());
@@ -152,7 +176,7 @@ public class KVRangeWALSubscriptionTest extends MockableTest {
     @Test
     public void reapplyLog() {
         when(wal.retrieveCommitted(0, maxSize)).thenReturn(CompletableFuture.completedFuture(
-            Iterators.forArray(
+            it(
                 LogEntry.newBuilder().setTerm(0).setIndex(0).build(),
                 LogEntry.newBuilder().setTerm(0).setIndex(1).build()))
         );
@@ -185,7 +209,7 @@ public class KVRangeWALSubscriptionTest extends MockableTest {
     @Test
     public void cancelApplyLogWhenSnapshot() {
         when(wal.retrieveCommitted(0, maxSize)).thenReturn(CompletableFuture.completedFuture(
-            Iterators.forArray(
+            it(
                 LogEntry.newBuilder().setTerm(0).setIndex(0).build(),
                 LogEntry.newBuilder().setTerm(0).setIndex(1).build()))
         );
@@ -210,7 +234,7 @@ public class KVRangeWALSubscriptionTest extends MockableTest {
     @Test
     public void cancelReapplyWhenSnapshot() {
         when(wal.retrieveCommitted(0, maxSize)).thenReturn(CompletableFuture.completedFuture(
-            Iterators.forArray(
+            it(
                 LogEntry.newBuilder().setTerm(0).setIndex(0).build(),
                 LogEntry.newBuilder().setTerm(0).setIndex(1).build()))
         );
@@ -287,7 +311,7 @@ public class KVRangeWALSubscriptionTest extends MockableTest {
         LogEntry entry1 = LogEntry.newBuilder().setTerm(0).setIndex(0).build();
         LogEntry entry2 = LogEntry.newBuilder().setTerm(0).setIndex(1).build();
         when(wal.retrieveCommitted(0, maxSize))
-            .thenReturn(CompletableFuture.completedFuture(Iterators.forArray(entry1, entry2)));
+            .thenReturn(CompletableFuture.completedFuture(it(entry1, entry2)));
         CountDownLatch latch = new CountDownLatch(1);
         CompletableFuture<Void> applyLogFuture1 = new CompletableFuture<>();
         when(subscriber.apply(eq(entry1), anyBoolean()))
@@ -312,7 +336,7 @@ public class KVRangeWALSubscriptionTest extends MockableTest {
     public void leaderIdentitySegmentation() {
         // Logs: 0,1,2,3; Commits: (1,true) then (3,false)
         when(wal.retrieveCommitted(eq(0L), eq(maxSize))).thenReturn(
-            CompletableFuture.completedFuture(Iterators.forArray(
+            CompletableFuture.completedFuture(it(
                 LogEntry.newBuilder().setTerm(0).setIndex(0).build(),
                 LogEntry.newBuilder().setTerm(0).setIndex(1).build(),
                 LogEntry.newBuilder().setTerm(0).setIndex(2).build(),
@@ -355,14 +379,14 @@ public class KVRangeWALSubscriptionTest extends MockableTest {
     public void notFetchBeyondObservedCommit() {
         // Logs: 0,1,2; only commit up to 1, then later commit 2
         when(wal.retrieveCommitted(eq(0L), eq(maxSize))).thenReturn(
-            CompletableFuture.completedFuture(Iterators.forArray(
+            CompletableFuture.completedFuture(it(
                 LogEntry.newBuilder().setTerm(0).setIndex(0).build(),
                 LogEntry.newBuilder().setTerm(0).setIndex(1).build(),
                 LogEntry.newBuilder().setTerm(0).setIndex(2).build()
             ))
         );
         when(wal.retrieveCommitted(eq(2L), eq(maxSize))).thenReturn(
-            CompletableFuture.completedFuture(Iterators.forArray(
+            CompletableFuture.completedFuture(it(
                 LogEntry.newBuilder().setTerm(0).setIndex(2).build()
             ))
         );
@@ -404,17 +428,17 @@ public class KVRangeWALSubscriptionTest extends MockableTest {
         // Apply 0..2 first, then send an older commit(1), no extra fetch should happen
         AtomicInteger retrieveCount = new AtomicInteger();
         when(wal.retrieveCommitted(org.mockito.ArgumentMatchers.anyLong(), eq(maxSize))).thenAnswer(
-            (Answer<CompletableFuture<Iterator<LogEntry>>>) inv -> {
+            (Answer<CompletableFuture<ILogEntryIterator>>) inv -> {
                 long from = inv.getArgument(0);
                 retrieveCount.incrementAndGet();
                 if (from == 0L) {
-                    return CompletableFuture.completedFuture(Iterators.forArray(
+                    return CompletableFuture.completedFuture(it(
                         LogEntry.newBuilder().setTerm(0).setIndex(0).build(),
                         LogEntry.newBuilder().setTerm(0).setIndex(1).build(),
                         LogEntry.newBuilder().setTerm(0).setIndex(2).build()
                     ));
                 }
-                return CompletableFuture.completedFuture(Iterators.forArray());
+                return CompletableFuture.completedFuture(it());
             });
         when(subscriber.apply(any(LogEntry.class), anyBoolean()))
             .thenReturn(CompletableFuture.completedFuture(null));
@@ -438,9 +462,9 @@ public class KVRangeWALSubscriptionTest extends MockableTest {
         // First round: commit(1,true) => apply 0,1 only; Second round: commit(3,false) => apply 2,3
         Map<Long, AtomicInteger> calls = new HashMap<>();
         when(wal.retrieveCommitted(eq(0L), eq(maxSize))).thenAnswer(
-            (Answer<CompletableFuture<Iterator<LogEntry>>>) inv -> {
+            (Answer<CompletableFuture<ILogEntryIterator>>) inv -> {
                 calls.computeIfAbsent(0L, k -> new AtomicInteger()).incrementAndGet();
-                return CompletableFuture.completedFuture(Iterators.forArray(
+                return CompletableFuture.completedFuture(it(
                     LogEntry.newBuilder().setTerm(0).setIndex(0).build(),
                     LogEntry.newBuilder().setTerm(0).setIndex(1).build(),
                     LogEntry.newBuilder().setTerm(0).setIndex(2).build(),
@@ -448,9 +472,9 @@ public class KVRangeWALSubscriptionTest extends MockableTest {
                 ));
             });
         when(wal.retrieveCommitted(eq(2L), eq(maxSize))).thenAnswer(
-            (Answer<CompletableFuture<Iterator<LogEntry>>>) inv -> {
+            (Answer<CompletableFuture<ILogEntryIterator>>) inv -> {
                 calls.computeIfAbsent(2L, k -> new AtomicInteger()).incrementAndGet();
-                return CompletableFuture.completedFuture(Iterators.forArray(
+                return CompletableFuture.completedFuture(it(
                     LogEntry.newBuilder().setTerm(0).setIndex(2).build(),
                     LogEntry.newBuilder().setTerm(0).setIndex(3).build()
                 ));
@@ -506,13 +530,13 @@ public class KVRangeWALSubscriptionTest extends MockableTest {
         AtomicInteger calledFrom6 = new AtomicInteger();
         // Default: for non-6 fromIndex, return empty iterator to avoid NPE/stall before snapshot finishes
         when(wal.retrieveCommitted(org.mockito.ArgumentMatchers.longThat(v -> v != 6L), eq(maxSize)))
-            .thenAnswer((Answer<CompletableFuture<Iterator<LogEntry>>>) inv ->
-                CompletableFuture.completedFuture(Iterators.forArray())
+            .thenAnswer((Answer<CompletableFuture<ILogEntryIterator>>) inv ->
+                CompletableFuture.completedFuture(it())
             );
         when(wal.retrieveCommitted(eq(6L), eq(maxSize))).thenAnswer(
-            (Answer<CompletableFuture<Iterator<LogEntry>>>) inv -> {
+            (Answer<CompletableFuture<ILogEntryIterator>>) inv -> {
                 calledFrom6.incrementAndGet();
-                return CompletableFuture.completedFuture(Iterators.forArray(
+                return CompletableFuture.completedFuture(it(
                     LogEntry.newBuilder().setTerm(0).setIndex(6).build()
                 ));
             });
@@ -549,14 +573,14 @@ public class KVRangeWALSubscriptionTest extends MockableTest {
     public void sameLeaderCommitCompression() {
         // Logs: 0,1,2; Commits: (1,true) then (2,true). All applies with true.
         when(wal.retrieveCommitted(eq(0L), eq(maxSize))).thenReturn(
-            CompletableFuture.completedFuture(Iterators.forArray(
+            CompletableFuture.completedFuture(it(
                 LogEntry.newBuilder().setTerm(0).setIndex(0).build(),
                 LogEntry.newBuilder().setTerm(0).setIndex(1).build(),
                 LogEntry.newBuilder().setTerm(0).setIndex(2).build()
             ))
         );
         when(wal.retrieveCommitted(eq(2L), eq(maxSize))).thenReturn(
-            CompletableFuture.completedFuture(Iterators.forArray(
+            CompletableFuture.completedFuture(it(
                 LogEntry.newBuilder().setTerm(0).setIndex(2).build()
             ))
         );
@@ -585,7 +609,7 @@ public class KVRangeWALSubscriptionTest extends MockableTest {
     public void startWithCustomLastFetchedIndex() {
         // Start from lastFetchedIndex=10; after commit(12,false), fetch from 11 and apply 11,12 with false.
         when(wal.retrieveCommitted(eq(11L), eq(maxSize))).thenReturn(
-            CompletableFuture.completedFuture(Iterators.forArray(
+            CompletableFuture.completedFuture(it(
                 LogEntry.newBuilder().setTerm(0).setIndex(11).build(),
                 LogEntry.newBuilder().setTerm(0).setIndex(12).build()
             ))

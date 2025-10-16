@@ -29,6 +29,7 @@ import com.google.protobuf.ByteString;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import org.apache.bifromq.basekv.localengine.ICPableKVSpace;
+import org.apache.bifromq.basekv.localengine.IKVSpaceReader;
 import org.apache.bifromq.basekv.localengine.IRestoreSession;
 import org.testng.annotations.AfterMethod;
 import org.testng.annotations.BeforeMethod;
@@ -85,7 +86,9 @@ public class RocksDBCPableKVSpaceRestoreReplaceTest {
         ByteString m1 = ByteString.copyFromUtf8("m1");
         ByteString mv1 = ByteString.copyFromUtf8("mv1");
         space.toWriter().put(k1, v1).metadata(m1, mv1).done();
-        assertTrue(space.exist(k1));
+        try (IKVSpaceReader reader = space.reader()) {
+            assertTrue(reader.exist(k1));
+        }
 
         Path pointer = dbRoot.resolve(spaceId).resolve(ACTIVE_GEN_POINTER);
         String before = Files.readString(pointer).trim();
@@ -101,10 +104,12 @@ public class RocksDBCPableKVSpaceRestoreReplaceTest {
         session.done();
 
         // old key removed, new key present
-        assertFalse(space.exist(k1));
-        assertTrue(space.exist(k2));
-        assertTrue(space.metadata(m2).isPresent());
-        assertFalse(space.metadata(m1).isPresent());
+        try (IKVSpaceReader reader = space.reader()) {
+            assertFalse(reader.exist(k1));
+            assertTrue(reader.exist(k2));
+            assertTrue(reader.metadata(m2).isPresent());
+            assertFalse(reader.metadata(m1).isPresent());
+        }
 
         String after = Files.readString(pointer).trim();
         assertNotEquals(after, before);
@@ -114,6 +119,8 @@ public class RocksDBCPableKVSpaceRestoreReplaceTest {
         s2.put(k2, ByteString.copyFromUtf8("v3"));
         s2.put(k2, ByteString.copyFromUtf8("v4"));
         s2.done();
-        assertEquals(space.get(k2).get().toStringUtf8(), "v4");
+        try (IKVSpaceReader reader = space.reader()) {
+            assertEquals(reader.get(k2).get().toStringUtf8(), "v4");
+        }
     }
 }

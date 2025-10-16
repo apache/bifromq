@@ -42,6 +42,8 @@ import org.apache.bifromq.basekv.proto.KVRangeMessage;
 import org.apache.bifromq.basekv.proto.KVRangeSnapshot;
 import org.apache.bifromq.basekv.proto.SaveSnapshotDataReply;
 import org.apache.bifromq.basekv.proto.SaveSnapshotDataRequest;
+import org.apache.bifromq.basekv.store.api.IKVIterator;
+import org.apache.bifromq.basekv.store.api.IKVRangeReader;
 import org.apache.bifromq.logger.MDCLogger;
 import org.slf4j.Logger;
 
@@ -65,7 +67,8 @@ class KVRangeDumpSession {
     private final DumpBytesRecorder recorder;
     private final SnapshotBandwidthGovernor bandwidthGovernor;
     private final long startDumpTS = System.nanoTime();
-    private IKVCheckpointIterator snapshotDataItr;
+    private IKVRangeReader snapshotReader;
+    private IKVIterator snapshotDataItr;
     private long totalEntries = 0;
     private long totalBytes = 0;
     private long lastSendTS;
@@ -124,7 +127,8 @@ class KVRangeDumpSession {
                 .build());
             executor.execute(() -> doneSignal.complete(Result.NoCheckpoint));
         } else {
-            snapshotDataItr = accessor.open(snapshot).newDataReader().iterator();
+            snapshotReader = accessor.open(snapshot);
+            snapshotDataItr = snapshotReader.iterator();
             snapshotDataItr.seekToFirst();
             Disposable disposable = messenger.receive()
                 .mapOptional(m -> {
@@ -140,6 +144,7 @@ class KVRangeDumpSession {
                 .subscribe(this::handleReply);
             doneSignal.whenComplete((v, e) -> {
                 snapshotDataItr.close();
+                snapshotReader.close();
                 disposable.dispose();
             });
             nextSaveRequest();

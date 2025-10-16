@@ -24,17 +24,82 @@ import org.apache.bifromq.basekv.proto.Boundary;
 import org.apache.bifromq.basekv.proto.KVRangeSnapshot;
 import org.apache.bifromq.basekv.proto.State;
 import org.apache.bifromq.basekv.raft.proto.ClusterConfig;
-import org.apache.bifromq.basekv.store.api.IKVCloseableReader;
 import org.apache.bifromq.basekv.store.api.IKVRangeReader;
-import org.apache.bifromq.basekv.store.api.IKVReader;
 
-public interface IKVRange extends IKVRangeReader {
+/**
+ * Interface for accessing and updating a key-value range.
+ */
+public interface IKVRange extends IKVRangeIdentifiable {
+
     /**
-     * Get the observable of metadata.
+     * Get the observable of version.
      *
      * @return the observable
      */
-    Observable<KVRangeMeta> metadata();
+    Observable<Long> ver();
+
+    /**
+     * Get the current version.
+     *
+     * @return the current version
+     */
+    long currentVer();
+
+    /**
+     * Get the observable of state.
+     *
+     * @return the observable
+     */
+    Observable<State> state();
+
+    /**
+     * Get the current state.
+     *
+     * @return the current state
+     */
+    State currentState();
+
+    /**
+     * Get the observable of cluster config.
+     *
+     * @return the observable
+     */
+    Observable<ClusterConfig> clusterConfig();
+
+    /**
+     * Get the current cluster config.
+     *
+     * @return the current cluster config
+     */
+    ClusterConfig currentClusterConfig();
+
+    /**
+     * Get the observable of boundary.
+     *
+     * @return the observable
+     */
+    Observable<Boundary> boundary();
+
+    /**
+     * Get the current boundary.
+     *
+     * @return the current boundary
+     */
+    Boundary currentBoundary();
+
+    /**
+     * Get the observable of last applied index.
+     *
+     * @return the observable
+     */
+    Observable<Long> lastAppliedIndex();
+
+    /**
+     * Get the current last applied index.
+     *
+     * @return the current last applied index
+     */
+    long currentLastAppliedIndex();
 
     /**
      * Make a checkpoint of current state and return a descriptor.
@@ -52,19 +117,19 @@ public interface IKVRange extends IKVRangeReader {
     boolean hasCheckpoint(KVRangeSnapshot checkpoint);
 
     /**
-     * Open an iterator for accessing the checkpoint data.
+     * Open a reader for accessing the checkpoint data.
      *
      * @param checkpoint the descriptor
      * @return the checkpoint reader
      */
-    IKVRangeCheckpointReader open(KVRangeSnapshot checkpoint);
+    IKVRangeReader open(KVRangeSnapshot checkpoint);
 
-    IKVReader borrowDataReader();
-
-    void returnDataReader(IKVReader borrowed);
-
-    @Override
-    IKVCloseableReader newDataReader();
+    /**
+     * Create a refreshable consistent-view reader.
+     *
+     * @return the reader
+     */
+    IKVRangeRefreshableReader newReader();
 
     /**
      * Get a writer for updating the range.
@@ -81,20 +146,30 @@ public interface IKVRange extends IKVRangeReader {
      */
     IKVRangeWriter<?> toWriter(IKVLoadRecorder recorder);
 
+    /**
+     * Open a restore session to receiving data from given snapshot.
+     *
+     * @param snapshot the snapshot
+     * @param progressListener the progress listener
+     * @return the session
+     */
     IKVRangeRestoreSession startRestore(KVRangeSnapshot snapshot,
                                         IKVRangeRestoreSession.IKVRestoreProgressListener progressListener);
 
-    void close();
-
-    void destroy();
+    /**
+     * The current estimated size of the KVRange.
+     *
+     * @return the size in bytes
+     */
+    long size();
 
     /**
-     * Metadata about the KVRange.
-     *
-     * @param ver      the version
-     * @param state    the state
-     * @param boundary the boundary
+     * Close the KVRange.
      */
-    record KVRangeMeta(long ver, State state, Boundary boundary, ClusterConfig clusterConfig) {
-    }
+    void close();
+
+    /**
+     * Close and destroy the KVRange.
+     */
+    void destroy();
 }

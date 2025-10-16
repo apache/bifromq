@@ -62,10 +62,13 @@ public abstract class AbstractCPableEngineTest extends AbstractKVEngineTest<ICPa
 
         IKVSpace rightRange = engine.createIfMissing(rightRangeId);
 
-        assertFalse(leftRange.metadata(metaKey).isPresent());
-        assertTrue(rightRange.metadata(metaKey).isPresent());
-        assertEquals(rightRange.metadata(metaKey).get(), metaVal);
-        assertFalse(leftRange.exist(key2));
-        assertTrue(rightRange.exist(key2));
+        try (IKVSpaceRefreshableReader leftReader = leftRange.reader();
+             IKVSpaceRefreshableReader rightReader = rightRange.reader()) {
+            assertFalse(leftReader.metadata(metaKey).isPresent());
+            assertTrue(rightReader.metadata(metaKey).isPresent());
+            assertEquals(rightReader.metadata(metaKey).get(), metaVal);
+            assertFalse(leftReader.exist(key2));
+            assertTrue(rightReader.exist(key2));
+        }
     }
 }

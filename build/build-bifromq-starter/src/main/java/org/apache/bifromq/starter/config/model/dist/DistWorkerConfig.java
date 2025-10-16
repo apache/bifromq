@@ -45,7 +45,10 @@ public class DistWorkerConfig {
     private int maxGCIntervalSeconds = 24 * 3600; // every day
     @JsonSetter(nulls = Nulls.SKIP)
     @JsonMerge
-    private StorageEngineConfig dataEngineConfig = new RocksDBEngineConfig();
+    private StorageEngineConfig dataEngineConfig = new RocksDBEngineConfig()
+        .setManualCompaction(true)
+        .setCompactMinTombstoneKeys(2500)
+        .setCompactMinTombstoneRanges(2);
     @JsonSetter(nulls = Nulls.SKIP)
     @JsonMerge
     private StorageEngineConfig walEngineConfig = new RocksDBEngineConfig()

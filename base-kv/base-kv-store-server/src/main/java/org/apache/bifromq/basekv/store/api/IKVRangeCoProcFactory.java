@@ -14,29 +14,30 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 
 package org.apache.bifromq.basekv.store.api;
 
-import org.apache.bifromq.basekv.proto.KVRangeId;
 import java.util.Collections;
 import java.util.List;
 import java.util.function.Supplier;
+import org.apache.bifromq.basekv.proto.KVRangeId;
+import org.apache.bifromq.basekv.store.range.IKVRangeRefreshableReader;
 
 /**
- * The interface of range co-processor factory.
+ * The interface of KVRange co-processor factory.
  */
 public interface IKVRangeCoProcFactory {
     default List<IKVRangeSplitHinter> createHinters(String clusterId,
                                                     String storeId,
                                                     KVRangeId id,
-                                                    Supplier<IKVCloseableReader> readerProvider) {
+                                                    Supplier<IKVRangeRefreshableReader> readerProvider) {
         return Collections.emptyList();
     }
 
     IKVRangeCoProc createCoProc(String clusterId,
                                 String storeId,
                                 KVRangeId id,
-                                Supplier<IKVCloseableReader> readerProvider);
+                                Supplier<IKVRangeRefreshableReader> readerProvider);
 }

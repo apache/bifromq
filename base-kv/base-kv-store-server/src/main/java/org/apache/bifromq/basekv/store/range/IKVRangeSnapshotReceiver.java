@@ -22,7 +22,7 @@ package org.apache.bifromq.basekv.store.range;
 import com.google.protobuf.ByteString;
 import java.util.concurrent.CompletableFuture;
 
-public interface IKVRangeSnapshotReceiver {
+interface IKVRangeSnapshotReceiver {
 
     CompletableFuture<Result> start(ReceiveListener listener);
 

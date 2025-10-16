@@ -14,23 +14,19 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 
-package org.apache.bifromq.basekv.store.range;
+package org.apache.bifromq.basekv.localengine.rocksdb;
 
-import org.apache.bifromq.basekv.localengine.IKVSpaceIterator;
+import org.apache.bifromq.basekv.localengine.ICPableKVEngineConfigurator;
+import org.apache.bifromq.basekv.localengine.ICPableKVSpace;
+import org.apache.bifromq.basekv.localengine.IKVEngine;
 
-class KVCheckpointDataIterator extends KVIterator implements IKVCheckpointIterator {
-    private final IKVSpaceIterator kvSpaceIterator;
-
-    KVCheckpointDataIterator(IKVSpaceIterator kvSpaceIterator) {
-        super(kvSpaceIterator);
-        this.kvSpaceIterator = kvSpaceIterator;
-    }
-
-    @Override
-    public void close() {
-        kvSpaceIterator.close();
+public class RocksDBCPableKVEngineFactory {
+    public static IKVEngine<? extends ICPableKVSpace> create(String overrideIdentity,
+                                                             ICPableKVEngineConfigurator configurator) {
+        assert configurator instanceof RocksDBCPableKVEngineConfigurator;
+        return new RocksDBCPableKVEngine(overrideIdentity, (RocksDBCPableKVEngineConfigurator) configurator);
     }
 }

@@ -19,6 +19,7 @@
 
 package org.apache.bifromq.inbox.store;
 
+import static org.apache.bifromq.basekv.utils.BoundaryUtil.FULL_BOUNDARY;
 import static org.apache.bifromq.inbox.store.schema.KVSchemaUtil.inboxInstanceStartKey;
 import static org.apache.bifromq.metrics.TenantMetric.MqttPersistentSessionNumGauge;
 import static org.apache.bifromq.metrics.TenantMetric.MqttPersistentSessionSpaceGauge;
@@ -39,8 +40,10 @@ import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.TimeUnit;
 import org.apache.bifromq.basekv.proto.Boundary;
-import org.apache.bifromq.basekv.store.api.IKVCloseableReader;
+import org.apache.bifromq.basekv.proto.State;
+import org.apache.bifromq.basekv.raft.proto.ClusterConfig;
 import org.apache.bifromq.basekv.store.api.IKVIterator;
+import org.apache.bifromq.basekv.store.range.IKVRangeRefreshableReader;
 import org.apache.bifromq.inbox.storage.proto.InboxMetadata;
 import org.apache.bifromq.metrics.ITenantMeter;
 import org.apache.bifromq.type.TopicFilterOption;
@@ -79,7 +82,7 @@ public class TenantsStatsTest {
 
     @Test
     public void testAddAndRemoveSessionAndSubCounts() throws Exception {
-        IKVCloseableReader reader = Mockito.mock(IKVCloseableReader.class);
+        IKVRangeRefreshableReader reader = Mockito.mock(IKVRangeRefreshableReader.class);
         Mockito.when(reader.boundary()).thenReturn(Boundary.getDefaultInstance());
         Mockito.when(reader.iterator()).thenReturn(new EmptyIterator());
         Mockito.doNothing().when(reader).close();
@@ -127,7 +130,7 @@ public class TenantsStatsTest {
         // sort by key lexicographically as store would
         entries.sort(Comparator.comparing(e -> e.key, ByteString.unsignedLexicographicalComparator()));
 
-        IKVCloseableReader reader = new FakeReader(entries);
+        IKVRangeRefreshableReader reader = new FakeReader(entries);
         TenantsStats stats = new TenantsStats(() -> reader, "clusterId", "c1", "storeId", "s1", "rangeId", "r1");
 
         stats.reset(Boundary.getDefaultInstance());
@@ -148,7 +151,7 @@ public class TenantsStatsTest {
 
     @Test
     public void testCloseUnregistersAllGauges() throws Exception {
-        IKVCloseableReader reader = Mockito.mock(IKVCloseableReader.class);
+        IKVRangeRefreshableReader reader = Mockito.mock(IKVRangeRefreshableReader.class);
         Mockito.when(reader.boundary()).thenReturn(Boundary.getDefaultInstance());
         Mockito.when(reader.iterator()).thenReturn(new EmptyIterator());
         Mockito.doNothing().when(reader).close();
@@ -186,7 +189,7 @@ public class TenantsStatsTest {
 
     @Test
     public void testToggleBroadcastToMultipleTenants() {
-        IKVCloseableReader reader = Mockito.mock(IKVCloseableReader.class);
+        IKVRangeRefreshableReader reader = Mockito.mock(IKVRangeRefreshableReader.class);
         Mockito.when(reader.boundary()).thenReturn(Boundary.getDefaultInstance());
         Mockito.when(reader.iterator()).thenReturn(new EmptyIterator());
         TenantsStats stats = new TenantsStats(() -> reader, "clusterId", "c1", "storeId", "s1", "rangeId", "r1");
@@ -229,7 +232,7 @@ public class TenantsStatsTest {
 
     @Test
     public void testDemotionKeepsSpaceGauge() {
-        IKVCloseableReader reader = Mockito.mock(IKVCloseableReader.class);
+        IKVRangeRefreshableReader reader = Mockito.mock(IKVRangeRefreshableReader.class);
         Mockito.when(reader.boundary()).thenReturn(Boundary.getDefaultInstance());
         Mockito.when(reader.iterator()).thenReturn(new EmptyIterator());
         TenantsStats stats = new TenantsStats(() -> reader, "clusterId", "c1", "storeId", "s1", "rangeId", "r1");
@@ -341,6 +344,11 @@ public class TenantsStatsTest {
             }
             idx = i;
         }
+
+        @Override
+        public void close() {
+
+        }
     }
 
     private static class EmptyIterator extends FakeIterator {
@@ -349,7 +357,7 @@ public class TenantsStatsTest {
         }
     }
 
-    private static class FakeReader implements IKVCloseableReader {
+    private static class FakeReader implements IKVRangeRefreshableReader {
         private final List<Entry> entries;
 
         FakeReader(List<Entry> entries) {
@@ -357,8 +365,28 @@ public class TenantsStatsTest {
         }
 
         @Override
+        public long version() {
+            return 0;
+        }
+
+        @Override
+        public State state() {
+            return State.newBuilder().setType(State.StateType.Normal).build();
+        }
+
+        @Override
+        public long lastAppliedIndex() {
+            return 0;
+        }
+
+        @Override
         public Boundary boundary() {
-            return Boundary.getDefaultInstance();
+            return FULL_BOUNDARY;
+        }
+
+        @Override
+        public ClusterConfig clusterConfig() {
+            return ClusterConfig.newBuilder().build();
         }
 
         @Override
@@ -379,6 +407,11 @@ public class TenantsStatsTest {
         @Override
         public IKVIterator iterator() {
             return new FakeIterator(entries);
+        }
+
+        @Override
+        public IKVIterator iterator(Boundary boundary) {
+            return null;
         }
 
         @Override

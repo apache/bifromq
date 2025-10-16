@@ -31,6 +31,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Map;
 import org.apache.bifromq.basekv.localengine.ICPableKVSpace;
+import org.apache.bifromq.basekv.localengine.IKVSpaceReader;
 import org.rocksdb.Options;
 import org.rocksdb.RocksDB;
 import org.testng.annotations.AfterMethod;
@@ -112,8 +113,10 @@ public class RocksDBCPableKVSpaceLegacyMigrationTest {
         var writer = space.toWriter();
         writer.put(ByteString.copyFromUtf8("a"), ByteString.copyFromUtf8("b"));
         writer.done();
-        var val = space.get(ByteString.copyFromUtf8("a"));
-        assertTrue(val.isPresent());
-        assertEquals(val.get().toStringUtf8(), "b");
+        try (IKVSpaceReader reader = space.reader()) {
+            var val = reader.get(ByteString.copyFromUtf8("a"));
+            assertTrue(val.isPresent());
+            assertEquals(val.get().toStringUtf8(), "b");
+        }
     }
 }

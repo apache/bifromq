@@ -14,14 +14,19 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 
-package org.apache.bifromq.basekv.store.range;
+package org.apache.bifromq.basekv.localengine;
 
-import org.apache.bifromq.basekv.store.api.IKVReader;
-
-public interface IKVCheckpointReader extends IKVReader {
-    @Override
-    IKVCheckpointIterator iterator();
+/**
+ * Interface for identifying a key-value space.
+ */
+public interface IKVSpaceIdentifiable {
+    /**
+     * Get the id of the space.
+     *
+     * @return the id of the space
+     */
+    String id();
 }

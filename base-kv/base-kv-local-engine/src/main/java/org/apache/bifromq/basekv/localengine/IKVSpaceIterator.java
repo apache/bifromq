@@ -21,26 +21,67 @@ package org.apache.bifromq.basekv.localengine;
 
 import com.google.protobuf.ByteString;
 
+/**
+ * The interface of an iterator for a KV space.
+ */
 public interface IKVSpaceIterator extends AutoCloseable {
+    /**
+     * Get the key of the current entry.
+     *
+     * @return the key of the current entry
+     */
     ByteString key();
 
+    /**
+     * Get the value of the current entry.
+     *
+     * @return the value of the current entry
+     */
     ByteString value();
 
+    /**
+     * Check if the iterator is valid.
+     *
+     * @return true if the iterator is valid, false otherwise
+     */
     boolean isValid();
 
+    /**
+     * move the iterator to the next entry.
+     */
     void next();
 
+    /**
+     * move the iterator to the previous entry.
+     */
     void prev();
 
+    /**
+     * seek to the first entry.
+     */
     void seekToFirst();
 
+    /**
+     * seek to the last entry.
+     */
     void seekToLast();
 
+    /**
+     * Seek to the first entry that is at or past target.
+     *
+     * @param target the target key
+     */
     void seek(ByteString target);
 
+    /**
+     * Seek to the last entry that is at or before target.
+     *
+     * @param target the target key
+     */
     void seekForPrev(ByteString target);
 
-    void refresh();
-
+    /**
+     * Close the iterator and release associated resources.
+     */
     void close();
 }

@@ -23,30 +23,27 @@ import static org.apache.bifromq.dist.worker.schema.KVSchemaUtil.toGroupRouteKey
 import static org.apache.bifromq.dist.worker.schema.KVSchemaUtil.toNormalRouteKey;
 import static org.apache.bifromq.dist.worker.schema.KVSchemaUtil.toReceiverUrl;
 
-import org.apache.bifromq.basekv.proto.Boundary;
-import org.apache.bifromq.basekv.proto.SplitHint;
-import org.apache.bifromq.basekv.store.api.IKVCloseableReader;
-import org.apache.bifromq.basekv.store.api.IKVIterator;
-import org.apache.bifromq.basekv.store.api.IKVLoadRecord;
-import org.apache.bifromq.basekv.store.api.IKVRangeSplitHinter;
-import org.apache.bifromq.basekv.store.api.IKVReader;
-import org.apache.bifromq.basekv.store.proto.ROCoProcInput;
-import org.apache.bifromq.basekv.store.proto.RWCoProcInput;
-import org.apache.bifromq.basekv.utils.BoundaryUtil;
-import org.apache.bifromq.dist.rpc.proto.BatchMatchRequest;
-import org.apache.bifromq.dist.rpc.proto.BatchUnmatchRequest;
-import org.apache.bifromq.type.RouteMatcher;
-import com.google.common.collect.Sets;
 import com.google.protobuf.ByteString;
 import io.micrometer.core.instrument.Gauge;
 import io.micrometer.core.instrument.Metrics;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
-import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Supplier;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.bifromq.basekv.proto.Boundary;
+import org.apache.bifromq.basekv.proto.SplitHint;
+import org.apache.bifromq.basekv.store.api.IKVIterator;
+import org.apache.bifromq.basekv.store.api.IKVLoadRecord;
+import org.apache.bifromq.basekv.store.api.IKVRangeSplitHinter;
+import org.apache.bifromq.basekv.store.proto.ROCoProcInput;
+import org.apache.bifromq.basekv.store.proto.RWCoProcInput;
+import org.apache.bifromq.basekv.store.range.IKVRangeRefreshableReader;
+import org.apache.bifromq.basekv.utils.BoundaryUtil;
+import org.apache.bifromq.dist.rpc.proto.BatchMatchRequest;
+import org.apache.bifromq.dist.rpc.proto.BatchUnmatchRequest;
+import org.apache.bifromq.type.RouteMatcher;
 
 @Slf4j
 public class FanoutSplitHinter implements IKVRangeSplitHinter {
@@ -54,25 +51,19 @@ public class FanoutSplitHinter implements IKVRangeSplitHinter {
     public static final String LOAD_TYPE_FANOUT_TOPIC_FILTERS = "fanout_topicfilters";
     public static final String LOAD_TYPE_FANOUT_SCALE = "fanout_scale";
     private final int splitAtScale;
-    private final Supplier<IKVCloseableReader> readerSupplier;
-    private final Set<IKVCloseableReader> threadReaders = Sets.newConcurrentHashSet();
-    private final ThreadLocal<IKVReader> threadLocalKVReader;
+    private final Supplier<IKVRangeRefreshableReader> readerSupplier;
     // key: matchRecordKeyPrefix, value: splitKey
     private final Map<ByteString, FanOutSplit> fanoutSplitKeys = new ConcurrentHashMap<>();
     private final Gauge fanOutTopicFiltersGauge;
     private final Gauge fanOutScaleGauge;
     private volatile Boundary boundary;
 
-
-    public FanoutSplitHinter(Supplier<IKVCloseableReader> readerSupplier, int splitAtScale, String... tags) {
+    public FanoutSplitHinter(Supplier<IKVRangeRefreshableReader> readerSupplier, int splitAtScale, String... tags) {
         this.splitAtScale = splitAtScale;
         this.readerSupplier = readerSupplier;
-        threadLocalKVReader = ThreadLocal.withInitial(() -> {
-            IKVCloseableReader reader = readerSupplier.get();
-            threadReaders.add(reader);
-            return reader;
-        });
-        boundary = readerSupplier.get().boundary();
+        try (IKVRangeRefreshableReader reader = readerSupplier.get()) {
+            boundary = reader.boundary();
+        }
         fanOutTopicFiltersGauge = Gauge.builder("dist.fanout.topicfilters", fanoutSplitKeys::size)
             .tags(tags)
             .register(Metrics.globalRegistry);
@@ -173,40 +164,39 @@ public class FanoutSplitHinter implements IKVRangeSplitHinter {
 
     @Override
     public void close() {
-        threadReaders.forEach(IKVCloseableReader::close);
         Metrics.globalRegistry.remove(fanOutTopicFiltersGauge);
         Metrics.globalRegistry.remove(fanOutScaleGauge);
     }
 
     private void doEstimate(Map<ByteString, RecordEstimation> routeKeyLoads) {
         Map<ByteString, RangeEstimation> splitCandidate = new HashMap<>();
-        routeKeyLoads.forEach((matchRecordKeyPrefix, recordEst) -> {
-            long dataSize = (threadLocalKVReader.get()
-                .size(Boundary.newBuilder()
+        try (IKVRangeRefreshableReader reader = readerSupplier.get()) {
+            routeKeyLoads.forEach((matchRecordKeyPrefix, recordEst) -> {
+                long dataSize = (reader.size(Boundary.newBuilder()
                     .setStartKey(matchRecordKeyPrefix)
                     .setEndKey(BoundaryUtil.upperBound(matchRecordKeyPrefix))
                     .build())) - recordEst.tombstoneSize();
-            long fanOutScale = dataSize / recordEst.avgRecordSize();
-            if (fanOutScale >= splitAtScale) {
-                splitCandidate.put(matchRecordKeyPrefix, new RangeEstimation(dataSize, recordEst.avgRecordSize()));
-            } else if (fanoutSplitKeys.containsKey(matchRecordKeyPrefix) && fanOutScale < 0.5 * splitAtScale) {
-                fanoutSplitKeys.remove(matchRecordKeyPrefix);
-            }
-        });
-        if (!splitCandidate.isEmpty()) {
-            try (IKVCloseableReader reader = readerSupplier.get()) {
-                for (ByteString routeKey : splitCandidate.keySet()) {
-                    RangeEstimation recEst = splitCandidate.get(routeKey);
-                    fanoutSplitKeys.computeIfAbsent(routeKey, k -> {
-                        IKVIterator itr = reader.iterator();
-                        int i = 0;
-                        for (itr.seek(routeKey); itr.isValid(); itr.next()) {
-                            if (i++ >= splitAtScale) {
-                                return new FanOutSplit(recEst, itr.key());
+                long fanOutScale = dataSize / recordEst.avgRecordSize();
+                if (fanOutScale >= splitAtScale) {
+                    splitCandidate.put(matchRecordKeyPrefix, new RangeEstimation(dataSize, recordEst.avgRecordSize()));
+                } else if (fanoutSplitKeys.containsKey(matchRecordKeyPrefix) && fanOutScale < 0.5 * splitAtScale) {
+                    fanoutSplitKeys.remove(matchRecordKeyPrefix);
+                }
+            });
+            if (!splitCandidate.isEmpty()) {
+                try (IKVIterator itr = reader.iterator()) {
+                    for (ByteString routeKey : splitCandidate.keySet()) {
+                        RangeEstimation recEst = splitCandidate.get(routeKey);
+                        fanoutSplitKeys.computeIfAbsent(routeKey, k -> {
+                            int i = 0;
+                            for (itr.seek(routeKey); itr.isValid(); itr.next()) {
+                                if (i++ >= splitAtScale) {
+                                    return new FanOutSplit(recEst, itr.key());
+                                }
                             }
-                        }
-                        return null;
-                    });
+                            return null;
+                        });
+                    }
                 }
             }
         }

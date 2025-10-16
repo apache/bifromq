@@ -22,7 +22,6 @@ package org.apache.bifromq.basekv.store.wal;
 import com.google.protobuf.ByteString;
 import com.google.protobuf.InvalidProtocolBufferException;
 import io.reactivex.rxjava3.core.Observable;
-import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -33,6 +32,7 @@ import java.util.function.Predicate;
 import org.apache.bifromq.basekv.proto.KVRangeCommand;
 import org.apache.bifromq.basekv.proto.KVRangeId;
 import org.apache.bifromq.basekv.proto.KVRangeSnapshot;
+import org.apache.bifromq.basekv.raft.ILogEntryIterator;
 import org.apache.bifromq.basekv.raft.IRaftNode;
 import org.apache.bifromq.basekv.raft.event.CommitEvent;
 import org.apache.bifromq.basekv.raft.event.ElectionEvent;
@@ -71,7 +71,7 @@ public interface IKVRangeWAL {
 
     Observable<CommitEvent> commitIndex();
 
-    CompletableFuture<Iterator<LogEntry>> retrieveCommitted(long fromIndex, long maxSize);
+    CompletableFuture<ILogEntryIterator> retrieveCommitted(long fromIndex, long maxSize);
 
     CompletableFuture<Long> readIndex();
 

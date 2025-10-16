@@ -27,7 +27,7 @@ import java.util.concurrent.atomic.LongAdder;
 import java.util.function.Supplier;
 import org.apache.bifromq.metrics.ITenantMeter;
 
-public class TenantStats {
+class TenantStats {
     private final LongAdder sessionCount = new LongAdder();
     private final LongAdder subCount = new LongAdder();
 

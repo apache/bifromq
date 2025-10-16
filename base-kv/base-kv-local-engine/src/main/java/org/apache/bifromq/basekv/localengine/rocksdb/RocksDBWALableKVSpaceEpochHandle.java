@@ -21,32 +21,25 @@ package org.apache.bifromq.basekv.localengine.rocksdb;
 
 import io.micrometer.core.instrument.Tags;
 import java.io.File;
-import java.lang.ref.Cleaner;
-import java.util.function.Predicate;
-import org.apache.bifromq.baseenv.EnvProvider;
 import org.slf4j.Logger;
 
-public class CPableKVSpaceDBHandle extends AbstractKVSpaceDBHandle<RocksDBCPableKVEngineConfigurator> {
-    private static final Cleaner CLEANER = Cleaner.create(
-        EnvProvider.INSTANCE.newThreadFactory("kvspace-gen-cleaner", true));
+public class RocksDBWALableKVSpaceEpochHandle extends RocksDBKVSpaceEpochHandle<RocksDBWALableKVEngineConfigurator> {
     private final SpaceMetrics metrics;
-    private final Cleaner.Cleanable cleanable;
+    private final ClosableResources closableResources;
 
-    CPableKVSpaceDBHandle(String id,
-                          File dir,
-                          RocksDBCPableKVEngineConfigurator configurator,
-                          Predicate<String> isRetired,
-                          Logger logger,
-                          Tags tags) {
+    RocksDBWALableKVSpaceEpochHandle(String id,
+                                     File dir,
+                                     RocksDBWALableKVEngineConfigurator configurator,
+                                     Logger logger,
+                                     Tags tags) {
         super(dir, configurator, logger);
-        this.metrics = new SpaceMetrics(id, db, cf, cfDesc.getOptions(), tags.and("gen", dir.getName()), logger);
-        cleanable = CLEANER.register(this, new ClosableResources(id, dir.getName(), dbOptions, cfDesc, cf, db,
-            checkpoint, dir, isRetired, metrics, logger));
+        this.metrics = new SpaceMetrics(id, db, cf, cfDesc.getOptions(), tags.and("gen", "0"), logger);
+        closableResources = new ClosableResources(id, dir.getName(), dbOptions, cfDesc, cf, db, checkpoint, dir,
+            (test) -> false, metrics, logger);
     }
 
     @Override
     public void close() {
-        cleanable.clean();
+        closableResources.run();
     }
-
 }

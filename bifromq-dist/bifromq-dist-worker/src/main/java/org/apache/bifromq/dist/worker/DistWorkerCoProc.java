@@ -59,15 +59,15 @@ import lombok.SneakyThrows;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.bifromq.basekv.proto.Boundary;
 import org.apache.bifromq.basekv.proto.KVRangeId;
-import org.apache.bifromq.basekv.store.api.IKVCloseableReader;
 import org.apache.bifromq.basekv.store.api.IKVIterator;
 import org.apache.bifromq.basekv.store.api.IKVRangeCoProc;
-import org.apache.bifromq.basekv.store.api.IKVReader;
+import org.apache.bifromq.basekv.store.api.IKVRangeReader;
 import org.apache.bifromq.basekv.store.api.IKVWriter;
 import org.apache.bifromq.basekv.store.proto.ROCoProcInput;
 import org.apache.bifromq.basekv.store.proto.ROCoProcOutput;
 import org.apache.bifromq.basekv.store.proto.RWCoProcInput;
 import org.apache.bifromq.basekv.store.proto.RWCoProcOutput;
+import org.apache.bifromq.basekv.store.range.IKVRangeRefreshableReader;
 import org.apache.bifromq.basekv.utils.BoundaryUtil;
 import org.apache.bifromq.dist.rpc.proto.BatchDistReply;
 import org.apache.bifromq.dist.rpc.proto.BatchDistRequest;
@@ -103,7 +103,7 @@ import org.apache.bifromq.util.BSUtil;
 
 @Slf4j
 class DistWorkerCoProc implements IKVRangeCoProc {
-    private final Supplier<IKVCloseableReader> readerProvider;
+    private final Supplier<IKVRangeRefreshableReader> readerProvider;
     private final ISubscriptionCache routeCache;
     private final ITenantsStats tenantsState;
     private final IDeliverExecutorGroup deliverExecutorGroup;
@@ -112,12 +112,12 @@ class DistWorkerCoProc implements IKVRangeCoProc {
     private transient Boundary boundary;
 
     public DistWorkerCoProc(KVRangeId id,
-                            Supplier<IKVCloseableReader> readerProvider,
+                            Supplier<IKVRangeRefreshableReader> refreshableReaderProvider,
                             ISubscriptionCache routeCache,
                             ITenantsStats tenantsState,
                             IDeliverExecutorGroup deliverExecutorGroup,
                             ISubscriptionCleaner subscriptionChecker) {
-        this.readerProvider = readerProvider;
+        this.readerProvider = refreshableReaderProvider;
         this.routeCache = routeCache;
         this.tenantsState = tenantsState;
         this.deliverExecutorGroup = deliverExecutorGroup;
@@ -125,7 +125,7 @@ class DistWorkerCoProc implements IKVRangeCoProc {
     }
 
     @Override
-    public CompletableFuture<ROCoProcOutput> query(ROCoProcInput input, IKVReader reader) {
+    public CompletableFuture<ROCoProcOutput> query(ROCoProcInput input, IKVRangeReader reader) {
         try {
             DistServiceROCoProcInput coProcInput = input.getDistService();
             switch (coProcInput.getInputCase()) {
@@ -155,7 +155,10 @@ class DistWorkerCoProc implements IKVRangeCoProc {
 
     @SneakyThrows
     @Override
-    public Supplier<MutationResult> mutate(RWCoProcInput input, IKVReader reader, IKVWriter writer, boolean isLeader) {
+    public Supplier<MutationResult> mutate(RWCoProcInput input,
+                                           IKVRangeReader reader,
+                                           IKVWriter writer,
+                                           boolean isLeader) {
         DistServiceRWCoProcInput coProcInput = input.getDistService();
         log.trace("Receive rw co-proc request\n{}", coProcInput);
         // tenantId -> topicFilter
@@ -200,14 +203,13 @@ class DistWorkerCoProc implements IKVRangeCoProc {
                 }));
             }
             afterMutate.get().run();
-            refreshFact(reader, addedMatches, removedMatches,
+            refreshFact(addedMatches, removedMatches,
                 coProcInput.getTypeCase() == DistServiceRWCoProcInput.TypeCase.BATCHMATCH);
             return new MutationResult(output, Optional.of(Any.pack(fact)));
         };
     }
 
-    private void refreshFact(IKVReader reader,
-                             NavigableMap<String, NavigableMap<RouteMatcher, Set<Matching>>> added,
+    private void refreshFact(NavigableMap<String, NavigableMap<RouteMatcher, Set<Matching>>> added,
                              NavigableMap<String, NavigableMap<RouteMatcher, Set<Matching>>> removed,
                              boolean isAdd) {
         if (added.isEmpty() && removed.isEmpty()) {
@@ -246,9 +248,10 @@ class DistWorkerCoProc implements IKVRangeCoProc {
             }
         }
         if (needRefresh) {
-            reader.refresh();
-            IKVIterator itr = reader.iterator();
-            setFact(itr);
+            try (IKVRangeRefreshableReader reader = readerProvider.get(); IKVIterator itr = reader.iterator()) {
+                reader.refresh();
+                setFact(itr);
+            }
         }
     }
 
@@ -280,10 +283,9 @@ class DistWorkerCoProc implements IKVRangeCoProc {
     @Override
     public Any reset(Boundary boundary) {
         tenantsState.reset();
-        try (IKVCloseableReader reader = readerProvider.get()) {
+        try (IKVRangeRefreshableReader reader = readerProvider.get(); IKVIterator itr = reader.iterator()) {
             this.boundary = boundary;
             routeCache.reset(boundary);
-            IKVIterator itr = reader.iterator();
             setFact(itr);
         }
         return Any.pack(fact);
@@ -301,7 +303,7 @@ class DistWorkerCoProc implements IKVRangeCoProc {
     }
 
     private Runnable batchAddRoute(BatchMatchRequest request,
-                                   IKVReader reader,
+                                   IKVRangeReader reader,
                                    IKVWriter writer,
                                    boolean isLeader,
                                    Map<String, NavigableMap<RouteMatcher, Set<Matching>>> newMatches,
@@ -412,7 +414,7 @@ class DistWorkerCoProc implements IKVRangeCoProc {
     }
 
     private Runnable batchRemoveRoute(BatchUnmatchRequest request,
-                                      IKVReader reader,
+                                      IKVRangeReader reader,
                                       IKVWriter writer,
                                       boolean isLeader,
                                       Map<String, NavigableMap<RouteMatcher, Set<Matching>>> removedMatches,
@@ -550,152 +552,152 @@ class DistWorkerCoProc implements IKVRangeCoProc {
             });
     }
 
-    private CompletableFuture<GCReply> gc(GCRequest request, IKVReader reader) {
-        reader.refresh();
+    private CompletableFuture<GCReply> gc(GCRequest request, IKVRangeReader reader) {
         int stepUsed = Math.max(request.getStepHint(), 1);
         int scanQuota = request.getScanQuota() > 0 ? request.getScanQuota() : 256 * stepUsed;
 
         // subBrokerId -> delivererKey -> tenantId-> CheckRequest
         Map<Integer, Map<String, Map<String, CheckRequest.Builder>>> checkRequestBuilders = new HashMap<>();
 
-        IKVIterator itr = reader.iterator();
-        // clamp start key to current boundary when provided
-        if (request.hasStartKey()) {
-            ByteString startKey = request.getStartKey();
-            if (boundary != null) {
-                ByteString startBoundary = BoundaryUtil.startKey(boundary);
-                ByteString endBoundary = BoundaryUtil.endKey(boundary);
-                if (BoundaryUtil.compareStartKey(startKey, startBoundary) < 0) {
-                    startKey = startBoundary;
-                } else if (BoundaryUtil.compareEndKeys(startKey, endBoundary) >= 0) {
-                    // clamp to start when beyond end
-                    startKey = startBoundary;
+        try (IKVIterator itr = reader.iterator()) {
+            // clamp start key to current boundary when provided
+            if (request.hasStartKey()) {
+                ByteString startKey = request.getStartKey();
+                if (boundary != null) {
+                    ByteString startBoundary = BoundaryUtil.startKey(boundary);
+                    ByteString endBoundary = BoundaryUtil.endKey(boundary);
+                    if (BoundaryUtil.compareStartKey(startKey, startBoundary) < 0) {
+                        startKey = startBoundary;
+                    } else if (BoundaryUtil.compareEndKeys(startKey, endBoundary) >= 0) {
+                        // clamp to start when beyond end
+                        startKey = startBoundary;
+                    }
                 }
-            }
-            if (startKey != null) {
-                itr.seek(startKey);
+                if (startKey != null) {
+                    itr.seek(startKey);
+                } else {
+                    itr.seekToFirst();
+                }
             } else {
                 itr.seekToFirst();
             }
-        } else {
-            itr.seekToFirst();
-        }
 
-        // if range is empty, return immediately
-        if (!itr.isValid()) {
-            return CompletableFuture.completedFuture(GCReply.newBuilder()
-                .setReqId(request.getReqId())
-                .setInspectedCount(0)
-                .setRemoveSuccess(0)
-                .setWrapped(false)
-                .build());
-        }
-
-        AtomicInteger inspectedCount = new AtomicInteger();
-        AtomicBoolean wrapped = new AtomicBoolean(false);
-        ByteString sessionStartKey = null;
-
-        outer:
-        while (true) {
+            // if range is empty, return immediately
             if (!itr.isValid()) {
-                // reach tail
-                if (!wrapped.get()) {
-                    itr.seekToFirst();
-                    if (!itr.isValid()) {
-                        break; // still empty
+                return CompletableFuture.completedFuture(GCReply.newBuilder()
+                    .setReqId(request.getReqId())
+                    .setInspectedCount(0)
+                    .setRemoveSuccess(0)
+                    .setWrapped(false)
+                    .build());
+            }
+
+            AtomicInteger inspectedCount = new AtomicInteger();
+            AtomicBoolean wrapped = new AtomicBoolean(false);
+            ByteString sessionStartKey = null;
+
+            outer:
+            while (true) {
+                if (!itr.isValid()) {
+                    // reach tail
+                    if (!wrapped.get()) {
+                        itr.seekToFirst();
+                        if (!itr.isValid()) {
+                            break; // still empty
+                        }
+                        wrapped.set(true);
+                    } else {
+                        break;
                     }
-                    wrapped.set(true);
-                } else {
+                }
+
+                ByteString currentKey = itr.key();
+                // stop if met sessionStartKey after wrap before decoding
+                if (wrapped.get() && currentKey.equals(sessionStartKey)) {
                     break;
                 }
-            }
 
-            ByteString currentKey = itr.key();
-            // stop if met sessionStartKey after wrap before decoding
-            if (wrapped.get() && currentKey.equals(sessionStartKey)) {
-                break;
-            }
-
-            if (sessionStartKey == null) {
-                sessionStartKey = currentKey;
-            }
-            Matching matching = buildMatchRoute(currentKey, itr.value());
-            switch (matching.type()) {
-                case Normal -> {
-                    if (!routeCache.isCached(matching.tenantId(), matching.matcher.getFilterLevelList())) {
-                        NormalMatching normalMatching = ((NormalMatching) matching);
-                        checkRequestBuilders.computeIfAbsent(normalMatching.subBrokerId(), k -> new HashMap<>())
-                            .computeIfAbsent(normalMatching.delivererKey(), k -> new HashMap<>())
-                            .computeIfAbsent(normalMatching.tenantId(), k -> CheckRequest.newBuilder()
-                                .setTenantId(k)
-                                .setDelivererKey(normalMatching.delivererKey()))
-                            .addMatchInfo(((NormalMatching) matching).matchInfo());
-                    }
+                if (sessionStartKey == null) {
+                    sessionStartKey = currentKey;
                 }
-                case Group -> {
-                    GroupMatching groupMatching = ((GroupMatching) matching);
-                    if (!routeCache.isCached(groupMatching.tenantId(), matching.matcher.getFilterLevelList())) {
-                        for (NormalMatching normalMatching : groupMatching.receiverList) {
+                Matching matching = buildMatchRoute(currentKey, itr.value());
+                switch (matching.type()) {
+                    case Normal -> {
+                        if (!routeCache.isCached(matching.tenantId(), matching.matcher.getFilterLevelList())) {
+                            NormalMatching normalMatching = ((NormalMatching) matching);
                             checkRequestBuilders.computeIfAbsent(normalMatching.subBrokerId(), k -> new HashMap<>())
                                 .computeIfAbsent(normalMatching.delivererKey(), k -> new HashMap<>())
                                 .computeIfAbsent(normalMatching.tenantId(), k -> CheckRequest.newBuilder()
                                     .setTenantId(k)
                                     .setDelivererKey(normalMatching.delivererKey()))
-                                .addMatchInfo(normalMatching.matchInfo());
+                                .addMatchInfo(((NormalMatching) matching).matchInfo());
                         }
                     }
+                    case Group -> {
+                        GroupMatching groupMatching = ((GroupMatching) matching);
+                        if (!routeCache.isCached(groupMatching.tenantId(), matching.matcher.getFilterLevelList())) {
+                            for (NormalMatching normalMatching : groupMatching.receiverList) {
+                                checkRequestBuilders.computeIfAbsent(normalMatching.subBrokerId(), k -> new HashMap<>())
+                                    .computeIfAbsent(normalMatching.delivererKey(), k -> new HashMap<>())
+                                    .computeIfAbsent(normalMatching.tenantId(), k -> CheckRequest.newBuilder()
+                                        .setTenantId(k)
+                                        .setDelivererKey(normalMatching.delivererKey()))
+                                    .addMatchInfo(normalMatching.matchInfo());
+                            }
+                        }
+                    }
+                    default -> {
+                        // never happen
+                    }
                 }
-                default -> {
-                    // never happen
+                inspectedCount.incrementAndGet();
+                if (inspectedCount.get() >= scanQuota) {
+                    // stop by quota
+                    itr.next();
+                    break;
                 }
-            }
-            inspectedCount.incrementAndGet();
-            if (inspectedCount.get() >= scanQuota) {
-                // stop by quota
+
+                // skip over stepUsed-1 entries
+                int skip = stepUsed - 1;
+                while (skip-- > 0) {
+                    itr.next();
+                    if (!itr.isValid()) {
+                        // let outer loop handle wrap or stop
+                        continue outer;
+                    }
+                }
+                // move to next for next iteration
                 itr.next();
-                break;
             }
 
-            // skip over stepUsed-1 entries
-            int skip = stepUsed - 1;
-            while (skip-- > 0) {
-                itr.next();
-                if (!itr.isValid()) {
-                    // let outer loop handle wrap or stop
-                    continue outer;
+            // aggregate sweep results
+            List<CompletableFuture<ISubscriptionCleaner.GCStats>> checkFutures = new ArrayList<>();
+            for (int subBrokerId : checkRequestBuilders.keySet()) {
+                for (String delivererKey : checkRequestBuilders.get(subBrokerId).keySet()) {
+                    for (Map.Entry<String, CheckRequest.Builder> entry : checkRequestBuilders.get(subBrokerId)
+                        .get(delivererKey).entrySet()) {
+                        checkFutures.add(subscriptionChecker.sweep(subBrokerId, entry.getValue().build()));
+                    }
                 }
             }
-            // move to next for next iteration
-            itr.next();
-        }
 
-        // aggregate sweep results
-        List<CompletableFuture<ISubscriptionCleaner.GCStats>> checkFutures = new ArrayList<>();
-        for (int subBrokerId : checkRequestBuilders.keySet()) {
-            for (String delivererKey : checkRequestBuilders.get(subBrokerId).keySet()) {
-                for (Map.Entry<String, CheckRequest.Builder> entry : checkRequestBuilders.get(subBrokerId)
-                    .get(delivererKey).entrySet()) {
-                    checkFutures.add(subscriptionChecker.sweep(subBrokerId, entry.getValue().build()));
+            CompletableFuture<Void> all = CompletableFuture.allOf(checkFutures.toArray(CompletableFuture[]::new));
+            return all.thenApply(v -> {
+                int success = 0;
+                for (CompletableFuture<ISubscriptionCleaner.GCStats> f : checkFutures) {
+                    success += f.join().success();
                 }
-            }
+                GCReply.Builder reply = GCReply.newBuilder()
+                    .setReqId(request.getReqId())
+                    .setInspectedCount(inspectedCount.get())
+                    .setRemoveSuccess(success)
+                    .setWrapped(wrapped.get());
+                if (itr.isValid()) {
+                    reply.setNextStartKey(itr.key());
+                }
+                return reply.build();
+            });
         }
-
-        CompletableFuture<Void> all = CompletableFuture.allOf(checkFutures.toArray(CompletableFuture[]::new));
-        return all.thenApply(v -> {
-            int success = 0;
-            for (CompletableFuture<ISubscriptionCleaner.GCStats> f : checkFutures) {
-                success += f.join().success();
-            }
-            GCReply.Builder reply = GCReply.newBuilder()
-                .setReqId(request.getReqId())
-                .setInspectedCount(inspectedCount.get())
-                .setRemoveSuccess(success)
-                .setWrapped(wrapped.get());
-            if (itr.isValid()) {
-                reply.setNextStartKey(itr.key());
-            }
-            return reply.build();
-        });
     }
 
     private record GlobalTopicFilter(String tenantId, RouteMatcher routeMatcher) {

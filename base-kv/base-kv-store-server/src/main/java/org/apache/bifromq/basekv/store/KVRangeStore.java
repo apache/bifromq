@@ -53,6 +53,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.atomic.LongAdder;
 import java.util.stream.Collectors;
+import javax.annotation.Nullable;
 import lombok.NonNull;
 import org.apache.bifromq.base.util.AsyncRunner;
 import org.apache.bifromq.baseenv.EnvProvider;
@@ -85,8 +86,8 @@ import org.apache.bifromq.basekv.store.proto.RWCoProcInput;
 import org.apache.bifromq.basekv.store.proto.RWCoProcOutput;
 import org.apache.bifromq.basekv.store.range.IKVRange;
 import org.apache.bifromq.basekv.store.range.IKVRangeFSM;
-import org.apache.bifromq.basekv.store.range.KVRange;
 import org.apache.bifromq.basekv.store.range.KVRangeFSM;
+import org.apache.bifromq.basekv.store.range.KVRangeFactory;
 import org.apache.bifromq.basekv.store.stats.IStatsCollector;
 import org.apache.bifromq.basekv.store.wal.IKVRangeWALStore;
 import org.apache.bifromq.basekv.store.wal.KVRangeWALStorageEngine;
@@ -197,22 +198,23 @@ public class KVRangeStore implements IKVRangeStore {
 
     private void loadExisting() {
         mgmtTaskRunner.add(() -> {
-            kvRangeEngine.spaces().forEach((id, keyRange) -> {
+            kvRangeEngine.spaces().forEach((id, kvSpace) -> {
                 KVRangeId rangeId = KVRangeIdUtil.fromString(id);
                 if (walStorageEngine.has(rangeId)) {
                     IKVRangeWALStore walStore = walStorageEngine.get(rangeId);
-                    IKVRange range = new KVRange(rangeId, keyRange);
+                    String[] rangeTags = rangeTags(rangeId);
+                    IKVRange range = buildKVRange(rangeId, kvSpace, null, rangeTags);
                     // verify the integrity of wal and range state
                     if (!validate(range, walStore)) {
                         log.warn("Destroy inconsistent KVRange: {}", id);
-                        keyRange.destroy();
+                        kvSpace.destroy();
                         walStore.destroy();
                         return;
                     }
-                    putAndOpen(loadKVRangeFSM(rangeId, range, walStore)).join();
+                    putAndOpen(loadKVRangeFSM(rangeId, range, walStore, rangeTags)).join();
                 } else {
                     log.debug("Destroy orphan KVRange: {}", id);
-                    keyRange.destroy();
+                    kvSpace.destroy();
                 }
             });
             updateDescriptorList();
@@ -220,8 +222,8 @@ public class KVRangeStore implements IKVRangeStore {
     }
 
     private boolean validate(IKVRange range, IKVRangeWALStore walStore) {
-        return range.lastAppliedIndex() <= -1
-            || range.lastAppliedIndex() >= walStore.latestSnapshot().getIndex();
+        long lastAppliedIndex = range.lastAppliedIndex().blockingFirst();
+        return lastAppliedIndex <= -1 || lastAppliedIndex >= walStore.latestSnapshot().getIndex();
     }
 
     @Override
@@ -230,6 +232,7 @@ public class KVRangeStore implements IKVRangeStore {
             try {
                 log.debug("Stopping KVRange store");
                 log.debug("Await for all management tasks to finish");
+                tickFuture.get();
                 mgmtTaskRunner.awaitDone().toCompletableFuture().join();
                 List<CompletableFuture<Void>> closeFutures = new ArrayList<>();
                 try {
@@ -250,7 +253,6 @@ public class KVRangeStore implements IKVRangeStore {
                 descriptorListSubject.onComplete();
                 status.set(Status.CLOSED);
                 status.set(Status.TERMINATING);
-                tickFuture.get();
             } catch (Throwable e) {
                 log.error("Error occurred during stopping range store", e);
             } finally {
@@ -625,6 +627,9 @@ public class KVRangeStore implements IKVRangeStore {
     }
 
     private void scheduleTick(long delayInMS) {
+        if (status.get() != Status.STARTED && status.get() != Status.CLOSING) {
+            return;
+        }
         tickFuture = tickExecutor.schedule(this::tick, delayInMS, TimeUnit.MILLISECONDS);
     }
 
@@ -644,8 +649,8 @@ public class KVRangeStore implements IKVRangeStore {
 
     private CompletableFuture<Void> ensureRange(KVRangeId rangeId, Snapshot walSnapshot,
                                                 KVRangeSnapshot rangeSnapshot) {
-        ICPableKVSpace keyRange = kvRangeEngine.spaces().get(KVRangeIdUtil.toString(rangeId));
-        if (keyRange == null) {
+        ICPableKVSpace kvSpace = kvRangeEngine.spaces().get(KVRangeIdUtil.toString(rangeId));
+        if (kvSpace == null) {
             if (walStorageEngine.has(rangeId)) {
                 log.warn("Destroy staled WALStore: rangeId={}", KVRangeIdUtil.toString(rangeId));
                 walStorageEngine.get(rangeId).destroy();
@@ -657,7 +662,8 @@ public class KVRangeStore implements IKVRangeStore {
             if (walStore == null) {
                 walStore = walStorageEngine.create(rangeId, walSnapshot);
             }
-            return putAndOpen(loadKVRangeFSM(rangeId, new KVRange(rangeId, keyRange), walStore));
+            return putAndOpen(
+                loadKVRangeFSM(rangeId, KVRangeFactory.create(rangeId, kvSpace), walStore, rangeTags(rangeId)));
         }
     }
 
@@ -712,33 +718,56 @@ public class KVRangeStore implements IKVRangeStore {
             .thenAccept(v -> updateDescriptorList());
     }
 
-    private IKVRangeFSM loadKVRangeFSM(KVRangeId rangeId, IKVRange range, IKVRangeWALStore walStore) {
+    private IKVRangeFSM loadKVRangeFSM(KVRangeId rangeId, IKVRange range, IKVRangeWALStore walStore, String... tags) {
         log.debug("Load existing kvrange: rangeId={}", KVRangeIdUtil.toString(rangeId));
-        return new KVRangeFSM(clusterId,
-            id,
-            rangeId,
-            coProcFactory,
-            range,
-            walStore,
-            queryExecutor,
-            bgTaskExecutor,
-            opts.getKvRangeOptions(),
-            this::quitKVRange);
+        return buildKVRangeFSM(rangeId, range, walStore, tags);
     }
 
     private IKVRangeFSM createKVRangeFSM(KVRangeId rangeId, Snapshot snapshot, KVRangeSnapshot rangeSnapshot) {
         log.debug("Creating new kvrange: rangeId={}", KVRangeIdUtil.toString(rangeId));
+        String[] rangeTags = rangeTags(rangeId);
         IKVRangeWALStore walStore = walStorageEngine.create(rangeId, snapshot);
-        return new KVRangeFSM(clusterId,
+        ICPableKVSpace kvSpace = kvRangeEngine.createIfMissing(KVRangeIdUtil.toString(rangeId));
+        IKVRange kvRange = buildKVRange(rangeId, kvSpace, rangeSnapshot, rangeTags);
+        return buildKVRangeFSM(rangeId, kvRange, walStore, rangeTags);
+    }
+
+    private IKVRange buildKVRange(KVRangeId rangeId,
+                                  ICPableKVSpace kvSpace,
+                                  @Nullable KVRangeSnapshot snapshot,
+                                  String... tags) {
+        if (snapshot == null) {
+            return KVRangeFactory.create(rangeId, kvSpace, tags);
+        } else {
+            return KVRangeFactory.create(rangeId, kvSpace, snapshot, tags);
+        }
+    }
+
+    private String[] rangeTags(KVRangeId rangeId) {
+        return new String[] {
+            "clusterId", clusterId,
+            "storeId", id,
+            "rangeId", KVRangeIdUtil.toString(rangeId)
+        };
+    }
+
+    private IKVRangeFSM buildKVRangeFSM(KVRangeId rangeId,
+                                        IKVRange kvRange,
+                                        IKVRangeWALStore walStore,
+                                        String... tags) {
+        return new KVRangeFSM(
+            clusterId,
             id,
             rangeId,
             coProcFactory,
-            new KVRange(rangeId, kvRangeEngine.createIfMissing(KVRangeIdUtil.toString(rangeId)), rangeSnapshot),
+            kvRange,
             walStore,
             queryExecutor,
             bgTaskExecutor,
             opts.getKvRangeOptions(),
-            this::quitKVRange);
+            this::quitKVRange,
+            tags);
+
     }
 
     private void updateDescriptorList() {

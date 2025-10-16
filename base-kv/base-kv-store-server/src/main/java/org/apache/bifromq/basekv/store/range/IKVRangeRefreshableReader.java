@@ -17,13 +17,16 @@
  * under the License.
  */
 
-package org.apache.bifromq.basekv.localengine.rocksdb;
+package org.apache.bifromq.basekv.store.range;
 
-import org.rocksdb.ColumnFamilyHandle;
-import org.rocksdb.RocksDB;
+import org.apache.bifromq.basekv.store.api.IKVRangeReader;
 
-public interface IKVSpaceDBInstance {
-    RocksDB db();
-
-    ColumnFamilyHandle cf();
+/**
+ * A KVRange reader that can be refreshed to the latest consistent-view.
+ */
+public interface IKVRangeRefreshableReader extends IKVRangeReader {
+    /**
+     * Refresh the reader to the latest consistent-view.
+     */
+    void refresh();
 }

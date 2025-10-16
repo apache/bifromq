@@ -23,10 +23,10 @@ import org.apache.bifromq.basekv.localengine.ICPableKVSpace;
 import org.apache.bifromq.basekv.proto.KVRangeId;
 import org.apache.bifromq.basekv.store.api.IKVWriter;
 
-public class LoadRecordableKVRangeWriter extends KVRangeWriter {
+class LoadRecordableKVRangeWriter extends KVRangeWriter {
     private final IKVLoadRecorder recorder;
 
-    public LoadRecordableKVRangeWriter(KVRangeId id, ICPableKVSpace space, IKVLoadRecorder recorder) {
+    LoadRecordableKVRangeWriter(KVRangeId id, ICPableKVSpace space, IKVLoadRecorder recorder) {
         super(id, space);
         this.recorder = recorder;
     }

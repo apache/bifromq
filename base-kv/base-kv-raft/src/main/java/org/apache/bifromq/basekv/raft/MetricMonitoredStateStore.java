@@ -14,21 +14,20 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 
 package org.apache.bifromq.basekv.raft;
 
+import io.micrometer.core.instrument.Metrics;
+import io.micrometer.core.instrument.Tags;
+import io.micrometer.core.instrument.Timer;
+import java.util.List;
+import java.util.Optional;
 import org.apache.bifromq.basekv.raft.proto.ClusterConfig;
 import org.apache.bifromq.basekv.raft.proto.LogEntry;
 import org.apache.bifromq.basekv.raft.proto.Snapshot;
 import org.apache.bifromq.basekv.raft.proto.Voting;
-import io.micrometer.core.instrument.Metrics;
-import io.micrometer.core.instrument.Tags;
-import io.micrometer.core.instrument.Timer;
-import java.util.Iterator;
-import java.util.List;
-import java.util.Optional;
 
 class MetricMonitoredStateStore implements IRaftStateStore {
     private final IRaftStateStore delegate;
@@ -95,7 +94,7 @@ class MetricMonitoredStateStore implements IRaftStateStore {
     }
 
     @Override
-    public Iterator<LogEntry> entries(long lo, long hi, long maxSize) {
+    public ILogEntryIterator entries(long lo, long hi, long maxSize) {
         return metricManager.entriesTimer.record(() -> delegate.entries(lo, hi, maxSize));
     }
 

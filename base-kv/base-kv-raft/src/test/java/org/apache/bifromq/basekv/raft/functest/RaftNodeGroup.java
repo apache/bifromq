@@ -19,6 +19,26 @@
 
 package org.apache.bifromq.basekv.raft.functest;
 
+import com.google.protobuf.ByteString;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import java.util.Set;
+import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.stream.Collectors;
+import lombok.extern.slf4j.Slf4j;
+import org.apache.bifromq.basekv.raft.ILogEntryIterator;
 import org.apache.bifromq.basekv.raft.IRaftNode;
 import org.apache.bifromq.basekv.raft.IRaftStateStore;
 import org.apache.bifromq.basekv.raft.InMemoryStateStore;
@@ -34,26 +54,6 @@ import org.apache.bifromq.basekv.raft.proto.RaftMessage;
 import org.apache.bifromq.basekv.raft.proto.RaftNodeStatus;
 import org.apache.bifromq.basekv.raft.proto.RaftNodeSyncState;
 import org.apache.bifromq.basekv.raft.proto.Snapshot;
-import com.google.protobuf.ByteString;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.Collections;
-import java.util.HashSet;
-import java.util.Iterator;
-import java.util.List;
-import java.util.Map;
-import java.util.Optional;
-import java.util.Set;
-import java.util.UUID;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.Executors;
-import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.stream.Collectors;
-import lombok.extern.slf4j.Slf4j;
 import org.awaitility.Awaitility;
 
 @Slf4j
@@ -211,9 +211,11 @@ public final class RaftNodeGroup {
         assert commitLogs.containsKey(id);
         RaftNode node = nodes.get(id);
         try {
-            List ret = new ArrayList();
-            node.retrieveCommitted(fromIndex, Long.MAX_VALUE).get().forEachRemaining(ret::add);
-            return ret;
+            List<LogEntry> ret = new ArrayList<>();
+            try (ILogEntryIterator it = node.retrieveCommitted(fromIndex, Long.MAX_VALUE).get()) {
+                it.forEachRemaining(ret::add);
+                return ret;
+            }
         } catch (Exception e) {
             throw new RuntimeException(e);
         }
@@ -403,17 +405,20 @@ public final class RaftNodeGroup {
     public List<LogEntry> retrieveCommitted(String id, long fromIndex, long maxSize) {
         assert nodes.containsKey(id);
         List<LogEntry> entries = new ArrayList<>();
-        nodes.get(id).retrieveCommitted(fromIndex, maxSize).join().forEachRemaining(entries::add);
+        try (ILogEntryIterator it = nodes.get(id).retrieveCommitted(fromIndex, maxSize).join()) {
+            it.forEachRemaining(entries::add);
+        }
         return entries;
     }
 
     public Optional<LogEntry> entryAt(String id, long index) {
         assert nodes.containsKey(id);
-        Iterator<LogEntry> entries = nodes.get(id).retrieveCommitted(index, Long.MAX_VALUE).join();
-        if (entries.hasNext()) {
-            return Optional.of(entries.next());
+        try (ILogEntryIterator it = nodes.get(id).retrieveCommitted(index, Long.MAX_VALUE).join()) {
+            if (it.hasNext()) {
+                return Optional.of(it.next());
+            }
+            return Optional.empty();
         }
-        return Optional.empty();
     }
 
     public long commitIndex(String id) {

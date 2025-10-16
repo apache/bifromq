@@ -59,8 +59,12 @@ import org.rocksdb.RocksDBException;
 import org.rocksdb.WriteOptions;
 import org.slf4j.Logger;
 
-public class RocksDBCPableKVSpace
-    extends RocksDBKVSpace<RocksDBCPableKVEngine, RocksDBCPableKVSpace, RocksDBCPableKVEngineConfigurator>
+class RocksDBCPableKVSpace extends RocksDBKVSpace<
+    RocksDBCPableKVEngine,
+    RocksDBCPableKVSpace,
+    RocksDBCPableKVEngineConfigurator,
+    RocksDBCPableKVSpaceEpochHandle
+    >
     implements ICPableKVSpace {
     public static final String ACTIVE_GEN_POINTER = "ACTIVE";
     private static final String CP_SUFFIX = ".cp";
@@ -70,19 +74,19 @@ public class RocksDBCPableKVSpace
     private final AtomicReference<String> latestCheckpointId = new AtomicReference<>();
     private final Cache<String, IRocksDBKVSpaceCheckpoint> checkpoints;
     private final MetricManager metricMgr;
-    private final AtomicReference<CPableKVSpaceDBHandle> active = new AtomicReference<>();
+    private final AtomicReference<RocksDBCPableKVSpaceEpochHandle> active = new AtomicReference<>();
     private File currentDBDir;
     // keep a strong ref to latest checkpoint
     private IKVSpaceCheckpoint latestCheckpoint;
 
     @SneakyThrows
-    public RocksDBCPableKVSpace(String id,
-                                RocksDBCPableKVEngineConfigurator configurator,
-                                RocksDBCPableKVEngine engine,
-                                Runnable onDestroy,
-                                KVSpaceOpMeters opMeters,
-                                Logger logger,
-                                String... tags) {
+    RocksDBCPableKVSpace(String id,
+                         RocksDBCPableKVEngineConfigurator configurator,
+                         RocksDBCPableKVEngine engine,
+                         Runnable onDestroy,
+                         KVSpaceOpMeters opMeters,
+                         Logger logger,
+                         String... tags) {
         super(id, configurator, engine, onDestroy, opMeters, logger, tags);
         this.engine = engine;
         cpRootDir = new File(configurator.dbCheckpointRootDir(), id);
@@ -102,7 +106,7 @@ public class RocksDBCPableKVSpace
     }
 
     @Override
-    protected IKVSpaceDBInstance handle() {
+    protected RocksDBCPableKVSpaceEpochHandle handle() {
         return active.get();
     }
 
@@ -120,7 +124,8 @@ public class RocksDBCPableKVSpace
 
     @Override
     public Optional<IKVSpaceCheckpoint> openCheckpoint(String checkpointId) {
-        return Optional.ofNullable(checkpoints.getIfPresent(checkpointId));
+        IRocksDBKVSpaceCheckpoint cp = checkpoints.getIfPresent(checkpointId);
+        return Optional.ofNullable(cp);
     }
 
     @Override
@@ -136,7 +141,7 @@ public class RocksDBCPableKVSpace
     @Override
     public IKVSpaceMigratableWriter toWriter() {
         return new RocksDBKVSpaceMigratableWriter<>(id, active.get(), engine, writeOptions(), syncContext,
-            writeStats.newRecorder(), this::updateMetadata, opMeters, logger);
+            writeStats.newRecorder(), this::publishMetadata, opMeters, logger);
     }
 
     @Override
@@ -150,7 +155,7 @@ public class RocksDBCPableKVSpace
         metricMgr.close();
         checkpoints.asMap().forEach((cpId, cp) -> cp.close());
         writeOptions.close();
-        CPableKVSpaceDBHandle h = active.get();
+        RocksDBCPableKVSpaceEpochHandle h = active.get();
         if (h != null) {
             h.close();
         }
@@ -159,11 +164,12 @@ public class RocksDBCPableKVSpace
 
     @Override
     protected void doDestroy() {
-        super.doDestroy();
         try {
             deleteDir(cpRootDir.toPath());
         } catch (IOException e) {
             logger.error("Failed to delete checkpoint root dir: {}", cpRootDir, e);
+        } finally {
+            super.doDestroy();
         }
     }
 
@@ -171,10 +177,12 @@ public class RocksDBCPableKVSpace
     protected void doOpen() {
         try {
             // Use currentDBDir initialized during construction
-            this.active.set(new CPableKVSpaceDBHandle(id, currentDBDir, configurator, this::isRetired, logger, tags));
+            this.active.set(
+                new RocksDBCPableKVSpaceEpochHandle(id, currentDBDir, configurator, this::isRetired, logger, tags));
             // cleanup inactive generations at startup
             cleanInactiveOnStartup();
             loadLatestCheckpoint();
+            super.doOpen();
         } catch (Throwable e) {
             throw new KVEngineException("Failed to open CPable KVSpace", e);
         }
@@ -185,7 +193,7 @@ public class RocksDBCPableKVSpace
         File cpDir = Paths.get(cpRootDir.getAbsolutePath(), cpId).toFile();
         try {
             logger.debug("KVSpace[{}] checkpoint start: checkpointId={}", id, cpId);
-            CPableKVSpaceDBHandle currentHandle = active.get();
+            RocksDBCPableKVSpaceEpochHandle currentHandle = active.get();
             currentHandle.db.put(currentHandle.cf, LATEST_CP_KEY, cpId.getBytes());
             currentHandle.checkpoint.createCheckpoint(cpDir.toString());
             latestCheckpointId.set(cpId);
@@ -197,7 +205,7 @@ public class RocksDBCPableKVSpace
 
     @SneakyThrows
     private IRocksDBKVSpaceCheckpoint doLoadLatestCheckpoint() {
-        CPableKVSpaceDBHandle currentHandle = active.get();
+        RocksDBCPableKVSpaceEpochHandle currentHandle = active.get();
         byte[] cpIdBytes = currentHandle.db.get(currentHandle.cf, LATEST_CP_KEY);
         if (cpIdBytes != null) {
             try {
@@ -280,7 +288,7 @@ public class RocksDBCPableKVSpace
         }
     }
 
-    private void switchTo(CPableKVSpaceDBHandle handle) {
+    private void switchTo(RocksDBCPableKVSpaceEpochHandle handle) {
         syncContext.mutator().run(() -> {
             // inactive handle will be closed and cleaned up by cleaner
             active.set(handle);
@@ -403,7 +411,7 @@ public class RocksDBCPableKVSpace
         private final IRestoreSession.FlushListener flushListener;
         private final Logger logger;
         private final AtomicBoolean closed = new AtomicBoolean(false);
-        private final CPableKVSpaceDBHandle stagingHandle;
+        private final RocksDBCPableKVSpaceEpochHandle stagingHandle;
         private int ops = 0;
         private long bytes = 0;
         private long batchStartNanos = -1;
@@ -418,7 +426,7 @@ public class RocksDBCPableKVSpace
                 } else {
                     Files.createDirectories(stagingDir.toPath());
                 }
-                stagingHandle = new CPableKVSpaceDBHandle(id, stagingDir, configurator,
+                stagingHandle = new RocksDBCPableKVSpaceEpochHandle(id, stagingDir, configurator,
                     RocksDBCPableKVSpace.this::isRetired, logger, tags);
                 helper = new RocksDBKVSpaceWriterHelper(stagingHandle.db, writeOptions);
             } catch (Throwable t) {

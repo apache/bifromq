@@ -21,25 +21,31 @@ package org.apache.bifromq.basekv.localengine.rocksdb;
 
 import io.micrometer.core.instrument.Tags;
 import java.io.File;
+import java.lang.ref.Cleaner;
+import java.util.function.Predicate;
+import org.apache.bifromq.baseenv.EnvProvider;
 import org.slf4j.Logger;
 
-public class WALableKVSpaceDBHandle extends AbstractKVSpaceDBHandle<RocksDBWALableKVEngineConfigurator> {
+class RocksDBCPableKVSpaceEpochHandle extends RocksDBKVSpaceEpochHandle<RocksDBCPableKVEngineConfigurator> {
+    private static final Cleaner CLEANER = Cleaner.create(
+        EnvProvider.INSTANCE.newThreadFactory("kvspace-epoch-cleaner", true));
     private final SpaceMetrics metrics;
-    private final ClosableResources closableResources;
+    private final Cleaner.Cleanable cleanable;
 
-    WALableKVSpaceDBHandle(String id,
-                           File dir,
-                           RocksDBWALableKVEngineConfigurator configurator,
-                           Logger logger,
-                           Tags tags) {
+    RocksDBCPableKVSpaceEpochHandle(String id,
+                                    File dir,
+                                    RocksDBCPableKVEngineConfigurator configurator,
+                                    Predicate<String> isRetired,
+                                    Logger logger,
+                                    Tags tags) {
         super(dir, configurator, logger);
-        this.metrics = new SpaceMetrics(id, db, cf, cfDesc.getOptions(), tags.and("gen", "0"), logger);
-        closableResources = new ClosableResources(id, dir.getName(), dbOptions, cfDesc, cf,
-            db, checkpoint, dir, (test) -> false, metrics, logger);
+        this.metrics = new SpaceMetrics(id, db, cf, cfDesc.getOptions(), tags.and("gen", dir.getName()), logger);
+        cleanable = CLEANER.register(this, new ClosableResources(id, dir.getName(), dbOptions, cfDesc, cf, db,
+            checkpoint, dir, isRetired, metrics, logger));
     }
 
     @Override
     public void close() {
-        closableResources.run();
+        cleanable.clean();
     }
 }

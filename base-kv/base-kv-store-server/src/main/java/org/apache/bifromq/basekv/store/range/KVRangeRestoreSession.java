@@ -32,7 +32,7 @@ import org.apache.bifromq.basekv.proto.State;
 import org.apache.bifromq.basekv.raft.proto.ClusterConfig;
 import org.apache.bifromq.basekv.store.util.KVUtil;
 
-public final class KVRangeRestoreSession implements IKVRangeRestoreSession {
+class KVRangeRestoreSession implements IKVRangeRestoreSession {
     private final IRestoreSession restoreSession;
 
     KVRangeRestoreSession(IRestoreSession restoreSession) {

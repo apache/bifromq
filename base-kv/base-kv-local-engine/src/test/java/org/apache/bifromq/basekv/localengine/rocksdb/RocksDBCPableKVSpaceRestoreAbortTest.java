@@ -27,6 +27,7 @@ import com.google.protobuf.ByteString;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import org.apache.bifromq.basekv.localengine.ICPableKVSpace;
+import org.apache.bifromq.basekv.localengine.IKVSpaceReader;
 import org.apache.bifromq.basekv.localengine.IRestoreSession;
 import org.testng.annotations.AfterMethod;
 import org.testng.annotations.BeforeMethod;
@@ -85,7 +86,9 @@ public class RocksDBCPableKVSpaceRestoreAbortTest {
         session.abort();
 
         // key not present
-        assertFalse(space.get(ByteString.copyFromUtf8("k")).isPresent());
+        try (IKVSpaceReader reader = space.reader()) {
+            assertFalse(reader.get(ByteString.copyFromUtf8("k")).isPresent());
+        }
         // pointer unchanged
         String after = Files.readString(pointer).trim();
         assertEquals(after, before);

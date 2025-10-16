@@ -35,7 +35,6 @@ import com.google.protobuf.ByteString;
 import io.reactivex.rxjava3.observers.TestObserver;
 import java.lang.reflect.Method;
 import java.util.Collections;
-import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -49,6 +48,7 @@ import org.apache.bifromq.basekv.MockableTest;
 import org.apache.bifromq.basekv.proto.KVRangeCommand;
 import org.apache.bifromq.basekv.proto.KVRangeId;
 import org.apache.bifromq.basekv.proto.KVRangeSnapshot;
+import org.apache.bifromq.basekv.raft.ILogEntryIterator;
 import org.apache.bifromq.basekv.raft.IRaftNode;
 import org.apache.bifromq.basekv.raft.IRaftStateStore;
 import org.apache.bifromq.basekv.raft.InMemoryStateStore;
@@ -211,7 +211,7 @@ public class KVRangeWALTest extends MockableTest {
     }
 
     private static class InMemoryKVRangeWALStore implements IKVRangeWALStore {
-        private IRaftStateStore delegate;
+        private final IRaftStateStore delegate;
 
         InMemoryKVRangeWALStore(String replicaId) {
             delegate = new InMemoryStateStore(replicaId, Snapshot.newBuilder()
@@ -291,7 +291,7 @@ public class KVRangeWALTest extends MockableTest {
         }
 
         @Override
-        public Iterator<LogEntry> entries(long lo, long hi, long maxSize) {
+        public ILogEntryIterator entries(long lo, long hi, long maxSize) {
             return delegate.entries(lo, hi, maxSize);
         }
 

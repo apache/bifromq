@@ -14,16 +14,16 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 
 package org.apache.bifromq.basekv.store.range;
 
-import org.apache.bifromq.basekv.store.api.IKVLoadRecord;
 import com.google.protobuf.ByteString;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.function.Supplier;
+import org.apache.bifromq.basekv.store.api.IKVLoadRecord;
 
 public class KVLoadRecorder implements IKVLoadRecorder {
     private final long startNanos;

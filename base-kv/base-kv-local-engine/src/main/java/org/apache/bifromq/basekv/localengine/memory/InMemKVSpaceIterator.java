@@ -14,32 +14,36 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 
 package org.apache.bifromq.basekv.localengine.memory;
 
-import org.apache.bifromq.basekv.localengine.IKVSpaceIterator;
-import org.apache.bifromq.basekv.proto.Boundary;
 import com.google.protobuf.ByteString;
 import java.util.Map;
-import java.util.concurrent.ConcurrentNavigableMap;
-import java.util.concurrent.ConcurrentSkipListMap;
+import java.util.NavigableMap;
+import java.util.concurrent.atomic.AtomicReference;
+import org.apache.bifromq.basekv.localengine.IKVSpaceIterator;
+import org.apache.bifromq.basekv.proto.Boundary;
 
 class InMemKVSpaceIterator implements IKVSpaceIterator {
-    private final ConcurrentSkipListMap<ByteString, ByteString> origData;
     private final Boundary boundary;
+    private final AtomicReference<NavigableMap<ByteString, ByteString>> currentEpoch = new AtomicReference<>();
+    private final CloseListener closeListener;
     private Map.Entry<ByteString, ByteString> currentEntry;
-    private ConcurrentNavigableMap<ByteString, ByteString> dataSource;
+    private NavigableMap<ByteString, ByteString> dataSource;
 
-    public InMemKVSpaceIterator(ConcurrentSkipListMap<ByteString, ByteString> data) {
-        this(data, Boundary.getDefaultInstance());
+    public InMemKVSpaceIterator(NavigableMap<ByteString, ByteString> epoch, Boundary boundary) {
+        this(epoch, boundary, iterator -> {
+        });
     }
 
-    public InMemKVSpaceIterator(ConcurrentSkipListMap<ByteString, ByteString> data, Boundary boundary) {
-        origData = data;
+    public InMemKVSpaceIterator(NavigableMap<ByteString, ByteString> epoch,
+                                Boundary boundary,
+                                CloseListener closeListener) {
         this.boundary = boundary;
-        refresh();
+        this.closeListener = closeListener;
+        refresh(epoch);
     }
 
     @Override
@@ -59,51 +63,68 @@ class InMemKVSpaceIterator implements IKVSpaceIterator {
 
     @Override
     public void next() {
-        currentEntry = dataSource.higherEntry(currentEntry.getKey());
+        currentEntry = dataSource().higherEntry(currentEntry.getKey());
     }
 
     @Override
     public void prev() {
-        currentEntry = dataSource.lowerEntry(currentEntry.getKey());
+        currentEntry = dataSource().lowerEntry(currentEntry.getKey());
     }
 
     @Override
     public void seekToFirst() {
-        currentEntry = dataSource.firstEntry();
+        if (dataSource().isEmpty()) {
+            currentEntry = null;
+            return;
+        }
+        currentEntry = dataSource().firstEntry();
     }
 
     @Override
     public void seekToLast() {
-        currentEntry = dataSource.lastEntry();
+        if (dataSource().isEmpty()) {
+            currentEntry = null;
+            return;
+        }
+        currentEntry = dataSource().lastEntry();
     }
 
     @Override
     public void seek(ByteString target) {
-        currentEntry = dataSource.ceilingEntry(target);
+        currentEntry = dataSource().ceilingEntry(target);
     }
 
     @Override
     public void seekForPrev(ByteString target) {
-        currentEntry = dataSource.floorEntry(target);
+        currentEntry = dataSource().floorEntry(target);
     }
 
-    @Override
-    public void refresh() {
-        ConcurrentSkipListMap<ByteString, ByteString> data = origData.clone();
+    public void refresh(NavigableMap<ByteString, ByteString> epoch) {
+        currentEntry = null;
+        currentEpoch.set(epoch);
+        NavigableMap<ByteString, ByteString> data = currentEpoch.get();
         if (!boundary.hasStartKey() && !boundary.hasEndKey()) {
             dataSource = data;
         } else if (!boundary.hasStartKey()) {
-            dataSource = data.headMap(boundary.getEndKey());
+            dataSource = data.headMap(boundary.getEndKey(), false);
         } else if (!boundary.hasEndKey()) {
-            dataSource = data.tailMap(boundary.getStartKey());
+            dataSource = data.tailMap(boundary.getStartKey(), true);
         } else {
-            dataSource = data.subMap(boundary.getStartKey(), boundary.getEndKey());
+            dataSource = data.subMap(boundary.getStartKey(), true, boundary.getEndKey(), false);
         }
-        currentEntry = dataSource.firstEntry();
+    }
+
+    private NavigableMap<ByteString, ByteString> dataSource() {
+        return dataSource;
     }
 
     @Override
     public void close() {
         currentEntry = null;
+        closeListener.onClose(this);
+    }
+
+    interface CloseListener {
+        void onClose(InMemKVSpaceIterator iterator);
     }
 }

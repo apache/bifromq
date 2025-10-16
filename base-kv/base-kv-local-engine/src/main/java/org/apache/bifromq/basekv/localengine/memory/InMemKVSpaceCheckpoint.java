@@ -14,33 +14,33 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 
 package org.apache.bifromq.basekv.localengine.memory;
 
 import org.apache.bifromq.basekv.localengine.IKVSpaceCheckpoint;
+import org.apache.bifromq.basekv.localengine.IKVSpaceReader;
 import org.apache.bifromq.basekv.localengine.metrics.KVSpaceOpMeters;
-import com.google.protobuf.ByteString;
-import java.util.Map;
-import java.util.concurrent.ConcurrentSkipListMap;
 import org.slf4j.Logger;
 
-class InMemKVSpaceCheckpoint extends InMemKVSpaceReader implements IKVSpaceCheckpoint {
+class InMemKVSpaceCheckpoint implements IKVSpaceCheckpoint {
+    private final String id;
+    private final KVSpaceOpMeters opMeters;
+    private final Logger logger;
     private final String cpId;
-    private final Map<ByteString, ByteString> metadataMap;
-    private final ConcurrentSkipListMap<ByteString, ByteString> rangeData;
+    private final InMemKVSpaceEpoch checkpoint;
 
     protected InMemKVSpaceCheckpoint(String id,
                                      String cpId,
-                                     Map<ByteString, ByteString> metadataMap,
-                                     ConcurrentSkipListMap<ByteString, ByteString> rangeData,
+                                     InMemKVSpaceEpoch checkpoint,
                                      KVSpaceOpMeters opMeters,
                                      Logger logger) {
-        super(id, opMeters, logger);
+        this.id = id;
+        this.opMeters = opMeters;
+        this.logger = logger;
         this.cpId = cpId;
-        this.metadataMap = metadataMap;
-        this.rangeData = rangeData;
+        this.checkpoint = checkpoint;
     }
 
     @Override
@@ -49,12 +49,7 @@ class InMemKVSpaceCheckpoint extends InMemKVSpaceReader implements IKVSpaceCheck
     }
 
     @Override
-    protected Map<ByteString, ByteString> metadataMap() {
-        return metadataMap;
-    }
-
-    @Override
-    protected ConcurrentSkipListMap<ByteString, ByteString> rangeData() {
-        return rangeData;
+    public IKVSpaceReader newReader() {
+        return new InMemKVSpaceCheckpointReader(id, opMeters, logger, checkpoint);
     }
 }

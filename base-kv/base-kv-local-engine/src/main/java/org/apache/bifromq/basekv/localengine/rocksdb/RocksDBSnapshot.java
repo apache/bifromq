@@ -17,11 +17,19 @@
  * under the License.
  */
 
-package org.apache.bifromq.basekv.store.range;
+package org.apache.bifromq.basekv.localengine.rocksdb;
 
-public interface IKVRangeResetter extends IKVRangeRestorer {
 
-    void abort();
+import org.rocksdb.Snapshot;
 
-    void done();
+record RocksDBSnapshot(IRocksDBKVSpaceEpoch epoch, Snapshot snapshot) {
+    static RocksDBSnapshot take(IRocksDBKVSpaceEpoch epoch) {
+        return new RocksDBSnapshot(epoch, epoch.db().getSnapshot());
+    }
+
+    void release() {
+        if (snapshot != null) {
+            epoch.db().releaseSnapshot(snapshot);
+        }
+    }
 }

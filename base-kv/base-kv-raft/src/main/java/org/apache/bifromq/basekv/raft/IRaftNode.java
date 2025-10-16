@@ -14,22 +14,20 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 
 package org.apache.bifromq.basekv.raft;
 
-import org.apache.bifromq.basekv.raft.event.RaftEvent;
-import org.apache.bifromq.basekv.raft.proto.ClusterConfig;
-import org.apache.bifromq.basekv.raft.proto.LogEntry;
-import org.apache.bifromq.basekv.raft.proto.RaftMessage;
-import org.apache.bifromq.basekv.raft.proto.RaftNodeStatus;
 import com.google.protobuf.ByteString;
-import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
+import org.apache.bifromq.basekv.raft.event.RaftEvent;
+import org.apache.bifromq.basekv.raft.proto.ClusterConfig;
+import org.apache.bifromq.basekv.raft.proto.RaftMessage;
+import org.apache.bifromq.basekv.raft.proto.RaftNodeStatus;
 
 /**
  * Raft Node interface, which is used to interact with raft node.
@@ -155,9 +153,9 @@ public interface IRaftNode {
      *
      * @param fromIndex the start index of the log entry
      * @param maxSize   the max size of the log entries
-     * @return the future of the log entries
+     * @return the future of the log entries iterator
      */
-    CompletableFuture<Iterator<LogEntry>> retrieveCommitted(long fromIndex, long maxSize);
+    CompletableFuture<ILogEntryIterator> retrieveCommitted(long fromIndex, long maxSize);
 
     /**
      * Start the Raft Node with necessary callbacks, this callbacks will be executed in raft's thread.

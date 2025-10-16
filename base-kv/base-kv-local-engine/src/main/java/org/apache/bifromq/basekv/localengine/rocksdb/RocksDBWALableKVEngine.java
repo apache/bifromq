@@ -22,10 +22,14 @@ package org.apache.bifromq.basekv.localengine.rocksdb;
 import org.apache.bifromq.basekv.localengine.metrics.KVSpaceOpMeters;
 import org.slf4j.Logger;
 
-public class RocksDBWALableKVEngine
-    extends RocksDBKVEngine<RocksDBWALableKVEngine, RocksDBWALableKVSpace, RocksDBWALableKVEngineConfigurator> {
+class RocksDBWALableKVEngine extends RocksDBKVEngine<
+    RocksDBWALableKVEngine,
+    RocksDBWALableKVSpace,
+    RocksDBWALableKVEngineConfigurator,
+    RocksDBWALableKVSpaceEpochHandle
+    > {
 
-    public RocksDBWALableKVEngine(String overrideIdentity, RocksDBWALableKVEngineConfigurator configurator) {
+    RocksDBWALableKVEngine(String overrideIdentity, RocksDBWALableKVEngineConfigurator configurator) {
         super(overrideIdentity, configurator);
     }
 

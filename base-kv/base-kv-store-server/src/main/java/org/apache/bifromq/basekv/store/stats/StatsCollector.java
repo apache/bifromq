@@ -14,28 +14,26 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 
 package org.apache.bifromq.basekv.store.stats;
 
-import org.apache.bifromq.base.util.AsyncRunner;
 import com.google.common.collect.Maps;
 import io.reactivex.rxjava3.core.Observable;
 import io.reactivex.rxjava3.subjects.BehaviorSubject;
 import java.time.Duration;
 import java.util.Map;
-import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
 import java.util.concurrent.Executor;
 import java.util.concurrent.atomic.AtomicBoolean;
+import org.apache.bifromq.base.util.AsyncRunner;
 
 public abstract class StatsCollector implements IStatsCollector {
     private final Duration interval;
     private final AsyncRunner executor;
     private final BehaviorSubject<Map<String, Double>> statsSubject = BehaviorSubject.create();
     private final AtomicBoolean closed = new AtomicBoolean();
-    private final CompletableFuture<Void> closedSignal = new CompletableFuture<>();
     private volatile long lastScrapAt = 0;
 
     public StatsCollector(Duration interval, Executor executor) {
@@ -50,7 +48,7 @@ public abstract class StatsCollector implements IStatsCollector {
 
     @Override
     public final void tick() {
-        if (interval.compareTo(Duration.ofNanos(System.nanoTime() - lastScrapAt)) <= 0) {
+        if (!closed.get() && interval.compareTo(Duration.ofNanos(System.nanoTime() - lastScrapAt)) <= 0) {
             executor.add(() -> {
                 if (closed.get()) {
                     if (!statsSubject.hasComplete()) {
@@ -73,10 +71,9 @@ public abstract class StatsCollector implements IStatsCollector {
                 if (!statsSubject.hasComplete()) {
                     statsSubject.onComplete();
                 }
-                closedSignal.complete(null);
             });
         }
-        return closedSignal;
+        return executor.awaitDone();
     }
 
     protected abstract void scrap(Map<String, Double> stats);

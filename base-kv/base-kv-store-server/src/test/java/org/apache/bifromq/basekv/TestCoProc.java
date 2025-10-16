@@ -24,31 +24,31 @@ import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.function.Supplier;
 import org.apache.bifromq.basekv.proto.KVRangeId;
-import org.apache.bifromq.basekv.store.api.IKVCloseableReader;
 import org.apache.bifromq.basekv.store.api.IKVRangeCoProc;
-import org.apache.bifromq.basekv.store.api.IKVReader;
+import org.apache.bifromq.basekv.store.api.IKVRangeReader;
 import org.apache.bifromq.basekv.store.api.IKVWriter;
 import org.apache.bifromq.basekv.store.proto.ROCoProcInput;
 import org.apache.bifromq.basekv.store.proto.ROCoProcOutput;
 import org.apache.bifromq.basekv.store.proto.RWCoProcInput;
 import org.apache.bifromq.basekv.store.proto.RWCoProcOutput;
+import org.apache.bifromq.basekv.store.range.IKVRangeRefreshableReader;
 
 public class TestCoProc implements IKVRangeCoProc {
-    private final Supplier<IKVCloseableReader> rangeReaderProvider;
+    private final Supplier<IKVRangeRefreshableReader> rangeReaderProvider;
 
-    public TestCoProc(KVRangeId id, Supplier<IKVCloseableReader> rangeReaderProvider) {
+    public TestCoProc(KVRangeId id, Supplier<IKVRangeRefreshableReader> rangeReaderProvider) {
         this.rangeReaderProvider = rangeReaderProvider;
     }
 
     @Override
-    public CompletableFuture<ROCoProcOutput> query(ROCoProcInput input, IKVReader reader) {
+    public CompletableFuture<ROCoProcOutput> query(ROCoProcInput input, IKVRangeReader reader) {
         // get
         return CompletableFuture.completedFuture(
-            ROCoProcOutput.newBuilder().setRaw(reader.get(input.getRaw()).orElse(ByteString.EMPTY)).build());
+            ROCoProcOutput.newBuilder().setRaw(reader.get(input.getRaw()).get()).build());
     }
 
     @Override
-    public Supplier<MutationResult> mutate(RWCoProcInput input, IKVReader reader, IKVWriter client, boolean isLeader) {
+    public Supplier<MutationResult> mutate(RWCoProcInput input, IKVRangeReader reader, IKVWriter client, boolean isLeader) {
         String[] str = input.getRaw().toStringUtf8().split("_");
         ByteString key = ByteString.copyFromUtf8(str[0]);
         ByteString value = ByteString.copyFromUtf8(str[1]);

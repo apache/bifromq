@@ -20,8 +20,6 @@
 package org.apache.bifromq.basekv.localengine.memory;
 
 import com.google.protobuf.ByteString;
-import java.util.Map;
-import java.util.concurrent.ConcurrentSkipListMap;
 import java.util.function.Consumer;
 import org.apache.bifromq.basekv.localengine.IKVSpaceWriter;
 import org.apache.bifromq.basekv.localengine.ISyncContext;
@@ -30,43 +28,47 @@ import org.apache.bifromq.basekv.localengine.metrics.KVSpaceOpMeters;
 import org.apache.bifromq.basekv.proto.Boundary;
 import org.slf4j.Logger;
 
-class InMemKVSpaceWriter<E extends InMemKVEngine<E, T>, T extends InMemKVSpace<E, T>> extends InMemKVSpaceReader
-    implements IKVSpaceWriter {
+class InMemKVSpaceWriter<E extends InMemKVEngine<E, T>, T extends InMemKVSpace<E, T>> implements IKVSpaceWriter {
+    protected final String id;
+    protected final KVSpaceOpMeters opMeters;
+    protected final Logger logger;
     protected final InMemKVSpaceWriterHelper helper;
     protected final E engine;
-    private final Map<ByteString, ByteString> metadataMap;
-    private final ConcurrentSkipListMap<ByteString, ByteString> rangeData;
+    protected final InMemKVSpaceEpoch epoch;
 
     InMemKVSpaceWriter(String id,
-                       Map<ByteString, ByteString> metadataMap,
-                       ConcurrentSkipListMap<ByteString, ByteString> rangeData,
+                       InMemKVSpaceEpoch epoch,
                        E engine,
                        ISyncContext syncContext,
                        Consumer<Boolean> afterWrite,
                        KVSpaceOpMeters readOpMeters,
                        Logger logger) {
-        this(id, metadataMap, rangeData, engine, syncContext, new InMemKVSpaceWriterHelper(),
+        this(id, epoch, engine, syncContext, new InMemKVSpaceWriterHelper(),
             afterWrite, readOpMeters, logger);
     }
 
     private InMemKVSpaceWriter(String id,
-                               Map<ByteString, ByteString> metadataMap,
-                               ConcurrentSkipListMap<ByteString, ByteString> rangeData,
+                               InMemKVSpaceEpoch epoch,
                                E engine,
                                ISyncContext syncContext,
                                InMemKVSpaceWriterHelper writerHelper,
                                Consumer<Boolean> afterWrite,
                                KVSpaceOpMeters readOpMeters,
                                Logger logger) {
-        super(id, readOpMeters, logger);
-        this.metadataMap = metadataMap;
-        this.rangeData = rangeData;
+        this.id = id;
+        this.opMeters = readOpMeters;
+        this.logger = logger;
+        this.epoch = epoch;
         this.engine = engine;
         this.helper = writerHelper;
-        writerHelper.addMutators(id, metadataMap, rangeData, syncContext.mutator());
+        writerHelper.addMutators(id, epoch, syncContext.mutator());
         writerHelper.addAfterWriteCallback(id, afterWrite);
     }
 
+    @Override
+    public String id() {
+        return id;
+    }
 
     @Override
     public IKVSpaceWriter metadata(ByteString metaKey, ByteString metaValue) {
@@ -117,11 +119,6 @@ class InMemKVSpaceWriter<E extends InMemKVEngine<E, T>, T extends InMemKVSpace<E
     }
 
     @Override
-    public void reset() {
-        helper.reset();
-    }
-
-    @Override
     public void abort() {
         helper.abort();
 
@@ -130,15 +127,5 @@ class InMemKVSpaceWriter<E extends InMemKVEngine<E, T>, T extends InMemKVSpace<E
     @Override
     public int count() {
         return helper.count();
-    }
-
-    @Override
-    protected Map<ByteString, ByteString> metadataMap() {
-        return metadataMap;
-    }
-
-    @Override
-    protected ConcurrentSkipListMap<ByteString, ByteString> rangeData() {
-        return rangeData;
     }
 }

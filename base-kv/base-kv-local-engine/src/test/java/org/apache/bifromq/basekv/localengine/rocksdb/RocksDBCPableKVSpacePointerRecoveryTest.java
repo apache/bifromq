@@ -32,6 +32,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.UUID;
 import org.apache.bifromq.basekv.localengine.ICPableKVSpace;
+import org.apache.bifromq.basekv.localengine.IKVSpaceReader;
 import org.testng.annotations.AfterMethod;
 import org.testng.annotations.BeforeMethod;
 import org.testng.annotations.Test;
@@ -96,7 +97,9 @@ public class RocksDBCPableKVSpacePointerRecoveryTest {
 
         // simple rw
         space.toWriter().put(ByteString.copyFromUtf8("k"), ByteString.copyFromUtf8("v")).done();
-        assertEquals(space.get(ByteString.copyFromUtf8("k")).get().toStringUtf8(), "v");
+        try (IKVSpaceReader reader = space.reader()) {
+            assertEquals(reader.get(ByteString.copyFromUtf8("k")).get().toStringUtf8(), "v");
+        }
     }
 
     @Test
@@ -126,6 +129,8 @@ public class RocksDBCPableKVSpacePointerRecoveryTest {
 
         ICPableKVSpace space = engine.spaces().get(spaceId);
         space.toWriter().put(ByteString.copyFromUtf8("a"), ByteString.copyFromUtf8("b")).done();
-        assertEquals(space.get(ByteString.copyFromUtf8("a")).get().toStringUtf8(), "b");
+        try (IKVSpaceReader reader = space.reader()) {
+            assertEquals(reader.get(ByteString.copyFromUtf8("a")).get().toStringUtf8(), "b");
+        }
     }
 }

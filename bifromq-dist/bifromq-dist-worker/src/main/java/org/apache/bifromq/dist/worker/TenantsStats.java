@@ -35,28 +35,27 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.ForkJoinPool;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.locks.StampedLock;
 import java.util.function.Supplier;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.bifromq.basekv.proto.Boundary;
-import org.apache.bifromq.basekv.store.api.IKVCloseableReader;
 import org.apache.bifromq.basekv.store.api.IKVIterator;
+import org.apache.bifromq.basekv.store.range.IKVRangeRefreshableReader;
 
 @Slf4j
 class TenantsStats implements ITenantsStats {
     private final Map<String, TenantStats> tenantStatsMap = new ConcurrentHashMap<>();
-    private final Supplier<IKVCloseableReader> readerSupplier;
+    private final Supplier<IKVRangeRefreshableReader> readerSupplier;
     private final String[] tags;
     // ultra-simple async queue and single drainer
     private final ConcurrentLinkedQueue<Runnable> taskQueue = new ConcurrentLinkedQueue<>();
     private final AtomicBoolean draining = new AtomicBoolean(false);
-    private transient Boundary boundary;
+    private final AtomicBoolean closed = new AtomicBoolean(false);
+    private final StampedLock closeLock = new StampedLock();
 
-    TenantsStats(Supplier<IKVCloseableReader> readerSupplier, String... tags) {
+    TenantsStats(Supplier<IKVRangeRefreshableReader> readerSupplier, String... tags) {
         this.readerSupplier = readerSupplier;
         this.tags = tags;
-        try (IKVCloseableReader reader = readerSupplier.get()) {
-            boundary = reader.boundary();
-        }
     }
 
     @Override
@@ -121,21 +120,34 @@ class TenantsStats implements ITenantsStats {
 
     @Override
     public void close() {
-        CompletableFuture<Void> closeFuture = new CompletableFuture<>();
-        taskQueue.offer(() -> {
-            tenantStatsMap.values().forEach(TenantStats::destroy);
-            tenantStatsMap.clear();
-            closeFuture.complete(null);
-        });
-        trigger();
-        closeFuture.join();
+        long stamp = closeLock.writeLock();
+        try {
+            if (closed.compareAndSet(false, true)) {
+                CompletableFuture<Void> closeFuture = new CompletableFuture<>();
+                taskQueue.offer(() -> {
+                    tenantStatsMap.values().forEach(TenantStats::destroy);
+                    tenantStatsMap.clear();
+                    closeFuture.complete(null);
+                });
+                trigger();
+                closeFuture.join();
+            }
+        } finally {
+            closeLock.unlock(stamp);
+        }
     }
 
     private Supplier<Number> getSpaceUsageProvider(String tenantId) {
         return () -> {
-            try (IKVCloseableReader reader = readerSupplier.get()) {
+            long stamp = closeLock.readLock();
+            if (closed.get()) {
+                closeLock.unlock(stamp);
+                return 0;
+            }
+            try (IKVRangeRefreshableReader reader = readerSupplier.get()) {
                 ByteString tenantStartKey = tenantBeginKey(tenantId);
-                Boundary tenantSection = intersect(boundary, toBoundary(tenantStartKey, upperBound(tenantStartKey)));
+                Boundary tenantSection = intersect(reader.boundary(),
+                    toBoundary(tenantStartKey, upperBound(tenantStartKey)));
                 if (isNULLRange(tenantSection)) {
                     return 0;
                 }
@@ -143,6 +155,8 @@ class TenantsStats implements ITenantsStats {
             } catch (Exception e) {
                 log.error("Unexpected error", e);
                 return 0;
+            } finally {
+                closeLock.unlock(stamp);
             }
         };
     }
@@ -213,13 +227,11 @@ class TenantsStats implements ITenantsStats {
     }
 
     private void doReset() {
-        try (IKVCloseableReader reader = readerSupplier.get()) {
+        try (IKVRangeRefreshableReader reader = readerSupplier.get(); IKVIterator itr = reader.iterator()) {
             tenantStatsMap.values().forEach(TenantStats::destroy);
             tenantStatsMap.clear();
             reader.refresh();
-            boundary = reader.boundary();
             // enqueue full reload task; don't block caller
-            IKVIterator itr = reader.iterator();
             for (itr.seekToFirst(); itr.isValid(); itr.next()) {
                 String tenantId = parseTenantId(itr.key());
                 byte flag = parseFlag(itr.key());

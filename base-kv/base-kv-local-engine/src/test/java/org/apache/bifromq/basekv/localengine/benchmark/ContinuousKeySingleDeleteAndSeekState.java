@@ -25,6 +25,7 @@ import static org.apache.bifromq.basekv.localengine.TestUtil.toByteString;
 import com.google.protobuf.ByteString;
 import org.apache.bifromq.basekv.localengine.ICPableKVSpace;
 import org.apache.bifromq.basekv.localengine.IKVSpaceIterator;
+import org.apache.bifromq.basekv.localengine.IKVSpaceRefreshableReader;
 import org.apache.bifromq.basekv.localengine.IKVSpaceWriter;
 import org.openjdk.jmh.annotations.Scope;
 import org.openjdk.jmh.annotations.State;
@@ -33,6 +34,7 @@ import org.openjdk.jmh.annotations.State;
 public class ContinuousKeySingleDeleteAndSeekState extends BenchmarkState {
     int keyCount = 1000000;
     ByteString key = ByteString.copyFromUtf8("key");
+    IKVSpaceRefreshableReader reader;
     IKVSpaceIterator itr;
     private ICPableKVSpace kvSpace;
     private String rangeId = "testRange";
@@ -40,7 +42,8 @@ public class ContinuousKeySingleDeleteAndSeekState extends BenchmarkState {
     @Override
     protected void afterSetup() {
         kvSpace = kvEngine.createIfMissing(rangeId);
-        itr = kvSpace.newIterator();
+        reader = kvSpace.reader();
+        itr = reader.newIterator();
         IKVSpaceWriter writer = kvSpace.toWriter();
 
         for (int i = 0; i < keyCount; i++) {
@@ -49,7 +52,7 @@ public class ContinuousKeySingleDeleteAndSeekState extends BenchmarkState {
         }
         writer.put(key.concat(toByteString(keyCount)), ByteString.EMPTY);
         writer.done();
-        itr = kvSpace.newIterator();
+        itr = reader.newIterator();
     }
 
     @Override

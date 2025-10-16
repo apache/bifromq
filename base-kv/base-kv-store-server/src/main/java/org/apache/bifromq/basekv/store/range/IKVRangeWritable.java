@@ -26,7 +26,7 @@ import org.apache.bifromq.basekv.proto.KVRangeSnapshot;
 import org.apache.bifromq.basekv.proto.State;
 import org.apache.bifromq.basekv.store.api.IKVWriter;
 
-public interface IKVRangeWritable<T extends IKVRangeWritable<T>> extends IKVRangeMetadataUpdatable<T> {
+interface IKVRangeWritable<T extends IKVRangeWritable<T>> extends IKVRangeMetadataUpdatable<T> {
     void migrateTo(KVRangeId targetRangeId, KVRangeSnapshot rightRangeSnapshot);
 
     Migrater startMerging(MigrationProgressListener progressListener);

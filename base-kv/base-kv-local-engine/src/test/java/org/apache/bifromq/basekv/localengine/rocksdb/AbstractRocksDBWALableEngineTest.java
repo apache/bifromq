@@ -28,6 +28,7 @@ import java.nio.file.Path;
 import lombok.SneakyThrows;
 import org.apache.bifromq.basekv.localengine.AbstractWALableEngineTest;
 import org.apache.bifromq.basekv.localengine.IKVSpace;
+import org.apache.bifromq.basekv.localengine.IKVSpaceReader;
 import org.apache.bifromq.basekv.localengine.IWALableKVSpace;
 import org.apache.bifromq.basekv.localengine.TestUtil;
 import org.testng.annotations.Test;
@@ -65,10 +66,12 @@ public abstract class AbstractRocksDBWALableEngineTest extends AbstractWALableEn
         ByteString value = ByteString.copyFromUtf8("value");
         IWALableKVSpace keyRange = engine.createIfMissing(rangeId);
         keyRange.toWriter().put(key, value).metadata(metaKey, metaValue).done();
-        assertTrue(keyRange.metadata(metaKey).isPresent());
-        assertTrue(keyRange.metadata().blockingFirst().containsKey(metaKey));
-        assertTrue(keyRange.exist(key));
-        assertEquals(keyRange.get(key).get(), value);
+        try (IKVSpaceReader reader = keyRange.reader()) { // use reader for read APIs
+            assertTrue(reader.metadata(metaKey).isPresent());
+            assertTrue(keyRange.metadata().blockingFirst().containsKey(metaKey));
+            assertTrue(reader.exist(key));
+            assertEquals(reader.get(key).get(), value);
+        }
         engine.stop();
 
         engine = newEngine();
@@ -76,10 +79,12 @@ public abstract class AbstractRocksDBWALableEngineTest extends AbstractWALableEn
         assertEquals(engine.spaces().size(), 1);
         IKVSpace keyRangeLoaded = engine.spaces().values().stream().findFirst().get();
         assertEquals(keyRangeLoaded.id(), rangeId);
-        assertTrue(keyRangeLoaded.metadata(metaKey).isPresent());
-        assertTrue(keyRangeLoaded.metadata().blockingFirst().containsKey(metaKey));
-        assertTrue(keyRangeLoaded.exist(key));
-        assertEquals(keyRangeLoaded.get(key).get(), value);
+        try (IKVSpaceReader reader = keyRangeLoaded.reader()) {
+            assertTrue(reader.metadata(metaKey).isPresent());
+            assertTrue(keyRangeLoaded.metadata().blockingFirst().containsKey(metaKey));
+            assertTrue(reader.exist(key));
+            assertEquals(reader.get(key).get(), value);
+        }
         // stop again and start
         engine.stop();
 
@@ -88,10 +93,12 @@ public abstract class AbstractRocksDBWALableEngineTest extends AbstractWALableEn
         assertEquals(engine.spaces().size(), 1);
         keyRangeLoaded = engine.spaces().values().stream().findFirst().get();
         assertEquals(keyRangeLoaded.id(), rangeId);
-        assertTrue(keyRangeLoaded.metadata(metaKey).isPresent());
-        assertTrue(keyRangeLoaded.metadata().blockingFirst().containsKey(metaKey));
-        assertTrue(keyRangeLoaded.exist(key));
-        assertEquals(keyRangeLoaded.get(key).get(), value);
+        try (IKVSpaceReader reader = keyRangeLoaded.reader()) {
+            assertTrue(reader.metadata(metaKey).isPresent());
+            assertTrue(keyRangeLoaded.metadata().blockingFirst().containsKey(metaKey));
+            assertTrue(reader.exist(key));
+            assertEquals(reader.get(key).get(), value);
+        }
     }
 
     @Test
@@ -105,6 +112,8 @@ public abstract class AbstractRocksDBWALableEngineTest extends AbstractWALableEn
         engine = newEngine();
         engine.start();
         keyRange = engine.createIfMissing(rangeId);
-        assertTrue(keyRange.exist(key));
+        try (IKVSpaceReader reader = keyRange.reader()) {
+            assertTrue(reader.exist(key));
+        }
     }
 }

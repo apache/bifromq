@@ -19,15 +19,10 @@
 
 package org.apache.bifromq.basekv.localengine.rocksdb;
 
-import static com.google.protobuf.UnsafeByteOperations.unsafeWrap;
-import static io.reactivex.rxjava3.subjects.BehaviorSubject.createDefault;
-import static java.util.Collections.emptyMap;
 import static org.apache.bifromq.basekv.localengine.metrics.KVSpaceMeters.getCounter;
 import static org.apache.bifromq.basekv.localengine.metrics.KVSpaceMeters.getTimer;
-import static org.apache.bifromq.basekv.localengine.rocksdb.Keys.META_SECTION_END;
-import static org.apache.bifromq.basekv.localengine.rocksdb.Keys.META_SECTION_START;
-import static org.apache.bifromq.basekv.localengine.rocksdb.Keys.fromMetaKey;
 import static org.apache.bifromq.basekv.localengine.rocksdb.RocksDBHelper.deleteDir;
+import static org.apache.bifromq.basekv.localengine.rocksdb.RocksDBHelper.getMetadata;
 
 import com.google.common.collect.Maps;
 import com.google.protobuf.ByteString;
@@ -36,27 +31,20 @@ import io.micrometer.core.instrument.Metrics;
 import io.micrometer.core.instrument.Tags;
 import io.micrometer.core.instrument.Timer;
 import io.micrometer.core.instrument.binder.jvm.ExecutorServiceMetrics;
-import io.reactivex.rxjava3.core.Observable;
-import io.reactivex.rxjava3.subjects.BehaviorSubject;
 import java.io.File;
 import java.io.IOException;
 import java.util.Collections;
-import java.util.HashMap;
 import java.util.Map;
-import java.util.Optional;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.atomic.AtomicReference;
 import lombok.SneakyThrows;
 import org.apache.bifromq.baseenv.EnvProvider;
-import org.apache.bifromq.basekv.localengine.IKVSpace;
-import org.apache.bifromq.basekv.localengine.IKVSpaceIterator;
+import org.apache.bifromq.basekv.localengine.AbstractKVSpace;
+import org.apache.bifromq.basekv.localengine.IKVSpaceRefreshableReader;
 import org.apache.bifromq.basekv.localengine.ISyncContext;
-import org.apache.bifromq.basekv.localengine.KVEngineException;
-import org.apache.bifromq.basekv.localengine.KVSpaceDescriptor;
 import org.apache.bifromq.basekv.localengine.SyncContext;
 import org.apache.bifromq.basekv.localengine.metrics.KVSpaceOpMeters;
 import org.apache.bifromq.basekv.localengine.rocksdb.metrics.RocksDBKVSpaceMetric;
@@ -66,24 +54,20 @@ import org.rocksdb.WriteOptions;
 import org.slf4j.Logger;
 
 abstract class RocksDBKVSpace<
-    E extends RocksDBKVEngine<E, T, C>,
-    T extends RocksDBKVSpace<E, T, C>,
-    C extends RocksDBKVEngineConfigurator<C>
-    >
-    extends RocksDBKVSpaceReader implements IKVSpace {
+    E extends RocksDBKVEngine<E, T, C, P>,
+    T extends RocksDBKVSpace<E, T, C, P>,
+    C extends RocksDBKVEngineConfigurator<C>,
+    P extends RocksDBKVSpaceEpochHandle<C>
+    > extends AbstractKVSpace<P> {
 
     protected final C configurator;
     protected final E engine;
-    protected final ISyncContext syncContext = new SyncContext();
+    protected final ISyncContext syncContext;
     protected final IWriteStatsRecorder writeStats;
-    protected final Tags tags;
-    private final AtomicReference<State> state = new AtomicReference<>(State.Init);
     private final File keySpaceDBDir;
     private final ExecutorService compactionExecutor;
-    private final Runnable onDestroy;
-    private final AtomicBoolean compacting = new AtomicBoolean(false);
-    private final BehaviorSubject<Map<ByteString, ByteString>> metadataSubject = createDefault(emptyMap());
-    private final ISyncContext.IRefresher metadataRefresher = syncContext.refresher();
+    private final AtomicBoolean compacting;
+    private final ISyncContext.IRefresher metadataRefresher;
     private SpaceMetrics spaceMetrics;
     private volatile long lastCompactAt;
     private volatile long nextCompactAt;
@@ -96,10 +80,12 @@ abstract class RocksDBKVSpace<
                           KVSpaceOpMeters opMeters,
                           Logger logger,
                           String... tags) {
-        super(id, opMeters, logger);
+        super(id, onDestroy, opMeters, logger, tags);
         this.configurator = configurator;
-        this.onDestroy = onDestroy;
         this.engine = engine;
+        syncContext = new SyncContext();
+        metadataRefresher = syncContext.refresher();
+        compacting = new AtomicBoolean(false);
         compactionExecutor = ExecutorServiceMetrics.monitor(Metrics.globalRegistry, new ThreadPoolExecutor(1, 1,
                 0L, TimeUnit.MILLISECONDS, new LinkedBlockingQueue<>(),
                 EnvProvider.INSTANCE.newThreadFactory("kvspace-compactor-" + id)),
@@ -110,105 +96,46 @@ abstract class RocksDBKVSpace<
             configurator.compactTombstoneKeysRatio(),
             this::scheduleCompact, tags) : NoopWriteStatsRecorder.INSTANCE;
         keySpaceDBDir = new File(configurator.dbRootDir(), id);
-        this.tags = Tags.of(tags).and("spaceId", id);
-    }
-
-    public void open() {
-        if (state.compareAndSet(State.Init, State.Opening)) {
-            doOpen();
-            spaceMetrics = new SpaceMetrics(tags);
-            reloadMetadata();
-        }
-    }
-
-    protected abstract void doOpen();
-
-    public Observable<Map<ByteString, ByteString>> metadata() {
-        return metadataSubject;
-    }
-
-    protected abstract WriteOptions writeOptions();
-
-    protected Optional<ByteString> doMetadata(ByteString metaKey) {
-        return metadataRefresher.call(() -> {
-            Map<ByteString, ByteString> metaMap = metadataSubject.getValue();
-            return Optional.ofNullable(metaMap.get(metaKey));
-        });
     }
 
     @Override
-    public KVSpaceDescriptor describe() {
-        return new KVSpaceDescriptor(id, collectStats());
+    protected void doOpen() {
+        spaceMetrics = new SpaceMetrics(tags);
+        reloadMetadata();
     }
 
-    private Map<String, Double> collectStats() {
-        Map<String, Double> stats = new HashMap<>();
-        stats.put("size", (double) size());
-        // TODO: more stats
-        return stats;
+    @Override
+    public IKVSpaceRefreshableReader reader() {
+        return new RocksDBKVSpaceReader(id, opMeters, logger, syncContext.refresher(), this::handle,
+            this::currentMetadata);
     }
 
     // Load metadata from DB and publish, without refresher gating
     protected void reloadMetadata() {
-        try (RocksDBKVEngineIterator metaItr =
-                 new RocksDBKVEngineIterator(handle(), null, META_SECTION_START, META_SECTION_END)) {
-            Map<ByteString, ByteString> metaMap = new HashMap<>();
-            for (metaItr.seekToFirst(); metaItr.isValid(); metaItr.next()) {
-                metaMap.put(fromMetaKey(metaItr.key()), unsafeWrap(metaItr.value()));
-            }
-            metadataSubject.onNext(Collections.unmodifiableMap(metaMap));
-        }
+        updateMetadata(getMetadata(handle()));
     }
 
-    protected void updateMetadata(Map<ByteString, ByteString> metadataUpdates) {
+    protected void publishMetadata(Map<ByteString, ByteString> metadataUpdates) {
         if (metadataUpdates.isEmpty()) {
             return;
         }
         metadataRefresher.runIfNeeded((genBumped) -> {
-            Map<ByteString, ByteString> metaMap = Maps.newHashMap(metadataSubject.getValue());
+            Map<ByteString, ByteString> metaMap = Maps.newHashMap(currentMetadata());
             metaMap.putAll(metadataUpdates);
-            metadataSubject.onNext(Collections.unmodifiableMap(metaMap));
+            updateMetadata(Collections.unmodifiableMap(metaMap));
         });
     }
 
     @Override
-    public void destroy() {
-        if (state.compareAndSet(State.Opening, State.Destroying)) {
-            try {
-                doDestroy();
-            } catch (Throwable e) {
-                throw new KVEngineException("Destroy KVRange error", e);
-            } finally {
-                onDestroy.run();
-                state.set(State.Terminated);
-            }
-        }
-    }
-
-    public void close() {
-        if (state.compareAndSet(State.Opening, State.Closing)) {
-            try {
-                doClose();
-            } finally {
-                state.set(State.Terminated);
-            }
-        }
-    }
-
-    protected State state() {
-        return state.get();
-    }
-
     protected void doClose() {
         logger.debug("Close key range[{}]", id);
         if (spaceMetrics != null) {
             spaceMetrics.close();
         }
-        metadataSubject.onComplete();
     }
 
+    @Override
     protected void doDestroy() {
-        doClose();
         // Destroy the whole space root directory, including pointer file and all generations.
         try {
             if (keySpaceDBDir.exists()) {
@@ -219,27 +146,16 @@ abstract class RocksDBKVSpace<
         }
     }
 
-    @Override
-    protected ISyncContext.IRefresher newRefresher() {
-        return syncContext.refresher();
-    }
-
-    @Override
-    protected IKVSpaceIterator doNewIterator() {
-        return new RocksDBKVSpaceIterator(this::handle, Boundary.getDefaultInstance(), newRefresher());
-    }
-
-    @Override
-    protected IKVSpaceIterator doNewIterator(Boundary subBoundary) {
-        return new RocksDBKVSpaceIterator(this::handle, subBoundary, newRefresher());
-    }
-
     protected File spaceRootDir() {
         return keySpaceDBDir;
     }
 
+    protected abstract P handle();
+
+    protected abstract WriteOptions writeOptions();
+
     private void scheduleCompact() {
-        if (state.get() != State.Opening) {
+        if (state() != State.Opening) {
             return;
         }
         spaceMetrics.compactionSchedCounter.increment();
@@ -252,8 +168,8 @@ abstract class RocksDBKVSpace<
                     .setBottommostLevelCompaction(CompactRangeOptions.BottommostLevelCompaction.kSkip)
                     .setExclusiveManualCompaction(false)) {
                     synchronized (compacting) {
-                        if (state.get() == State.Opening) {
-                            IKVSpaceDBInstance handle = handle();
+                        if (state() == State.Opening) {
+                            IRocksDBKVSpaceEpoch handle = handle();
                             handle.db().compactRange(handle.cf(), null, null, options);
                         }
                     }
@@ -272,8 +188,12 @@ abstract class RocksDBKVSpace<
         }
     }
 
-    protected enum State {
-        Init, Opening, Destroying, Closing, Terminated
+    @Override
+    protected long doSize(Boundary boundary) {
+        if (state() != State.Opening) {
+            return 0;
+        }
+        return RocksDBHelper.sizeOfBoundary(handle(), boundary);
     }
 
     private class SpaceMetrics {

@@ -21,7 +21,6 @@ package org.apache.bifromq.basekv.store.range;
 
 import static org.apache.bifromq.basekv.utils.BoundaryUtil.FULL_BOUNDARY;
 import static org.testng.Assert.assertEquals;
-import static org.testng.Assert.assertNull;
 import static org.testng.Assert.fail;
 
 import io.reactivex.rxjava3.core.Maybe;
@@ -41,9 +40,9 @@ public class KVRangeMetadataTest extends AbstractKVRangeTest {
         ICPableKVSpace keyRange = kvEngine.createIfMissing(KVRangeIdUtil.toString(id));
         IKVRange accessor = new KVRange(id, keyRange);
         assertEquals(accessor.id(), id);
-        assertEquals(accessor.version(), -1);
-        assertEquals(accessor.lastAppliedIndex(), -1);
-        assertEquals(accessor.state().getType(), State.StateType.NoUse);
+        assertEquals(accessor.currentVer(), -1);
+        assertEquals(accessor.currentLastAppliedIndex(), -1);
+        assertEquals(accessor.currentState().getType(), State.StateType.NoUse);
     }
 
     @Test
@@ -62,22 +61,22 @@ public class KVRangeMetadataTest extends AbstractKVRangeTest {
         IKVRangeRestoreSession restoreSession = accessor.startRestore(snapshot, (c, b) -> {});
         restoreSession.done();
 
-        assertEquals(accessor.version(), snapshot.getVer());
-        assertEquals(accessor.boundary(), snapshot.getBoundary());
-        assertEquals(accessor.lastAppliedIndex(), snapshot.getLastAppliedIndex());
-        assertEquals(accessor.state(), snapshot.getState());
-        assertEquals(accessor.clusterConfig(), snapshot.getClusterConfig());
+        assertEquals(accessor.currentVer(), snapshot.getVer());
+        assertEquals(accessor.currentBoundary(), snapshot.getBoundary());
+        assertEquals(accessor.currentLastAppliedIndex(), snapshot.getLastAppliedIndex());
+        assertEquals(accessor.currentState(), snapshot.getState());
+        assertEquals(accessor.currentClusterConfig(), snapshot.getClusterConfig());
     }
 
     @Test
     public void initWithNoDataAndDestroy() {
         try {
             KVRangeId rangeId = KVRangeIdUtil.generate();
-            ICPableKVSpace keyRange = kvEngine.createIfMissing(KVRangeIdUtil.toString(rangeId));
-            IKVRange kvRange = new KVRange(rangeId, keyRange);
-            Maybe<IKVRange.KVRangeMeta> metaMayBe = kvRange.metadata().firstElement();
-            keyRange.destroy();
-            assertNull(metaMayBe.timeout(5, TimeUnit.SECONDS).blockingGet());
+            ICPableKVSpace kvSpace = kvEngine.createIfMissing(KVRangeIdUtil.toString(rangeId));
+            IKVRange kvRange = new KVRange(rangeId, kvSpace);
+            Maybe<State> stateMayBe = kvRange.state().firstElement();
+            kvSpace.destroy();
+            assertEquals(stateMayBe.timeout(5, TimeUnit.SECONDS).blockingGet().getType(), State.StateType.NoUse);
         } catch (Throwable e) {
             fail();
         }
@@ -103,7 +102,7 @@ public class KVRangeMetadataTest extends AbstractKVRangeTest {
 
         lastAppliedIndex = 11;
         accessor.toWriter().lastAppliedIndex(lastAppliedIndex).done();
-        assertEquals(accessor.lastAppliedIndex(), lastAppliedIndex);
+        assertEquals(accessor.currentLastAppliedIndex(), lastAppliedIndex);
     }
 }
 

@@ -28,6 +28,7 @@ import io.micrometer.core.instrument.Gauge;
 import io.micrometer.core.instrument.Tags;
 import java.io.File;
 import java.io.IOException;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.function.Predicate;
 import org.apache.bifromq.basekv.localengine.rocksdb.metrics.RocksDBKVSpaceMetric;
 import org.rocksdb.BlockBasedTableConfig;
@@ -40,7 +41,8 @@ import org.rocksdb.RocksDB;
 import org.rocksdb.RocksDBException;
 import org.slf4j.Logger;
 
-public abstract class AbstractKVSpaceDBHandle<C extends RocksDBKVEngineConfigurator<C>> implements IKVSpaceDBHandle {
+abstract class RocksDBKVSpaceEpochHandle<C extends RocksDBKVEngineConfigurator<C>> implements
+    IRocksDBKVSpaceEpochHandle {
     protected final Logger logger;
     final DBOptions dbOptions;
     final ColumnFamilyDescriptor cfDesc;
@@ -49,7 +51,7 @@ public abstract class AbstractKVSpaceDBHandle<C extends RocksDBKVEngineConfigura
     final File dir;
     final Checkpoint checkpoint;
 
-    AbstractKVSpaceDBHandle(File dir, C configurator, Logger logger) {
+    RocksDBKVSpaceEpochHandle(File dir, C configurator, Logger logger) {
         this.dbOptions = configurator.dbOptions();
         this.cfDesc = new ColumnFamilyDescriptor(DEFAULT_NS.getBytes(), configurator.cfOptions(DEFAULT_NS));
         RocksDBHelper.RocksDBHandle dbHandle = openDBInDir(dir, dbOptions, cfDesc);
@@ -83,37 +85,46 @@ public abstract class AbstractKVSpaceDBHandle<C extends RocksDBKVEngineConfigura
                                        Logger log) implements Runnable {
         @Override
         public void run() {
-            metrics.close();
-            log.debug("Clean up generation[{}] of kvspace[{}]", genId, id);
-            try {
-                db.destroyColumnFamilyHandle(cfHandle);
-            } catch (Throwable e) {
-                log.error("Failed to destroy column family handle of generation[{}] for kvspace[{}]", genId, id, e);
-            }
-            try {
-                db.close();
-            } catch (Throwable e) {
-                log.error("Failed to close RocksDB of generation[{}] for kvspace[{}]", genId, id, e);
-            }
-            checkpoint.close();
-            cfDesc.getOptions().close();
-            dbOptions.close();
-            if (isRetired.test(genId)) {
-                log.debug("delete retired generation[{}] of kvspace[{}] in path: {}", genId, id, dir.getAbsolutePath());
+            // Ensure no metric suppliers call into RocksDB during close
+            try (AutoCloseable guard = metrics.beginClose()) {
+                metrics.close();
+                log.debug("Clean up generation[{}] of kvspace[{}]", genId, id);
                 try {
-                    deleteDir(dir.toPath());
-                } catch (IOException e) {
-                    log.error("Failed to clean retired generation at path:{}", dir, e);
+                    db.destroyColumnFamilyHandle(cfHandle);
+                } catch (Throwable e) {
+                    log.error("Failed to destroy column family handle of generation[{}] for kvspace[{}]", genId, id, e);
                 }
+                try {
+                    db.close();
+                } catch (Throwable e) {
+                    log.error("Failed to close RocksDB of generation[{}] for kvspace[{}]", genId, id, e);
+                }
+                checkpoint.close();
+                cfDesc.getOptions().close();
+                dbOptions.close();
+                if (isRetired.test(genId)) {
+                    log.debug("delete retired generation[{}] of kvspace[{}] in path: {}", genId, id,
+                        dir.getAbsolutePath());
+                    try {
+                        deleteDir(dir.toPath());
+                    } catch (IOException e) {
+                        log.error("Failed to clean retired generation at path:{}", dir, e);
+                    }
+                }
+            } catch (Exception ignored) {
+                // ignore
             }
         }
     }
 
     protected static class SpaceMetrics {
+        private final ReentrantReadWriteLock rw = new ReentrantReadWriteLock();
         private final Gauge blockCacheSizeGauge;
         private final Gauge tableReaderSizeGauge;
         private final Gauge memtableSizeGauges;
-        private final Gauge pinedMemorySizeGauges;
+        private final Gauge pinedMemorySizeGauge;
+        private final Logger logger;
+        private volatile boolean closed = false;
 
         SpaceMetrics(String id,
                      RocksDB db,
@@ -121,51 +132,59 @@ public abstract class AbstractKVSpaceDBHandle<C extends RocksDBKVEngineConfigura
                      ColumnFamilyOptions cfOptions,
                      Tags metricTags,
                      Logger logger) {
+            this.logger = logger;
             blockCacheSizeGauge = getGauge(id, RocksDBKVSpaceMetric.BlockCache, () -> {
-                try {
-                    if (!((BlockBasedTableConfig) cfOptions.tableFormatConfig()).noBlockCache()) {
-                        return db.getLongProperty(cfHandle, "rocksdb.block-cache-usage");
-                    }
-                    return 0;
-                } catch (RocksDBException e) {
-                    logger.warn("Unable to get long property {}", "rocksdb.block-cache-usage", e);
-                    return 0;
+                BlockBasedTableConfig cfg = (BlockBasedTableConfig) cfOptions.tableFormatConfig();
+                if (!cfg.noBlockCache()) {
+                    return safeGet(() -> db.getLongProperty(cfHandle, "rocksdb.block-cache-usage"));
                 }
+                return 0L;
             }, metricTags);
-            tableReaderSizeGauge = getGauge(id, RocksDBKVSpaceMetric.TableReader, () -> {
-                try {
-                    return db.getLongProperty(cfHandle, "rocksdb.estimate-table-readers-mem");
-                } catch (RocksDBException e) {
-                    logger.warn("Unable to get long property {}", "rocksdb.estimate-table-readers-mem", e);
-                    return 0;
+            tableReaderSizeGauge = getGauge(id, RocksDBKVSpaceMetric.TableReader, () ->
+                safeGet(() -> db.getLongProperty(cfHandle, "rocksdb.estimate-table-readers-mem")), metricTags);
+            memtableSizeGauges = getGauge(id, RocksDBKVSpaceMetric.MemTable, () ->
+                safeGet(() -> db.getLongProperty(cfHandle, "rocksdb.cur-size-all-mem-tables")), metricTags);
+            pinedMemorySizeGauge = getGauge(id, RocksDBKVSpaceMetric.PinnedMem, () -> {
+                BlockBasedTableConfig cfg = (BlockBasedTableConfig) cfOptions.tableFormatConfig();
+                if (!cfg.noBlockCache()) {
+                    return safeGet(() -> db.getLongProperty(cfHandle, "rocksdb.block-cache-pinned-usage"));
                 }
+                return 0L;
             }, metricTags);
-            memtableSizeGauges = getGauge(id, RocksDBKVSpaceMetric.MemTable, () -> {
-                try {
-                    return db.getLongProperty(cfHandle, "rocksdb.cur-size-all-mem-tables");
-                } catch (RocksDBException e) {
-                    logger.warn("Unable to get long property {}", "rocksdb.cur-size-all-mem-tables", e);
-                    return 0;
+        }
+
+        private long safeGet(RocksDBLongGetter action) {
+            ReentrantReadWriteLock.ReadLock rl = rw.readLock();
+            rl.lock();
+            try {
+                if (closed) {
+                    return 0L;
                 }
-            }, metricTags);
-            pinedMemorySizeGauges = getGauge(id, RocksDBKVSpaceMetric.PinnedMem, () -> {
-                try {
-                    if (!((BlockBasedTableConfig) cfOptions.tableFormatConfig()).noBlockCache()) {
-                        return db.getLongProperty(cfHandle, "rocksdb.block-cache-pinned-usage");
-                    }
-                    return 0;
-                } catch (RocksDBException e) {
-                    logger.warn("Unable to get long property {}", "rocksdb.block-cache-pinned-usage", e);
-                    return 0;
-                }
-            }, metricTags);
+                return action.get();
+            } catch (Throwable t) {
+                logger.warn("Unable to read RocksDB metric", t);
+                return 0L;
+            } finally {
+                rl.unlock();
+            }
+        }
+
+        AutoCloseable beginClose() {
+            ReentrantReadWriteLock.WriteLock wl = rw.writeLock();
+            wl.lock();
+            closed = true;
+            return wl::unlock;
         }
 
         void close() {
             blockCacheSizeGauge.close();
             memtableSizeGauges.close();
             tableReaderSizeGauge.close();
-            pinedMemorySizeGauges.close();
+            pinedMemorySizeGauge.close();
+        }
+
+        interface RocksDBLongGetter {
+            long get() throws RocksDBException;
         }
     }
 }

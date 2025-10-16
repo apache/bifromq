@@ -19,9 +19,6 @@
 
 package org.apache.bifromq.basekv.localengine.memory;
 
-import com.google.protobuf.ByteString;
-import java.util.Map;
-import java.util.concurrent.ConcurrentSkipListMap;
 import java.util.function.Consumer;
 import org.apache.bifromq.basekv.localengine.IKVSpaceIterator;
 import org.apache.bifromq.basekv.localengine.IKVSpaceMigratableWriter;
@@ -36,14 +33,13 @@ public class InMemKVSpaceMigratableWriter<E extends InMemKVEngine<E, T>, T exten
     extends InMemKVSpaceWriter<E, T> implements IKVSpaceMigratableWriter {
 
     InMemKVSpaceMigratableWriter(String id,
-                                 Map<ByteString, ByteString> metadataMap,
-                                 ConcurrentSkipListMap<ByteString, ByteString> rangeData,
+                                 InMemKVSpaceEpoch epoch,
                                  E engine,
                                  ISyncContext syncContext,
                                  Consumer<Boolean> afterWrite,
                                  KVSpaceOpMeters readOpMeters,
                                  Logger logger) {
-        super(id, metadataMap, rangeData, engine, syncContext, afterWrite, readOpMeters, logger);
+        super(id, epoch, engine, syncContext, afterWrite, readOpMeters, logger);
     }
 
     @Override
@@ -55,7 +51,7 @@ public class InMemKVSpaceMigratableWriter<E extends InMemKVEngine<E, T>, T exten
                     count, targetSpaceId, id, boundary.getStartKey().toStringUtf8(),
                     boundary.getEndKey().toStringUtf8())));
             // move data
-            try (IKVSpaceIterator itr = newIterator(boundary)) {
+            try (IKVSpaceIterator itr = new InMemKVSpaceIterator(epoch.dataMap(), boundary)) {
                 for (itr.seekToFirst(); itr.isValid(); itr.next()) {
                     session.put(itr.key(), itr.value());
                 }

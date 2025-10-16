@@ -19,17 +19,21 @@
 
 package org.apache.bifromq.basekv.localengine.rocksdb;
 
-import org.apache.bifromq.basekv.localengine.KVEngineException;
-import org.apache.bifromq.basekv.localengine.metrics.KVSpaceOpMeters;
 import io.micrometer.core.instrument.Gauge;
 import io.micrometer.core.instrument.Metrics;
 import io.micrometer.core.instrument.Tags;
 import java.io.File;
 import java.nio.file.Files;
+import org.apache.bifromq.basekv.localengine.KVEngineException;
+import org.apache.bifromq.basekv.localengine.metrics.KVSpaceOpMeters;
 import org.slf4j.Logger;
 
-public class RocksDBCPableKVEngine extends
-    RocksDBKVEngine<RocksDBCPableKVEngine, RocksDBCPableKVSpace, RocksDBCPableKVEngineConfigurator> {
+class RocksDBCPableKVEngine extends RocksDBKVEngine<
+    RocksDBCPableKVEngine,
+    RocksDBCPableKVSpace,
+    RocksDBCPableKVEngineConfigurator,
+    RocksDBCPableKVSpaceEpochHandle
+    > {
     private final File cpRootDir;
     private MetricManager metricManager;
 

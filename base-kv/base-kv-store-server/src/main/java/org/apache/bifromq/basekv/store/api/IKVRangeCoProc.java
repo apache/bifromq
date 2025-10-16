@@ -30,28 +30,29 @@ import org.apache.bifromq.basekv.store.proto.RWCoProcInput;
 import org.apache.bifromq.basekv.store.proto.RWCoProcOutput;
 
 /**
- * The interface of range co-processor.
+ * The interface of KVRange co-processor.
  */
 public interface IKVRangeCoProc {
     /**
      * Execute a query co-proc.
      *
      * @param input the query input
+     * @param reader the reader of latest consistent-view of KVRange
      * @return the future of query result
      */
-    CompletableFuture<ROCoProcOutput> query(ROCoProcInput input, IKVReader client);
+    CompletableFuture<ROCoProcOutput> query(ROCoProcInput input, IKVRangeReader reader);
 
     /**
      * Execute a mutation co-proc, returns a supplier of mutation output. The supplier will be called after mutation is
      * persisted successfully.
      *
      * @param input  the mutation input
-     * @param reader the range data reader
-     * @param writer the range data writer
+     * @param reader the reader of latest consistent-view of KVRange
+     * @param writer the writer of KVRange
      * @param isLeader indicating whether current node was the leader committing the log
      * @return the future of mutation result
      */
-    Supplier<MutationResult> mutate(RWCoProcInput input, IKVReader reader, IKVWriter writer, boolean isLeader);
+    Supplier<MutationResult> mutate(RWCoProcInput input, IKVRangeReader reader, IKVWriter writer, boolean isLeader);
 
     /**
      * This method will be called whenever owner range is restored from a snapshot or boundary changed via split/merge.

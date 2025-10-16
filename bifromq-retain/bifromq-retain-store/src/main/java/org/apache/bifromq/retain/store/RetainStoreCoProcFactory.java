@@ -19,18 +19,18 @@
 
 package org.apache.bifromq.retain.store;
 
-import org.apache.bifromq.basekv.proto.KVRangeId;
-import org.apache.bifromq.basekv.store.api.IKVCloseableReader;
-import org.apache.bifromq.basekv.store.api.IKVRangeCoProc;
-import org.apache.bifromq.basekv.store.api.IKVRangeCoProcFactory;
-import org.apache.bifromq.basekv.store.api.IKVRangeSplitHinter;
-import org.apache.bifromq.basekv.store.range.hinter.MutationKVLoadBasedSplitHinter;
-import org.apache.bifromq.basekv.utils.KVRangeIdUtil;
 import java.time.Duration;
 import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
 import java.util.function.Supplier;
+import org.apache.bifromq.basekv.proto.KVRangeId;
+import org.apache.bifromq.basekv.store.api.IKVRangeCoProc;
+import org.apache.bifromq.basekv.store.api.IKVRangeCoProcFactory;
+import org.apache.bifromq.basekv.store.api.IKVRangeSplitHinter;
+import org.apache.bifromq.basekv.store.range.IKVRangeRefreshableReader;
+import org.apache.bifromq.basekv.store.range.hinter.MutationKVLoadBasedSplitHinter;
+import org.apache.bifromq.basekv.utils.KVRangeIdUtil;
 
 public class RetainStoreCoProcFactory implements IKVRangeCoProcFactory {
     private final Duration loadEstWindow;
@@ -41,7 +41,7 @@ public class RetainStoreCoProcFactory implements IKVRangeCoProcFactory {
 
     @Override
     public List<IKVRangeSplitHinter> createHinters(String clusterId, String storeId, KVRangeId id,
-                                                   Supplier<IKVCloseableReader> rangeReaderProvider) {
+                                                   Supplier<IKVRangeRefreshableReader> rangeReaderProvider) {
         return Collections.singletonList(
             new MutationKVLoadBasedSplitHinter(loadEstWindow, Optional::of,
                 "clusterId", clusterId, "storeId", storeId, "rangeId", KVRangeIdUtil.toString(id)));
@@ -51,7 +51,7 @@ public class RetainStoreCoProcFactory implements IKVRangeCoProcFactory {
     public IKVRangeCoProc createCoProc(String clusterId,
                                        String storeId,
                                        KVRangeId id,
-                                       Supplier<IKVCloseableReader> rangeReaderProvider) {
+                                       Supplier<IKVRangeRefreshableReader> rangeReaderProvider) {
         return new RetainStoreCoProc(clusterId, storeId, id, rangeReaderProvider);
     }
 

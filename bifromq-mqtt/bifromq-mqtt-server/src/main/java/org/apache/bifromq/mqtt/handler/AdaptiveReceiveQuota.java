@@ -21,119 +21,172 @@ package org.apache.bifromq.mqtt.handler;
 
 import java.util.concurrent.TimeUnit;
 
+/**
+ * Adaptive, congestion-aware receive quota controller for MQTT sessions.
+ * <p/>
+ * Estimates a proper in-flight window by tracking RTT with dual EWMAs,
+ * detecting congestion via latency ratio, applying multiplicative decrease
+ * with a short growth freeze on congestion, steering by utilization
+ * when latency is healthy, and clamping within a fixed floor and receive maximum.
+ */
 final class AdaptiveReceiveQuota {
-    private final int receiveMaximum;
-    private final long rttFloorNanos;
+    private static final double EPS_LOW = 0.05;    // healthy if r <= 1+EPS_LOW
+    private static final double EPS_HIGH = 0.15;   // congested if r >= 1+EPS_HIGH
+    private static final double SHRINK_RATIO = 0.10; // multiplicative decrease factor
+    private static final double U_LOW = 0.05;       // keep utilization above 5%
+    private static final double U_HIGH = 0.10;      // and below 10%
+    private static final double U_TARGET = 0.075;   // midpoint for steering when out of band
+    private static final double AMP_MIN = 1.10;     // min grow amplification per window when util > U_HIGH
+    private static final double AMP_MAX = 2.00;     // max grow amplification per window when util > U_HIGH
+    private static final double HEALTHY_SHRINK = 0.05; // shrink 5% per window when util < U_LOW
+
+    private static final long EVAL_PERIOD_NANOS = TimeUnit.MILLISECONDS.toNanos(200);
+    private static final long SHRINK_COOLDOWN_NANOS = TimeUnit.MILLISECONDS.toNanos(300);
+    private static final long ERROR_FREEZE_NANOS = TimeUnit.MILLISECONDS.toNanos(300);
+
+    private static final double BASE_FLOOR_ALPHA = 0.01; // only move floor upward
+
+    private final int recvMin; // quota floor
+    private final int recvMax; // quota ceiling
     private final double emaAlpha;
-    private final double gain;
-    private final double slowAckFactor;
-    private final double minBandwidthPerNano;
-    private final int maxWindowStep;
 
-    private double bandwidthEstimate;
-    private long minRttNanos;
-    private int windowEstimate;
-    private long lastAckTimeNanos;
-    private boolean slowAckPenalized;
+    private double fastLatencyEWMA = 0;
+    private double slowLatencyEWMA = 0;
+    private double baseFloorNanos = 0;
 
-    AdaptiveReceiveQuota(int receiveMaximum,
-                         long rttFloorNanos,
-                         double emaAlpha,
-                         double gain,
-                         double slowAckFactor,
-                         double minBandwidthPerSecond,
-                         int maxWindowStep) {
-        this.receiveMaximum = Math.max(1, receiveMaximum);
-        this.rttFloorNanos = Math.max(1L, rttFloorNanos);
-        this.emaAlpha = Math.min(1D, Math.max(0D, emaAlpha));
-        this.gain = Math.max(0D, gain);
-        this.slowAckFactor = Math.max(1D, slowAckFactor);
-        this.maxWindowStep = maxWindowStep;
-        this.minBandwidthPerNano = Math.max(0D, minBandwidthPerSecond) / TimeUnit.SECONDS.toNanos(1);
-        this.bandwidthEstimate = Math.max(this.minBandwidthPerNano, 1D / this.rttFloorNanos);
-        long baseRtt = baselineRtt();
-        this.windowEstimate = clampWindow((int) Math.ceil(this.bandwidthEstimate * baseRtt * this.gain),
-            this.receiveMaximum);
+    private int quotaEstimate;
+    private int lastInflight = 0;
+
+    private long lastEvalAtNanos = 0;
+    private long growthFreezeUntilNanos = 0;
+
+    /**
+     * Construct a quota controller bounded by receiveMaximum and configured EWMA alpha.
+     *
+     * @param receiveMin lower bound for available quota
+     * @param receiveMax upper bound for available quota
+     * @param emaAlpha smoothing factor in [0, 1] for the fast EWMA
+     */
+    AdaptiveReceiveQuota(int receiveMin, int receiveMax, double emaAlpha) {
+        assert receiveMin > 0 && receiveMin <= receiveMax;
+        this.recvMin = receiveMin;
+        this.recvMax = receiveMax;
+        this.emaAlpha = Math.min(1, Math.max(0, emaAlpha));
+        this.quotaEstimate = recvMin;
     }
 
-    void onPacketAcked(long ackTimeNanos, long lastSendTimeNanos) {
-        if (ackTimeNanos <= 0) {
+    /**
+     * Observe ACK to update latency statistics and utilization, then trigger periodic evaluation.
+     *
+     * @param ackTimeNanos time when ACK is received
+     * @param lastSendTimeNanos time when the acked packet was sent
+     * @param inflightCountAtAck in-flight count observed at ACK
+     */
+    void onPacketAcked(long ackTimeNanos, long lastSendTimeNanos, int inflightCountAtAck) {
+        long rtt = ackTimeNanos - lastSendTimeNanos;
+        if (rtt > 0) {
+            // fast EWMA
+            fastLatencyEWMA = ewma(fastLatencyEWMA, rtt, emaAlpha);
+            // slow EWMA: up fast, down slow
+            if (slowLatencyEWMA == 0) {
+                slowLatencyEWMA = rtt;
+            } else {
+                double alphaSlowUp = Math.max(0.02, emaAlpha * 0.5);
+                double alphaSlowDown = Math.max(0.005, emaAlpha * 0.1);
+                double a = (fastLatencyEWMA > slowLatencyEWMA) ? alphaSlowUp : alphaSlowDown;
+                slowLatencyEWMA = ewma(slowLatencyEWMA, rtt, a);
+            }
+            // baseline floor moves up only
+            baseFloorNanos = baseFloorNanos == 0 ? rtt : decayFloor(baseFloorNanos, slowLatencyEWMA);
+        }
+        lastInflight = Math.max(0, inflightCountAtAck);
+        maybeEvaluate(ackTimeNanos);
+    }
+
+    /**
+     * React to error by shrinking quota and freezing growth briefly.
+     * Consecutive shrinks are limited by cooldown.
+     *
+     * @param nowNanos current time
+     */
+    void onErrorSignal(long nowNanos) {
+        if (nowNanos - lastEvalAtNanos < SHRINK_COOLDOWN_NANOS) {
             return;
         }
-        long rtt = rttFloorNanos;
-        if (lastSendTimeNanos > 0 && ackTimeNanos > lastSendTimeNanos) {
-            rtt = ackTimeNanos - lastSendTimeNanos;
-        }
-        if (minRttNanos == 0 || rtt < minRttNanos) {
-            minRttNanos = rtt;
-        }
-        long ackInterval;
-        if (lastAckTimeNanos > 0 && ackTimeNanos > lastAckTimeNanos) {
-            ackInterval = ackTimeNanos - lastAckTimeNanos;
-        } else {
-            ackInterval = rtt;
-        }
-        double sampleBandwidth = 1D / (double) ackInterval;
-        if (bandwidthEstimate <= 0) {
-            bandwidthEstimate = sampleBandwidth;
-        } else {
-            bandwidthEstimate = (1 - emaAlpha) * bandwidthEstimate + emaAlpha * sampleBandwidth;
-        }
-        if (bandwidthEstimate < minBandwidthPerNano) {
-            bandwidthEstimate = minBandwidthPerNano;
-        }
-        lastAckTimeNanos = ackTimeNanos;
-        slowAckPenalized = false;
-        updateWindow();
+        quotaEstimate = clampWindow((int) Math.ceil(quotaEstimate * (1D - Math.min(1D, SHRINK_RATIO))));
+        growthFreezeUntilNanos = nowNanos + ERROR_FREEZE_NANOS;
+        lastEvalAtNanos = nowNanos;
     }
 
-    int availableQuota(long nowNanos, int inFlightCount) {
-        if (windowEstimate > receiveMaximum) {
-            windowEstimate = receiveMaximum;
-        }
-        long baselineRtt = baselineRtt();
-        long slowAckTimeout = (long) Math.max(baselineRtt * slowAckFactor, baselineRtt);
-        if (!slowAckPenalized
-            && lastAckTimeNanos > 0
-            && nowNanos > lastAckTimeNanos
-            && nowNanos - lastAckTimeNanos > slowAckTimeout) {
-            windowEstimate = Math.max(1, windowEstimate / 2);
-            bandwidthEstimate = Math.max(minBandwidthPerNano, bandwidthEstimate / 2);
-            slowAckPenalized = true;
-        }
-        if (windowEstimate > receiveMaximum) {
-            windowEstimate = receiveMaximum;
-        }
-        if (windowEstimate < 1) {
-            windowEstimate = 1;
-        }
-        return Math.max(0, windowEstimate - Math.max(0, inFlightCount));
+    /**
+     * Get current available quota clamped within bounds.
+     *
+     * @return non-negative available quota
+     */
+    int availableQuota() {
+        return clampWindow(quotaEstimate);
     }
 
-    int window() {
-        return windowEstimate;
-    }
-
-    private void updateWindow() {
-        long baselineRtt = baselineRtt();
-        double targetWindow = bandwidthEstimate * baselineRtt * gain;
-        int desired = clampWindow((int) Math.ceil(targetWindow), receiveMaximum);
-        if (desired > windowEstimate) {
-            windowEstimate = Math.min(desired, windowEstimate + maxWindowStep);
-        } else if (desired < windowEstimate) {
-            windowEstimate = Math.max(desired, windowEstimate - maxWindowStep);
+    private void maybeEvaluate(long nowNanos) {
+        if (lastEvalAtNanos == 0) {
+            lastEvalAtNanos = nowNanos;
+            return;
+        }
+        while (nowNanos - lastEvalAtNanos >= EVAL_PERIOD_NANOS) {
+            long evalAt = lastEvalAtNanos + EVAL_PERIOD_NANOS;
+            evaluateOnce(evalAt);
+            lastEvalAtNanos = evalAt;
         }
     }
 
-    private int clampWindow(int value, int receiveMaximum) {
-        int max = Math.max(1, receiveMaximum);
-        if (value < 1) {
-            return 1;
+    private void evaluateOnce(long evalAtNanos) {
+        if (evalAtNanos < growthFreezeUntilNanos) {
+            // in freeze window, skip adjustment
+            return;
         }
-        return Math.min(max, value);
+        // compute ratio r = fast / base
+        double baseCandidate = slowLatencyEWMA > 0 ? slowLatencyEWMA : (double) TimeUnit.MILLISECONDS.toNanos(1);
+        double base = Math.max(baseCandidate, baseFloorNanos);
+        if (base <= 0 || fastLatencyEWMA <= 0) {
+            return;
+        }
+        double r = fastLatencyEWMA / base;
+        if (r >= 1 + EPS_HIGH) {
+            // multiplicative decrease with cooldown
+            quotaEstimate = clampWindow((int) Math.ceil(quotaEstimate * (1 - SHRINK_RATIO)));
+            growthFreezeUntilNanos = evalAtNanos + SHRINK_COOLDOWN_NANOS;
+        } else if (r <= 1 + EPS_LOW) {
+            // healthy window: steer quota to keep utilization within [U_LOW, U_HIGH]
+            int w = Math.max(recvMin, quotaEstimate);
+            double util = (double) lastInflight / (double) w;
+            if (util > U_HIGH) {
+                double factor = Math.max(AMP_MIN, Math.min(AMP_MAX, util / U_TARGET));
+                int newW = clampWindow((int) Math.ceil(w * factor));
+                if (newW > w) {
+                    quotaEstimate = newW;
+                }
+            } else if (util < U_LOW) {
+                int newW = clampWindow((int) Math.ceil(w * (1 - HEALTHY_SHRINK)));
+                if (newW < w) {
+                    quotaEstimate = newW;
+                }
+            }
+        }
+        // keep
     }
 
-    private long baselineRtt() {
-        return minRttNanos > 0 ? minRttNanos : rttFloorNanos;
+    private int clampWindow(int value) {
+        return Math.min(recvMax, Math.max(recvMin, value));
+    }
+
+    private double ewma(double current, double sample, double alpha) {
+        return current == 0 ? sample : (1 - alpha) * current + alpha * sample;
+    }
+
+    private double decayFloor(double floor, double target) {
+        if (target > floor) {
+            return floor + BASE_FLOOR_ALPHA * (target - floor);
+        }
+        return floor;
     }
 }

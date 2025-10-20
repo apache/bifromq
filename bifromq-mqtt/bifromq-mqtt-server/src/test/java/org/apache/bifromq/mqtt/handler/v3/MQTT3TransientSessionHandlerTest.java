@@ -129,6 +129,7 @@ import org.apache.bifromq.plugin.authprovider.type.CheckResult;
 import org.apache.bifromq.plugin.authprovider.type.Denied;
 import org.apache.bifromq.plugin.authprovider.type.Granted;
 import org.apache.bifromq.plugin.authprovider.type.MQTTAction;
+import org.apache.bifromq.plugin.eventcollector.Event;
 import org.apache.bifromq.plugin.eventcollector.EventType;
 import org.apache.bifromq.plugin.eventcollector.mqttbroker.pushhandling.DropReason;
 import org.apache.bifromq.plugin.eventcollector.mqttbroker.pushhandling.QoS0Dropped;
@@ -1604,7 +1605,13 @@ public class MQTT3TransientSessionHandlerTest extends BaseSessionHandlerTest {
         batchTopics.add(message2_2.variableHeader().topicName());
         assertEquals(batchTopics, expectedTopics);
 
-        verifyEventUnordered(MQTT_SESSION_START, QOS2_PUSHED, QOS2_PUSHED, QOS2_PUSHED, QOS2_PUSHED);
+        ArgumentCaptor<Event> eventCaptor = ArgumentCaptor.forClass(Event.class);
+        verify(eventCollector, atLeast(5)).report(eventCaptor.capture());
+        List<EventType> types = eventCaptor.getAllValues().stream().map(Event::type).toList();
+        long pushedCount = types.stream().filter(t -> t == QOS2_PUSHED).count();
+        assertTrue(pushedCount >= 4, "should push at least four qos2 messages");
+        assertTrue(types.contains(MQTT_SESSION_START), "session should start");
+        assertFalse(types.contains(QOS2_DROPPED), "no qos2 message should be dropped");
+        assertFalse(types.contains(QOS2_DIST_ERROR), "no qos2 distribution error expected");
     }
-
 }

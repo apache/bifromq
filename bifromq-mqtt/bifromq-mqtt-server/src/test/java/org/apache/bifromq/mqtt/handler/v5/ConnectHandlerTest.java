@@ -431,6 +431,38 @@ public class ConnectHandlerTest extends MockableTest {
         verify(eventCollector).report(argThat(e -> e.type() == EventType.SERVER_BUSY));
     }
 
+    
+
+    @Test
+    public void receiveMaximumZeroIsProtocolError() {
+        MqttConnectMessage connMsg = MqttMessageBuilders.connect().clientId("client")
+            .protocolVersion(MqttVersion.MQTT_5)
+            .properties(MQTT5MessageUtils.mqttProps()
+                .addReceiveMaximum(0)
+                .build())
+            .build();
+        channel.writeInbound(connMsg);
+        channel.advanceTimeBy(6, TimeUnit.SECONDS);
+        channel.runScheduledPendingTasks();
+        MqttConnAckMessage connAckMessage = channel.readOutbound();
+        assertEquals(connAckMessage.variableHeader().connectReturnCode(), CONNECTION_REFUSED_PROTOCOL_ERROR);
+        assertFalse(channel.isOpen());
+        verify(eventCollector).report(argThat(e -> e.type() == PROTOCOL_ERROR));
+    }
+
+    @Test
+    public void receiveMaximumValidPassesValidation() {
+        MqttConnectMessage connMsg = MqttMessageBuilders.connect().clientId("client")
+            .protocolVersion(MqttVersion.MQTT_5)
+            .properties(MQTT5MessageUtils.mqttProps()
+                .addReceiveMaximum(128)
+                .build())
+            .build();
+        when(authProvider.auth(any(MQTT5AuthData.class))).thenReturn(new CompletableFuture<>());
+        channel.writeInbound(connMsg);
+        verify(authProvider).auth(any(MQTT5AuthData.class));
+    }
+
     @Test
     public void attachCallBackPressureRejected() {
         when(authProvider.auth(any(MQTT5AuthData.class))).thenReturn(CompletableFuture.completedFuture(

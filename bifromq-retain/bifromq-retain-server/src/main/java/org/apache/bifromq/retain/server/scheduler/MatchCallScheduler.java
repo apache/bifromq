@@ -19,12 +19,12 @@
 
 package org.apache.bifromq.retain.server.scheduler;
 
+import java.time.Duration;
+import java.util.Optional;
 import org.apache.bifromq.basekv.client.IBaseKVStoreClient;
 import org.apache.bifromq.basescheduler.BatchCallScheduler;
 import org.apache.bifromq.plugin.settingprovider.ISettingProvider;
 import org.apache.bifromq.sysprops.props.DataPlaneMaxBurstLatencyMillis;
-import java.time.Duration;
-import java.util.Optional;
 
 public class MatchCallScheduler
     extends BatchCallScheduler<MatchRetainedRequest, MatchRetainedResult, MatchCallBatcherKey>
@@ -32,7 +32,7 @@ public class MatchCallScheduler
 
     public MatchCallScheduler(IBaseKVStoreClient retainStoreClient, ISettingProvider settingProvider) {
         super((name, batcherKey) -> () -> new BatchMatchCall(batcherKey, retainStoreClient, settingProvider),
-            Duration.ofSeconds(DataPlaneMaxBurstLatencyMillis.INSTANCE.get()).toNanos());
+            Duration.ofMillis(DataPlaneMaxBurstLatencyMillis.INSTANCE.get()).toNanos());
     }
 
     @Override

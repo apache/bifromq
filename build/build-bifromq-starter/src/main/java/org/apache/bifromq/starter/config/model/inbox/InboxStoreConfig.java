@@ -49,7 +49,7 @@ public class InboxStoreConfig {
     @JsonMerge
     private StorageEngineConfig dataEngineConfig = new RocksDBEngineConfig()
         .setManualCompaction(true)
-        .setCompactMinTombstoneKeys(2500)
+        .setCompactMinTombstoneKeys(50000)
         .setCompactMinTombstoneRanges(100);
     @JsonSetter(nulls = Nulls.SKIP)
     @JsonMerge

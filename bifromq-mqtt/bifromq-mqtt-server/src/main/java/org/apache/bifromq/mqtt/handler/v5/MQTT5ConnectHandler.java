@@ -48,6 +48,7 @@ import static org.apache.bifromq.mqtt.handler.v5.MQTT5MessageUtils.authMethod;
 import static org.apache.bifromq.mqtt.handler.v5.MQTT5MessageUtils.isUTF8Payload;
 import static org.apache.bifromq.mqtt.handler.v5.MQTT5MessageUtils.maximumPacketSize;
 import static org.apache.bifromq.mqtt.handler.v5.MQTT5MessageUtils.mqttProps;
+import static org.apache.bifromq.mqtt.handler.v5.MQTT5MessageUtils.receiveMaximum;
 import static org.apache.bifromq.mqtt.handler.v5.MQTT5MessageUtils.requestProblemInformation;
 import static org.apache.bifromq.mqtt.handler.v5.MQTT5MessageUtils.requestResponseInformation;
 import static org.apache.bifromq.mqtt.handler.v5.MQTT5MessageUtils.toUserProperties;
@@ -216,6 +217,18 @@ public class MQTT5ConnectHandler extends MQTTConnectHandler {
                     .build(),
                     getLocal(MalformedWillTopic.class).peerAddress(clientAddress));
             }
+        }
+        // Validate Receive Maximum property per MQTT v5.0 [3.1.2.11.3]
+        Optional<Integer> receiveMaxProps = receiveMaximum(connMsg.variableHeader().properties());
+        if (receiveMaxProps.isPresent() && receiveMaxProps.get() == 0) {
+            return new GoAway(MqttMessageBuilders
+                .connAck()
+                .returnCode(CONNECTION_REFUSED_PROTOCOL_ERROR)
+                .properties(MQTT5MessageBuilders.connAckProperties()
+                    .reasonString("MQTT5-3.1.2.11.3")
+                    .build())
+                .build(),
+                getLocal(ProtocolError.class).statement("MQTT5-3.1.2.11.3"));
         }
         return null;
     }

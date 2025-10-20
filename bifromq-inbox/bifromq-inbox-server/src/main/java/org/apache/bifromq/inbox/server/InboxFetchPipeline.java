@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 
 package org.apache.bifromq.inbox.server;
@@ -23,14 +23,6 @@ import static org.apache.bifromq.base.util.CompletableFutureUtil.unwrap;
 import static org.apache.bifromq.inbox.util.PipelineUtil.PIPELINE_ATTR_KEY_DELIVERERKEY;
 import static org.apache.bifromq.inbox.util.PipelineUtil.PIPELINE_ATTR_KEY_ID;
 
-import org.apache.bifromq.baserpc.server.AckStream;
-import org.apache.bifromq.basescheduler.exception.BackPressureException;
-import org.apache.bifromq.basescheduler.exception.BatcherUnavailableException;
-import org.apache.bifromq.inbox.rpc.proto.InboxFetchHint;
-import org.apache.bifromq.inbox.rpc.proto.InboxFetched;
-import org.apache.bifromq.inbox.server.scheduler.FetchRequest;
-import org.apache.bifromq.inbox.storage.proto.BatchFetchRequest;
-import org.apache.bifromq.inbox.storage.proto.Fetched;
 import io.grpc.stub.StreamObserver;
 import io.reactivex.rxjava3.disposables.Disposable;
 import java.util.Collections;
@@ -44,6 +36,14 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import lombok.ToString;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.bifromq.baserpc.server.AckStream;
+import org.apache.bifromq.basescheduler.exception.BackPressureException;
+import org.apache.bifromq.basescheduler.exception.BatcherUnavailableException;
+import org.apache.bifromq.inbox.rpc.proto.InboxFetchHint;
+import org.apache.bifromq.inbox.rpc.proto.InboxFetched;
+import org.apache.bifromq.inbox.server.scheduler.FetchRequest;
+import org.apache.bifromq.inbox.storage.proto.BatchFetchRequest;
+import org.apache.bifromq.inbox.storage.proto.Fetched;
 
 @Slf4j
 final class InboxFetchPipeline extends AckStream<InboxFetchHint, InboxFetched> implements IInboxFetcher {
@@ -155,7 +155,9 @@ final class InboxFetchPipeline extends AckStream<InboxFetchHint, InboxFetched> i
         if (closed) {
             return;
         }
-        if (fetchState.fetching.compareAndSet(false, true)) {
+        if (fetchState.hasMore.get()
+            && fetchState.downStreamCapacity.get() > 0
+            && fetchState.fetching.compareAndSet(false, true)) {
             long sessionId = fetchState.sessionId;
             String inboxId = fetchState.inboxId;
             long incarnation = fetchState.incarnation;

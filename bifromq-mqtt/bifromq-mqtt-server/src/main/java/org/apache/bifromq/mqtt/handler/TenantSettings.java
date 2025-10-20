@@ -79,7 +79,7 @@ public class TenantSettings {
     public final long inboundBandwidth;
     public final long outboundBandwidth;
     public final int receiveMaximum;
-    public final double minSendPerSec;
+    public final int minSendPerSec;
     public final int maxMsgPerSec;
     public final int maxResendTimes;
     public final int resendTimeoutSeconds;

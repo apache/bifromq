@@ -126,7 +126,8 @@ public class MQTT5ProtocolHelper implements IMQTTProtocolHelper {
         this.senderTopicAliasManager =
             new SenderTopicAliasManager(topicAliasMaximum(connMsg.variableHeader().properties()).orElse(0),
                 Duration.ofSeconds(60));
-        this.clientReceiveMaximum = receiveMaximum(connMsg.variableHeader().properties()).orElse(65535);
+        this.clientReceiveMaximum = Math.max(settings.minSendPerSec,
+            receiveMaximum(connMsg.variableHeader().properties()).orElse(65535));
         this.requestProblemInfo = requestProblemInformation(connMsg.variableHeader().properties());
     }
 

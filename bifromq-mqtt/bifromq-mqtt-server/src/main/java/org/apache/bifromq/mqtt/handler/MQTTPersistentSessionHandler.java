@@ -440,6 +440,8 @@ public abstract class MQTTPersistentSessionHandler extends MQTTSessionHandler im
                 confirmSendBuffer();
             }
         }
+        currentHint = clientReceiveQuota();
+        inboxReader.hint(currentHint);
         ctx.executor().execute(this::drainStaging);
     }
 
@@ -517,11 +519,8 @@ public abstract class MQTTPersistentSessionHandler extends MQTTSessionHandler im
                     }
                 }
                 case BACK_PRESSURE_REJECTED -> {
-                    if (stagingBuffer.isEmpty()) {
-                        currentHint = clientReceiveQuota();
-                        scheduleHintTimeout();
-                        inboxReader.hint(currentHint);
-                    }
+                    currentHint = clientReceiveQuota();
+                    scheduleHintTimeout();
                 }
                 case TRY_LATER -> {
                     currentHint = clientReceiveQuota();

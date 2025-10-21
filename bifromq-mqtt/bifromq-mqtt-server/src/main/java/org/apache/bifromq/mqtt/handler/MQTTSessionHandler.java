@@ -22,6 +22,7 @@ package org.apache.bifromq.mqtt.handler;
 import static java.util.concurrent.CompletableFuture.allOf;
 import static org.apache.bifromq.metrics.TenantMetric.MqttConfirmingMessages;
 import static org.apache.bifromq.metrics.TenantMetric.MqttConnectCount;
+import static org.apache.bifromq.metrics.TenantMetric.MqttDeDupBytes;
 import static org.apache.bifromq.metrics.TenantMetric.MqttDisconnectCount;
 import static org.apache.bifromq.metrics.TenantMetric.MqttIngressBytes;
 import static org.apache.bifromq.metrics.TenantMetric.MqttQoS0DistBytes;
@@ -34,6 +35,7 @@ import static org.apache.bifromq.metrics.TenantMetric.MqttQoS2DeliverBytes;
 import static org.apache.bifromq.metrics.TenantMetric.MqttQoS2DistBytes;
 import static org.apache.bifromq.metrics.TenantMetric.MqttQoS2ExternalLatency;
 import static org.apache.bifromq.metrics.TenantMetric.MqttQoS2IngressBytes;
+import static org.apache.bifromq.metrics.TenantMetric.MqttResendBytes;
 import static org.apache.bifromq.metrics.TenantMetric.MqttSendingQuota;
 import static org.apache.bifromq.mqtt.handler.IMQTTProtocolHelper.SubResult.EXCEED_LIMIT;
 import static org.apache.bifromq.mqtt.handler.MQTTSessionIdUtil.userSessionId;
@@ -937,6 +939,7 @@ public abstract class MQTTSessionHandler extends MQTTMessageHandler implements I
             return;
         }
         if (msg.isDup()) {
+            tenantMeter.recordSummary(MqttDeDupBytes, msgSize);
             eventCollector.report(getLocal(QoS0Dropped.class)
                 .reason(DropReason.Duplicated)
                 .isRetain(msg.isRetain())
@@ -1068,6 +1071,7 @@ public abstract class MQTTSessionHandler extends MQTTMessageHandler implements I
             return;
         }
         if (msg.isDup()) {
+            tenantMeter.recordSummary(MqttDeDupBytes, msgSize);
             reportDropConfirmableMsgEvent(msg, DropReason.Duplicated);
             ctx.executor().execute(() -> confirm(packetId, false));
             return;
@@ -1129,6 +1133,7 @@ public abstract class MQTTSessionHandler extends MQTTMessageHandler implements I
             confirmingMsg.timestamp = sessionCtx.nanoTime();
         } else {
             confirmingMsg.resendTimestamp = sessionCtx.nanoTime();
+            tenantMeter.recordSummary(MqttResendBytes, msgSize);
         }
         confirmingMsg.sentCount++;
         writeAndFlush(pubMsg).addListener(f -> {

@@ -70,6 +70,7 @@ import static org.apache.bifromq.type.MQTTClientInfoConstants.MQTT_PROTOCOL_VER_
 import static org.apache.bifromq.type.MQTTClientInfoConstants.MQTT_TYPE_VALUE;
 import static org.apache.bifromq.type.MQTTClientInfoConstants.MQTT_USER_ID_KEY;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyDouble;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
@@ -120,6 +121,7 @@ import lombok.SneakyThrows;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.bifromq.basehlc.HLC;
 import org.apache.bifromq.dist.client.PubResult;
+import org.apache.bifromq.metrics.TenantMetric;
 import org.apache.bifromq.mqtt.handler.BaseSessionHandlerTest;
 import org.apache.bifromq.mqtt.handler.ChannelAttrs;
 import org.apache.bifromq.mqtt.handler.TenantSettings;
@@ -829,6 +831,8 @@ public class MQTT3TransientSessionHandlerTest extends BaseSessionHandlerTest {
         assertNull(message);
         // With channel backpressure, QoS1 is not dropped
         verifyEvent(MQTT_SESSION_START);
+        // verify resend metric NOT recorded when not actually resent
+        verify(tenantMeter, times(0)).recordSummary(eq(TenantMetric.MqttResendBytes), anyDouble());
     }
 
     @Test
@@ -876,6 +880,8 @@ public class MQTT3TransientSessionHandlerTest extends BaseSessionHandlerTest {
         expected[0] = MQTT_SESSION_START;
         Arrays.fill(expected, 1, expected.length, QOS1_PUSHED);
         verifyEventUnordered(expected);
+        // verify resend metric recorded exactly for resends
+        verify(tenantMeter, times(concurrent * 2)).recordSummary(eq(TenantMetric.MqttResendBytes), anyDouble());
     }
 
     @Test

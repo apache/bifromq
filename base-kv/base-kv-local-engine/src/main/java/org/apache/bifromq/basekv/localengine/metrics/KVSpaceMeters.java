@@ -23,6 +23,8 @@ import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.DistributionSummary;
+import io.micrometer.core.instrument.FunctionCounter;
+import io.micrometer.core.instrument.FunctionTimer;
 import io.micrometer.core.instrument.Gauge;
 import io.micrometer.core.instrument.Meter;
 import io.micrometer.core.instrument.Metrics;
@@ -34,6 +36,8 @@ import java.util.Objects;
 import java.util.concurrent.Callable;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Supplier;
+import java.util.function.ToDoubleFunction;
+import java.util.function.ToLongFunction;
 
 public class KVSpaceMeters {
     private static final Cleaner CLEANER = Cleaner.create();
@@ -57,6 +61,35 @@ public class KVSpaceMeters {
                 .register(Metrics.globalRegistry)));
     }
 
+    public static <C> FunctionCounter getFunctionCounter(String id,
+                                                         IKVSpaceMetric metric,
+                                                         C ctr,
+                                                         ToDoubleFunction<C> supplier,
+                                                         Tags tags) {
+        assert metric.meterType() == Meter.Type.COUNTER && metric.isFunction();
+        return (FunctionCounter) METERS.get(new MeterKey(id, metric, tags),
+            k -> new FunctionCounterWrapper(FunctionCounter.builder(metric.metricName(), ctr, supplier)
+                .tags(tags)
+                .tags("kvspace", id)
+                .register(Metrics.globalRegistry)));
+    }
+
+    public static <C> FunctionTimer getFunctionTimer(String id,
+                                                       IKVSpaceMetric metric,
+                                                       C timedObj,
+                                                       ToLongFunction<C> countFunction,
+                                                       ToDoubleFunction<C> totalTimeFunction,
+                                                       TimeUnit timeUnit,
+                                                       Tags tags) {
+        assert metric.meterType() == Meter.Type.TIMER && metric.isFunction();
+        return (FunctionTimer) METERS.get(new MeterKey(id, metric, tags),
+            k -> new FunctionTimerWrapper(
+                FunctionTimer.builder(metric.metricName(), timedObj, countFunction, totalTimeFunction, timeUnit)
+                    .tags(tags)
+                    .tags("kvspace", id)
+                    .register(Metrics.globalRegistry)));
+    }
+
     public static Gauge getGauge(String id, IKVSpaceMetric metric, Supplier<Number> numProvider, Tags tags) {
         assert metric.meterType() == Meter.Type.GAUGE;
         return (Gauge) METERS.get(new MeterKey(id, metric, tags),
@@ -74,7 +107,6 @@ public class KVSpaceMeters {
                 .tags("kvspace", id)
                 .register(Metrics.globalRegistry)));
     }
-
 
     private record MeterKey(String id, IKVSpaceMetric metric, Tags tags) {
 
@@ -139,6 +171,68 @@ public class KVSpaceMeters {
         @Override
         public HistogramSnapshot takeSnapshot() {
             return delegate.takeSnapshot();
+        }
+
+        @Override
+        public Id getId() {
+            return delegate.getId();
+        }
+
+        @Override
+        public void close() {
+            delegate.close();
+            cleanable.clean();
+        }
+    }
+
+    private static final class FunctionTimerWrapper implements FunctionTimer {
+        private final FunctionTimer delegate;
+        private final Cleaner.Cleanable cleanable;
+
+        private FunctionTimerWrapper(FunctionTimer delegate) {
+            this.delegate = delegate;
+            cleanable = CLEANER.register(this, new State(delegate));
+        }
+
+        @Override
+        public Id getId() {
+            return delegate.getId();
+        }
+
+        @Override
+        public void close() {
+            delegate.close();
+            cleanable.clean();
+        }
+
+        @Override
+        public double count() {
+            return delegate.count();
+        }
+
+        @Override
+        public double totalTime(TimeUnit unit) {
+            return delegate.totalTime(unit);
+        }
+
+        @Override
+        public TimeUnit baseTimeUnit() {
+            return delegate.baseTimeUnit();
+        }
+    }
+
+    private static final class FunctionCounterWrapper implements FunctionCounter {
+        private final FunctionCounter delegate;
+        private final Cleaner.Cleanable cleanable;
+
+        private FunctionCounterWrapper(FunctionCounter delegate) {
+            this.delegate = delegate;
+            cleanable = CLEANER.register(this, new State(delegate));
+        }
+
+        @Override
+        public double count() {
+            return delegate.count();
         }
 
         @Override
@@ -258,7 +352,7 @@ public class KVSpaceMeters {
 
         @Override
         public double max() {
-            return delegate.totalAmount();
+            return delegate.max();
         }
 
         @Override

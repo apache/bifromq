@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 
 package org.apache.bifromq.starter.module;
@@ -54,6 +54,8 @@ public class EngineConfUtil {
                     Paths.get(dataDir, rocksDBConfig.getDataPathRoot(), name + "_cp");
             }
             return RocksDBCPableKVEngineConfigurator.builder()
+                .enableStats(rocksDBConfig.isEnableStats())
+                .statsLevel(rocksDBConfig.getStatsLevel())
                 .dbRootDir(dataRootDir.toString())
                 .dbCheckpointRootDir(dataCheckpointRootDir.toString())
                 .heuristicCompaction(rocksDBConfig.isManualCompaction())
@@ -92,6 +94,8 @@ public class EngineConfUtil {
                 dataRootDir = Paths.get(dataDir, rocksDBConfig.getDataPathRoot(), name);
             }
             return RocksDBWALableKVEngineConfigurator.builder()
+                .enableStats(rocksDBConfig.isEnableStats())
+                .statsLevel(rocksDBConfig.getStatsLevel())
                 .dbRootDir(dataRootDir.toString())
                 .heuristicCompaction(rocksDBConfig.isManualCompaction())
                 .compactMinTombstoneKeys(rocksDBConfig.getCompactMinTombstoneKeys())
@@ -99,7 +103,6 @@ public class EngineConfUtil {
                 .compactTombstoneKeysRatio(rocksDBConfig.getCompactTombstoneRatio())
                 .asyncWALFlush(rocksDBConfig.isAsyncWALFlush())
                 .fsyncWAL(rocksDBConfig.isFsyncWAL())
-
                 .blockCacheSize(rocksDBConfig.getBlockCacheSize())
                 .writeBufferSize(rocksDBConfig.getWriteBufferSize())
                 .maxWriteBufferNumber(rocksDBConfig.getMaxWriteBufferNumber())

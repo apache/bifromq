@@ -38,4 +38,6 @@ public interface IKVSpaceMetric {
      * @return the metric type
      */
     Meter.Type meterType();
+
+    boolean isFunction();
 }

@@ -19,17 +19,15 @@
 
 package org.apache.bifromq.basekv.localengine.rocksdb;
 
-import org.apache.bifromq.basekv.localengine.ICPableKVEngineConfigurator;
 import lombok.Getter;
-import lombok.Setter;
 import lombok.experimental.Accessors;
 import lombok.experimental.SuperBuilder;
+import org.apache.bifromq.basekv.localengine.ICPableKVEngineConfigurator;
 import org.rocksdb.DBOptions;
 import org.rocksdb.DBOptionsInterface;
 
 @Accessors(chain = true, fluent = true)
 @Getter
-@Setter
 @SuperBuilder(toBuilder = true)
 public final class RocksDBCPableKVEngineConfigurator
     extends RocksDBKVEngineConfigurator<RocksDBCPableKVEngineConfigurator> implements ICPableKVEngineConfigurator {

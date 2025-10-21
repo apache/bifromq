@@ -171,7 +171,7 @@ class RocksDBWALableKVSpace extends RocksDBKVSpace<
         private final Timer flushTimer;
 
         MetricManager(String... metricTags) {
-            flushTimer = KVSpaceMeters.getTimer(id, RocksDBKVSpaceMetric.FlushTimer, Tags.of(metricTags));
+            flushTimer = KVSpaceMeters.getTimer(id, RocksDBKVSpaceMetric.ManualFlushTimer, Tags.of(metricTags));
         }
 
         void close() {

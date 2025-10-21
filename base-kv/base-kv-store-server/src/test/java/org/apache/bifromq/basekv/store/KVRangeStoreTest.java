@@ -105,12 +105,16 @@ public class KVRangeStoreTest extends MockableTest {
             EnvProvider.INSTANCE.newThreadFactory("bg-task-executor"));
 
         dbRootDir = Files.createTempDirectory("");
-        (((RocksDBCPableKVEngineConfigurator) options.getDataEngineConfigurator()))
+        options.setDataEngineConfigurator((((RocksDBCPableKVEngineConfigurator) options.getDataEngineConfigurator()))
+            .toBuilder()
             .dbCheckpointRootDir(Paths.get(dbRootDir.toString(), DB_CHECKPOINT_DIR_NAME)
                 .toString())
-            .dbRootDir(Paths.get(dbRootDir.toString(), DB_NAME).toString());
-        ((RocksDBWALableKVEngineConfigurator) options.getWalEngineConfigurator())
-            .dbRootDir(Paths.get(dbRootDir.toString(), DB_WAL_NAME).toString());
+            .dbRootDir(Paths.get(dbRootDir.toString(), DB_NAME).toString())
+            .build());
+        options.setWalEngineConfigurator(((RocksDBWALableKVEngineConfigurator) options.getWalEngineConfigurator())
+            .toBuilder()
+            .dbRootDir(Paths.get(dbRootDir.toString(), DB_WAL_NAME).toString())
+            .build());
 
         rangeStore =
             new KVRangeStore("testCluster",

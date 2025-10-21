@@ -39,7 +39,8 @@ class RocksDBCPableKVSpaceEpochHandle extends RocksDBKVSpaceEpochHandle<RocksDBC
                                     Logger logger,
                                     Tags tags) {
         super(dir, configurator, logger);
-        this.metrics = new SpaceMetrics(id, db, cf, cfDesc.getOptions(), tags.and("gen", dir.getName()), logger);
+        this.metrics = new SpaceMetrics(id, db, dbOptions, cf, cfDesc.getOptions(),
+            tags.and("gen", dir.getName()), logger);
         cleanable = CLEANER.register(this, new ClosableResources(id, dir.getName(), dbOptions, cfDesc, cf, db,
             checkpoint, dir, isRetired, metrics, logger));
     }

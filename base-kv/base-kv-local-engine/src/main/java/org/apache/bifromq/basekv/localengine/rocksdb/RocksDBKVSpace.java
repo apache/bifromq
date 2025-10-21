@@ -201,8 +201,8 @@ abstract class RocksDBKVSpace<
         private final Timer compactionTimer;
 
         SpaceMetrics(Tags metricTags) {
-            compactionSchedCounter = getCounter(id, RocksDBKVSpaceMetric.CompactionCounter, metricTags);
-            compactionTimer = getTimer(id, RocksDBKVSpaceMetric.CompactionTimer, metricTags);
+            compactionSchedCounter = getCounter(id, RocksDBKVSpaceMetric.ManualCompactionCounter, metricTags);
+            compactionTimer = getTimer(id, RocksDBKVSpaceMetric.ManualCompactionTimer, metricTags);
         }
 
         void close() {

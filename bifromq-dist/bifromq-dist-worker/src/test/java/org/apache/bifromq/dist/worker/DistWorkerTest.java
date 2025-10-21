@@ -206,12 +206,15 @@ public abstract class DistWorkerTest {
 
         String uuid = UUID.randomUUID().toString();
         KVRangeStoreOptions options = new KVRangeStoreOptions();
-        ((RocksDBCPableKVEngineConfigurator) options.getDataEngineConfigurator())
-            .dbCheckpointRootDir(Paths.get(dbRootDir.toString(), DB_CHECKPOINT_DIR_NAME, uuid)
-                .toString())
-            .dbRootDir(Paths.get(dbRootDir.toString(), DB_NAME, uuid).toString());
-        ((RocksDBWALableKVEngineConfigurator) options.getWalEngineConfigurator())
-            .dbRootDir(Paths.get(dbRootDir.toString(), DB_WAL_NAME, uuid).toString());
+        options.setDataEngineConfigurator(((RocksDBCPableKVEngineConfigurator) options.getDataEngineConfigurator())
+            .toBuilder()
+            .dbCheckpointRootDir(Paths.get(dbRootDir.toString(), DB_CHECKPOINT_DIR_NAME, uuid).toString())
+            .dbRootDir(Paths.get(dbRootDir.toString(), DB_NAME, uuid).toString())
+            .build());
+        options.setWalEngineConfigurator(((RocksDBWALableKVEngineConfigurator) options.getWalEngineConfigurator())
+            .toBuilder()
+            .dbRootDir(Paths.get(dbRootDir.toString(), DB_WAL_NAME, uuid).toString())
+            .build());
 
         storeClient = IBaseKVStoreClient
             .newBuilder()

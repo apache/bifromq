@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 
 package org.apache.bifromq.basekv.localengine.rocksdb.metrics;
@@ -22,8 +22,6 @@ package org.apache.bifromq.basekv.localengine.rocksdb.metrics;
 import static org.awaitility.Awaitility.await;
 import static org.testng.Assert.assertFalse;
 
-import org.apache.bifromq.basekv.localengine.MockableTest;
-import org.apache.bifromq.basekv.localengine.metrics.KVSpaceMeters;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.Gauge;
 import io.micrometer.core.instrument.Metrics;
@@ -32,6 +30,8 @@ import io.micrometer.core.instrument.Timer;
 import java.lang.ref.WeakReference;
 import java.util.concurrent.atomic.AtomicInteger;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.bifromq.basekv.localengine.MockableTest;
+import org.apache.bifromq.basekv.localengine.metrics.KVSpaceMeters;
 import org.testng.annotations.Test;
 
 @Slf4j
@@ -54,7 +54,7 @@ public class KVSpaceMetersTest extends MockableTest {
 
     @Test
     public void removeTimerWhenNoRef() {
-        Timer timer = KVSpaceMeters.getTimer("testSpace", RocksDBKVSpaceMetric.FlushTimer, Tags.of(new String[0]));
+        Timer timer = KVSpaceMeters.getTimer("testSpace", RocksDBKVSpaceMetric.ManualFlushTimer, Tags.of(new String[0]));
         String timerName = timer.getId().getName();
         WeakReference<Timer> weakRef = new WeakReference<>(timer);
         assertFalse(Metrics.globalRegistry.find(timerName).timers().isEmpty());
@@ -68,7 +68,7 @@ public class KVSpaceMetersTest extends MockableTest {
     @Test
     public void removeCounterWhenNoRef() {
         Counter counter =
-            KVSpaceMeters.getCounter("testSpace", RocksDBKVSpaceMetric.CompactionCounter, Tags.of(new String[0]));
+            KVSpaceMeters.getCounter("testSpace", RocksDBKVSpaceMetric.ManualCompactionCounter, Tags.of(new String[0]));
         String timerName = counter.getId().getName();
         WeakReference<Counter> weakRef = new WeakReference<>(counter);
         assertFalse(Metrics.globalRegistry.find(timerName).counters().isEmpty());

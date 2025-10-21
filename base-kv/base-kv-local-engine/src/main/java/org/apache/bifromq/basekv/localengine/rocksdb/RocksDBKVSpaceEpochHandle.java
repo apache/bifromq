@@ -20,15 +20,21 @@
 package org.apache.bifromq.basekv.localengine.rocksdb;
 
 import static org.apache.bifromq.basekv.localengine.IKVEngine.DEFAULT_NS;
+import static org.apache.bifromq.basekv.localengine.metrics.KVSpaceMeters.getFunctionCounter;
+import static org.apache.bifromq.basekv.localengine.metrics.KVSpaceMeters.getFunctionTimer;
 import static org.apache.bifromq.basekv.localengine.metrics.KVSpaceMeters.getGauge;
 import static org.apache.bifromq.basekv.localengine.rocksdb.RocksDBHelper.deleteDir;
 import static org.apache.bifromq.basekv.localengine.rocksdb.RocksDBHelper.openDBInDir;
 
+import io.micrometer.core.instrument.FunctionCounter;
+import io.micrometer.core.instrument.FunctionTimer;
 import io.micrometer.core.instrument.Gauge;
 import io.micrometer.core.instrument.Tags;
 import java.io.File;
 import java.io.IOException;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
+import java.util.function.Function;
 import java.util.function.Predicate;
 import org.apache.bifromq.basekv.localengine.rocksdb.metrics.RocksDBKVSpaceMetric;
 import org.rocksdb.BlockBasedTableConfig;
@@ -37,8 +43,11 @@ import org.rocksdb.ColumnFamilyDescriptor;
 import org.rocksdb.ColumnFamilyHandle;
 import org.rocksdb.ColumnFamilyOptions;
 import org.rocksdb.DBOptions;
+import org.rocksdb.HistogramType;
 import org.rocksdb.RocksDB;
 import org.rocksdb.RocksDBException;
+import org.rocksdb.Statistics;
+import org.rocksdb.TickerType;
 import org.slf4j.Logger;
 
 abstract class RocksDBKVSpaceEpochHandle<C extends RocksDBKVEngineConfigurator<C>> implements
@@ -101,6 +110,10 @@ abstract class RocksDBKVSpaceEpochHandle<C extends RocksDBKVEngineConfigurator<C
                 }
                 checkpoint.close();
                 cfDesc.getOptions().close();
+                Statistics statistics = dbOptions.statistics();
+                if (statistics != null) {
+                    statistics.close();
+                }
                 dbOptions.close();
                 if (isRetired.test(genId)) {
                     log.debug("delete retired generation[{}] of kvspace[{}] in path: {}", genId, id,
@@ -119,20 +132,50 @@ abstract class RocksDBKVSpaceEpochHandle<C extends RocksDBKVEngineConfigurator<C
 
     protected static class SpaceMetrics {
         private final ReentrantReadWriteLock rw = new ReentrantReadWriteLock();
+        private final Logger logger;
         private final Gauge blockCacheSizeGauge;
         private final Gauge tableReaderSizeGauge;
         private final Gauge memtableSizeGauges;
         private final Gauge pinedMemorySizeGauge;
-        private final Logger logger;
+        private final Gauge totalSSTFileSizeGauge;
+        private final Gauge liveSSTFileSizeGauge;
+        private final Gauge liveDataSizeGauge;
+        private final Gauge estimateNumKeysGauge;
+        private final Gauge pendingCompactionBytesGauge;
+        private final Gauge numRunningCompactionsGauge;
+        private final Gauge numRunningFlushesGauge;
+        private final Gauge compactionPendingGauge;
+        private final Gauge memtableFlushPendingGauge;
+        private final Gauge backgroundErrorsGauge;
+        private final FunctionCounter bytesReadCounter;
+        private final FunctionCounter bytesWrittenCounter;
+        private final FunctionCounter blockCacheHitCounter;
+        private final FunctionCounter blockCacheMissCounter;
+        private final FunctionCounter blobCacheHitCounter;
+        private final FunctionCounter blobCacheMissCounter;
+        private final FunctionCounter bloomUsefulCounter;
+        private final FunctionTimer getLatencyTimer;
+        private final FunctionTimer writeLatencyTimer;
+        private final FunctionTimer seekLatencyTimer;
+        private final FunctionTimer blobGetLatencyTimer;
+        private final FunctionTimer blobWriteLatencyTimer;
+        private final FunctionTimer sstReadLatencyTimer;
+        private final FunctionTimer sstWriteLatencyTimer;
+        private final FunctionTimer flushLatencyTimer;
+        private final FunctionTimer compactionLatencyTimer;
+        private final FunctionTimer writeStallTimer;
+        private final Statistics statistics;
         private volatile boolean closed = false;
 
         SpaceMetrics(String id,
                      RocksDB db,
+                     DBOptions dbOptions,
                      ColumnFamilyHandle cfHandle,
                      ColumnFamilyOptions cfOptions,
                      Tags metricTags,
                      Logger logger) {
             this.logger = logger;
+            this.statistics = dbOptions.statistics();
             blockCacheSizeGauge = getGauge(id, RocksDBKVSpaceMetric.BlockCache, () -> {
                 BlockBasedTableConfig cfg = (BlockBasedTableConfig) cfOptions.tableFormatConfig();
                 if (!cfg.noBlockCache()) {
@@ -140,10 +183,10 @@ abstract class RocksDBKVSpaceEpochHandle<C extends RocksDBKVEngineConfigurator<C
                 }
                 return 0L;
             }, metricTags);
-            tableReaderSizeGauge = getGauge(id, RocksDBKVSpaceMetric.TableReader, () ->
-                safeGet(() -> db.getLongProperty(cfHandle, "rocksdb.estimate-table-readers-mem")), metricTags);
-            memtableSizeGauges = getGauge(id, RocksDBKVSpaceMetric.MemTable, () ->
-                safeGet(() -> db.getLongProperty(cfHandle, "rocksdb.cur-size-all-mem-tables")), metricTags);
+            tableReaderSizeGauge = getGauge(id, RocksDBKVSpaceMetric.TableReader,
+                () -> safeGet(() -> db.getLongProperty(cfHandle, "rocksdb.estimate-table-readers-mem")), metricTags);
+            memtableSizeGauges = getGauge(id, RocksDBKVSpaceMetric.MemTable,
+                () -> safeGet(() -> db.getLongProperty(cfHandle, "rocksdb.cur-size-all-mem-tables")), metricTags);
             pinedMemorySizeGauge = getGauge(id, RocksDBKVSpaceMetric.PinnedMem, () -> {
                 BlockBasedTableConfig cfg = (BlockBasedTableConfig) cfOptions.tableFormatConfig();
                 if (!cfg.noBlockCache()) {
@@ -151,6 +194,145 @@ abstract class RocksDBKVSpaceEpochHandle<C extends RocksDBKVEngineConfigurator<C
                 }
                 return 0L;
             }, metricTags);
+            totalSSTFileSizeGauge = getGauge(id, RocksDBKVSpaceMetric.StateTotalSSTSize,
+                () -> safeGet(() -> db.getLongProperty(cfHandle, "rocksdb.total-sst-files-size")), metricTags);
+            liveSSTFileSizeGauge = getGauge(id, RocksDBKVSpaceMetric.StateLiveSSTSize,
+                () -> safeGet(() -> db.getLongProperty(cfHandle, "rocksdb.live-sst-files-size")), metricTags);
+            liveDataSizeGauge = getGauge(id, RocksDBKVSpaceMetric.StateLiveDataSize,
+                () -> safeGet(() -> db.getLongProperty(cfHandle, "rocksdb.estimate-live-data-size")), metricTags);
+            estimateNumKeysGauge = getGauge(id, RocksDBKVSpaceMetric.StateEstimateNumKeys,
+                () -> safeGet(() -> db.getLongProperty(cfHandle, "rocksdb.estimate-num-keys")), metricTags);
+            pendingCompactionBytesGauge = getGauge(id, RocksDBKVSpaceMetric.StatePendingCompactionBytes,
+                () -> safeGet(() -> db.getLongProperty(cfHandle, "rocksdb.estimate-pending-compaction-bytes")),
+                metricTags);
+            numRunningCompactionsGauge = getGauge(id, RocksDBKVSpaceMetric.StateRunningCompactions,
+                () -> safeGet(() -> db.getLongProperty(cfHandle, "rocksdb.num-running-compactions")), metricTags);
+            numRunningFlushesGauge = getGauge(id, RocksDBKVSpaceMetric.StateRunningFlushes,
+                () -> safeGet(() -> db.getLongProperty(cfHandle, "rocksdb.num-running-flushes")), metricTags);
+            compactionPendingGauge = getGauge(id, RocksDBKVSpaceMetric.StateCompactionPending,
+                () -> safeGet(() -> db.getLongProperty(cfHandle, "rocksdb.compaction-pending")), metricTags);
+            memtableFlushPendingGauge = getGauge(id, RocksDBKVSpaceMetric.StateMemTableFlushPending,
+                () -> safeGet(() -> db.getLongProperty(cfHandle, "rocksdb.mem-table-flush-pending")), metricTags);
+            backgroundErrorsGauge = getGauge(id, RocksDBKVSpaceMetric.StateBackgroundErrors,
+                () -> safeGet(() -> db.getLongProperty(cfHandle, "rocksdb.background-errors")), metricTags);
+
+            // Statistics-based meters
+            if (statistics != null) {
+                bytesReadCounter = getFunctionCounter(id, RocksDBKVSpaceMetric.IOBytesReadCounter, statistics,
+                    stats -> safeGetDouble(stats, (s) -> (double) s.getTickerCount(TickerType.BYTES_READ)),
+                    metricTags);
+                bytesWrittenCounter = getFunctionCounter(id, RocksDBKVSpaceMetric.IOBytesWrittenCounter, statistics,
+                    stats -> safeGetDouble(stats, (s) -> (double) stats.getTickerCount(TickerType.BYTES_WRITTEN)),
+                    metricTags);
+                blockCacheHitCounter = getFunctionCounter(id, RocksDBKVSpaceMetric.BlockCacheHitCounter, statistics,
+                    stats -> safeGetDouble(stats, (s) -> (double) stats.getTickerCount(TickerType.BLOCK_CACHE_HIT)),
+                    metricTags);
+                blockCacheMissCounter = getFunctionCounter(id, RocksDBKVSpaceMetric.BlockCacheMissCounter, statistics,
+                    stats -> safeGetDouble(stats, (s) -> (double) stats.getTickerCount(TickerType.BLOCK_CACHE_MISS)),
+                    metricTags);
+                blobCacheHitCounter = getFunctionCounter(id, RocksDBKVSpaceMetric.BlobDBCacheHitCounter, statistics,
+                    stats -> safeGetDouble(stats, (s) -> (double) stats.getTickerCount(TickerType.BLOB_DB_CACHE_HIT)),
+                    metricTags);
+                blobCacheMissCounter = getFunctionCounter(id, RocksDBKVSpaceMetric.BlobDBCacheMissCounter, statistics,
+                    stats -> safeGetDouble(stats, (s) -> (double) stats.getTickerCount(TickerType.BLOB_DB_CACHE_MISS)),
+                    metricTags);
+                bloomUsefulCounter = getFunctionCounter(id, RocksDBKVSpaceMetric.BloomUsefulCounter, statistics,
+                    stats -> safeGetDouble(stats, (s) -> (double) stats.getTickerCount(TickerType.BLOOM_FILTER_USEFUL)),
+                    metricTags);
+
+                getLatencyTimer = getFunctionTimer(id, RocksDBKVSpaceMetric.GetLatency, statistics,
+                    stats -> safeGetLong(stats, s -> s.getHistogramData(HistogramType.DB_GET).getCount()),
+                    stats -> safeGetLong(stats, s -> s.getHistogramData(HistogramType.DB_GET).getSum()),
+                    TimeUnit.MICROSECONDS,
+                    metricTags);
+                writeLatencyTimer = getFunctionTimer(id, RocksDBKVSpaceMetric.WriteLatency, statistics,
+                    stats -> safeGetLong(stats, s -> s.getHistogramData(HistogramType.DB_WRITE).getCount()),
+                    stats -> safeGetLong(stats, s -> s.getHistogramData(HistogramType.DB_WRITE).getSum()),
+                    TimeUnit.MICROSECONDS,
+                    metricTags);
+                seekLatencyTimer = getFunctionTimer(id, RocksDBKVSpaceMetric.SeekLatency, statistics,
+                    stats -> safeGetLong(stats, s -> s.getHistogramData(HistogramType.DB_SEEK).getCount()),
+                    stats -> safeGetLong(stats, s -> s.getHistogramData(HistogramType.DB_SEEK).getSum()),
+                    TimeUnit.MICROSECONDS,
+                    metricTags);
+                blobGetLatencyTimer = getFunctionTimer(id, RocksDBKVSpaceMetric.GetLatency, statistics,
+                    stats -> safeGetLong(stats, s -> s.getHistogramData(HistogramType.BLOB_DB_GET_MICROS).getCount()),
+                    stats -> safeGetLong(stats, s -> s.getHistogramData(HistogramType.BLOB_DB_GET_MICROS).getSum()),
+                    TimeUnit.MICROSECONDS,
+                    metricTags);
+                blobWriteLatencyTimer = getFunctionTimer(id, RocksDBKVSpaceMetric.WriteLatency, statistics,
+                    stats -> safeGetLong(stats, s -> s.getHistogramData(HistogramType.BLOB_DB_WRITE_MICROS).getCount()),
+                    stats -> safeGetLong(stats, s -> s.getHistogramData(HistogramType.BLOB_DB_WRITE_MICROS).getSum()),
+                    TimeUnit.MICROSECONDS,
+                    metricTags);
+                sstReadLatencyTimer = getFunctionTimer(id, RocksDBKVSpaceMetric.SSTReadLatency, statistics,
+                    stats -> safeGetLong(stats, s -> s.getHistogramData(HistogramType.SST_READ_MICROS).getCount()),
+                    stats -> safeGetLong(stats, s -> s.getHistogramData(HistogramType.SST_READ_MICROS).getSum()),
+                    TimeUnit.MICROSECONDS,
+                    metricTags);
+                sstWriteLatencyTimer = getFunctionTimer(id, RocksDBKVSpaceMetric.SSTWriteLatency, statistics,
+                    stats -> safeGetLong(stats, s -> s.getHistogramData(HistogramType.SST_WRITE_MICROS).getCount()),
+                    stats -> safeGetLong(stats, s -> s.getHistogramData(HistogramType.SST_WRITE_MICROS).getSum()),
+                    TimeUnit.MICROSECONDS,
+                    metricTags);
+                flushLatencyTimer = getFunctionTimer(id, RocksDBKVSpaceMetric.FlushLatency, statistics,
+                    stats -> safeGetLong(stats, s -> s.getHistogramData(HistogramType.FLUSH_TIME).getCount()),
+                    stats -> safeGetLong(stats, s -> s.getHistogramData(HistogramType.FLUSH_TIME).getSum()),
+                    TimeUnit.MICROSECONDS,
+                    metricTags);
+                compactionLatencyTimer = getFunctionTimer(id, RocksDBKVSpaceMetric.CompactionLatency, statistics,
+                    stats -> safeGetLong(stats, s -> s.getHistogramData(HistogramType.COMPACTION_TIME).getCount()),
+                    stats -> safeGetLong(stats, s -> s.getHistogramData(HistogramType.COMPACTION_TIME).getSum()),
+                    TimeUnit.MICROSECONDS,
+                    metricTags);
+                writeStallTimer = getFunctionTimer(id, RocksDBKVSpaceMetric.WriteStall, statistics,
+                    stats -> safeGetLong(stats, s -> s.getHistogramData(HistogramType.WRITE_STALL).getCount()),
+                    stats -> safeGetLong(stats, s -> s.getHistogramData(HistogramType.WRITE_STALL).getSum()),
+                    TimeUnit.MICROSECONDS,
+                    metricTags);
+            } else {
+                bytesReadCounter = null;
+                bytesWrittenCounter = null;
+                blockCacheHitCounter = null;
+                blockCacheMissCounter = null;
+                blobCacheHitCounter = null;
+                blobCacheMissCounter = null;
+                bloomUsefulCounter = null;
+                getLatencyTimer = null;
+                writeLatencyTimer = null;
+                seekLatencyTimer = null;
+                blobGetLatencyTimer = null;
+                blobWriteLatencyTimer = null;
+                sstReadLatencyTimer = null;
+                sstWriteLatencyTimer = null;
+                flushLatencyTimer = null;
+                compactionLatencyTimer = null;
+                writeStallTimer = null;
+            }
+        }
+
+        private <T> double safeGetDouble(T obj, Function<T, Double> func) {
+            return safeGet(obj, func, 0d);
+        }
+
+        private <T> long safeGetLong(T obj, Function<T, Long> func) {
+            return safeGet(obj, func, 0L);
+        }
+
+        private <T, R> R safeGet(T obj, Function<T, R> func, R defVal) {
+            ReentrantReadWriteLock.ReadLock rl = rw.readLock();
+            rl.lock();
+            try {
+                if (closed) {
+                    return defVal;
+                }
+                return func.apply(obj);
+            } catch (Throwable t) {
+                logger.warn("Unable to read RocksDB metric", t);
+                return defVal;
+            } finally {
+                rl.unlock();
+            }
         }
 
         private long safeGet(RocksDBLongGetter action) {
@@ -181,6 +363,35 @@ abstract class RocksDBKVSpaceEpochHandle<C extends RocksDBKVEngineConfigurator<C
             memtableSizeGauges.close();
             tableReaderSizeGauge.close();
             pinedMemorySizeGauge.close();
+            totalSSTFileSizeGauge.close();
+            liveSSTFileSizeGauge.close();
+            liveDataSizeGauge.close();
+            estimateNumKeysGauge.close();
+            pendingCompactionBytesGauge.close();
+            numRunningCompactionsGauge.close();
+            numRunningFlushesGauge.close();
+            compactionPendingGauge.close();
+            memtableFlushPendingGauge.close();
+            backgroundErrorsGauge.close();
+            if (statistics != null) {
+                bytesReadCounter.close();
+                bytesWrittenCounter.close();
+                blockCacheHitCounter.close();
+                blockCacheMissCounter.close();
+                blobCacheHitCounter.close();
+                blobCacheMissCounter.close();
+                bloomUsefulCounter.close();
+                getLatencyTimer.close();
+                writeLatencyTimer.close();
+                seekLatencyTimer.close();
+                blobGetLatencyTimer.close();
+                blobWriteLatencyTimer.close();
+                sstReadLatencyTimer.close();
+                sstWriteLatencyTimer.close();
+                flushLatencyTimer.close();
+                compactionLatencyTimer.close();
+                writeStallTimer.close();
+            }
         }
 
         interface RocksDBLongGetter {

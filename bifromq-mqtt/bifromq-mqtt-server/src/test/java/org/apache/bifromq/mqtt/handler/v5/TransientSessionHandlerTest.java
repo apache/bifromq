@@ -19,7 +19,6 @@
 
 package org.apache.bifromq.mqtt.handler.v5;
 
-
 import static io.netty.handler.codec.mqtt.MqttMessageType.DISCONNECT;
 import static io.netty.handler.codec.mqtt.MqttMessageType.PUBACK;
 import static io.netty.handler.codec.mqtt.MqttMessageType.PUBREC;

@@ -21,11 +21,20 @@ package org.apache.bifromq.basekv.localengine.rocksdb;
 
 import static java.lang.Math.max;
 import static org.apache.bifromq.basekv.localengine.rocksdb.AutoCleaner.autoRelease;
+import static org.rocksdb.HistogramType.BLOB_DB_GET_MICROS;
+import static org.rocksdb.HistogramType.BLOB_DB_WRITE_MICROS;
+import static org.rocksdb.HistogramType.COMPACTION_TIME;
+import static org.rocksdb.HistogramType.DB_GET;
+import static org.rocksdb.HistogramType.DB_SEEK;
+import static org.rocksdb.HistogramType.DB_WRITE;
+import static org.rocksdb.HistogramType.FLUSH_TIME;
+import static org.rocksdb.HistogramType.SST_READ_MICROS;
+import static org.rocksdb.HistogramType.SST_WRITE_MICROS;
 
+import java.util.EnumSet;
 import lombok.Builder;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
-import lombok.Setter;
 import lombok.experimental.Accessors;
 import lombok.experimental.SuperBuilder;
 import org.apache.bifromq.baseenv.EnvProvider;
@@ -40,22 +49,28 @@ import org.rocksdb.DBOptions;
 import org.rocksdb.DBOptionsInterface;
 import org.rocksdb.DataBlockIndexType;
 import org.rocksdb.Env;
+import org.rocksdb.HistogramType;
 import org.rocksdb.IndexType;
 import org.rocksdb.LRUCache;
 import org.rocksdb.MutableColumnFamilyOptionsInterface;
 import org.rocksdb.MutableDBOptionsInterface;
 import org.rocksdb.PrepopulateBlobCache;
 import org.rocksdb.RateLimiter;
+import org.rocksdb.Statistics;
+import org.rocksdb.StatsLevel;
 import org.rocksdb.util.SizeUnit;
 
 @NoArgsConstructor
 @Getter
-@Setter
 @Accessors(chain = true, fluent = true)
 @SuperBuilder(toBuilder = true)
 public abstract class RocksDBKVEngineConfigurator<T extends RocksDBKVEngineConfigurator<T>>
     implements IKVEngineConfigurator {
     private String dbRootDir;
+    @Builder.Default
+    private boolean enableStats = false;
+    @Builder.Default
+    private StatsLevel statsLevel = StatsLevel.EXCEPT_DETAILED_TIMERS;
     @Builder.Default
     private boolean heuristicCompaction = false;
     @Builder.Default
@@ -95,6 +110,21 @@ public abstract class RocksDBKVEngineConfigurator<T extends RocksDBKVEngineConfi
         configDBOptions((MutableDBOptionsInterface<DBOptions>) targetOption);
         // we don't need atomic flush in both use cases
         targetOption.setAtomicFlush(false);
+        if (enableStats) {
+            EnumSet<HistogramType> ignoreTypes = EnumSet.allOf(HistogramType.class);
+            ignoreTypes.remove(DB_GET);
+            ignoreTypes.remove(DB_WRITE);
+            ignoreTypes.remove(DB_SEEK);
+            ignoreTypes.remove(SST_READ_MICROS);
+            ignoreTypes.remove(SST_WRITE_MICROS);
+            ignoreTypes.remove(BLOB_DB_GET_MICROS);
+            ignoreTypes.remove(BLOB_DB_WRITE_MICROS);
+            ignoreTypes.remove(FLUSH_TIME);
+            ignoreTypes.remove(COMPACTION_TIME);
+            Statistics statistics = new Statistics(ignoreTypes);
+            statistics.setStatsLevel(statsLevel);
+            targetOption.setStatistics(statistics);
+        }
         return targetOption;
     }
 
@@ -223,6 +253,7 @@ public abstract class RocksDBKVEngineConfigurator<T extends RocksDBKVEngineConfi
             .setLevelCompactionDynamicLevelBytes(false)
             // enable blob files
             .setEnableBlobFiles(true)
+            .setPrepopulateBlobCache(PrepopulateBlobCache.PREPOPULATE_BLOB_FLUSH_ONLY)
             .setMinBlobSize(minBlobSize())
             .enableBlobGarbageCollection();
     }
@@ -245,30 +276,5 @@ public abstract class RocksDBKVEngineConfigurator<T extends RocksDBKVEngineConfi
 
     public double compactTombstoneKeysRatio() {
         return this.compactTombstoneKeysRatio;
-    }
-
-    public T dbRootDir(String dbRootDir) {
-        this.dbRootDir = dbRootDir;
-        return (T) this;
-    }
-
-    public T heuristicCompaction(boolean heuristicCompaction) {
-        this.heuristicCompaction = heuristicCompaction;
-        return (T) this;
-    }
-
-    public T compactMinTombstoneKeys(int compactMinTombstoneKeys) {
-        this.compactMinTombstoneKeys = compactMinTombstoneKeys;
-        return (T) this;
-    }
-
-    public T compactMinTombstoneRanges(int compactMinTombstoneRanges) {
-        this.compactMinTombstoneRanges = compactMinTombstoneRanges;
-        return (T) this;
-    }
-
-    public T compactTombstoneKeysRatio(double compactTombstoneKeysRatio) {
-        this.compactTombstoneKeysRatio = compactTombstoneKeysRatio;
-        return (T) this;
     }
 }

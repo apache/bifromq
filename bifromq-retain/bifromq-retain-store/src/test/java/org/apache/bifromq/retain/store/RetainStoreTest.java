@@ -131,11 +131,15 @@ public class RetainStoreTest {
 
         String uuid = UUID.randomUUID().toString();
         options = new KVRangeStoreOptions();
-        ((RocksDBCPableKVEngineConfigurator) options.getDataEngineConfigurator()).dbCheckpointRootDir(
-                Paths.get(dbRootDir.toString(), DB_CHECKPOINT_DIR_NAME, uuid).toString())
-            .dbRootDir(Paths.get(dbRootDir.toString(), DB_NAME, uuid).toString());
-        ((RocksDBWALableKVEngineConfigurator) options.getWalEngineConfigurator()).dbRootDir(
-            Paths.get(dbRootDir.toString(), DB_WAL_NAME, uuid).toString());
+        options.setDataEngineConfigurator(((RocksDBCPableKVEngineConfigurator) options.getDataEngineConfigurator())
+            .toBuilder()
+            .dbCheckpointRootDir(Paths.get(dbRootDir.toString(), DB_CHECKPOINT_DIR_NAME, uuid).toString())
+            .dbRootDir(Paths.get(dbRootDir.toString(), DB_NAME, uuid).toString())
+            .build());
+        options.setWalEngineConfigurator(((RocksDBWALableKVEngineConfigurator) options.getWalEngineConfigurator())
+            .toBuilder()
+            .dbRootDir(Paths.get(dbRootDir.toString(), DB_WAL_NAME, uuid).toString())
+            .build());
         bgTaskExecutor = new ScheduledThreadPoolExecutor(1, EnvProvider.INSTANCE.newThreadFactory("bg-task-executor"));
 
         storeClient =

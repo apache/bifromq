@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 
 package org.apache.bifromq.starter.config.model;
@@ -25,6 +25,7 @@ import lombok.Getter;
 import lombok.Setter;
 import lombok.experimental.Accessors;
 import org.apache.bifromq.baseenv.EnvProvider;
+import org.rocksdb.StatsLevel;
 import org.rocksdb.util.SizeUnit;
 
 @Getter
@@ -32,6 +33,8 @@ import org.rocksdb.util.SizeUnit;
 @Accessors(chain = true)
 public class RocksDBEngineConfig extends StorageEngineConfig {
     private String dataPathRoot = "";
+    private boolean enableStats = false;
+    private StatsLevel statsLevel = StatsLevel.EXCEPT_DETAILED_TIMERS;
     private boolean manualCompaction = false;
     private int compactMinTombstoneKeys = 200000;
     private int compactMinTombstoneRanges = 100000;

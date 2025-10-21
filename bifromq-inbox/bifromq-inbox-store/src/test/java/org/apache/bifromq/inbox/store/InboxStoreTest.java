@@ -185,12 +185,15 @@ abstract class InboxStoreTest {
 
         String uuid = UUID.randomUUID().toString();
         options = new KVRangeStoreOptions();
-        ((RocksDBCPableKVEngineConfigurator) options.getDataEngineConfigurator())
-            .dbCheckpointRootDir(Paths.get(dbRootDir.toString(), DB_CHECKPOINT_DIR_NAME, uuid)
-                .toString())
-            .dbRootDir(Paths.get(dbRootDir.toString(), DB_NAME, uuid).toString());
-        ((RocksDBWALableKVEngineConfigurator) options.getWalEngineConfigurator())
-            .dbRootDir(Paths.get(dbRootDir.toString(), DB_WAL_NAME, uuid).toString());
+        options.setDataEngineConfigurator(((RocksDBCPableKVEngineConfigurator) options.getDataEngineConfigurator())
+            .toBuilder()
+            .dbCheckpointRootDir(Paths.get(dbRootDir.toString(), DB_CHECKPOINT_DIR_NAME, uuid).toString())
+            .dbRootDir(Paths.get(dbRootDir.toString(), DB_NAME, uuid).toString())
+            .build());
+        options.setWalEngineConfigurator(((RocksDBWALableKVEngineConfigurator) options.getWalEngineConfigurator())
+            .toBuilder()
+            .dbRootDir(Paths.get(dbRootDir.toString(), DB_WAL_NAME, uuid).toString())
+            .build());
         queryExecutor = new ThreadPoolExecutor(2, 2, 0L,
             TimeUnit.MILLISECONDS, new LinkedTransferQueue<>(),
             EnvProvider.INSTANCE.newThreadFactory("query-executor"));
@@ -381,8 +384,8 @@ abstract class InboxStoreTest {
         ByteString routeKey = inboxStartKeyPrefix(params[0].getTenantId(), params[0].getInboxId());
         KVRangeSetting s = findByKey(routeKey, storeClient.latestEffectiveRouter()).get();
         InboxServiceRWCoProcInput input = MessageUtil.buildDetachRequest(reqId, BatchDetachRequest.newBuilder()
-                .addAllParams(List.of(params))
-                .build());
+            .addAllParams(List.of(params))
+            .build());
         InboxServiceRWCoProcOutput output = mutate(routeKey, input);
         assertTrue(output.hasBatchDetach());
         assertEquals(output.getReqId(), reqId);

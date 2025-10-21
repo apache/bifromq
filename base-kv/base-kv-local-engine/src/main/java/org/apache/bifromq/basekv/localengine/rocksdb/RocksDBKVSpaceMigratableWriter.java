@@ -60,7 +60,7 @@ class RocksDBKVSpaceMigratableWriter<
                     count, targetSpaceId, id, boundary.getStartKey().toStringUtf8(),
                     boundary.getEndKey().toStringUtf8()));
             try (IKVSpaceIterator itr = new RocksDBKVSpaceIterator(new RocksDBSnapshot(dbHandle, null), boundary,
-                false)) {
+                new IteratorOptions(false, 52428))) {
                 for (itr.seekToFirst(); itr.isValid(); itr.next()) {
                     targetSpaceRestoreSession.put(itr.key(), itr.value());
                 }

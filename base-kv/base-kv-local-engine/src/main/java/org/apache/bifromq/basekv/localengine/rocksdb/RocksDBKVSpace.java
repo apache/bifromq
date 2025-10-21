@@ -43,7 +43,6 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import lombok.SneakyThrows;
 import org.apache.bifromq.baseenv.EnvProvider;
 import org.apache.bifromq.basekv.localengine.AbstractKVSpace;
-import org.apache.bifromq.basekv.localengine.IKVSpaceRefreshableReader;
 import org.apache.bifromq.basekv.localengine.ISyncContext;
 import org.apache.bifromq.basekv.localengine.SyncContext;
 import org.apache.bifromq.basekv.localengine.metrics.KVSpaceOpMeters;
@@ -102,12 +101,6 @@ abstract class RocksDBKVSpace<
     protected void doOpen() {
         spaceMetrics = new SpaceMetrics(tags);
         reloadMetadata();
-    }
-
-    @Override
-    public IKVSpaceRefreshableReader reader() {
-        return new RocksDBKVSpaceReader(id, opMeters, logger, syncContext.refresher(), this::handle,
-            this::currentMetadata);
     }
 
     // Load metadata from DB and publish, without refresher gating

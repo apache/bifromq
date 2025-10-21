@@ -58,7 +58,7 @@ class RocksDBKVSpaceCheckpointReader extends AbstractRocksDBKVSpaceReader {
 
     @Override
     protected IKVSpaceIterator doNewIterator(Boundary subBoundary) {
-        return new RocksDBKVSpaceIterator(snapshot(), subBoundary, false);
+        return new RocksDBKVSpaceIterator(snapshot(), subBoundary, new IteratorOptions(false, 52428));
     }
 
     @Override

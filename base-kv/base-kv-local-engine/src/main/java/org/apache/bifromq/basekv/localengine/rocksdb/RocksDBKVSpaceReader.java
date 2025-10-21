@@ -41,18 +41,21 @@ class RocksDBKVSpaceReader extends AbstractRocksDBKVSpaceReader implements IKVSp
     private final Supplier<Map<ByteString, ByteString>> metadataSupplier;
     private final AtomicReference<RocksDBSnapshot> snapshot = new AtomicReference<>();
     private final Set<RocksDBKVSpaceIterator> openedIterators = Sets.newConcurrentHashSet();
+    private final IteratorOptions iteratorOptions;
 
     RocksDBKVSpaceReader(String id,
                          KVSpaceOpMeters opMeters,
                          Logger logger,
                          ISyncContext.IRefresher refresher,
                          Supplier<IRocksDBKVSpaceEpoch> dbSupplier,
-                         Supplier<Map<ByteString, ByteString>> metadataSupplier) {
+                         Supplier<Map<ByteString, ByteString>> metadataSupplier,
+                         IteratorOptions iteratorOptions) {
         super(id, opMeters, logger);
         this.refresher = refresher;
         this.dbSupplier = dbSupplier;
         this.metadataSupplier = metadataSupplier;
         this.snapshot.set(RocksDBSnapshot.take(dbSupplier.get()));
+        this.iteratorOptions = iteratorOptions;
     }
 
     @Override
@@ -91,7 +94,8 @@ class RocksDBKVSpaceReader extends AbstractRocksDBKVSpaceReader implements IKVSp
     @Override
     protected IKVSpaceIterator doNewIterator(Boundary subBoundary) {
         assert isValid(subBoundary);
-        RocksDBKVSpaceIterator itr = new RocksDBKVSpaceIterator(snapshot(), subBoundary, true, openedIterators::remove);
+        RocksDBKVSpaceIterator itr = new RocksDBKVSpaceIterator(snapshot(), subBoundary,
+            openedIterators::remove, iteratorOptions);
         openedIterators.add(itr);
         return itr;
     }

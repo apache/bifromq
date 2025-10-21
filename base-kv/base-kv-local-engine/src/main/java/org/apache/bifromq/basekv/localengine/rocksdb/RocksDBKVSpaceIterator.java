@@ -42,25 +42,25 @@ import org.rocksdb.Slice;
 class RocksDBKVSpaceIterator implements IKVSpaceIterator {
     private final byte[] startKey;
     private final byte[] endKey;
-    private final boolean fillCache;
+    private final IteratorOptions options;
     private final AtomicReference<RocksDBItrHolder> rocksItrHolder = new AtomicReference<>();
     private final AtomicBoolean closed = new AtomicBoolean();
     private final CloseListener closeListener;
 
-    public RocksDBKVSpaceIterator(RocksDBSnapshot snapshot, Boundary boundary, boolean fillCache) {
-        this(snapshot, boundary, fillCache, itr -> {
-        });
+    public RocksDBKVSpaceIterator(RocksDBSnapshot snapshot, Boundary boundary, IteratorOptions options) {
+        this(snapshot, boundary, itr -> {
+        }, options);
     }
 
     public RocksDBKVSpaceIterator(RocksDBSnapshot snapshot,
                                   Boundary boundary,
-                                  boolean fillCache,
-                                  CloseListener closeListener) {
+                                  CloseListener closeListener,
+                                  IteratorOptions options) {
         byte[] boundaryStartKey = startKeyBytes(boundary);
         byte[] boundaryEndKey = endKeyBytes(boundary);
         startKey = boundaryStartKey != null ? toDataKey(boundaryStartKey) : DATA_SECTION_START;
         endKey = boundaryEndKey != null ? toDataKey(boundaryEndKey) : DATA_SECTION_END;
-        this.fillCache = fillCache;
+        this.options = options;
         this.closeListener = closeListener;
         refresh(snapshot);
     }
@@ -145,7 +145,11 @@ class RocksDBKVSpaceIterator implements IKVSpaceIterator {
     }
 
     private RocksDBItrHolder build(RocksDBSnapshot snapshot) {
-        ReadOptions readOptions = new ReadOptions().setPinData(true).setFillCache(fillCache).setAutoPrefixMode(true);
+        ReadOptions readOptions = new ReadOptions()
+            .setPinData(true)
+            .setFillCache(options.fillCache())
+            .setReadaheadSize(options.readAheadSize())
+            .setAutoPrefixMode(true);
         Slice lowerSlice = new Slice(startKey);
         readOptions.setIterateLowerBound(lowerSlice);
         Slice upperSlice = new Slice(endKey);

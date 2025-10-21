@@ -32,6 +32,7 @@ import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 import org.apache.bifromq.baseenv.EnvProvider;
+import org.apache.bifromq.basekv.localengine.IKVSpaceRefreshableReader;
 import org.apache.bifromq.basekv.localengine.IKVSpaceWriter;
 import org.apache.bifromq.basekv.localengine.IWALableKVSpace;
 import org.apache.bifromq.basekv.localengine.KVEngineException;
@@ -165,6 +166,12 @@ class RocksDBWALableKVSpace extends RocksDBKVSpace<
                 onDone.completeExceptionally(new KVEngineException("KVSpace flush error", e));
             }
         });
+    }
+
+    @Override
+    public IKVSpaceRefreshableReader reader() {
+        return new RocksDBKVSpaceReader(id, opMeters, logger, syncContext.refresher(), this::handle,
+            this::currentMetadata, new IteratorOptions(false, 524288));
     }
 
     private class MetricManager {

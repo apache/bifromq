@@ -47,6 +47,7 @@ import lombok.SneakyThrows;
 import org.apache.bifromq.basekv.localengine.ICPableKVSpace;
 import org.apache.bifromq.basekv.localengine.IKVSpaceCheckpoint;
 import org.apache.bifromq.basekv.localengine.IKVSpaceMigratableWriter;
+import org.apache.bifromq.basekv.localengine.IKVSpaceRefreshableReader;
 import org.apache.bifromq.basekv.localengine.IRestoreSession;
 import org.apache.bifromq.basekv.localengine.KVEngineException;
 import org.apache.bifromq.basekv.localengine.RestoreMode;
@@ -402,6 +403,12 @@ class RocksDBCPableKVSpace extends RocksDBKVSpace<
                 }
             }
         }
+    }
+
+    @Override
+    public IKVSpaceRefreshableReader reader() {
+        return new RocksDBKVSpaceReader(id, opMeters, logger, syncContext.refresher(), this::handle,
+            this::currentMetadata, new IteratorOptions(true, 0));
     }
 
     private class RestoreSession implements IRestoreSession {

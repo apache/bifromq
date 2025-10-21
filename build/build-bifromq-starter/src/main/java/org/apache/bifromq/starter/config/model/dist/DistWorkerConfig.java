@@ -40,7 +40,7 @@ public class DistWorkerConfig {
     private int workerThreads = 0;
     private int tickerThreads = Math.max(1, Runtime.getRuntime().availableProcessors() / 20);
     private int maxWALFetchSize = 10 * 1024 * 1024; // 10MB
-    private int compactWALThreshold = 2500;
+    private int compactWALThreshold = 256 * 1024 * 1024;
     private int minGCIntervalSeconds = 30; // every 30 s
     private int maxGCIntervalSeconds = 24 * 3600; // every day
     @JsonSetter(nulls = Nulls.SKIP)

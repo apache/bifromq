@@ -14,17 +14,11 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 
 package org.apache.bifromq.basekv.store.range;
 
-import org.apache.bifromq.basekv.proto.KVRangeDescriptor;
-import org.apache.bifromq.basekv.proto.KVRangeId;
-import org.apache.bifromq.basekv.proto.State;
-import org.apache.bifromq.basekv.store.proto.ROCoProcOutput;
-import org.apache.bifromq.basekv.store.proto.RWCoProcOutput;
-import org.apache.bifromq.basekv.utils.KVRangeIdUtil;
 import com.google.protobuf.ByteString;
 import io.micrometer.core.instrument.DistributionSummary;
 import io.micrometer.core.instrument.Gauge;
@@ -36,6 +30,12 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Supplier;
+import org.apache.bifromq.basekv.proto.KVRangeDescriptor;
+import org.apache.bifromq.basekv.proto.KVRangeId;
+import org.apache.bifromq.basekv.proto.State;
+import org.apache.bifromq.basekv.store.proto.ROCoProcOutput;
+import org.apache.bifromq.basekv.store.proto.RWCoProcOutput;
+import org.apache.bifromq.basekv.utils.KVRangeIdUtil;
 
 class KVRangeMetricManager implements IKVRangeMetricManager {
     private final DistributionSummary dumpBytesSummary;
@@ -55,6 +55,7 @@ class KVRangeMetricManager implements IKVRangeMetricManager {
     private final Timer existTimer;
     private final Timer getTimer;
     private final Timer queryCoProcTimer;
+    private final Timer linearizerTimer;
     private final Timer compactionTimer;
     private final Timer applyLogTimer;
     private final Timer installSnapshotTimer;
@@ -67,43 +68,47 @@ class KVRangeMetricManager implements IKVRangeMetricManager {
             .and("rangeId", KVRangeIdUtil.toString(rangeId));
         dumpBytesSummary = Metrics.summary("basekv.snap.dump", tags);
         restoreBytesSummary = Metrics.summary("basekv.snap.restore", tags);
-        stateGauge = Gauge.builder("basekv.meta.state", () -> {
-                KVRangeDescriptor desc = currentDesc.get();
-                if (desc != null) {
-                    return desc.getState().ordinal();
-                }
-                return State.StateType.NoUse.ordinal();
-            })
+        stateGauge = Gauge.builder("basekv.meta.state",
+                () -> {
+                    KVRangeDescriptor desc = currentDesc.get();
+                    if (desc != null) {
+                        return desc.getState().ordinal();
+                    }
+                    return State.StateType.NoUse.ordinal();
+                })
             .tags(tags)
             .register(Metrics.globalRegistry);
-        verGauge = Gauge.builder("basekv.meta.ver", () -> {
-                KVRangeDescriptor desc = currentDesc.get();
-                if (desc != null) {
-                    return desc.getVer();
-                }
-                return -1;
-            })
+        verGauge = Gauge.builder("basekv.meta.ver",
+                () -> {
+                    KVRangeDescriptor desc = currentDesc.get();
+                    if (desc != null) {
+                        return desc.getVer();
+                    }
+                    return -1;
+                })
             .tags(tags)
             .register(Metrics.globalRegistry);
         lastAppliedIndexGauge = Gauge.builder("basekv.meta.appidx", currentLastAppliedIndex::get)
             .tags(tags)
             .register(Metrics.globalRegistry);
-        dataSizeGauge = Gauge.builder("basekv.meta.size", () -> {
-                KVRangeDescriptor desc = currentDesc.get();
-                if (desc != null) {
-                    return desc.getStatisticsMap().getOrDefault("dataSize", 0.0).longValue();
-                }
-                return 0;
-            })
+        dataSizeGauge = Gauge.builder("basekv.meta.size",
+                () -> {
+                    KVRangeDescriptor desc = currentDesc.get();
+                    if (desc != null) {
+                        return desc.getStatisticsMap().getOrDefault("dataSize", 0.0).longValue();
+                    }
+                    return 0;
+                })
             .tags(tags)
             .register(Metrics.globalRegistry);
-        walSizeGauge = Gauge.builder("basekv.meta.walsize", () -> {
-                KVRangeDescriptor desc = currentDesc.get();
-                if (desc != null) {
-                    return desc.getStatisticsMap().getOrDefault("walSize", 0.0).longValue();
-                }
-                return 0;
-            })
+        walSizeGauge = Gauge.builder("basekv.meta.walsize",
+                () -> {
+                    KVRangeDescriptor desc = currentDesc.get();
+                    if (desc != null) {
+                        return desc.getStatisticsMap().getOrDefault("walSize", 0.0).longValue();
+                    }
+                    return 0;
+                })
             .tags(tags)
             .register(Metrics.globalRegistry);
         configChangeTimer = Timer.builder("basekv.cmd.configchange")
@@ -134,6 +139,9 @@ class KVRangeMetricManager implements IKVRangeMetricManager {
             .tags(tags)
             .register(Metrics.globalRegistry);
         queryCoProcTimer = Timer.builder("basekv.cmd.querycoproc")
+            .tags(tags)
+            .register(Metrics.globalRegistry);
+        linearizerTimer = Timer.builder("basekv.cmd.linear")
             .tags(tags)
             .register(Metrics.globalRegistry);
         compactionTimer = Timer.builder("basekv.cmd.compact")
@@ -227,6 +235,11 @@ class KVRangeMetricManager implements IKVRangeMetricManager {
     }
 
     @Override
+    public CompletableFuture<Void> recordLinearization(Supplier<CompletableFuture<Void>> supplier) {
+        return recordDuration(supplier, linearizerTimer);
+    }
+
+    @Override
     public CompletableFuture<Void> recordCompact(Supplier<CompletableFuture<Void>> supplier) {
         return recordDuration(supplier, compactionTimer);
     }
@@ -259,6 +272,7 @@ class KVRangeMetricManager implements IKVRangeMetricManager {
         Metrics.globalRegistry.removeByPreFilterId(existTimer.getId());
         Metrics.globalRegistry.removeByPreFilterId(getTimer.getId());
         Metrics.globalRegistry.removeByPreFilterId(queryCoProcTimer.getId());
+        Metrics.globalRegistry.removeByPreFilterId(linearizerTimer.getId());
         Metrics.globalRegistry.removeByPreFilterId(compactionTimer.getId());
         Metrics.globalRegistry.removeByPreFilterId(applyLogTimer.getId());
         Metrics.globalRegistry.removeByPreFilterId(installSnapshotTimer.getId());

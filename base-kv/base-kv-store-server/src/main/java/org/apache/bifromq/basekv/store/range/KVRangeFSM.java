@@ -234,6 +234,7 @@ public class KVRangeFSM implements IKVRangeFSM {
         this.kvRange = kvRange;
         this.tags = tags;
         this.log = MDCLogger.getLogger(KVRangeFSM.class, tags);
+        this.metricManager = new KVRangeMetricManager(clusterId, hostStoreId, id);
         this.wal = new KVRangeWAL(clusterId, hostStoreId, id,
             walStore, opts.getWalRaftConfig(), opts.getMaxWALFatchBatchSize());
         this.fsmExecutor = ExecutorServiceMetrics.monitor(Metrics.globalRegistry,
@@ -253,12 +254,12 @@ public class KVRangeFSM implements IKVRangeFSM {
         this.snapshotBandwidthGovernor = new SnapshotBandwidthGovernor(opts.getSnapshotSyncBytesPerSec());
 
         long lastAppliedIndex = this.kvRange.lastAppliedIndex().blockingFirst();
-        this.linearizer = new KVRangeQueryLinearizer(wal::readIndex, queryExecutor, lastAppliedIndex, tags);
+        this.linearizer = new KVRangeQueryLinearizer(wal::readIndex, queryExecutor, lastAppliedIndex,
+            metricManager::recordLinearization, tags);
         this.queryRunner = new KVRangeQueryRunner(this.kvRange, coProc, queryExecutor, linearizer,
             splitHinters, this::latestDescriptor, resetLock, tags);
         this.statsCollector = new KVRangeStatsCollector(this.kvRange,
             wal, Duration.ofSeconds(opts.getStatsCollectIntervalSec()), bgExecutor);
-        this.metricManager = new KVRangeMetricManager(clusterId, hostStoreId, id);
         this.walSubscription = wal.subscribe(lastAppliedIndex,
             new IKVRangeWALSubscriber() {
                 @Override
@@ -1963,8 +1964,7 @@ public class KVRangeFSM implements IKVRangeFSM {
                 return;
             }
             lastShrinkCheckAt.set(now);
-            if (kvRange.currentLastAppliedIndex() - wal.latestSnapshot().getLastAppliedIndex()
-                < opts.getCompactWALThreshold()) {
+            if (wal.logDataSize() < opts.getCompactWALThreshold()) {
                 shrinkingWAL.set(false);
                 return;
             }
@@ -1976,7 +1976,7 @@ public class KVRangeFSM implements IKVRangeFSM {
                 }
                 KVRangeSnapshot latestSnapshot = wal.latestSnapshot();
                 long lastAppliedIndex = kvRange.currentLastAppliedIndex();
-                if (lastAppliedIndex - latestSnapshot.getLastAppliedIndex() < opts.getCompactWALThreshold()) {
+                if (wal.logDataSize() < opts.getCompactWALThreshold()) {
                     shrinkingWAL.set(false);
                     return CompletableFuture.completedFuture(null);
                 }

@@ -40,7 +40,7 @@ public class KVRangeOptions {
     @Builder.Default
     private int snapshotSyncBytesPerSec = 128 * 1024 * 1024; // 128MB
     @Builder.Default
-    private int compactWALThreshold = 10000; // the max number of logs before compaction
+    private int compactWALThreshold = 256 * 1024 * 1024; // the max log bytes before compaction
     @Builder.Default
     private int shrinkWALCheckIntervalSec = 60;
     @Builder.Default

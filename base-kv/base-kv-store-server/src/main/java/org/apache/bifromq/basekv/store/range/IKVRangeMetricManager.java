@@ -59,6 +59,8 @@ interface IKVRangeMetricManager {
 
     CompletableFuture<ROCoProcOutput> recordQueryCoProc(Supplier<CompletableFuture<ROCoProcOutput>> supplier);
 
+    CompletableFuture<Void> recordLinearization(Supplier<CompletableFuture<Void>> supplier);
+
     CompletableFuture<Void> recordCompact(Supplier<CompletableFuture<Void>> supplier);
 
     CompletableFuture<Void> recordLogApply(Supplier<CompletableFuture<Void>> supplier);

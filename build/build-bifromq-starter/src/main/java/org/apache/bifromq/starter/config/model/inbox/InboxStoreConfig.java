@@ -42,7 +42,7 @@ public class InboxStoreConfig {
     private int tickerThreads = Math.max(1, Runtime.getRuntime().availableProcessors() / 20);
     private int queryPipelinePerStore = 100;
     private int maxWALFetchSize = -1; // no limit
-    private int compactWALThreshold = 10000;
+    private int compactWALThreshold = 256 * 1024 * 1024; // size threshold in bytes
     private int expireRateLimit = 1000;
     private int gcIntervalSeconds = 600;
     @JsonSetter(nulls = Nulls.SKIP)

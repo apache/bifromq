@@ -26,6 +26,7 @@ import java.util.concurrent.ConcurrentLinkedDeque;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.Executor;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.function.Function;
 import java.util.function.Supplier;
 import lombok.AllArgsConstructor;
 import org.apache.bifromq.logger.MDCLogger;
@@ -36,6 +37,7 @@ class KVRangeQueryLinearizer implements IKVRangeQueryLinearizer {
     private final ConcurrentMap<CompletableFuture<Long>, CompletableFuture<Void>> readIndexes = Maps.newConcurrentMap();
     private final ConcurrentLinkedDeque<ToLinearize> toBeLinearized = new ConcurrentLinkedDeque<>();
     private final Supplier<CompletableFuture<Long>> readIndexProvider;
+    private final Function<Supplier<CompletableFuture<Void>>, CompletableFuture<Void>> recordDuration;
     private final Executor executor;
     private final AtomicBoolean linearizing = new AtomicBoolean();
     private volatile long lastAppliedIndex = 0;
@@ -43,8 +45,10 @@ class KVRangeQueryLinearizer implements IKVRangeQueryLinearizer {
     KVRangeQueryLinearizer(Supplier<CompletableFuture<Long>> readIndexProvider,
                            Executor executor,
                            long lastAppliedIndex,
+                           Function<Supplier<CompletableFuture<Void>>, CompletableFuture<Void>> recordDuration,
                            String... tags) {
         this.readIndexProvider = readIndexProvider;
+        this.recordDuration = recordDuration;
         this.executor = executor;
         this.lastAppliedIndex = lastAppliedIndex;
         this.log = MDCLogger.getLogger(KVRangeQueryLinearizer.class, tags);
@@ -52,26 +56,28 @@ class KVRangeQueryLinearizer implements IKVRangeQueryLinearizer {
 
     @Override
     public CompletionStage<Void> linearize() {
-        CompletableFuture<Void> onDone = new CompletableFuture<>();
-        CompletableFuture<Long> readIndex = readIndexProvider.get();
-        readIndexes.put(readIndex, onDone);
-        readIndex.whenCompleteAsync((ri, e) -> {
-            if (e != null) {
-                log.debug("failed to get readIndex", e);
-                readIndexes.remove(readIndex).completeExceptionally(e);
-            } else {
-                if (ri <= lastAppliedIndex) {
-                    readIndexes.remove(readIndex).complete(null);
+        return recordDuration.apply(() -> {
+            CompletableFuture<Void> onDone = new CompletableFuture<>();
+            CompletableFuture<Long> readIndex = readIndexProvider.get();
+            readIndexes.put(readIndex, onDone);
+            readIndex.whenCompleteAsync((ri, e) -> {
+                if (e != null) {
+                    log.debug("failed to get readIndex", e);
+                    readIndexes.remove(readIndex).completeExceptionally(e);
                 } else {
-                    readIndexes.remove(readIndex, onDone);
-                    if (!onDone.isDone()) {
-                        toBeLinearized.add(new ToLinearize(ri, onDone));
-                        schedule();
+                    if (ri <= lastAppliedIndex) {
+                        readIndexes.remove(readIndex).complete(null);
+                    } else {
+                        readIndexes.remove(readIndex, onDone);
+                        if (!onDone.isDone()) {
+                            toBeLinearized.add(new ToLinearize(ri, onDone));
+                            schedule();
+                        }
                     }
                 }
-            }
-        }, executor);
-        return onDone;
+            }, executor);
+            return onDone;
+        });
     }
 
     @Override

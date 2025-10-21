@@ -42,7 +42,7 @@ public class RetainStoreConfig {
     private int tickerThreads = Math.max(1, Runtime.getRuntime().availableProcessors() / 20);
     private int queryPipelinePerStore = 100;
     private int maxWALFetchSize = 50 * 1024 * 1024; // 50MB
-    private int compactWALThreshold = 2500;
+    private int compactWALThreshold = 256 * 1024 * 1024;
     private int gcIntervalSeconds = 600;
     @JsonSetter(nulls = Nulls.SKIP)
     @JsonMerge

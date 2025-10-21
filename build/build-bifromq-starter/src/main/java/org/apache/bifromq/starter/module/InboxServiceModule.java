@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 
 package org.apache.bifromq.starter.module;
@@ -136,8 +136,7 @@ public class InboxServiceModule extends AbstractModule {
                 .storeOptions(new KVRangeStoreOptions()
                     .setKvRangeOptions(new KVRangeOptions()
                         .setMaxWALFatchBatchSize(storeConfig.getMaxWALFetchSize())
-                        .setCompactWALThreshold(storeConfig
-                            .getCompactWALThreshold())
+                        .setCompactWALThreshold(storeConfig.getCompactWALThreshold())
                         .setEnableLoadEstimation(true))
                     .setDataEngineConfigurator(buildDataEngineConf(storeConfig.getDataEngineConfig(), "inbox_data"))
                     .setWalEngineConfigurator(buildWALEngineConf(storeConfig.getWalEngineConfig(), "inbox_wal")))

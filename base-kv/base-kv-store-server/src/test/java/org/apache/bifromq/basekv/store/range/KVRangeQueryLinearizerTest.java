@@ -19,16 +19,21 @@
 
 package org.apache.bifromq.basekv.store.range;
 
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.testng.Assert.assertFalse;
 import static org.testng.Assert.assertTrue;
 
-import org.apache.bifromq.basekv.MockableTest;
 import com.google.common.util.concurrent.MoreExecutors;
 import java.util.concurrent.CompletableFuture;
+import java.util.function.Function;
 import java.util.function.Supplier;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.bifromq.basekv.MockableTest;
 import org.mockito.Mock;
+import org.mockito.stubbing.Answer;
 import org.testng.annotations.Test;
 
 @Slf4j
@@ -36,10 +41,16 @@ public class KVRangeQueryLinearizerTest extends MockableTest {
     @Mock
     private Supplier<CompletableFuture<Long>> readIndexSupplier;
 
+    @Mock
+    private Function<Supplier<CompletableFuture<Void>>, CompletableFuture<Void>> recordDuration;
+
     @Test
     public void linearizeAfterInit() {
+        when(recordDuration.apply(any(Supplier.class))).thenAnswer(
+            (Answer<CompletableFuture<Void>>) invocation ->
+                ((Supplier<CompletableFuture<Void>>) invocation.getArgument(0)).get());
         KVRangeQueryLinearizer linearizer =
-            new KVRangeQueryLinearizer(readIndexSupplier, MoreExecutors.directExecutor(), 3);
+            new KVRangeQueryLinearizer(readIndexSupplier, MoreExecutors.directExecutor(), 3, recordDuration);
         when(readIndexSupplier.get())
             .thenReturn(CompletableFuture.completedFuture(1L),
                 CompletableFuture.completedFuture(2L),
@@ -50,12 +61,16 @@ public class KVRangeQueryLinearizerTest extends MockableTest {
         assertTrue(t1.isDone());
         assertTrue(t2.isDone());
         assertTrue(t3.isDone());
+        verify(recordDuration, times(3)).apply(any());
     }
 
     @Test
     public void linearize() {
+        when(recordDuration.apply(any(Supplier.class))).thenAnswer(
+            (Answer<CompletableFuture<Void>>) invocation ->
+                ((Supplier<CompletableFuture<Void>>) invocation.getArgument(0)).get());
         KVRangeQueryLinearizer linearizer =
-            new KVRangeQueryLinearizer(readIndexSupplier, MoreExecutors.directExecutor(), 0);
+            new KVRangeQueryLinearizer(readIndexSupplier, MoreExecutors.directExecutor(), 0, recordDuration);
         when(readIndexSupplier.get())
             .thenReturn(CompletableFuture.completedFuture(1L),
                 CompletableFuture.completedFuture(1L),
@@ -75,5 +90,6 @@ public class KVRangeQueryLinearizerTest extends MockableTest {
         assertTrue(t3.isDone());
 
         assertTrue(linearizer.linearize().toCompletableFuture().isDone());
+        verify(recordDuration, times(4)).apply(any());
     }
 }

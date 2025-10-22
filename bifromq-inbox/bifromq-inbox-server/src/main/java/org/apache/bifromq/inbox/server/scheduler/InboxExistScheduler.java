@@ -14,19 +14,19 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 
 package org.apache.bifromq.inbox.server.scheduler;
 
 import static org.apache.bifromq.inbox.store.schema.KVSchemaUtil.inboxStartKeyPrefix;
 
+import com.google.protobuf.ByteString;
+import lombok.extern.slf4j.Slf4j;
 import org.apache.bifromq.basekv.client.IBaseKVStoreClient;
 import org.apache.bifromq.inbox.rpc.proto.ExistReply;
 import org.apache.bifromq.inbox.rpc.proto.ExistRequest;
 import org.apache.bifromq.sysprops.props.InboxCheckQueuesPerRange;
-import com.google.protobuf.ByteString;
-import lombok.extern.slf4j.Slf4j;
 
 @Slf4j
 public class InboxExistScheduler extends InboxReadScheduler<ExistRequest, ExistReply, BatchExistCall>
@@ -37,7 +37,7 @@ public class InboxExistScheduler extends InboxReadScheduler<ExistRequest, ExistR
 
     @Override
     protected boolean isLinearizable(ExistRequest request) {
-        return true;
+        return false;
     }
 
     @Override

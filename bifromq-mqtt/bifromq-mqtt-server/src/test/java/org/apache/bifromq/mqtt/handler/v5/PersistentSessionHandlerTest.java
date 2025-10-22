@@ -318,7 +318,7 @@ public class PersistentSessionHandlerTest extends BaseSessionHandlerTest {
             channel.writeInbound(MQTTMessageUtils.pubAckMessage(message.variableHeader().packetId()));
         }
         verifyEventUnordered(QOS1_PUSHED, QOS1_PUSHED, QOS1_PUSHED, QOS1_CONFIRMED, QOS1_CONFIRMED, QOS1_CONFIRMED);
-        verify(inboxClient, times(3)).commit(argThat(CommitRequest::hasSendBufferUpToSeq));
+        verify(inboxClient, times(1)).commit(argThat(CommitRequest::hasSendBufferUpToSeq));
     }
 
     @Test
@@ -338,7 +338,7 @@ public class PersistentSessionHandlerTest extends BaseSessionHandlerTest {
             }
         }
         verifyEventUnordered(QOS1_PUSHED, QOS1_PUSHED, QOS1_PUSHED, QOS1_CONFIRMED, QOS1_CONFIRMED);
-        verify(inboxClient, times(2)).commit(argThat(CommitRequest::hasSendBufferUpToSeq));
+        verify(inboxClient, times(0)).commit(argThat(CommitRequest::hasSendBufferUpToSeq));
     }
 
     @Test

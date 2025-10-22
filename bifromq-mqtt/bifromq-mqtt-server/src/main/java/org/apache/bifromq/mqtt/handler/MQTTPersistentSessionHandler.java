@@ -90,7 +90,7 @@ import org.apache.bifromq.util.TopicUtil;
 public abstract class MQTTPersistentSessionHandler extends MQTTSessionHandler implements IMQTTPersistentSession {
     private final int sessionExpirySeconds;
     private final InboxVersion inboxVersion;
-    private final NavigableMap<Long, RoutedMessage> stagingBuffer = new TreeMap<>();
+    private final NavigableMap<Long, StagingMessage> stagingBuffer = new TreeMap<>();
     private final IInboxClient inboxClient;
     private final Cache<String, AtomicReference<Long>> qoS0TimestampsByMQTTPublisher = Caffeine.newBuilder()
         .expireAfterAccess(2 * DataPlaneMaxBurstLatencyMillis.INSTANCE.get(), TimeUnit.MILLISECONDS)
@@ -152,7 +152,7 @@ public abstract class MQTTPersistentSessionHandler extends MQTTSessionHandler im
             inboxReader.close();
         }
         int remainInboxSize =
-            stagingBuffer.values().stream().reduce(0, (acc, msg) -> acc + msg.estBytes(), Integer::sum);
+            stagingBuffer.values().stream().reduce(0, (acc, msg) -> acc + msg.message.estBytes(), Integer::sum);
         if (remainInboxSize > 0) {
             memUsage.addAndGet(-remainInboxSize);
         }
@@ -431,15 +431,17 @@ public abstract class MQTTPersistentSessionHandler extends MQTTSessionHandler im
 
     @Override
     protected final void onConfirm(long seq) {
-        RoutedMessage confirmed = stagingBuffer.remove(seq);
-        if (confirmed != null) {
-            // for multiple topic filters matched message, confirm to upstream when at lease one is confirmed by client
+        NavigableMap<Long, StagingMessage> confirmedMsgs = stagingBuffer.headMap(seq, true);
+        for (StagingMessage stagingMessage : confirmedMsgs.values()) {
+            RoutedMessage confirmed = stagingMessage.message;
             memUsage.addAndGet(-confirmed.estBytes());
-            if (inboxConfirmedUpToSeq < confirmed.inboxPos()) {
+            if (stagingMessage.batchEnd() && inboxConfirmedUpToSeq < confirmed.inboxPos()) {
+                // for multiple topic filters matched message, confirm to upstream when at lease one is confirmed by client
                 inboxConfirmedUpToSeq = confirmed.inboxPos();
                 confirmSendBuffer();
             }
         }
+        confirmedMsgs.clear();
         currentHint = clientReceiveQuota();
         inboxReader.hint(currentHint);
         ctx.executor().execute(this::drainStaging);
@@ -515,7 +517,10 @@ public abstract class MQTTPersistentSessionHandler extends MQTTSessionHandler im
                     }
                     // deal with buffered message
                     if (fetched.getSendBufferMsgCount() > 0) {
-                        fetched.getSendBufferMsgList().forEach(this::pubBufferedMessage);
+                        for (int i = 0; i < fetched.getSendBufferMsgCount(); i++) {
+                            InboxMessage inboxMessage = fetched.getSendBufferMsg(i);
+                            this.pubBufferedMessage(inboxMessage, i + 1 == fetched.getSendBufferMsgCount());
+                        }
                     }
                 }
                 case BACK_PRESSURE_REJECTED -> {
@@ -557,7 +562,7 @@ public abstract class MQTTPersistentSessionHandler extends MQTTSessionHandler im
             });
     }
 
-    private void pubBufferedMessage(InboxMessage inboxMsg) {
+    private void pubBufferedMessage(InboxMessage inboxMsg, boolean batchEnd) {
         boolean isDup = isDuplicateMessage(inboxMsg.getMsg().getPublisher(), inboxMsg.getMsg().getMessage(),
             qoS12TimestampsByMQTTPublisher);
         int i = 0;
@@ -565,12 +570,17 @@ public abstract class MQTTPersistentSessionHandler extends MQTTSessionHandler im
             String topicFilter = entry.getKey();
             TopicFilterOption option = entry.getValue();
             long seq = inboxMsg.getSeq();
-            pubBufferedMessage(topicFilter, option, seq + i++, seq, inboxMsg.getMsg(), isDup);
+            pubBufferedMessage(topicFilter, option, seq + i++, seq, inboxMsg.getMsg(), isDup, batchEnd);
         }
     }
 
-    private void pubBufferedMessage(String topicFilter, TopicFilterOption option, long seq, long inboxSeq,
-                                    TopicMessage topicMsg, boolean isDup) {
+    private void pubBufferedMessage(String topicFilter,
+                                    TopicFilterOption option,
+                                    long seq,
+                                    long inboxSeq,
+                                    TopicMessage topicMsg,
+                                    boolean isDup,
+                                    boolean batchEnd) {
         if (seq < nextSendSeq) {
             // do not buffer message that has been sent
             return;
@@ -585,7 +595,7 @@ public abstract class MQTTPersistentSessionHandler extends MQTTSessionHandler im
                     checkResult.hasGranted(), isDup, inboxSeq);
                 tenantMeter.timer(msg.qos() == AT_LEAST_ONCE ? MqttQoS1InternalLatency : MqttQoS2InternalLatency)
                     .record(HLC.INST.getPhysical(now - message.getTimestamp()), TimeUnit.MILLISECONDS);
-                RoutedMessage prev = stagingBuffer.put(seq, msg);
+                StagingMessage prev = stagingBuffer.put(seq, new StagingMessage(msg, batchEnd));
                 if (prev == null) {
                     memUsage.addAndGet(msg.estBytes());
                 }
@@ -598,15 +608,15 @@ public abstract class MQTTPersistentSessionHandler extends MQTTSessionHandler im
     }
 
     private void drainStaging() {
-        SortedMap<Long, RoutedMessage> toBeSent = stagingBuffer.tailMap(nextSendSeq);
+        SortedMap<Long, StagingMessage> toBeSent = stagingBuffer.tailMap(nextSendSeq);
         if (toBeSent.isEmpty()) {
             return;
         }
-        Iterator<Map.Entry<Long, RoutedMessage>> itr = toBeSent.entrySet().iterator();
+        Iterator<Map.Entry<Long, StagingMessage>> itr = toBeSent.entrySet().iterator();
         while (clientReceiveQuota() > 0 && itr.hasNext()) {
-            Map.Entry<Long, RoutedMessage> entry = itr.next();
+            Map.Entry<Long, StagingMessage> entry = itr.next();
             long seq = entry.getKey();
-            sendConfirmableSubMessage(seq, entry.getValue());
+            sendConfirmableSubMessage(seq, entry.getValue().message);
             nextSendSeq = seq + 1;
         }
         flush(true);
@@ -617,5 +627,9 @@ public abstract class MQTTPersistentSessionHandler extends MQTTSessionHandler im
         ATTACHED,
         DETACH,
         TERMINATE
+    }
+
+    private record StagingMessage(RoutedMessage message, boolean batchEnd) {
+
     }
 }

@@ -145,7 +145,7 @@ public class MQTTPersistentS2CPubTest extends BaseMQTTTest {
         }
         verifyEventUnordered(CLIENT_CONNECTED, QOS1_PUSHED, QOS1_PUSHED, QOS1_PUSHED, QOS1_CONFIRMED,
             QOS1_CONFIRMED, QOS1_CONFIRMED);
-        verify(inboxClient, times(3)).commit(argThat(CommitRequest::hasSendBufferUpToSeq));
+        verify(inboxClient, times(1)).commit(argThat(CommitRequest::hasSendBufferUpToSeq));
     }
 
     @Test
@@ -165,7 +165,7 @@ public class MQTTPersistentS2CPubTest extends BaseMQTTTest {
             }
         }
         verifyEventUnordered(CLIENT_CONNECTED, QOS1_PUSHED, QOS1_PUSHED, QOS1_PUSHED, QOS1_CONFIRMED, QOS1_CONFIRMED);
-        verify(inboxClient, times(2)).commit(argThat(CommitRequest::hasSendBufferUpToSeq));
+        verify(inboxClient, times(0)).commit(argThat(CommitRequest::hasSendBufferUpToSeq));
     }
 
     @Test
@@ -217,7 +217,7 @@ public class MQTTPersistentS2CPubTest extends BaseMQTTTest {
         }
         verifyEvent(CLIENT_CONNECTED, QOS2_PUSHED, QOS2_PUSHED, QOS2_RECEIVED, QOS2_RECEIVED, QOS2_CONFIRMED,
             QOS2_CONFIRMED);
-        verify(inboxClient, times(2)).commit(argThat(CommitRequest::hasSendBufferUpToSeq));
+        verify(inboxClient, times(1)).commit(argThat(CommitRequest::hasSendBufferUpToSeq));
     }
 
     @Test

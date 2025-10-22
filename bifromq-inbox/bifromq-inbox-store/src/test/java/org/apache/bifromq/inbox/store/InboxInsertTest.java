@@ -360,7 +360,6 @@ public class InboxInsertTest extends InboxStoreTest {
             .setMaxFetch(1)
             .build())
             .get(0);
-        assertEquals(msgCountGetter(qos).apply(fetched), 1);
         assertEquals(msgGetter(qos).apply(fetched, 0).getMsg().getMessage(), msg1.getMessage(0));
 
         fetched = requestFetch(BatchFetchRequest.Params.newBuilder()
@@ -465,9 +464,10 @@ public class InboxInsertTest extends InboxStoreTest {
         if (qos == AT_MOST_ONCE) {
             assertEquals(msgCountGetter(qos).apply(fetched), 5);
         } else {
-            // limit only apply buffered messages
-            assertEquals(msgCountGetter(qos).apply(fetched), 1);
+            // return whole chunk even if exceeding maxFetch
+            assertEquals(msgCountGetter(qos).apply(fetched), 2);
             assertEquals(msgGetter(qos).apply(fetched, 0).getMsg().getMessage(), msg2.getMessage(0));
+            assertEquals(msgGetter(qos).apply(fetched, 1).getMsg().getMessage(), msg3.getMessage(0));
         }
 
         paramsBuilder = BatchFetchRequest.Params.newBuilder()
@@ -1056,5 +1056,161 @@ public class InboxInsertTest extends InboxStoreTest {
             default -> Fetched::getSendBufferMsg;
         };
     }
-}
 
+    @Test(groups = "integration")
+    public void commitDeleteRangeSendBuffer() {
+        long now = 0;
+        String tenantId = "tenantId-" + System.nanoTime();
+        String inboxId = "inboxId-" + System.nanoTime();
+        long incarnation = System.nanoTime();
+        String topicFilter = "/a/b/c";
+        ClientInfo client = ClientInfo.newBuilder().setTenantId(tenantId).build();
+        InboxVersion inboxVersion = requestAttach(BatchAttachRequest.Params.newBuilder()
+                .setInboxId(inboxId)
+                .setIncarnation(incarnation)
+                .setExpirySeconds(2)
+                .setLimit(10)
+                .setClient(client)
+                .setNow(now)
+                .build())
+            .get(0);
+
+        requestSub(BatchSubRequest.Params.newBuilder()
+            .setTenantId(tenantId)
+            .setInboxId(inboxId)
+            .setVersion(inboxVersion)
+            .setTopicFilter(topicFilter)
+            .setOption(TopicFilterOption.newBuilder().setQos(QoS.AT_LEAST_ONCE).build())
+            .setMaxTopicFilters(100)
+            .setNow(now)
+            .build());
+
+        TopicMessagePack.PublisherPack msg0 = message(QoS.AT_LEAST_ONCE, "m0");
+        TopicMessagePack.PublisherPack msg1 = message(QoS.AT_LEAST_ONCE, "m1");
+        TopicMessagePack.PublisherPack msg2 = message(QoS.AT_LEAST_ONCE, "m2");
+
+        // insert 3 messages in 3 requests so keys exist at seq=0,1,2
+        requestInsert(InsertRequest.newBuilder()
+            .setTenantId(tenantId)
+            .setInboxId(inboxId)
+            .setIncarnation(incarnation)
+            .addMessagePack(SubMessagePack.newBuilder()
+                .addMatchedRoute(MatchedRoute.newBuilder().setTopicFilter(topicFilter).setIncarnation(0L).build())
+                .setMessages(TopicMessagePack.newBuilder().setTopic(topicFilter).addMessage(msg0).build())
+                .build())
+            .build());
+
+        requestInsert(InsertRequest.newBuilder()
+            .setTenantId(tenantId)
+            .setInboxId(inboxId)
+            .setIncarnation(incarnation)
+            .addMessagePack(SubMessagePack.newBuilder()
+                .addMatchedRoute(MatchedRoute.newBuilder().setTopicFilter(topicFilter).setIncarnation(0L).build())
+                .setMessages(TopicMessagePack.newBuilder().setTopic(topicFilter).addMessage(msg1).build())
+                .build())
+            .build());
+
+        requestInsert(InsertRequest.newBuilder()
+            .setTenantId(tenantId)
+            .setInboxId(inboxId)
+            .setIncarnation(incarnation)
+            .addMessagePack(SubMessagePack.newBuilder()
+                .addMatchedRoute(MatchedRoute.newBuilder().setTopicFilter(topicFilter).setIncarnation(0L).build())
+                .setMessages(TopicMessagePack.newBuilder().setTopic(topicFilter).addMessage(msg2).build())
+                .build())
+            .build());
+
+        // commit up to seq=1, should delete range [0,2)
+        BatchCommitReply.Code commitCode = requestCommit(BatchCommitRequest.Params.newBuilder()
+            .setTenantId(tenantId)
+            .setInboxId(inboxId)
+            .setVersion(inboxVersion)
+            .setSendBufferUpToSeq(1)
+            .setNow(now)
+            .build()).get(0);
+        assertEquals(commitCode, BatchCommitReply.Code.OK);
+
+        Fetched fetched = requestFetch(BatchFetchRequest.Params.newBuilder()
+            .setTenantId(tenantId)
+            .setInboxId(inboxId)
+            .setIncarnation(incarnation)
+            .setMaxFetch(10)
+            .build()).get(0);
+        assertEquals(fetched.getSendBufferMsgCount(), 1);
+        assertEquals(fetched.getSendBufferMsg(0).getSeq(), 2);
+        assertEquals(fetched.getSendBufferMsg(0).getMsg().getMessage(), msg2.getMessage(0));
+    }
+
+    @Test(groups = "integration")
+    public void commitDirectDeleteSendBuffer() {
+        long now = 0;
+        String tenantId = "tenantId-" + System.nanoTime();
+        String inboxId = "inboxId-" + System.nanoTime();
+        long incarnation = System.nanoTime();
+        String topicFilter = "/a/b/c";
+        ClientInfo client = ClientInfo.newBuilder().setTenantId(tenantId).build();
+        InboxVersion inboxVersion = requestAttach(BatchAttachRequest.Params.newBuilder()
+                .setInboxId(inboxId)
+                .setIncarnation(incarnation)
+                .setExpirySeconds(2)
+                .setLimit(10)
+                .setClient(client)
+                .setNow(now)
+                .build())
+            .get(0);
+
+        requestSub(BatchSubRequest.Params.newBuilder()
+            .setTenantId(tenantId)
+            .setInboxId(inboxId)
+            .setVersion(inboxVersion)
+            .setTopicFilter(topicFilter)
+            .setOption(TopicFilterOption.newBuilder().setQos(QoS.AT_LEAST_ONCE).build())
+            .setMaxTopicFilters(100)
+            .setNow(now)
+            .build());
+
+        TopicMessagePack.PublisherPack msg0 = message(QoS.AT_LEAST_ONCE, "m0");
+        TopicMessagePack.PublisherPack msg1 = message(QoS.AT_LEAST_ONCE, "m1");
+
+        // insert 2 messages in 2 requests so keys exist at seq=0 and seq=1
+        requestInsert(InsertRequest.newBuilder()
+            .setTenantId(tenantId)
+            .setInboxId(inboxId)
+            .setIncarnation(incarnation)
+            .addMessagePack(SubMessagePack.newBuilder()
+                .addMatchedRoute(MatchedRoute.newBuilder().setTopicFilter(topicFilter).setIncarnation(0L).build())
+                .setMessages(TopicMessagePack.newBuilder().setTopic(topicFilter).addMessage(msg0).build())
+                .build())
+            .build());
+
+        requestInsert(InsertRequest.newBuilder()
+            .setTenantId(tenantId)
+            .setInboxId(inboxId)
+            .setIncarnation(incarnation)
+            .addMessagePack(SubMessagePack.newBuilder()
+                .addMatchedRoute(MatchedRoute.newBuilder().setTopicFilter(topicFilter).setIncarnation(0L).build())
+                .setMessages(TopicMessagePack.newBuilder().setTopic(topicFilter).addMessage(msg1).build())
+                .build())
+            .build());
+
+        // commit where startSeq equals commitSeq(0), should directly delete key at seq=0
+        BatchCommitReply.Code commitCode = requestCommit(BatchCommitRequest.Params.newBuilder()
+            .setTenantId(tenantId)
+            .setInboxId(inboxId)
+            .setVersion(inboxVersion)
+            .setSendBufferUpToSeq(0)
+            .setNow(now)
+            .build()).get(0);
+        assertEquals(commitCode, BatchCommitReply.Code.OK);
+
+        Fetched fetched = requestFetch(BatchFetchRequest.Params.newBuilder()
+            .setTenantId(tenantId)
+            .setInboxId(inboxId)
+            .setIncarnation(incarnation)
+            .setMaxFetch(10)
+            .build()).get(0);
+        assertEquals(fetched.getSendBufferMsgCount(), 1);
+        assertEquals(fetched.getSendBufferMsg(0).getSeq(), 1);
+        assertEquals(fetched.getSendBufferMsg(0).getMsg().getMessage(), msg1.getMessage(0));
+    }
+}

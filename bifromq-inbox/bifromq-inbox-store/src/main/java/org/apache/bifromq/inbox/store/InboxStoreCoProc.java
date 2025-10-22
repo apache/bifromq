@@ -403,30 +403,46 @@ final class InboxStoreCoProc implements IKVRangeCoProc {
                                 IKVRangeReader reader,
                                 Fetched.Builder replyBuilder) {
         if (startFetchFromSeq < nextSeq) {
-            while (startSeq < nextSeq && fetchCount > 0) {
-                ByteString startKey = keyGenerator.apply(inboxInstStartKey, startSeq);
-                Optional<ByteString> msgListData = reader.get(startKey);
-                // the startSeq may not reflect the latest seq of the first message when query is non-linearized
-                // it may point to the message was committed.
-                if (msgListData.isEmpty()) {
-                    startSeq++;
-                    continue;
+            // locate the first record to scan
+            long currSeq = startSeq;
+            Optional<ByteString> currData = Optional.empty();
+            if (startFetchFromSeq > startSeq) {
+                Optional<ByteString> pointed = reader.get(keyGenerator.apply(inboxInstStartKey, startFetchFromSeq));
+                if (pointed.isPresent()) {
+                    currSeq = startFetchFromSeq; // jump to next chunk directly
+                    currData = pointed; // use pointed chunk as first record
                 }
-                List<InboxMessage> messageList = ZeroCopyParser.parse(msgListData.get(), InboxMessageList.parser())
-                    .getMessageList();
+            }
+            if (currData.isEmpty()) {
+                // find first message chunk
+                currData = reader.get(keyGenerator.apply(inboxInstStartKey, currSeq));
+                // the currSeq may not reflect the latest seq of the first message when query is non-linearized
+                // it may point to the message was committed.
+                while (currData.isEmpty() && currSeq < nextSeq) {
+                    currSeq++;
+                    currData = reader.get(keyGenerator.apply(inboxInstStartKey, currSeq));
+                }
+                // if current record not exists, nothing to scan
+                if (currData.isEmpty()) {
+                    return;
+                }
+            }
+            // scan forward from located record
+            while (currData.isPresent() && fetchCount > 0) {
+                List<InboxMessage> messageList = ZeroCopyParser.parse(currData.get(),
+                    InboxMessageList.parser()).getMessageList();
                 long lastSeq = messageList.get(messageList.size() - 1).getSeq();
                 if (lastSeq >= startFetchFromSeq) {
                     for (InboxMessage inboxMsg : messageList) {
                         if (inboxMsg.getSeq() >= startFetchFromSeq) {
                             messageConsumer.accept(replyBuilder, inboxMsg);
                             fetchCount--;
-                            if (fetchCount == 0) {
-                                break;
-                            }
+                            // keep returning messages in current chunk even if exceeded fetchCount
                         }
                     }
                 }
-                startSeq = lastSeq + 1;
+                currSeq = lastSeq + 1;
+                currData = reader.get(keyGenerator.apply(inboxInstStartKey, currSeq));
             }
         }
     }
@@ -1410,10 +1426,14 @@ final class InboxStoreCoProc implements IKVRangeCoProc {
     private InboxMessageList buildInboxMessageList(long beginSeq, List<SubMessage> subMessages) {
         InboxMessageList.Builder listBuilder = InboxMessageList.newBuilder();
         for (SubMessage subMessage : subMessages) {
-            listBuilder.addMessage(
-                InboxMessage.newBuilder().setSeq(beginSeq).putAllMatchedTopicFilter(subMessage.matchedTopicFilters)
-                    .setMsg(TopicMessage.newBuilder().setTopic(subMessage.topic).setPublisher(subMessage.publisher)
-                        .setMessage(subMessage.message).build()).build());
+            listBuilder.addMessage(InboxMessage.newBuilder()
+                .setSeq(beginSeq)
+                .putAllMatchedTopicFilter(subMessage.matchedTopicFilters)
+                .setMsg(TopicMessage.newBuilder()
+                    .setTopic(subMessage.topic)
+                    .setPublisher(subMessage.publisher)
+                    .setMessage(subMessage.message)
+                    .build()).build());
             beginSeq++;
         }
         return listBuilder.build();
@@ -1481,6 +1501,25 @@ final class InboxStoreCoProc implements IKVRangeCoProc {
                                IKVRangeReader reader,
                                IKVWriter writer) {
         if (startSeq <= commitSeq && commitSeq < nextSeq) {
+            // Fast path 1: delete directly when startSeq equals commitSeq
+            // This path favors performance by removing the chunk at startSeq
+            if (startSeq == commitSeq) {
+                writer.delete(keyGenerator.apply(scopedInboxId, startSeq));
+                metadataSetter.apply(startSeq + 1);
+                return;
+            }
+
+            // Fast path 2: use deleteRange when commitSeq + 1 exists
+            // This removes all chunks whose key is in [startSeq, commitSeq + 1)
+            Optional<ByteString> nextChunk = reader.get(keyGenerator.apply(scopedInboxId, commitSeq + 1));
+            if (nextChunk.isPresent()) {
+                writer.clear(Boundary.newBuilder()
+                    .setStartKey(keyGenerator.apply(scopedInboxId, startSeq))
+                    .setEndKey(keyGenerator.apply(scopedInboxId, commitSeq + 1))
+                    .build());
+                metadataSetter.apply(commitSeq + 1);
+                return;
+            }
             while (startSeq <= commitSeq) {
                 ByteString msgKey = keyGenerator.apply(scopedInboxId, startSeq);
                 Optional<ByteString> msgListData = reader.get(msgKey);

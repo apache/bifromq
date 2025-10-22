@@ -21,12 +21,12 @@ package org.apache.bifromq.inbox.server.scheduler;
 
 import static org.apache.bifromq.inbox.store.schema.KVSchemaUtil.inboxStartKeyPrefix;
 
+import com.google.protobuf.ByteString;
+import lombok.extern.slf4j.Slf4j;
 import org.apache.bifromq.basekv.client.IBaseKVStoreClient;
 import org.apache.bifromq.inbox.rpc.proto.SendLWTReply;
 import org.apache.bifromq.inbox.rpc.proto.SendLWTRequest;
 import org.apache.bifromq.sysprops.props.InboxCheckQueuesPerRange;
-import com.google.protobuf.ByteString;
-import lombok.extern.slf4j.Slf4j;
 
 @Slf4j
 public class InboxSendLWTScheduler extends InboxReadScheduler<SendLWTRequest, SendLWTReply, BatchSendLWTCall>
@@ -37,7 +37,7 @@ public class InboxSendLWTScheduler extends InboxReadScheduler<SendLWTRequest, Se
 
     @Override
     protected boolean isLinearizable(SendLWTRequest request) {
-        return true;
+        return false;
     }
 
     @Override

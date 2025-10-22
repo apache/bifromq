@@ -39,7 +39,7 @@ public class InboxFetchStateScheduler
 
     @Override
     protected boolean isLinearizable(InboxStateRequest request) {
-        return true;
+        return false;
     }
 
     @Override

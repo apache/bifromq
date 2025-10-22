@@ -14,19 +14,19 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 
 package org.apache.bifromq.inbox.server.scheduler;
 
 import static org.apache.bifromq.inbox.store.schema.KVSchemaUtil.inboxInstanceStartKey;
 
-import org.apache.bifromq.basekv.client.IBaseKVStoreClient;
-import org.apache.bifromq.inbox.storage.proto.Fetched;
-import org.apache.bifromq.sysprops.props.InboxFetchQueuesPerRange;
 import com.google.protobuf.ByteString;
 import java.util.Objects;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.bifromq.basekv.client.IBaseKVStoreClient;
+import org.apache.bifromq.inbox.storage.proto.Fetched;
+import org.apache.bifromq.sysprops.props.InboxFetchQueuesPerRange;
 
 @Slf4j
 public class InboxFetchScheduler extends InboxReadScheduler<FetchRequest, Fetched, BatchFetchCall>
@@ -46,7 +46,7 @@ public class InboxFetchScheduler extends InboxReadScheduler<FetchRequest, Fetche
 
     @Override
     protected boolean isLinearizable(FetchRequest request) {
-        return true;
+        return false;
     }
 
     @Override

@@ -35,7 +35,7 @@ public class InboxCheckSubScheduler extends InboxReadScheduler<CheckMatchInfo, C
 
     @Override
     protected boolean isLinearizable(CheckMatchInfo request) {
-        return true;
+        return false;
     }
 
     @Override

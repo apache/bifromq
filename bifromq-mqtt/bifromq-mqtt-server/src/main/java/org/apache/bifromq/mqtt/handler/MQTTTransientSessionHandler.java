@@ -175,7 +175,7 @@ public abstract class MQTTTransientSessionHandler extends MQTTSessionHandler imp
 
     @Override
     protected final void onConfirm(long seq) {
-        java.util.NavigableMap<Long, RoutedMessage> confirmed = inbox.headMap(seq, true);
+        NavigableMap<Long, RoutedMessage> confirmed = inbox.headMap(seq, true);
         for (RoutedMessage msg : confirmed.values()) {
             memUsage.addAndGet(-msg.estBytes());
         }

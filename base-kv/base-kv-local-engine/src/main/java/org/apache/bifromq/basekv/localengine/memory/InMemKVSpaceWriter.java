@@ -41,10 +41,11 @@ class InMemKVSpaceWriter<E extends InMemKVEngine<E, T>, T extends InMemKVSpace<E
                        E engine,
                        ISyncContext syncContext,
                        Consumer<Boolean> afterWrite,
+                       Consumer<InMemKVSpaceWriterHelper.WriteImpact> impactListener,
                        KVSpaceOpMeters readOpMeters,
                        Logger logger) {
         this(id, epoch, engine, syncContext, new InMemKVSpaceWriterHelper(),
-            afterWrite, readOpMeters, logger);
+            afterWrite, impactListener, readOpMeters, logger);
     }
 
     private InMemKVSpaceWriter(String id,
@@ -53,6 +54,7 @@ class InMemKVSpaceWriter<E extends InMemKVEngine<E, T>, T extends InMemKVSpace<E
                                ISyncContext syncContext,
                                InMemKVSpaceWriterHelper writerHelper,
                                Consumer<Boolean> afterWrite,
+                               Consumer<InMemKVSpaceWriterHelper.WriteImpact> impactListener,
                                KVSpaceOpMeters readOpMeters,
                                Logger logger) {
         this.id = id;
@@ -63,6 +65,9 @@ class InMemKVSpaceWriter<E extends InMemKVEngine<E, T>, T extends InMemKVSpace<E
         this.helper = writerHelper;
         writerHelper.addMutators(id, epoch, syncContext.mutator());
         writerHelper.addAfterWriteCallback(id, afterWrite);
+        if (impactListener != null) {
+            writerHelper.addAfterImpactCallback(id, impactListener);
+        }
     }
 
     @Override

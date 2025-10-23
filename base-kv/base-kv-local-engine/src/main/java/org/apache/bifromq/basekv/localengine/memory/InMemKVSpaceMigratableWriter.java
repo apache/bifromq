@@ -37,9 +37,10 @@ public class InMemKVSpaceMigratableWriter<E extends InMemKVEngine<E, T>, T exten
                                  E engine,
                                  ISyncContext syncContext,
                                  Consumer<Boolean> afterWrite,
+                                 Consumer<InMemKVSpaceWriterHelper.WriteImpact> impactListener,
                                  KVSpaceOpMeters readOpMeters,
                                  Logger logger) {
-        super(id, epoch, engine, syncContext, afterWrite, readOpMeters, logger);
+        super(id, epoch, engine, syncContext, afterWrite, impactListener, readOpMeters, logger);
     }
 
     @Override

@@ -113,6 +113,9 @@ class InMemCPableKVSpace extends InMemKVSpace<InMemCPableKVEngine, InMemCPableKV
             if (metadataUpdated) {
                 this.loadMetadata();
             }
+        }, impact -> {
+            // Update tracked boundary sizes on write impact
+            this.tracker.updateOnWrite(impact, activeEpoch.get().dataMap());
         }, opMeters, logger);
     }
 
@@ -163,6 +166,8 @@ class InMemCPableKVSpace extends InMemKVSpace<InMemCPableKVEngine, InMemCPableKV
                 // Replace mode ignores existing state; Overlay mode applies on top of current state
                 syncContext().mutator().run(() -> {
                     activeEpoch.set(staging);
+                    // Epoch changed, invalidate tracked boundary sizes
+                    tracker.invalidateAll();
                     if (flushListener != null) {
                         flushListener.onFlush(ops, bytes);
                     }

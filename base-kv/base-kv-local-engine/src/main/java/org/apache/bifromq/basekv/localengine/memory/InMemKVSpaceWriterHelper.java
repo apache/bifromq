@@ -36,6 +36,7 @@ class InMemKVSpaceWriterHelper {
     private final Map<String, InMemKVSpaceEpoch> kvSpaceEpochMap;
     private final Map<String, WriteBatch> batchMap;
     private final Map<String, Consumer<Boolean>> afterWriteCallbacks = new HashMap<>();
+    private final Map<String, Consumer<WriteImpact>> afterImpactCallbacks = new HashMap<>();
     private final Map<String, Boolean> metadataChanges = new HashMap<>();
     private final Set<ISyncContext.IMutator> mutators = new HashSet<>();
 
@@ -54,6 +55,10 @@ class InMemKVSpaceWriterHelper {
     void addAfterWriteCallback(String rangeId, Consumer<Boolean> afterWrite) {
         afterWriteCallbacks.put(rangeId, afterWrite);
         metadataChanges.put(rangeId, false);
+    }
+
+    void addAfterImpactCallback(String rangeId, Consumer<WriteImpact> afterImpact) {
+        afterImpactCallbacks.put(rangeId, afterImpact);
     }
 
 
@@ -80,7 +85,19 @@ class InMemKVSpaceWriterHelper {
 
     void done() {
         ISyncContext.IMutation doneFn = () -> {
-            batchMap.values().forEach(WriteBatch::end);
+            Map<String, WriteImpact> impacts = new HashMap<>();
+            batchMap.values().forEach(batch -> {
+                WriteImpact impact = batch.endAndCollectImpact();
+                if (impact != null) {
+                    impacts.put(batch.rangeId, impact);
+                }
+            });
+            impacts.forEach((id, imp) -> {
+                Consumer<WriteImpact> cb = afterImpactCallbacks.get(id);
+                if (cb != null) {
+                    cb.accept(imp);
+                }
+            });
             return false;
         };
         AtomicReference<ISyncContext.IMutation> finalRun = new AtomicReference<>();
@@ -110,6 +127,9 @@ class InMemKVSpaceWriterHelper {
         KVAction.Type type();
 
         enum Type { Put, Delete, DeleteRange }
+    }
+
+    public record WriteImpact(List<ByteString> pointKeys, List<Boundary> deleteRanges) {
     }
 
     protected class WriteBatch {
@@ -145,17 +165,21 @@ class InMemKVSpaceWriterHelper {
             actions.add(new WriteBatch.DeleteRange(boundary));
         }
 
-        public void end() {
+        public WriteImpact endAndCollectImpact() {
+            List<ByteString> putOrDeleteKeys = new ArrayList<>();
+            List<Boundary> deleteRanges = new ArrayList<>();
             metadata.forEach((k, v) -> kvSpaceEpochMap.get(rangeId).setMetadata(k, v));
             for (KVAction action : actions) {
                 switch (action.type()) {
                     case Put -> {
                         WriteBatch.Put put = (WriteBatch.Put) action;
                         kvSpaceEpochMap.get(rangeId).putData(put.key, put.value);
+                        putOrDeleteKeys.add(put.key);
                     }
                     case Delete -> {
                         WriteBatch.Delete delete = (WriteBatch.Delete) action;
                         kvSpaceEpochMap.get(rangeId).removeData(delete.key);
+                        putOrDeleteKeys.add(delete.key);
                     }
                     case DeleteRange -> {
                         WriteBatch.DeleteRange deleteRange = (WriteBatch.DeleteRange) action;
@@ -176,12 +200,14 @@ class InMemKVSpaceWriterHelper {
                                     .navigableKeySet();
                         }
                         inRangeKeys.forEach(k -> kvSpaceEpochMap.get(rangeId).removeData(k));
+                        deleteRanges.add(boundary);
                     }
                     default -> {
 
                     }
                 }
             }
+            return new WriteImpact(putOrDeleteKeys, deleteRanges);
         }
 
         public void abort() {

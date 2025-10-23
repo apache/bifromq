@@ -51,6 +51,8 @@ class InMemWALableKVSpace extends InMemKVSpace<InMemWALableKVEngine, InMemWALabl
             if (metadataUpdated) {
                 this.loadMetadata();
             }
+        }, impact -> {
+            tracker.updateOnWrite(impact, epoch.dataMap());
         }, opMeters, logger);
     }
 

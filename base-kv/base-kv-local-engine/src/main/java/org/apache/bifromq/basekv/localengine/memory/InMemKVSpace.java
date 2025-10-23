@@ -19,15 +19,19 @@
 
 package org.apache.bifromq.basekv.localengine.memory;
 
-import static org.apache.bifromq.basekv.localengine.memory.InMemKVHelper.sizeOfRange;
-
+import com.google.protobuf.ByteString;
 import java.util.Collections;
+import java.util.HashSet;
+import java.util.NavigableMap;
+import java.util.Set;
+import java.util.concurrent.ConcurrentSkipListMap;
 import org.apache.bifromq.basekv.localengine.AbstractKVSpace;
 import org.apache.bifromq.basekv.localengine.IKVSpaceRefreshableReader;
 import org.apache.bifromq.basekv.localengine.ISyncContext;
 import org.apache.bifromq.basekv.localengine.SyncContext;
 import org.apache.bifromq.basekv.localengine.metrics.KVSpaceOpMeters;
 import org.apache.bifromq.basekv.proto.Boundary;
+import org.apache.bifromq.basekv.utils.BoundaryUtil;
 import org.slf4j.Logger;
 
 abstract class InMemKVSpace<
@@ -37,6 +41,7 @@ abstract class InMemKVSpace<
     protected final E engine;
     protected final ISyncContext syncContext = new SyncContext();
     protected final ISyncContext.IRefresher metadataRefresher = syncContext.refresher();
+    protected final TrackedBoundaryIndex tracker = new TrackedBoundaryIndex();
 
     protected InMemKVSpace(String id,
                            InMemKVEngineConfigurator configurator,
@@ -56,7 +61,7 @@ abstract class InMemKVSpace<
 
     @Override
     public IKVSpaceRefreshableReader reader() {
-        return new InMemKVSpaceReader(id, opMeters, logger, syncContext.refresher(), this::handle);
+        return new InMemKVSpaceReader(id, opMeters, logger, syncContext.refresher(), this::handle, tracker);
     }
 
     protected void loadMetadata() {
@@ -68,6 +73,86 @@ abstract class InMemKVSpace<
     }
 
     protected long doSize(Boundary boundary) {
-        return sizeOfRange(handle().dataMap(), boundary);
+        if (!boundary.hasStartKey() && !boundary.hasEndKey()) {
+            return handle().totalDataBytes();
+        }
+        // Track boundary size lazily and keep it updated on writes
+        return tracker.sizeOrTrack(handle(), boundary);
+    }
+
+    static final class TrackedBoundaryIndex {
+        private static final int MAX_TRACKED = 1024;
+        private final NavigableMap<Boundary, TrackedBucket> buckets =
+            new ConcurrentSkipListMap<>(BoundaryUtil::compare);
+
+        long sizeOrTrack(InMemKVSpaceEpoch epoch, Boundary boundary) {
+            TrackedBucket b = buckets.get(boundary);
+            if (b != null) {
+                b.touch();
+                return b.bytes;
+            }
+            long sized = InMemKVHelper.sizeOfRange(epoch.dataMap(), boundary);
+            if (buckets.size() >= MAX_TRACKED) {
+                buckets.pollFirstEntry();
+            }
+            buckets.put(boundary, new TrackedBucket(sized));
+            return sized;
+        }
+
+        void updateOnWrite(InMemKVSpaceWriterHelper.WriteImpact impact, NavigableMap<ByteString, ByteString> data) {
+            if (impact == null || buckets.isEmpty()) {
+                return;
+            }
+            Set<Boundary> toRecalc = new HashSet<>();
+            for (Boundary tracked : buckets.keySet()) {
+                boolean hit = false;
+                for (ByteString key : impact.pointKeys()) {
+                    if (BoundaryUtil.inRange(key, tracked)) {
+                        hit = true;
+                        break;
+                    }
+                }
+                if (!hit) {
+                    for (Boundary r : impact.deleteRanges()) {
+                        if (BoundaryUtil.isOverlap(tracked, r)) {
+                            hit = true;
+                            break;
+                        }
+                    }
+                }
+                if (hit) {
+                    toRecalc.add(tracked);
+                }
+            }
+            if (toRecalc.isEmpty()) {
+                return;
+            }
+            for (Boundary tracked : toRecalc) {
+                long sized = InMemKVHelper.sizeOfRange(data, tracked);
+                TrackedBucket b = buckets.get(tracked);
+                if (b != null) {
+                    b.bytes = sized;
+                    b.touch();
+                }
+            }
+        }
+
+        void invalidateAll() {
+            buckets.clear();
+        }
+
+        private static final class TrackedBucket {
+            volatile long bytes;
+            volatile long lastAccessNanos;
+
+            TrackedBucket(long bytes) {
+                this.bytes = bytes;
+                this.lastAccessNanos = System.nanoTime();
+            }
+
+            void touch() {
+                lastAccessNanos = System.nanoTime();
+            }
+        }
     }
 }

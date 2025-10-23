@@ -24,6 +24,7 @@ import static com.google.protobuf.ByteString.unsignedLexicographicalComparator;
 import com.google.protobuf.ByteString;
 import java.util.Map;
 import java.util.NavigableMap;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 import org.apache.bifromq.basekv.localengine.IKVSpaceEpoch;
 import org.pcollections.HashPMap;
@@ -33,15 +34,18 @@ import org.pcollections.TreePMap;
 class InMemKVSpaceEpoch implements IKVSpaceEpoch {
     private final AtomicReference<HashPMap<ByteString, ByteString>> metadataMap;
     private final AtomicReference<TreePMap<ByteString, ByteString>> dataMap;
+    private final AtomicLong totalDataBytes;
 
     InMemKVSpaceEpoch() {
         metadataMap = new AtomicReference<>(HashTreePMap.empty());
         dataMap = new AtomicReference<>(TreePMap.empty(unsignedLexicographicalComparator()));
+        totalDataBytes = new AtomicLong(0);
     }
 
     InMemKVSpaceEpoch(InMemKVSpaceEpoch overlay) {
         metadataMap = new AtomicReference<>(overlay.metadataMap.get());
         dataMap = new AtomicReference<>(overlay.dataMap.get());
+        totalDataBytes = new AtomicLong(overlay.totalDataBytes.get());
     }
 
     Map<ByteString, ByteString> metadataMap() {
@@ -50,6 +54,10 @@ class InMemKVSpaceEpoch implements IKVSpaceEpoch {
 
     NavigableMap<ByteString, ByteString> dataMap() {
         return dataMap.get();
+    }
+
+    long totalDataBytes() {
+        return totalDataBytes.get();
     }
 
     void setMetadata(ByteString key, ByteString value) {
@@ -61,10 +69,20 @@ class InMemKVSpaceEpoch implements IKVSpaceEpoch {
     }
 
     void putData(ByteString key, ByteString value) {
-        dataMap.updateAndGet(m -> m.plus(key, value));
+        TreePMap<ByteString, ByteString> current = dataMap.get();
+        ByteString old = current.get(key);
+        long oldBytes = old == null ? 0 : (long) key.size() + old.size();
+        long newBytes = (long) key.size() + value.size();
+        totalDataBytes.addAndGet(newBytes - oldBytes);
+        dataMap.set(current.plus(key, value));
     }
 
     void removeData(ByteString key) {
-        dataMap.updateAndGet(m -> m.minus(key));
+        TreePMap<ByteString, ByteString> current = dataMap.get();
+        ByteString old = current.get(key);
+        if (old != null) {
+            totalDataBytes.addAndGet(-((long) key.size() + old.size()));
+            dataMap.set(current.minus(key));
+        }
     }
 }

@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 
 package org.apache.bifromq.basecluster.memberlist.agent;
@@ -23,10 +23,6 @@ import static org.apache.bifromq.basecrdt.core.api.CRDTURI.toURI;
 import static org.apache.bifromq.basecrdt.core.api.CausalCRDTType.mvreg;
 import static org.apache.bifromq.basecrdt.core.api.CausalCRDTType.ormap;
 
-import org.apache.bifromq.basecluster.agent.proto.AgentMemberAddr;
-import org.apache.bifromq.basecluster.agent.proto.AgentMemberMetadata;
-import org.apache.bifromq.basecrdt.core.api.IMVReg;
-import org.apache.bifromq.basecrdt.core.api.IORMap;
 import com.google.common.collect.Iterators;
 import com.google.common.collect.Lists;
 import com.google.protobuf.InvalidProtocolBufferException;
@@ -41,6 +37,10 @@ import lombok.AccessLevel;
 import lombok.NoArgsConstructor;
 import lombok.SneakyThrows;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.bifromq.basecluster.agent.proto.AgentMemberAddr;
+import org.apache.bifromq.basecluster.agent.proto.AgentMemberMetadata;
+import org.apache.bifromq.basecrdt.core.api.IMVReg;
+import org.apache.bifromq.basecrdt.core.api.IORMap;
 
 @Slf4j
 @NoArgsConstructor(access = AccessLevel.PRIVATE)
@@ -56,7 +56,8 @@ class CRDTUtil {
         Iterator<IORMap.ORMapKey> orMapKeyItr = agentCRDT.keys();
         while (orMapKeyItr.hasNext()) {
             IORMap.ORMapKey orMapKey = orMapKeyItr.next();
-            agentMemberMap.put(parseAgentMemberAddr(orMapKey), parseMetadata(agentCRDT.getMVReg(orMapKey.key())).get());
+            Optional<AgentMemberMetadata> meta = parseMetadata(agentCRDT.getMVReg(orMapKey.key()));
+            meta.ifPresent(m -> agentMemberMap.put(parseAgentMemberAddr(orMapKey), m));
         }
         return agentMemberMap;
     }
@@ -78,11 +79,11 @@ class CRDTUtil {
                     return AgentMemberMetadata.parseFrom(data);
                 } catch (InvalidProtocolBufferException e) {
                     log.error("Unable to parse agent host node", e);
-                    // this exception should not happen
+                    // should not happen, skip the broken value
                     return null;
                 }
             }), Objects::nonNull));
-        metaList.sort(Comparator.comparingLong(AgentMemberMetadata::getHlc));
+        metaList.sort(Comparator.comparingLong(AgentMemberMetadata::getHlc).reversed());
         return Optional.ofNullable(metaList.isEmpty() ? null : metaList.get(0));
     }
 }

@@ -142,11 +142,11 @@ public abstract class RocksDBKVEngineConfigurator<T extends RocksDBKVEngineConfi
             .setCreateMissingColumnFamilies(true)
             .setAvoidUnnecessaryBlockingIO(true)
             .setMaxManifestFileSize(64 * SizeUnit.MB)
-            // log file settings
-            .setRecycleLogFileNum(4)
+            // info log file settings
             .setMaxLogFileSize(128 * SizeUnit.MB)
             .setKeepLogFileNum(4)
             // wal file settings
+            .setRecycleLogFileNum(4)
             .setWalSizeLimitMB(0)
             .setWalTtlSeconds(0)
             .setEnablePipelinedWrite(true)

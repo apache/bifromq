@@ -23,8 +23,12 @@ import lombok.Getter;
 import lombok.experimental.Accessors;
 import lombok.experimental.SuperBuilder;
 import org.apache.bifromq.basekv.localengine.ICPableKVEngineConfigurator;
+import org.rocksdb.ColumnFamilyOptions;
+import org.rocksdb.CompressionType;
 import org.rocksdb.DBOptions;
 import org.rocksdb.DBOptionsInterface;
+import org.rocksdb.MutableColumnFamilyOptionsInterface;
+import org.rocksdb.MutableDBOptionsInterface;
 
 @Accessors(chain = true, fluent = true)
 @Getter
@@ -36,6 +40,20 @@ public final class RocksDBCPableKVEngineConfigurator
     @Override
     protected void configDBOptions(DBOptionsInterface<DBOptions> targetOption) {
         super.configDBOptions(targetOption);
+        // no need rocksdb wal
         targetOption.setRecycleLogFileNum(0);
+        targetOption.setAllowConcurrentMemtableWrite(true);
+    }
+
+    @Override
+    protected void configDBOptions(MutableDBOptionsInterface<DBOptions> targetOption) {
+        super.configDBOptions(targetOption);
+        targetOption.setBytesPerSync(1048576);
+    }
+
+    @Override
+    protected void configCFOptions(String name, MutableColumnFamilyOptionsInterface<ColumnFamilyOptions> targetOption) {
+        super.configCFOptions(name, targetOption);
+        targetOption.setCompressionType(CompressionType.NO_COMPRESSION);
     }
 }

@@ -24,9 +24,6 @@ import lombok.Getter;
 import lombok.experimental.Accessors;
 import lombok.experimental.SuperBuilder;
 import org.apache.bifromq.basekv.localengine.IWALableKVEngineConfigurator;
-import org.rocksdb.ColumnFamilyOptions;
-import org.rocksdb.CompactionPriority;
-import org.rocksdb.CompressionType;
 import org.rocksdb.DBOptions;
 
 @Accessors(chain = true, fluent = true)
@@ -45,16 +42,6 @@ public final class RocksDBWALableKVEngineConfigurator
         options.setManualWalFlush(asyncWALFlush);
         options.setBytesPerSync(1048576);
         options.setAllowConcurrentMemtableWrite(true);
-        return options;
-    }
-
-    @Override
-    public ColumnFamilyOptions cfOptions(String name) {
-        ColumnFamilyOptions options = super.cfOptions(name);
-        options.setCompressionType(CompressionType.NO_COMPRESSION);
-        options.setBottommostCompressionType(CompressionType.ZSTD_COMPRESSION);
-        options.setLevelCompactionDynamicLevelBytes(true);
-        options.setCompactionPriority(CompactionPriority.MinOverlappingRatio);
         return options;
     }
 }

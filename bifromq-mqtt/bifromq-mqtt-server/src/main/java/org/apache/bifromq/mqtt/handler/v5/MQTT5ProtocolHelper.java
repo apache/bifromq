@@ -176,7 +176,7 @@ public class MQTT5ProtocolHelper implements IMQTTProtocolHelper {
     }
 
     @Override
-    public ProtocolResponse onDisconnect() {
+    public ProtocolResponse onServerShuttingDown() {
         return farewellNow(
             MQTT5MessageBuilders.disconnect().reasonCode(MQTT5DisconnectReasonCode.ServerShuttingDown).build(),
             getLocal(ByServer.class).clientInfo(clientInfo));

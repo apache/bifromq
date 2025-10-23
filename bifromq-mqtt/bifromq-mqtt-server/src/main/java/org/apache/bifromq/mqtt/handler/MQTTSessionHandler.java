@@ -241,8 +241,13 @@ public abstract class MQTTSessionHandler extends MQTTMessageHandler implements I
     }
 
     @Override
-    public final CompletableFuture<Void> disconnect() {
-        ctx.executor().execute(() -> handleProtocolResponse(helper().onDisconnect()));
+    public CompletableFuture<Void> onServerShuttingDown() {
+        ctx.executor().execute(() -> {
+            if (settings.noLWTWhenServerShuttingDown) {
+                discardLWT();
+            }
+            handleProtocolResponse(helper().onServerShuttingDown());
+        });
         return bgTasks.whenComplete((v, e) -> log.trace("All bg tasks finished: client={}", clientInfo));
     }
 
@@ -377,13 +382,6 @@ public abstract class MQTTSessionHandler extends MQTTMessageHandler implements I
         }
         scheduleRedirectCheck();
         onInitialized.whenComplete((v, e) -> tenantMeter.recordCount(MqttConnectCount));
-    }
-
-    private int clamp(int val, int min, int max) {
-        if (val < min) {
-            return min;
-        }
-        return Math.min(val, max);
     }
 
     @Override

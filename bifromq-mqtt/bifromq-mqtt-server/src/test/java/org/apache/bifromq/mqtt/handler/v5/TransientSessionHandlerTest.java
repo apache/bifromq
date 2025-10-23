@@ -30,6 +30,7 @@ import static org.apache.bifromq.mqtt.handler.v5.reason.MQTT5UnsubAckReasonCode.
 import static org.apache.bifromq.mqtt.handler.v5.reason.MQTT5UnsubAckReasonCode.NotAuthorized;
 import static org.apache.bifromq.mqtt.handler.v5.reason.MQTT5UnsubAckReasonCode.Success;
 import static org.apache.bifromq.mqtt.handler.v5.reason.MQTT5UnsubAckReasonCode.UnspecifiedError;
+import static org.apache.bifromq.plugin.eventcollector.EventType.BY_SERVER;
 import static org.apache.bifromq.plugin.eventcollector.EventType.EXCEED_PUB_RATE;
 import static org.apache.bifromq.plugin.eventcollector.EventType.EXCEED_RECEIVING_LIMIT;
 import static org.apache.bifromq.plugin.eventcollector.EventType.INVALID_TOPIC;
@@ -126,6 +127,7 @@ import org.apache.bifromq.mqtt.handler.v5.reason.MQTT5DisconnectReasonCode;
 import org.apache.bifromq.mqtt.handler.v5.reason.MQTT5PubAckReasonCode;
 import org.apache.bifromq.mqtt.handler.v5.reason.MQTT5PubRecReasonCode;
 import org.apache.bifromq.mqtt.handler.v5.reason.MQTT5SubAckReasonCode;
+import org.apache.bifromq.mqtt.session.IMQTTSession;
 import org.apache.bifromq.mqtt.session.IMQTTTransientSession;
 import org.apache.bifromq.mqtt.utils.MQTTMessageUtils;
 import org.apache.bifromq.plugin.authprovider.type.CheckResult;
@@ -173,6 +175,21 @@ public class TransientSessionHandlerTest extends BaseSessionHandlerTest {
     }
 
     @Test
+    public void disconnectByServer() {
+        assertTrue(channel.isOpen());
+        IMQTTSession session = (IMQTTSession) channel.pipeline().last();
+        session.onServerShuttingDown().join();
+        channel.runPendingTasks();
+
+        MqttMessage disconnMessage = channel.readOutbound();
+        assertEquals(disconnMessage.fixedHeader().messageType(), DISCONNECT);
+        assertEquals(((MqttReasonCodeAndPropertiesVariableHeader) disconnMessage.variableHeader()).reasonCode(),
+            MQTT5DisconnectReasonCode.ServerShuttingDown.value());
+        assertFalse(channel.isActive());
+        verify(eventCollector).report(argThat(e -> e.type() == BY_SERVER));
+    }
+
+    @Test
     public void dedupQoS1() {
         mockCheckPermission(true);
         mockDistMatch(true);
@@ -182,11 +199,19 @@ public class TransientSessionHandlerTest extends BaseSessionHandlerTest {
         verify(localDistService).match(anyLong(), eq(topicFilter), longCaptor.capture(), any());
 
         long now = HLC.INST.get();
-        TopicMessagePack pack = TopicMessagePack.newBuilder().setTopic(topic).addMessage(
-                TopicMessagePack.PublisherPack.newBuilder().setPublisher(
-                        ClientInfo.newBuilder().putMetadata(MQTTClientInfoConstants.MQTT_CHANNEL_ID_KEY, "channel1").build())
-                    .addMessage(Message.newBuilder().setMessageId(1).setExpiryInterval(Integer.MAX_VALUE)
-                        .setPayload(ByteString.EMPTY).setTimestamp(now).setPubQoS(QoS.AT_LEAST_ONCE).build()))
+        TopicMessagePack pack = TopicMessagePack.newBuilder()
+            .setTopic(topic)
+            .addMessage(TopicMessagePack.PublisherPack.newBuilder()
+                .setPublisher(ClientInfo.newBuilder()
+                    .putMetadata(MQTTClientInfoConstants.MQTT_CHANNEL_ID_KEY, "channel1")
+                    .build())
+                .addMessage(Message.newBuilder()
+                    .setMessageId(1)
+                    .setExpiryInterval(Integer.MAX_VALUE)
+                    .setPayload(ByteString.EMPTY)
+                    .setTimestamp(now)
+                    .setPubQoS(QoS.AT_LEAST_ONCE)
+                    .build()))
             .build();
 
         transientSessionHandler.publish(pack,

@@ -50,7 +50,7 @@ public interface IMQTTProtocolHelper {
 
     Optional<Integer> sessionExpiryIntervalOnDisconnect(MqttMessage disconnectMessage);
 
-    ProtocolResponse onDisconnect();
+    ProtocolResponse onServerShuttingDown();
 
     ProtocolResponse onResourceExhaustedDisconnect(TenantResourceType resourceType);
 

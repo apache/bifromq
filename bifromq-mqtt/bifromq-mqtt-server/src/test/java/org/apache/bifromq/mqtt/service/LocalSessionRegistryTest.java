@@ -24,9 +24,9 @@ import static org.mockito.Mockito.when;
 import static org.testng.Assert.assertEquals;
 import static org.testng.Assert.assertNull;
 
+import java.util.concurrent.CompletableFuture;
 import org.apache.bifromq.mqtt.MockableTest;
 import org.apache.bifromq.mqtt.session.IMQTTSession;
-import java.util.concurrent.CompletableFuture;
 import org.mockito.Mock;
 import org.testng.annotations.Test;
 
@@ -53,15 +53,15 @@ public class LocalSessionRegistryTest extends MockableTest {
 
     @Test
     public void testDisconnectAll() {
-        when(session1.disconnect()).thenReturn(CompletableFuture.completedFuture(null));
-        when(session2.disconnect()).thenReturn(CompletableFuture.completedFuture(null));
+        when(session1.onServerShuttingDown()).thenReturn(CompletableFuture.completedFuture(null));
+        when(session2.onServerShuttingDown()).thenReturn(CompletableFuture.completedFuture(null));
         LocalSessionRegistry localSessionRegistry = new LocalSessionRegistry();
         localSessionRegistry.add("sessionId1", session1);
         localSessionRegistry.add("sessionId2", session2);
         localSessionRegistry.disconnectAll(1);
         assertNull(localSessionRegistry.get("sessionId1"));
         assertNull(localSessionRegistry.get("sessionId2"));
-        verify(session1).disconnect();
-        verify(session2).disconnect();
+        verify(session1).onServerShuttingDown();
+        verify(session2).onServerShuttingDown();
     }
 }

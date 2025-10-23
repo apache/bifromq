@@ -126,6 +126,16 @@ public abstract class MQTTPersistentSessionHandler extends MQTTSessionHandler im
     }
 
     @Override
+    public CompletableFuture<Void> onServerShuttingDown() {
+        ctx.executor().execute(() -> {
+            if (state == State.ATTACHED) {
+                state = State.SERVER_SHUTTING_DOWN;
+            }
+        });
+        return super.onServerShuttingDown();
+    }
+
+    @Override
     public void handlerAdded(ChannelHandlerContext ctx) {
         super.handlerAdded(ctx);
         if (inboxVersion.getMod() == 0) {
@@ -156,8 +166,8 @@ public abstract class MQTTPersistentSessionHandler extends MQTTSessionHandler im
         if (remainInboxSize > 0) {
             memUsage.addAndGet(-remainInboxSize);
         }
-        if (state == State.ATTACHED) {
-            detach(DetachRequest.newBuilder()
+        switch (state) {
+            case ATTACHED -> detach(DetachRequest.newBuilder()
                 .setReqId(System.nanoTime())
                 .setInboxId(userSessionId)
                 .setVersion(inboxVersion)
@@ -166,12 +176,27 @@ public abstract class MQTTPersistentSessionHandler extends MQTTSessionHandler im
                 .setClient(clientInfo)
                 .setNow(HLC.INST.getPhysical())
                 .build());
+            case SERVER_SHUTTING_DOWN -> detach(DetachRequest.newBuilder()
+                .setReqId(System.nanoTime())
+                .setInboxId(userSessionId)
+                .setVersion(inboxVersion)
+                .setExpirySeconds(sessionExpirySeconds)
+                .setDiscardLWT(true)
+                .setClient(clientInfo)
+                .setNow(HLC.INST.getPhysical())
+                .build());
+            default -> {
+                // do not detach on other cases
+            }
         }
         ctx.fireChannelInactive();
     }
 
     @Override
     protected final ProtocolResponse handleDisconnect(MqttMessage message) {
+        if (state == State.SERVER_SHUTTING_DOWN) {
+            return ProtocolResponse.responseNothing();
+        }
         int requestSEI = helper().sessionExpiryIntervalOnDisconnect(message).orElse(sessionExpirySeconds);
         int finalSEI = Integer.compareUnsigned(requestSEI, settings.maxSEI) < 0 ? requestSEI : settings.maxSEI;
         if (helper().isNormalDisconnect(message)) {
@@ -214,7 +239,7 @@ public abstract class MQTTPersistentSessionHandler extends MQTTSessionHandler im
     }
 
     private void detach(DetachRequest request) {
-        if (state == State.DETACH) {
+        if (state != State.ATTACHED && state != State.SERVER_SHUTTING_DOWN) {
             return;
         }
         state = State.DETACH;
@@ -626,6 +651,7 @@ public abstract class MQTTPersistentSessionHandler extends MQTTSessionHandler im
         INIT,
         ATTACHED,
         DETACH,
+        SERVER_SHUTTING_DOWN,
         TERMINATE
     }
 

@@ -14,12 +14,11 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 
 package org.apache.bifromq.mqtt.service;
 
-import org.apache.bifromq.mqtt.session.IMQTTSession;
 import com.google.common.util.concurrent.RateLimiter;
 import io.micrometer.core.instrument.Gauge;
 import io.micrometer.core.instrument.Metrics;
@@ -28,6 +27,7 @@ import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
+import org.apache.bifromq.mqtt.session.IMQTTSession;
 
 public class LocalSessionRegistry implements ILocalSessionRegistry {
     private final ConcurrentMap<String, IMQTTSession> sessionMap = new ConcurrentHashMap<>();
@@ -67,7 +67,7 @@ public class LocalSessionRegistry implements ILocalSessionRegistry {
     private CompletableFuture<Void> disconnect(String sessionId) {
         IMQTTSession session = sessionMap.remove(sessionId);
         if (session != null) {
-            return session.disconnect();
+            return session.onServerShuttingDown();
         }
         return CompletableFuture.completedFuture(null);
     }

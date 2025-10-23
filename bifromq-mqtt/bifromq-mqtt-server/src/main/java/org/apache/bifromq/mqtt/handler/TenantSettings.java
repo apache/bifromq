@@ -40,6 +40,7 @@ import static org.apache.bifromq.plugin.settingprovider.Setting.MinKeepAliveSeco
 import static org.apache.bifromq.plugin.settingprovider.Setting.MinSendPerSec;
 import static org.apache.bifromq.plugin.settingprovider.Setting.MinSessionExpirySeconds;
 import static org.apache.bifromq.plugin.settingprovider.Setting.MsgPubPerSec;
+import static org.apache.bifromq.plugin.settingprovider.Setting.NoLWTWhenServerShuttingDown;
 import static org.apache.bifromq.plugin.settingprovider.Setting.OutBoundBandWidth;
 import static org.apache.bifromq.plugin.settingprovider.Setting.PayloadFormatValidationEnabled;
 import static org.apache.bifromq.plugin.settingprovider.Setting.QoS0DropOldest;
@@ -60,6 +61,7 @@ public class TenantSettings {
     public final boolean mqtt4Enabled;
     public final boolean mqtt5Enabled;
     public final boolean debugMode;
+    public final boolean noLWTWhenServerShuttingDown;
     public final boolean forceTransient;
     public final boolean payloadFormatValidationEnabled;
     public final boolean retainEnabled;
@@ -94,6 +96,7 @@ public class TenantSettings {
         mqtt4Enabled = provider.provide(MQTT4Enabled, tenantId);
         mqtt5Enabled = provider.provide(MQTT5Enabled, tenantId);
         debugMode = provider.provide(DebugModeEnabled, tenantId);
+        noLWTWhenServerShuttingDown = provider.provide(NoLWTWhenServerShuttingDown, tenantId);
         forceTransient = provider.provide(ForceTransient, tenantId);
         payloadFormatValidationEnabled = provider.provide(PayloadFormatValidationEnabled, tenantId);
         retainEnabled = provider.provide(RetainEnabled, tenantId);

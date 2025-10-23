@@ -136,7 +136,7 @@ public class MQTT3ProtocolHelper implements IMQTTProtocolHelper {
     }
 
     @Override
-    public ProtocolResponse onDisconnect() {
+    public ProtocolResponse onServerShuttingDown() {
         return goAwayNow((getLocal(ByServer.class).clientInfo(clientInfo)));
     }
 

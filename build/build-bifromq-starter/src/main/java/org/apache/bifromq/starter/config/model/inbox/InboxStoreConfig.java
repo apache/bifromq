@@ -32,10 +32,12 @@ import org.apache.bifromq.baseenv.EnvProvider;
 import org.apache.bifromq.starter.config.model.BalancerOptions;
 import org.apache.bifromq.starter.config.model.RocksDBEngineConfig;
 import org.apache.bifromq.starter.config.model.StorageEngineConfig;
+import org.apache.bifromq.starter.config.model.StorageEngineConfigUtil;
 
 @Getter
 @Setter
 public class InboxStoreConfig {
+
     private boolean enable = true;
     // 0 means use calling thread
     private int workerThreads = 0;
@@ -46,13 +48,11 @@ public class InboxStoreConfig {
     private int expireRateLimit = 1000;
     private int gcIntervalSeconds = 600;
     @JsonSetter(nulls = Nulls.SKIP)
-    @JsonMerge
     private StorageEngineConfig dataEngineConfig = new RocksDBEngineConfig()
         .setManualCompaction(true)
         .setCompactMinTombstoneKeys(50000)
         .setCompactMinTombstoneRanges(100);
     @JsonSetter(nulls = Nulls.SKIP)
-    @JsonMerge
     private StorageEngineConfig walEngineConfig = new RocksDBEngineConfig()
         .setManualCompaction(true)
         .setCompactMinTombstoneKeys(2500)
@@ -78,5 +78,15 @@ public class InboxStoreConfig {
                 .build());
         balanceConfig.getBalancers().put("org.apache.bifromq.inbox.store.balance.RangeLeaderBalancerFactory",
             Struct.getDefaultInstance());
+    }
+
+    @JsonSetter("dataEngineConfig")
+    public void setDataEngineConfig(Map<String, Object> conf) {
+        dataEngineConfig = StorageEngineConfigUtil.updateOrReplace(dataEngineConfig, conf);
+    }
+
+    @JsonSetter("walEngineConfig")
+    public void setWalEngineConfig(Map<String, Object> conf) {
+        walEngineConfig = StorageEngineConfigUtil.updateOrReplace(walEngineConfig, conf);
     }
 }

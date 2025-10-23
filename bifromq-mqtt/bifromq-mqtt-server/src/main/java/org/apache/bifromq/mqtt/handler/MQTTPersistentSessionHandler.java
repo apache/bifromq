@@ -126,13 +126,10 @@ public abstract class MQTTPersistentSessionHandler extends MQTTSessionHandler im
     }
 
     @Override
-    public CompletableFuture<Void> onServerShuttingDown() {
-        ctx.executor().execute(() -> {
-            if (state == State.ATTACHED) {
-                state = State.SERVER_SHUTTING_DOWN;
-            }
-        });
-        return super.onServerShuttingDown();
+    protected void doOnServerShuttingDown() {
+        if (state == State.ATTACHED) {
+            state = State.SERVER_SHUTTING_DOWN;
+        }
     }
 
     @Override
@@ -153,8 +150,7 @@ public abstract class MQTTPersistentSessionHandler extends MQTTSessionHandler im
     }
 
     @Override
-    public void channelInactive(ChannelHandlerContext ctx) {
-        super.channelInactive(ctx);
+    public void doTearDown(ChannelHandlerContext ctx) {
         if (hintTimeout != null && !hintTimeout.isCancelled()) {
             hintTimeout.cancel(false);
         }
@@ -189,7 +185,6 @@ public abstract class MQTTPersistentSessionHandler extends MQTTSessionHandler im
                 // do not detach on other cases
             }
         }
-        ctx.fireChannelInactive();
     }
 
     @Override
@@ -481,7 +476,7 @@ public abstract class MQTTPersistentSessionHandler extends MQTTSessionHandler im
         }
         inboxConfirming = true;
         long upToSeq = inboxConfirmedUpToSeq;
-        addBgTask(inboxClient.commit(CommitRequest.newBuilder()
+        addFgTask(inboxClient.commit(CommitRequest.newBuilder()
             .setReqId(HLC.INST.get())
             .setTenantId(clientInfo.getTenantId())
             .setInboxId(userSessionId)

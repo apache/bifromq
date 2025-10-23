@@ -69,8 +69,8 @@ public final class MQTT3PersistentSessionHandler extends MQTTPersistentSessionHa
     }
 
     @Override
-    public void channelInactive(ChannelHandlerContext ctx) {
-        super.channelInactive(ctx);
+    public void doTearDown(ChannelHandlerContext ctx) {
+        super.doTearDown(ctx);
         memUsage.addAndGet(-estBaseMemSize());
     }
 

@@ -189,6 +189,7 @@ public abstract class MQTTSessionHandler extends MQTTMessageHandler implements I
     private final IMQTTMessageSizer sizer;
     private final LinkedHashMap<Integer, ConfirmingMessage> unconfirmedPacketIds = new LinkedHashMap<>();
     private final CompletableFuture<Void> onInitialized = new CompletableFuture<>();
+    private final CompletableFuture<Void> tearDownSignal = new CompletableFuture<>();
     private AdaptiveReceiveQuota receiveQuota;
     private LWT noDelayLWT;
     private boolean isGoAway;
@@ -241,14 +242,19 @@ public abstract class MQTTSessionHandler extends MQTTMessageHandler implements I
     }
 
     @Override
-    public CompletableFuture<Void> onServerShuttingDown() {
+    public final CompletableFuture<Void> onServerShuttingDown() {
         ctx.executor().execute(() -> {
+            doOnServerShuttingDown();
             if (settings.noLWTWhenServerShuttingDown) {
                 discardLWT();
             }
             handleProtocolResponse(helper().onServerShuttingDown());
         });
-        return bgTasks.whenComplete((v, e) -> log.trace("All bg tasks finished: client={}", clientInfo));
+        return tearDownSignal;
+    }
+
+    protected void doOnServerShuttingDown() {
+
     }
 
     @Override
@@ -385,7 +391,7 @@ public abstract class MQTTSessionHandler extends MQTTMessageHandler implements I
     }
 
     @Override
-    public void channelInactive(ChannelHandlerContext ctx) {
+    public final void channelInactive(ChannelHandlerContext ctx) {
         if (idleTimeoutTask != null) {
             idleTimeoutTask.cancel(true);
         }
@@ -399,6 +405,7 @@ public abstract class MQTTSessionHandler extends MQTTMessageHandler implements I
             addBgTask(pubWillMessage(noDelayLWT));
         }
         Sets.newHashSet(fgTasks).forEach(t -> t.cancel(true));
+        doTearDown(ctx);
         sessionCtx.localSessionRegistry.remove(channelId(), this);
         sessionRegistration.stop();
         tenantMeter.recordCount(MqttDisconnectCount);
@@ -406,7 +413,14 @@ public abstract class MQTTSessionHandler extends MQTTMessageHandler implements I
             isGoAway = true;
             eventCollector.report(getLocal(ByClient.class).withoutDisconnect(true).clientInfo(clientInfo));
         }
+        bgTasks.whenComplete((v, e) -> {
+            log.trace("All bg tasks finished: client={}", clientInfo);
+            tearDownSignal.complete(null);
+        });
+        ctx.fireChannelInactive();
     }
+
+    protected abstract void doTearDown(ChannelHandlerContext ctx);
 
     @Override
     public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) {
@@ -1578,7 +1592,7 @@ public abstract class MQTTSessionHandler extends MQTTMessageHandler implements I
             .build();
         long reqId = sessionCtx.nanoTime();
         int size = message.getPayload().size() + willMessage.getTopic().length();
-        return doPub(reqId, willMessage.getTopic(), message, true, true)
+        return doPub(reqId, willMessage.getTopic(), message, true)
             .handle((v, e) -> {
                 assert ctx.executor().inEventLoop();
                 if (e != null) {
@@ -1623,7 +1637,7 @@ public abstract class MQTTSessionHandler extends MQTTMessageHandler implements I
                                                Message message,
                                                boolean isDup,
                                                int ingressMsgSize) {
-        return doPub(reqId, topic, message, false, false)
+        return doPub(reqId, topic, message, false)
             .thenApply(v -> {
                 assert ctx.executor().inEventLoop();
                 switch (v) {
@@ -1673,24 +1687,20 @@ public abstract class MQTTSessionHandler extends MQTTMessageHandler implements I
             });
     }
 
-    private CompletableFuture<PubResult> doPub(long reqId,
-                                               String topic,
-                                               Message message,
-                                               boolean isLWT,
-                                               boolean background) {
+    private CompletableFuture<PubResult> doPub(long reqId, String topic, Message message, boolean isLWT) {
         if (log.isTraceEnabled()) {
             log.trace("Disting msg: req={}, topic={}, qos={}, size={}",
                 reqId, topic, message.getPubQoS(), message.getPayload().size());
         }
 
         CompletableFuture<PubResult> distTask =
-            trackTask(sessionCtx.distClient.pub(reqId, topic, message, clientInfo), background);
+            trackTask(sessionCtx.distClient.pub(reqId, topic, message, clientInfo), isLWT);
         if (!message.getIsRetain()) {
             // Ensure continuation runs on the channel event loop
             return distTask.thenApplyAsync(v -> v, ctx.executor());
         } else {
             CompletableFuture<RetainReply.Result> retainTask =
-                trackTask(retainMessage(reqId, topic, message, isLWT), background);
+                trackTask(retainMessage(reqId, topic, message, isLWT), isLWT);
             return allOf(retainTask, distTask).thenApplyAsync(v -> distTask.join(), ctx.executor());
         }
     }

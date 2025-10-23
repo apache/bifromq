@@ -141,9 +141,12 @@ public class PersistentSessionShutdownLWTTest extends BaseSessionHandlerTest {
             .setCode(DetachReply.Code.OK).build()))
             .when(inboxClient).detach(any());
 
-        IMQTTSession session = (IMQTTSession) channel.pipeline().last();
-        session.onServerShuttingDown().join();
+        MQTT5PersistentSessionHandler handler = (MQTT5PersistentSessionHandler) channel.pipeline().last();
+        handler.awaitInitialized().join();
+        CompletableFuture<Void> shutdown = handler.onServerShuttingDown(); // non-blocking
         channel.runPendingTasks();
+        channel.runScheduledPendingTasks();
+        shutdown.join();
 
         MqttMessage disconnMessage = channel.readOutbound();
         assertEquals(disconnMessage.fixedHeader().messageType(), DISCONNECT);
@@ -186,9 +189,12 @@ public class PersistentSessionShutdownLWTTest extends BaseSessionHandlerTest {
 
         try {
             assertTrue(ch.isOpen());
-            IMQTTSession session = (IMQTTSession) ch.pipeline().last();
-            session.onServerShuttingDown().join();
+            MQTT5PersistentSessionHandler handler = (MQTT5PersistentSessionHandler) ch.pipeline().last();
+            handler.awaitInitialized().join();
+            CompletableFuture<Void> shutdown = handler.onServerShuttingDown(); // non-blocking
             ch.runPendingTasks();
+            ch.runScheduledPendingTasks();
+            shutdown.join();
 
             MqttMessage disconnMessage = ch.readOutbound();
             assertEquals(disconnMessage.fixedHeader().messageType(), DISCONNECT);

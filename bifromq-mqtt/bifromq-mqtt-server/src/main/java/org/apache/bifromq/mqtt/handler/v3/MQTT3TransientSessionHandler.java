@@ -57,8 +57,8 @@ public final class MQTT3TransientSessionHandler extends MQTTTransientSessionHand
     }
 
     @Override
-    public void channelInactive(ChannelHandlerContext ctx) {
-        super.channelInactive(ctx);
+    public void doTearDown(ChannelHandlerContext ctx) {
+        super.doTearDown(ctx);
         memUsage.addAndGet(-estBaseMemSize());
     }
 

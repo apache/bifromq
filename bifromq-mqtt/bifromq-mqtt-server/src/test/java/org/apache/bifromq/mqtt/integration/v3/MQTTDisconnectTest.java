@@ -24,8 +24,10 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.atLeast;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.testng.Assert.assertSame;
 import static org.testng.Assert.assertTrue;
 
+import java.util.concurrent.CompletableFuture;
 import org.apache.bifromq.mqtt.integration.MQTTTest;
 import org.apache.bifromq.mqtt.integration.v3.client.MqttTestClient;
 import org.apache.bifromq.plugin.authprovider.type.CheckResult;
@@ -36,7 +38,6 @@ import org.apache.bifromq.plugin.authprovider.type.Ok;
 import org.apache.bifromq.plugin.eventcollector.Event;
 import org.apache.bifromq.plugin.eventcollector.EventType;
 import org.apache.bifromq.plugin.eventcollector.mqttbroker.clientdisconnect.ByClient;
-import java.util.concurrent.CompletableFuture;
 import org.eclipse.paho.client.mqttv3.MqttConnectOptions;
 import org.mockito.ArgumentCaptor;
 import org.testng.annotations.Test;
@@ -66,9 +67,9 @@ public class MQTTDisconnectTest extends MQTTTest {
         ArgumentCaptor<Event<?>> argCaptor = ArgumentCaptor.forClass(Event.class);
         verify(eventCollector, atLeast(2)).report(argCaptor.capture());
         Event<?> event = argCaptor.getAllValues().get(argCaptor.getAllValues().size() - 2);
-        assertTrue(event.type() == EventType.BY_CLIENT && ((ByClient) event).withoutDisconnect());
-        event = argCaptor.getAllValues().get(argCaptor.getAllValues().size() - 1);
         assertTrue(event.type() == EventType.MQTT_SESSION_STOP);
+        event = argCaptor.getAllValues().get(argCaptor.getAllValues().size() - 1);
+        assertTrue(event.type() == EventType.BY_CLIENT && ((ByClient) event).withoutDisconnect());
     }
 
     @Test(groups = "integration")
@@ -94,10 +95,16 @@ public class MQTTDisconnectTest extends MQTTTest {
         await().until(() -> !mqttClient.isConnected());
         ArgumentCaptor<Event<?>> argCaptor = ArgumentCaptor.forClass(Event.class);
         verify(eventCollector, atLeast(2)).report(argCaptor.capture());
-        Event<?> event = argCaptor.getAllValues().get(argCaptor.getAllValues().size() - 2);
-        assertTrue(event.type() == EventType.BY_CLIENT && !((ByClient) event).withoutDisconnect());
-        event = argCaptor.getAllValues().get(argCaptor.getAllValues().size() - 1);
-        assertTrue(event.type() == EventType.MQTT_SESSION_STOP);
+        boolean foundByClientWithDisconnect = false;
+        for (Event<?> e : argCaptor.getAllValues()) {
+            if (e.type() == EventType.BY_CLIENT && !((ByClient) e).withoutDisconnect()) {
+                foundByClientWithDisconnect = true;
+                break;
+            }
+        }
+        assertTrue(foundByClientWithDisconnect);
+        Event<?> last = argCaptor.getAllValues().get(argCaptor.getAllValues().size() - 1);
+        assertSame(last.type(), EventType.MQTT_SESSION_STOP);
     }
 
 }

@@ -127,8 +127,7 @@ public abstract class MQTTTransientSessionHandler extends MQTTSessionHandler imp
     }
 
     @Override
-    public void channelInactive(ChannelHandlerContext ctx) {
-        super.channelInactive(ctx);
+    public void doTearDown(ChannelHandlerContext ctx) {
         if (!topicFilters.isEmpty()) {
             topicFilters.forEach((topicFilter, option) -> addBgTask(unsubTopicFilter(System.nanoTime(), topicFilter)));
         }
@@ -158,7 +157,6 @@ public abstract class MQTTTransientSessionHandler extends MQTTSessionHandler imp
         }
         // Transient session lifetime is bounded by the channel lifetime
         eventCollector.report(getLocal(MQTTSessionStop.class).sessionId(userSessionId).clientInfo(clientInfo));
-        ctx.fireChannelInactive();
     }
 
     @Override

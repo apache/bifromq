@@ -127,7 +127,6 @@ import org.apache.bifromq.mqtt.handler.v5.reason.MQTT5DisconnectReasonCode;
 import org.apache.bifromq.mqtt.handler.v5.reason.MQTT5PubAckReasonCode;
 import org.apache.bifromq.mqtt.handler.v5.reason.MQTT5PubRecReasonCode;
 import org.apache.bifromq.mqtt.handler.v5.reason.MQTT5SubAckReasonCode;
-import org.apache.bifromq.mqtt.session.IMQTTSession;
 import org.apache.bifromq.mqtt.session.IMQTTTransientSession;
 import org.apache.bifromq.mqtt.utils.MQTTMessageUtils;
 import org.apache.bifromq.plugin.authprovider.type.CheckResult;
@@ -177,9 +176,14 @@ public class TransientSessionHandlerTest extends BaseSessionHandlerTest {
     @Test
     public void disconnectByServer() {
         assertTrue(channel.isOpen());
-        IMQTTSession session = (IMQTTSession) channel.pipeline().last();
-        session.onServerShuttingDown().join();
+        MQTT5TransientSessionHandler handler = (MQTT5TransientSessionHandler) channel.pipeline().last();
+        // Ensure handler fully initialized before shutdown
+        handler.awaitInitialized().join();
+        // Drive event loop to trigger close before waiting
+        CompletableFuture<Void> shutdown = handler.onServerShuttingDown(); // non-blocking
         channel.runPendingTasks();
+        channel.runScheduledPendingTasks();
+        shutdown.join();
 
         MqttMessage disconnMessage = channel.readOutbound();
         assertEquals(disconnMessage.fixedHeader().messageType(), DISCONNECT);

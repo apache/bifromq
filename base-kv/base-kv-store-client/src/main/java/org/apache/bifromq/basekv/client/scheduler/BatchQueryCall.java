@@ -52,15 +52,13 @@ public abstract class BatchQueryCall<ReqT, RespT> implements IBatchCall<ReqT, Re
 
     @Override
     public void add(ICallTask<ReqT, RespT, QueryCallBatcherKey> callTask) {
-        BatchQueryCall.BatchCallTask<ReqT, RespT> lastBatchCallTask;
-        QueryCallBatcherKey batcherKey = callTask.batcherKey();
-        if ((lastBatchCallTask = batchCallTasks.peekLast()) != null) {
+        BatchQueryCall.BatchCallTask<ReqT, RespT> lastBatchCallTask = batchCallTasks.peekLast();
+        if (lastBatchCallTask == null) {
+            lastBatchCallTask = new BatchQueryCall.BatchCallTask<>(this.batcherKey.storeId, this.batcherKey.ver);
             lastBatchCallTask.batchedTasks.add(callTask);
             batchCallTasks.add(lastBatchCallTask);
         } else {
-            lastBatchCallTask = new BatchQueryCall.BatchCallTask<>(batcherKey.storeId, batcherKey.ver);
             lastBatchCallTask.batchedTasks.add(callTask);
-            batchCallTasks.add(lastBatchCallTask);
         }
     }
 

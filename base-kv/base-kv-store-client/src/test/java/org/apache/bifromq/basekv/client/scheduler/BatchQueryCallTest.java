@@ -19,150 +19,113 @@
 
 package org.apache.bifromq.basekv.client.scheduler;
 
-import static org.apache.bifromq.basekv.client.scheduler.Fixtures.setting;
-import static org.apache.bifromq.basekv.utils.BoundaryUtil.FULL_BOUNDARY;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.Mockito.when;
 import static org.testng.Assert.assertEquals;
 
-import com.google.protobuf.ByteString;
-import java.time.Duration;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.TreeMap;
+import java.util.Queue;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.CopyOnWriteArrayList;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.ThreadLocalRandom;
-import lombok.SneakyThrows;
-import org.apache.bifromq.basekv.client.IBaseKVStoreClient;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.apache.bifromq.basekv.client.IQueryPipeline;
 import org.apache.bifromq.basekv.proto.KVRangeId;
 import org.apache.bifromq.basekv.store.proto.KVRangeROReply;
-import org.apache.bifromq.basekv.utils.BoundaryUtil;
-import org.apache.bifromq.basekv.utils.KVRangeIdUtil;
-import org.mockito.Mock;
-import org.mockito.MockitoAnnotations;
-import org.testng.annotations.AfterMethod;
-import org.testng.annotations.BeforeMethod;
+import org.apache.bifromq.basekv.store.proto.KVRangeRORequest;
+import org.apache.bifromq.basekv.store.proto.ROCoProcInput;
+import org.apache.bifromq.basekv.store.proto.ROCoProcOutput;
+import org.apache.bifromq.basekv.store.proto.ReplyCode;
+import org.apache.bifromq.basescheduler.ICallTask;
 import org.testng.annotations.Test;
 
 public class BatchQueryCallTest {
-    private KVRangeId id;
-    @Mock
-    private IBaseKVStoreClient storeClient;
-    @Mock
-    private IQueryPipeline queryPipeline1;
-    @Mock
-    private IQueryPipeline queryPipeline2;
-    private AutoCloseable closeable;
-
-    @BeforeMethod
-    public void setup() {
-        closeable = MockitoAnnotations.openMocks(this);
-        id = KVRangeIdUtil.generate();
-    }
-
-    @SneakyThrows
-    @AfterMethod
-    public void teardown() {
-        closeable.close();
-    }
-
     @Test
-    public void addToSameBatch() {
-        ExecutorService executor = Executors.newSingleThreadScheduledExecutor();
+    public void onlyOneQueryPerBatch() {
+        CountingQueryPipeline pipeline = new CountingQueryPipeline();
+        QueryCallBatcherKey key = new QueryCallBatcherKey(KVRangeId.newBuilder().setId(1).build(),
+            "storeA", 0, 1L, false);
+        DummyBatchQueryCall call = new DummyBatchQueryCall(pipeline, key);
 
-        when(storeClient.latestEffectiveRouter()).thenReturn(new TreeMap<>(BoundaryUtil::compare) {{
-            put(FULL_BOUNDARY, setting(id, "V1", 0));
-        }});
-        when(storeClient.createLinearizedQueryPipeline("V1")).thenReturn(queryPipeline1);
-        when(queryPipeline1.query(any()))
-            .thenReturn(CompletableFuture.supplyAsync(() -> KVRangeROReply.newBuilder().build(), executor));
+        // add multiple tasks into the same batch
+        DummyTask t1 = new DummyTask(key);
+        DummyTask t2 = new DummyTask(key);
+        call.add(t1);
+        call.add(t2);
 
-        TestQueryCallScheduler scheduler = new TestQueryCallScheduler(storeClient, Duration.ofMinutes(5), true);
-        List<Integer> reqList = new ArrayList<>();
-        List<Integer> respList = new CopyOnWriteArrayList<>();
-        List<CompletableFuture<Void>> futures = new ArrayList<>();
-        for (int i = 0; i < 1000; i++) {
-            int req = ThreadLocalRandom.current().nextInt();
-            reqList.add(req);
-            futures.add(scheduler.schedule(ByteString.copyFromUtf8(Integer.toString(req)))
-                .thenAccept((v) -> respList.add(Integer.parseInt(v.toStringUtf8()))));
+        // execute and wait
+        call.execute().join();
+
+        // only 1 underlying query should be fired
+        assertEquals(pipeline.count.get(), 1);
+        // ensure tasks completed
+        t1.resultPromise().join();
+        t2.resultPromise().join();
+    }
+
+    private static class CountingQueryPipeline implements IQueryPipeline {
+        final AtomicInteger count = new AtomicInteger();
+
+        @Override
+        public CompletableFuture<KVRangeROReply> query(KVRangeRORequest request) {
+            count.incrementAndGet();
+            return CompletableFuture.completedFuture(KVRangeROReply.newBuilder()
+                .setCode(ReplyCode.Ok)
+                .build());
         }
-        CompletableFuture.allOf(futures.toArray(CompletableFuture[]::new)).join();
-        // the resp order preserved
-        assertEquals(reqList, respList);
-        executor.shutdown();
+
+        @Override
+        public void close() {
+        }
     }
 
-    @Test
-    public void addToDifferentBatch() {
-        when(storeClient.createLinearizedQueryPipeline("V1")).thenReturn(queryPipeline1);
-        when(storeClient.createLinearizedQueryPipeline("V2")).thenReturn(queryPipeline2);
-        ExecutorService executor1 = Executors.newSingleThreadScheduledExecutor();
-        ExecutorService executor2 = Executors.newSingleThreadScheduledExecutor();
-        when(queryPipeline1.query(any()))
-            .thenReturn(CompletableFuture.supplyAsync(() -> KVRangeROReply.newBuilder().build(), executor1));
-        when(queryPipeline2.query(any()))
-            .thenReturn(CompletableFuture.supplyAsync(() -> KVRangeROReply.newBuilder().build(), executor2));
-        TestQueryCallScheduler scheduler = new TestQueryCallScheduler(storeClient, Duration.ofMinutes(5), true);
-        List<Integer> reqList1 = new ArrayList<>();
-        List<Integer> reqList2 = new ArrayList<>();
-        List<Integer> respList1 = new CopyOnWriteArrayList<>();
-        List<Integer> respList2 = new CopyOnWriteArrayList<>();
-        List<CompletableFuture<Void>> futures = new ArrayList<>();
-        for (int i = 0; i < 1000; i++) {
-            int req = ThreadLocalRandom.current().nextInt(1, 1001);
-            if (req < 500) {
-                reqList1.add(req);
-                when(storeClient.latestEffectiveRouter()).thenReturn(new TreeMap<>(BoundaryUtil::compare) {{
-                    put(FULL_BOUNDARY, setting(id, "V1", 0));
-                }});
-                futures.add(scheduler.schedule(ByteString.copyFromUtf8(Integer.toString(req)))
-                    .thenAccept((v) -> respList1.add(Integer.parseInt(v.toStringUtf8()))));
-            } else {
-                reqList2.add(req);
-                when(storeClient.latestEffectiveRouter()).thenReturn(new TreeMap<>(BoundaryUtil::compare) {{
-                    put(FULL_BOUNDARY, setting(id, "V2", 0));
-                }});
-                futures.add(scheduler.schedule(ByteString.copyFromUtf8(Integer.toString(req)))
-                    .thenAccept((v) -> respList2.add(Integer.parseInt(v.toStringUtf8()))));
+    private static class DummyBatchQueryCall extends BatchQueryCall<Integer, Integer> {
+        DummyBatchQueryCall(IQueryPipeline pipeline, QueryCallBatcherKey key) {
+            super(pipeline, key);
+        }
+
+        @Override
+        protected ROCoProcInput makeBatch(java.util.Iterator<Integer> reqIterator) {
+            return ROCoProcInput.getDefaultInstance();
+        }
+
+        @Override
+        protected void handleOutput(Queue<ICallTask<Integer, Integer, QueryCallBatcherKey>> batchedTasks,
+                                    ROCoProcOutput output) {
+            ICallTask<Integer, Integer, QueryCallBatcherKey> task;
+            while ((task = batchedTasks.poll()) != null) {
+                task.resultPromise().complete(1);
             }
         }
-        CompletableFuture.allOf(futures.toArray(CompletableFuture[]::new)).join();
-        // the resp order preserved
-        assertEquals(reqList1, respList1);
-        assertEquals(reqList2, respList2);
-        executor1.shutdown();
-        executor2.shutdown();
+
+        @Override
+        protected void handleException(ICallTask<Integer, Integer, QueryCallBatcherKey> callTask, Throwable e) {
+            callTask.resultPromise().completeExceptionally(e);
+        }
     }
 
-    @Test
-    public void executeManySmallBatchesNoRecursion() {
-        when(storeClient.latestEffectiveRouter()).thenReturn(new TreeMap<>(BoundaryUtil::compare) {{
-            put(FULL_BOUNDARY, setting(id, "V1", 0));
-        }});
-        when(storeClient.createLinearizedQueryPipeline("V1")).thenReturn(queryPipeline1);
+    private static class DummyTask implements ICallTask<Integer, Integer, QueryCallBatcherKey> {
+        private final QueryCallBatcherKey key;
+        private final CompletableFuture<Integer> promise = new CompletableFuture<>();
 
-        when(queryPipeline1.query(any())).thenAnswer(invocation ->
-            CompletableFuture.supplyAsync(KVRangeROReply::newBuilder)
-                .thenApply(KVRangeROReply.Builder::build)
-        );
-
-        TestQueryCallScheduler scheduler = new TestQueryCallScheduler(storeClient, Duration.ofSeconds(1), true);
-        int n = 5000;
-        List<Integer> reqList = new ArrayList<>(n);
-        List<Integer> respList = new CopyOnWriteArrayList<>();
-        List<CompletableFuture<Void>> futures = new ArrayList<>(n);
-        for (int i = 0; i < n; i++) {
-            reqList.add(i);
-            futures.add(scheduler.schedule(ByteString.copyFromUtf8(Integer.toString(i)))
-                .thenAccept(v -> respList.add(Integer.parseInt(v.toStringUtf8()))));
+        DummyTask(QueryCallBatcherKey key) {
+            this.key = key;
         }
-        CompletableFuture.allOf(futures.toArray(CompletableFuture[]::new)).join();
-        assertEquals(respList.size(), n);
-        assertEquals(reqList, respList);
+
+        @Override
+        public Integer call() {
+            return 1;
+        }
+
+        @Override
+        public CompletableFuture<Integer> resultPromise() {
+            return promise;
+        }
+
+        @Override
+        public QueryCallBatcherKey batcherKey() {
+            return key;
+        }
+
+        @Override
+        public long ts() {
+            return System.nanoTime();
+        }
     }
 }
+

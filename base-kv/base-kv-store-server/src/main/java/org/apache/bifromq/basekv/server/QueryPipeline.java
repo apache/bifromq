@@ -74,8 +74,15 @@ class QueryPipeline extends ResponsePipeline<KVRangeRORequest, KVRangeROReply> {
             QueryTask task = requests.poll();
             if (task != null) {
                 KVRangeRORequest request = task.request;
-                if (task.onDone.isCancelled()) {
-                    log.trace("Skip submit ro range request[linearized={}] to store:\n{}", linearized, request);
+                // skip canceled or closed pipeline tasks to avoid unnecessary store calls
+                if (task.onDone.isCancelled() || isClosed()) {
+                    log.trace("Skip ro range request due to canceled or closed pipeline [linearized={}]:\n{}",
+                        linearized, request);
+                    executing.set(false);
+                    if (!requests.isEmpty()) {
+                        submitForExecution();
+                    }
+                    return;
                 }
                 task.queryFn.apply(request)
                     .exceptionally(unwrap(e -> {
@@ -125,7 +132,10 @@ class QueryPipeline extends ResponsePipeline<KVRangeRORequest, KVRangeROReply> {
                             .build();
                     }))
                     .thenAccept(v -> {
-                        task.onDone.complete(v);
+                        // complete only if not canceled concurrently
+                        if (!task.onDone.isDone()) {
+                            task.onDone.complete(v);
+                        }
                         executing.set(false);
                         if (!requests.isEmpty()) {
                             submitForExecution();

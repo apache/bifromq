@@ -14,16 +14,26 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 
 package org.apache.bifromq.basekv.server;
 
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.testng.Assert.assertEquals;
 import static org.testng.Assert.assertFalse;
 import static org.testng.Assert.assertTrue;
 
+import com.google.protobuf.ByteString;
+import io.grpc.stub.ServerCallStreamObserver;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Optional;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ThreadLocalRandom;
+import java.util.concurrent.TimeUnit;
 import org.apache.bifromq.basekv.MockableTest;
 import org.apache.bifromq.basekv.proto.KVRangeId;
 import org.apache.bifromq.basekv.store.IKVRangeStore;
@@ -34,14 +44,6 @@ import org.apache.bifromq.basekv.store.proto.ROCoProcInput;
 import org.apache.bifromq.basekv.store.proto.ROCoProcOutput;
 import org.apache.bifromq.basekv.store.proto.ReplyCode;
 import org.apache.bifromq.basekv.utils.KVRangeIdUtil;
-import com.google.protobuf.ByteString;
-import io.grpc.stub.ServerCallStreamObserver;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Optional;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ThreadLocalRandom;
-import java.util.concurrent.TimeUnit;
 import org.mockito.Mock;
 import org.testng.annotations.Test;
 
@@ -225,5 +227,87 @@ public class QueryPipelineTest extends MockableTest {
             .thenReturn(CompletableFuture.failedFuture(new KVRangeException.InternalException("internal error")));
         getReply = pipeline.handleRequest("_", getRequest).join();
         assertEquals(getReply.getCode(), ReplyCode.InternalError);
+    }
+
+    @Test
+    public void skipCanceledQueuedTask() {
+        boolean linearized = false;
+        QueryPipeline pipeline = new QueryPipeline(rangeStore, linearized, streamObserver);
+        KVRangeId rangeId = KVRangeIdUtil.generate();
+
+        ByteString key1 = ByteString.copyFromUtf8("k1");
+        ByteString key2 = ByteString.copyFromUtf8("k2");
+
+        CompletableFuture<Optional<ByteString>> firstFuture = new CompletableFuture<>();
+
+        when(rangeStore.get(1, rangeId, key1, linearized)).thenReturn(firstFuture);
+        when(rangeStore.get(1, rangeId, key2, linearized))
+            .thenReturn(CompletableFuture.completedFuture(Optional.empty()));
+
+        KVRangeRORequest r1 = KVRangeRORequest.newBuilder()
+            .setReqId(1)
+            .setVer(1)
+            .setKvRangeId(rangeId)
+            .setGetKey(key1)
+            .build();
+        KVRangeRORequest r2 = KVRangeRORequest.newBuilder()
+            .setReqId(2)
+            .setVer(1)
+            .setKvRangeId(rangeId)
+            .setGetKey(key2)
+            .build();
+
+        CompletableFuture<KVRangeROReply> f1 = pipeline.handleRequest("_", r1);
+        CompletableFuture<KVRangeROReply> f2 = pipeline.handleRequest("_", r2);
+
+        f2.cancel(true);
+
+        firstFuture.complete(Optional.empty());
+        f1.join();
+
+        verify(rangeStore, times(1)).get(1, rangeId, key1, linearized);
+        verify(rangeStore, times(0)).get(1, rangeId, key2, linearized);
+        assertTrue(f2.isCancelled());
+    }
+
+    @Test
+    public void skipQueuedTaskAfterPipelineClosed() {
+        boolean linearized = false;
+        QueryPipeline pipeline = new QueryPipeline(rangeStore, linearized, streamObserver);
+        KVRangeId rangeId = KVRangeIdUtil.generate();
+
+        ByteString key1 = ByteString.copyFromUtf8("k1");
+        ByteString key2 = ByteString.copyFromUtf8("k2");
+
+        CompletableFuture<Optional<ByteString>> firstFuture = new CompletableFuture<>();
+
+        when(rangeStore.get(1, rangeId, key1, linearized)).thenReturn(firstFuture);
+        when(rangeStore.get(1, rangeId, key2, linearized))
+            .thenReturn(CompletableFuture.completedFuture(Optional.empty()));
+
+        KVRangeRORequest r1 = KVRangeRORequest.newBuilder()
+            .setReqId(1)
+            .setVer(1)
+            .setKvRangeId(rangeId)
+            .setGetKey(key1)
+            .build();
+        KVRangeRORequest r2 = KVRangeRORequest.newBuilder()
+            .setReqId(2)
+            .setVer(1)
+            .setKvRangeId(rangeId)
+            .setGetKey(key2)
+            .build();
+
+        CompletableFuture<KVRangeROReply> f1 = pipeline.handleRequest("_", r1);
+        CompletableFuture<KVRangeROReply> f2 = pipeline.handleRequest("_", r2);
+
+        pipeline.onCompleted();
+
+        firstFuture.complete(Optional.empty());
+        f1.join();
+
+        verify(rangeStore, times(1)).get(1, rangeId, key1, linearized);
+        verify(rangeStore, times(0)).get(1, rangeId, key2, linearized);
+        assertTrue(pipeline.isClosed());
     }
 }

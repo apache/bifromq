@@ -24,6 +24,7 @@ import static org.apache.bifromq.plugin.subbroker.TypeUtil.toResult;
 
 import java.time.Duration;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
@@ -64,8 +65,8 @@ class InboxWriter implements InboxWriterPipeline.ISendRequestHandler {
 
     @Override
     public CompletableFuture<SendReply> handle(SendRequest request) {
-        Map<TenantInboxInstance, Map<MatchedRoute, MatchInfo>> matchInfosByInbox = new HashMap<>();
-        Map<TenantInboxInstance, List<SubMessagePack>> subMsgPacksByInbox = new HashMap<>();
+        Map<TenantInboxInstance, Map<MatchedRoute, MatchInfo>> matchInfosByInbox = new LinkedHashMap<>();
+        Map<TenantInboxInstance, List<SubMessagePack>> subMsgPacksByInbox = new LinkedHashMap<>();
         // break DeliveryPack into SubMessagePack by each TenantInboxInstance
         for (String tenantId : request.getRequest().getPackageMap().keySet()) {
             for (DeliveryPack pack : request.getRequest().getPackageMap().get(tenantId).getPackList()) {

@@ -21,8 +21,9 @@ package org.apache.bifromq.inbox.server.scheduler;
 
 import static org.apache.bifromq.inbox.store.schema.KVSchemaUtil.inboxInstanceStartKey;
 
+import com.google.common.hash.Hashing;
 import com.google.protobuf.ByteString;
-import java.util.Objects;
+import java.nio.charset.StandardCharsets;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.bifromq.basekv.client.IBaseKVStoreClient;
 import org.apache.bifromq.inbox.storage.proto.Fetched;
@@ -37,11 +38,15 @@ public class InboxFetchScheduler extends InboxReadScheduler<FetchRequest, Fetche
 
     @Override
     protected int selectQueue(FetchRequest request) {
-        int idx = Objects.hash(request.tenantId(), request.inboxId(), request.incarnation()) % queuesPerRange;
-        if (idx < 0) {
-            idx += queuesPerRange;
-        }
-        return idx;
+        // use Murmur3_32 to improve distribution and reduce low-bit modulo bias
+        int hash = Hashing.murmur3_32_fixed()
+            .newHasher()
+            .putString(request.tenantId(), StandardCharsets.UTF_8)
+            .putString(request.inboxId(), StandardCharsets.UTF_8)
+            .putLong(request.incarnation())
+            .hash()
+            .asInt();
+        return Math.floorMod(hash, queuesPerRange);
     }
 
     @Override

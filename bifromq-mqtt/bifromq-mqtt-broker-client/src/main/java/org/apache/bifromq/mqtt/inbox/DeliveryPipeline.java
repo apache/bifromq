@@ -21,8 +21,14 @@ package org.apache.bifromq.mqtt.inbox;
 
 import static org.apache.bifromq.base.util.CompletableFutureUtil.unwrap;
 
+import java.util.HashSet;
+import java.util.Set;
+import java.util.concurrent.CompletableFuture;
+import lombok.extern.slf4j.Slf4j;
 import org.apache.bifromq.baserpc.client.IRPCClient;
 import org.apache.bifromq.baserpc.client.exception.ServerNotFoundException;
+import org.apache.bifromq.mqtt.inbox.rpc.proto.WriteReply;
+import org.apache.bifromq.mqtt.inbox.rpc.proto.WriteRequest;
 import org.apache.bifromq.plugin.subbroker.DeliveryPack;
 import org.apache.bifromq.plugin.subbroker.DeliveryPackage;
 import org.apache.bifromq.plugin.subbroker.DeliveryReply;
@@ -30,12 +36,6 @@ import org.apache.bifromq.plugin.subbroker.DeliveryRequest;
 import org.apache.bifromq.plugin.subbroker.DeliveryResult;
 import org.apache.bifromq.plugin.subbroker.DeliveryResults;
 import org.apache.bifromq.plugin.subbroker.IDeliverer;
-import java.util.HashSet;
-import java.util.Set;
-import java.util.concurrent.CompletableFuture;
-import lombok.extern.slf4j.Slf4j;
-import org.apache.bifromq.mqtt.inbox.rpc.proto.WriteReply;
-import org.apache.bifromq.mqtt.inbox.rpc.proto.WriteRequest;
 import org.apache.bifromq.type.MatchInfo;
 
 @Slf4j
@@ -57,14 +57,15 @@ class DeliveryPipeline implements IDeliverer {
             .exceptionally(unwrap(e -> {
                 if (e instanceof ServerNotFoundException) {
                     DeliveryReply.Builder replyBuilder = DeliveryReply.newBuilder().setCode(DeliveryReply.Code.OK);
-                    Set<MatchInfo> allMatchInfos = new HashSet<>();
                     for (String tenantId : request.getPackageMap().keySet()) {
+                        // collect match infos per tenant to avoid cross-tenant pollution
+                        Set<MatchInfo> tenantMatchInfos = new HashSet<>();
                         DeliveryResults.Builder resultsBuilder = DeliveryResults.newBuilder();
                         DeliveryPackage deliveryPackage = request.getPackageMap().get(tenantId);
                         for (DeliveryPack pack : deliveryPackage.getPackList()) {
-                            allMatchInfos.addAll(pack.getMatchInfoList());
+                            tenantMatchInfos.addAll(pack.getMatchInfoList());
                         }
-                        for (MatchInfo matchInfo : allMatchInfos) {
+                        for (MatchInfo matchInfo : tenantMatchInfos) {
                             resultsBuilder.addResult(DeliveryResult.newBuilder().setMatchInfo(matchInfo)
                                 .setCode(DeliveryResult.Code.NO_RECEIVER).build());
                         }

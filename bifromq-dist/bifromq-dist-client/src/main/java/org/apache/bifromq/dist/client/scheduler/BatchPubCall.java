@@ -30,6 +30,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.apache.bifromq.baserpc.client.IRPCClient;
 import org.apache.bifromq.basescheduler.IBatchCall;
 import org.apache.bifromq.basescheduler.ICallTask;
+import org.apache.bifromq.basescheduler.exception.BackPressureException;
 import org.apache.bifromq.dist.client.PubResult;
 import org.apache.bifromq.dist.rpc.proto.DistReply;
 import org.apache.bifromq.dist.rpc.proto.DistRequest;
@@ -134,6 +135,7 @@ class BatchPubCall implements IBatchCall<PubRequest, PubResult, PubCallBatcherKe
                             while ((task = tasks.poll()) != null) {
                                 task.resultPromise().complete(PubResult.BACK_PRESSURE_REJECTED);
                             }
+                            throw new BackPressureException("Batch pub call back-pressured");
                         }
                         default -> {
                             assert reply.getCode() == DistReply.Code.ERROR;

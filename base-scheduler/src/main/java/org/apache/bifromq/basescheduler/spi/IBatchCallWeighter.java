@@ -20,36 +20,27 @@
 package org.apache.bifromq.basescheduler.spi;
 
 /**
- * SPI interface for estimating downstream capacity.
+ * SPI interface for estimating the weighted size of a BatchCall.
+ *
+ * @param <ReqT> the batched call type
  */
-public interface ICapacityEstimator<BatcherKey> {
+public interface IBatchCallWeighter<ReqT> {
     /**
-     * Record the outcome of a batch call.
+     * Will be invoked by batcher when building batch call.
      *
-     * @param weight the total weight of the batch
-     * @param latencyNs    the execution latency in nanoseconds
+     * @param req the batched call
      */
-    void record(long weight, long latencyNs);
+    void add(ReqT req);
 
     /**
-     * Determine if it's allowed to emit batch call for given batcher.
+     * The accumulated weighted size of the BatchCall.
      *
-     * @param inflightWeight the inflight weight of batch call
-     * @param batcherKey the key of the batcher
-     * @return if it's allowed
+     * @return the weighted size
      */
-    boolean hasCapacity(long inflightWeight, BatcherKey batcherKey);
+    long weight();
 
     /**
-     * Get the current maximum allowed capacity in weighted size for given batcher.
-     *
-     * @param batcherKey the key of the batcher
-     * @return the capacity budget
+     * Reset the weighter for next use.
      */
-    long maxCapacity(BatcherKey batcherKey);
-
-    /**
-     * Notify estimator that downstream backpressure has been observed.
-     */
-    void onBackPressure();
+    void reset();
 }

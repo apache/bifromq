@@ -19,10 +19,6 @@
 
 package org.apache.bifromq.basescheduler;
 
-import org.apache.bifromq.basescheduler.exception.AbortException;
-import org.apache.bifromq.basescheduler.exception.BatcherUnavailableException;
-import org.apache.bifromq.basescheduler.spi.ICallScheduler;
-import org.apache.bifromq.basescheduler.spi.ICapacityEstimator;
 import com.github.benmanes.caffeine.cache.Caffeine;
 import com.github.benmanes.caffeine.cache.LoadingCache;
 import com.github.benmanes.caffeine.cache.RemovalListener;
@@ -31,11 +27,15 @@ import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.Gauge;
 import io.micrometer.core.instrument.Metrics;
 import java.lang.reflect.ParameterizedType;
+import java.lang.reflect.Type;
 import java.time.Duration;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.LongAdder;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.bifromq.basescheduler.exception.AbortException;
+import org.apache.bifromq.basescheduler.exception.BatcherUnavailableException;
+import org.apache.bifromq.basescheduler.spi.ICallScheduler;
 
 /**
  * The abstract class for batch call scheduler.
@@ -49,7 +49,6 @@ public abstract class BatchCallScheduler<CallT, CallResultT, BatcherKeyT>
     implements IBatchCallScheduler<CallT, CallResultT> {
     private static final int BATCHER_EXPIRY_SECONDS = 600;
     private final ICallScheduler<CallT> callScheduler;
-    private final ICapacityEstimator capacityEstimator;
     private final LoadingCache<BatcherKeyT, Batcher<CallT, CallResultT, BatcherKeyT>> batchers;
     private final LongAdder runningCalls = new LongAdder();
     private final Gauge runningCallsGauge;
@@ -61,7 +60,6 @@ public abstract class BatchCallScheduler<CallT, CallResultT, BatcherKeyT>
                                  long maxBurstLatency) {
         String name = getName();
         this.callScheduler = CallSchedulerFactory.INSTANCE.create(name);
-        this.capacityEstimator = CapacityEstimatorFactory.INSTANCE.create(name);
         batchers = Caffeine.newBuilder()
             .scheduler(Scheduler.systemScheduler())
             .expireAfterAccess(Duration.ofSeconds(BATCHER_EXPIRY_SECONDS))
@@ -71,8 +69,11 @@ public abstract class BatchCallScheduler<CallT, CallResultT, BatcherKeyT>
                         value.close();
                     }
                 })
-            .build(k ->
-                new Batcher<>(name, batchCallFactory.newBuilder(name, k), maxBurstLatency, capacityEstimator));
+            .build(k -> new Batcher<>(name, k,
+                batchCallFactory.newBuilder(name, k),
+                maxBurstLatency,
+                CapacityEstimatorFactory.INSTANCE.get(name, k),
+                BatchCallWeighterFactory.INSTANCE.create(name, getReqType())));
         runningCallsGauge = Gauge.builder("batcher.call.running.gauge", runningCalls::sum)
             .tags("name", name)
             .register(Metrics.globalRegistry);
@@ -118,11 +119,17 @@ public abstract class BatchCallScheduler<CallT, CallResultT, BatcherKeyT>
             batchers.asMap().values().stream().map(Batcher::close).toArray(CompletableFuture[]::new)).join();
         batchers.invalidateAll();
         callScheduler.close();
-        capacityEstimator.close();
+        CapacityEstimatorFactory.INSTANCE.close();
         Metrics.globalRegistry.remove(runningCallsGauge);
         Metrics.globalRegistry.remove(batcherNumGauge);
         Metrics.globalRegistry.remove(callSubmitCounter);
         Metrics.globalRegistry.remove(callSchedCounter);
+    }
+
+    @SuppressWarnings("unchecked")
+    private Class<CallT> getReqType() {
+        Type type = ((ParameterizedType) getClass().getGenericSuperclass()).getActualTypeArguments()[0];
+        return (Class<CallT>) type;
     }
 
     private String getName() {

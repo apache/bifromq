@@ -14,16 +14,16 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 
 package org.apache.bifromq.basescheduler;
 
+import java.util.Map;
+import lombok.extern.slf4j.Slf4j;
 import org.apache.bifromq.basehookloader.BaseHookLoader;
 import org.apache.bifromq.basescheduler.spi.ICapacityEstimator;
 import org.apache.bifromq.basescheduler.spi.ICapacityEstimatorFactory;
-import java.util.Map;
-import lombok.extern.slf4j.Slf4j;
 
 @Slf4j
 class CapacityEstimatorFactory implements ICapacityEstimatorFactory {
@@ -37,38 +37,49 @@ class CapacityEstimatorFactory implements ICapacityEstimatorFactory {
             delegate = FallbackFactory.INSTANCE;
         } else {
             delegate = factoryMap.values().iterator().next();
+            if (factoryMap.size() > 1) {
+                log.warn("Multiple CapacityEstimatorFactory implementations found, the first loaded will be used:{}",
+                    delegate.getClass().getName());
+            }
         }
     }
 
     @Override
-    public ICapacityEstimator create(String name) {
+    public <BatcherKey> ICapacityEstimator<BatcherKey> get(String name, BatcherKey batcherKey) {
         try {
-            ICapacityEstimator estimator = delegate.create(name);
+            ICapacityEstimator<BatcherKey> estimator = delegate.get(name, batcherKey);
             if (estimator == null) {
-                return FallbackFactory.INSTANCE.create(name);
+                return FallbackFactory.INSTANCE.get(name, batcherKey);
             }
             return estimator;
         } catch (Throwable e) {
-            log.error("Failed to create pipelineDepthEstimator: scheduler={}", name, e);
-            return FallbackFactory.INSTANCE.create(name);
+            log.error("Failed to create CapacityEstimator: scheduler={}", name, e);
+            return FallbackFactory.INSTANCE.get(name, batcherKey);
         }
     }
 
-    private static class FallbackCapacityEstimator implements ICapacityEstimator {
-        private static final ICapacityEstimator INSTANCE = new FallbackCapacityEstimator();
+    @Override
+    public void close() {
+        delegate.close();
+    }
+
+    private static class FallbackCapacityEstimator<BatcherKey> implements ICapacityEstimator<BatcherKey> {
 
         @Override
-        public void record(int batchSize, long latencyNs) {
+        public void record(long weightedSize, long latencyNs) {
+        }
+
+        public boolean hasCapacity(long inflight, BatcherKey key) {
+            return inflight <= 0;
         }
 
         @Override
-        public int maxPipelineDepth() {
-            return 1;
+        public long maxCapacity(BatcherKey key) {
+            return Long.MAX_VALUE;
         }
 
         @Override
-        public int maxBatchSize() {
-            return Integer.MAX_VALUE;
+        public void onBackPressure() {
         }
     }
 
@@ -76,8 +87,8 @@ class CapacityEstimatorFactory implements ICapacityEstimatorFactory {
         private static final ICapacityEstimatorFactory INSTANCE = new FallbackFactory();
 
         @Override
-        public ICapacityEstimator create(String name) {
-            return FallbackCapacityEstimator.INSTANCE;
+        public <BatcherKey> ICapacityEstimator<BatcherKey> get(String name, BatcherKey batcherKey) {
+            return new FallbackCapacityEstimator<>();
         }
     }
 }

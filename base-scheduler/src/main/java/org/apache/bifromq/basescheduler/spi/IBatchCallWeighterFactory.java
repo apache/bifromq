@@ -20,22 +20,15 @@
 package org.apache.bifromq.basescheduler.spi;
 
 /**
- * SPI factory for creating {@link ICapacityEstimator} instances.
+ * SPI factory for creating {@link IBatchCallWeighter} instances.
  */
-public interface ICapacityEstimatorFactory {
+public interface IBatchCallWeighterFactory {
     /**
-     * The factory method to create an instance of {@link ICapacityEstimator}.
+     * The factory method to create an instance of {@link IBatchCallWeighter}.
      *
      * @param name the name of scheduler
-     * @param batcherKey the key of the batcher
-     * @return an instance of {@link ICapacityEstimator}
+     * @param reqType the class of batched call
+     * @return an instance of {@link IBatchCallWeighter}
      */
-    <BatcherKey> ICapacityEstimator<BatcherKey> get(String name, BatcherKey batcherKey);
-
-    /**
-     * Close the factory.
-     */
-    default void close() {
-
-    }
+    <ReqT> IBatchCallWeighter<ReqT> create(String name, Class<ReqT> reqType);
 }

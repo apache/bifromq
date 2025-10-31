@@ -39,6 +39,7 @@ import java.util.concurrent.CompletableFuture;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.bifromq.basescheduler.IBatchCall;
 import org.apache.bifromq.basescheduler.ICallTask;
+import org.apache.bifromq.basescheduler.exception.BackPressureException;
 import org.apache.bifromq.dist.client.IDistClient;
 import org.apache.bifromq.plugin.subbroker.DeliveryPack;
 import org.apache.bifromq.plugin.subbroker.DeliveryPackage;
@@ -157,6 +158,7 @@ class BatchDeliveryCall implements IBatchCall<DeliveryCall, DeliveryCallResult, 
                         while ((task = tasks.poll()) != null) {
                             task.resultPromise().complete(BACK_PRESSURE_REJECTED);
                         }
+                        throw new BackPressureException("Batch delivery call back-pressured");
                     }
                     default -> {
                         assert reply.getCode() == DeliveryReply.Code.ERROR;

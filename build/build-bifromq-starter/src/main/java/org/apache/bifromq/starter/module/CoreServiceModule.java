@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 
 package org.apache.bifromq.starter.module;
@@ -45,7 +45,7 @@ import org.apache.bifromq.retain.store.IRetainStore;
 import org.apache.bifromq.sessiondict.client.ISessionDictClient;
 import org.apache.bifromq.starter.config.StandaloneConfig;
 import org.apache.bifromq.starter.config.model.dist.DistWorkerClientConfig;
-import org.apache.bifromq.starter.config.model.inbox.InboxStoreConfig;
+import org.apache.bifromq.starter.config.model.inbox.InboxStoreClientConfig;
 import org.apache.bifromq.starter.config.model.retain.RetainStoreClientConfig;
 
 public class CoreServiceModule extends AbstractModule {
@@ -277,15 +277,15 @@ public class CoreServiceModule extends AbstractModule {
 
         @Override
         public IBaseKVStoreClient share() {
-            InboxStoreConfig storeConfig = config.getInboxServiceConfig().getStore();
+            InboxStoreClientConfig storeClientConfig = config.getInboxServiceConfig().getStoreClient();
             return IBaseKVStoreClient.newBuilder()
                 .clusterId(IInboxStore.CLUSTER_NAME)
                 .trafficService(trafficService)
                 .metaService(metaService)
-                .workerThreads(storeConfig.getWorkerThreads())
+                .workerThreads(storeClientConfig.getWorkerThreads())
                 .eventLoopGroup(eventLoopGroup)
                 .sslContext(rpcClientSSLContext)
-                .queryPipelinesPerStore(storeConfig.getQueryPipelinePerStore())
+                .queryPipelinesPerStore(storeClientConfig.getQueryPipelinePerStore())
                 .build();
         }
     }

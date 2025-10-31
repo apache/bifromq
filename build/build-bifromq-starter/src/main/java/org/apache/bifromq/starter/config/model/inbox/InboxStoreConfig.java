@@ -42,7 +42,6 @@ public class InboxStoreConfig {
     // 0 means use calling thread
     private int workerThreads = 0;
     private int tickerThreads = Math.max(1, Runtime.getRuntime().availableProcessors() / 20);
-    private int queryPipelinePerStore = 100;
     private int maxWALFetchSize = -1; // no limit
     private int compactWALThreshold = 256 * 1024 * 1024; // size threshold in bytes
     private int expireRateLimit = 1000;

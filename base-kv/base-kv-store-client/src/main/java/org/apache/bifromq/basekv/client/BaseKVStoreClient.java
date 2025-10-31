@@ -287,12 +287,12 @@ final class BaseKVStoreClient implements IBaseKVStoreClient {
                     .setCode(ReplyCode.InternalError)
                     .build();
             })
-            .thenApplyAsync(v -> {
+            .thenApply(v -> {
                 if (v.hasLatest()) {
                     patchRouter(storeId, v.getLatest());
                 }
                 return v;
-            }, CLIENT_EXECUTOR);
+            });
     }
 
     @Override
@@ -416,7 +416,7 @@ final class BaseKVStoreClient implements IBaseKVStoreClient {
                     };
                 }
                 return rpcClient.createRequestPipeline("", serverIdOpt.get(), null, emptyMap(), executeMethod);
-            }), latest -> patchRouter(storeId, latest), CLIENT_EXECUTOR, log);
+            }), latest -> patchRouter(storeId, latest), log);
     }
 
     @Override
@@ -460,7 +460,7 @@ final class BaseKVStoreClient implements IBaseKVStoreClient {
                 } else {
                     return rpcClient.createRequestPipeline("", serverIdOpt.get(), null, emptyMap(), queryMethod);
                 }
-            }), latest -> patchRouter(storeId, latest), CLIENT_EXECUTOR, log);
+            }), latest -> patchRouter(storeId, latest), log);
     }
 
     @Override
@@ -529,13 +529,16 @@ final class BaseKVStoreClient implements IBaseKVStoreClient {
     }
 
     private void patchRouter(String storeId, KVRangeDescriptor latest) {
-        latestRouteMap.set(patchRouteMap(storeId, latest, new HashMap<>(latestRouteMap.get())));
-        NavigableMap<Boundary, RangeLeader> rangeLeaders = getRangeLeaders(latestRouteMap.get());
-        NavigableMap<Boundary, KVRangeSetting> router = buildClientRoute(clusterId, rangeLeaders, latestRouteMap.get());
-        NavigableMap<Boundary, KVRangeSetting> last = effectiveRouter.get();
-        if (!router.equals(last)) {
-            effectiveRouter.set(Collections.unmodifiableNavigableMap(router));
-        }
+        CLIENT_EXECUTOR.execute(() -> {
+            latestRouteMap.set(patchRouteMap(storeId, latest, new HashMap<>(latestRouteMap.get())));
+            NavigableMap<Boundary, RangeLeader> rangeLeaders = getRangeLeaders(latestRouteMap.get());
+            NavigableMap<Boundary, KVRangeSetting> router = buildClientRoute(clusterId, rangeLeaders,
+                latestRouteMap.get());
+            NavigableMap<Boundary, KVRangeSetting> last = effectiveRouter.get();
+            if (!router.equals(last)) {
+                effectiveRouter.set(Collections.unmodifiableNavigableMap(router));
+            }
+        });
     }
 
     private void refreshMutPipelines(Map<String, KVRangeStoreDescriptor> storeDescriptors) {

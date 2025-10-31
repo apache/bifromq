@@ -20,6 +20,7 @@
 package org.apache.bifromq.basekv.localengine.memory;
 
 import com.google.protobuf.ByteString;
+import java.util.Map;
 import java.util.NavigableMap;
 import java.util.SortedMap;
 import org.apache.bifromq.basekv.proto.Boundary;
@@ -36,11 +37,10 @@ public class InMemKVHelper {
         } else {
             sizedData = rangeData.subMap(boundary.getStartKey(), boundary.getEndKey());
         }
-        // this may take a long time
-        return sizedData.entrySet()
-            .stream()
-            .map(entry -> entry.getKey().size() + entry.getValue().size())
-            .mapToLong(Integer::longValue)
-            .sum();
+        long sum = 0L;
+        for (Map.Entry<ByteString, ByteString> e : sizedData.entrySet()) {
+            sum += e.getKey().size() + e.getValue().size();
+        }
+        return sum;
     }
 }

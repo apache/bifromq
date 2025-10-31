@@ -21,9 +21,8 @@ package org.apache.bifromq.basekv.localengine.memory;
 
 import com.google.protobuf.ByteString;
 import java.util.Collections;
-import java.util.HashSet;
+import java.util.Map;
 import java.util.NavigableMap;
-import java.util.Set;
 import java.util.concurrent.ConcurrentSkipListMap;
 import org.apache.bifromq.basekv.localengine.AbstractKVSpace;
 import org.apache.bifromq.basekv.localengine.IKVSpaceRefreshableReader;
@@ -103,36 +102,25 @@ abstract class InMemKVSpace<
             if (impact == null || buckets.isEmpty()) {
                 return;
             }
-            Set<Boundary> toRecalc = new HashSet<>();
-            for (Boundary tracked : buckets.keySet()) {
-                boolean hit = false;
-                for (ByteString key : impact.pointKeys()) {
-                    if (BoundaryUtil.inRange(key, tracked)) {
-                        hit = true;
-                        break;
-                    }
-                }
-                if (!hit) {
-                    for (Boundary r : impact.deleteRanges()) {
-                        if (BoundaryUtil.isOverlap(tracked, r)) {
-                            hit = true;
-                            break;
-                        }
-                    }
-                }
-                if (hit) {
-                    toRecalc.add(tracked);
-                }
-            }
-            if (toRecalc.isEmpty()) {
+            Map<ByteString, Integer> delta = impact.pointDeltaBytes();
+            if (delta == null || delta.isEmpty()) {
                 return;
             }
-            for (Boundary tracked : toRecalc) {
-                long sized = InMemKVHelper.sizeOfRange(data, tracked);
-                TrackedBucket b = buckets.get(tracked);
-                if (b != null) {
-                    b.bytes = sized;
-                    b.touch();
+            final long now = System.nanoTime();
+            for (Map.Entry<Boundary, TrackedBucket> e : buckets.entrySet()) {
+                final Boundary tracked = e.getKey();
+                final TrackedBucket bucket = e.getValue();
+                long deltaSum = 0L;
+                // accumulate per-key delta inside the boundary
+                for (Map.Entry<ByteString, Integer> de : delta.entrySet()) {
+                    if (BoundaryUtil.inRange(de.getKey(), tracked)) {
+                        deltaSum += de.getValue();
+                    }
+                }
+                if (deltaSum != 0L) {
+                    long newBytes = bucket.bytes + deltaSum;
+                    bucket.bytes = Math.max(newBytes, 0L);
+                    bucket.lastAccessNanos = now;
                 }
             }
         }

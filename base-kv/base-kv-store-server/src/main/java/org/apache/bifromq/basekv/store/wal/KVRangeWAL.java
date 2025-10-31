@@ -32,7 +32,6 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
-import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Predicate;
 import lombok.SneakyThrows;
 import org.apache.bifromq.baseenv.EnvProvider;
@@ -75,7 +74,6 @@ public class KVRangeWAL implements IKVRangeWAL, IRaftNode.ISnapshotInstaller {
     private final String localId;
     private final IKVRangeWALStore walStore;
     private final IRaftNode raftNode;
-    private final AtomicLong ticks = new AtomicLong(0);
     private final String[] tags;
 
     public KVRangeWAL(String clusterId,
@@ -253,7 +251,6 @@ public class KVRangeWAL implements IKVRangeWAL, IRaftNode.ISnapshotInstaller {
 
     @Override
     public void tick() {
-        ticks.incrementAndGet();
         raftNode.tick();
     }
 

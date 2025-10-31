@@ -61,7 +61,6 @@ class InMemKVSpaceWriterHelper {
         afterImpactCallbacks.put(rangeId, afterImpact);
     }
 
-
     void metadata(String rangeId, ByteString metaKey, ByteString metaValue) {
         batchMap.computeIfAbsent(rangeId, k -> new WriteBatch(rangeId)).metadata(metaKey, metaValue);
         metadataChanges.computeIfPresent(rangeId, (k, v) -> true);
@@ -129,7 +128,9 @@ class InMemKVSpaceWriterHelper {
         enum Type { Put, Delete, DeleteRange }
     }
 
-    public record WriteImpact(List<ByteString> pointKeys, List<Boundary> deleteRanges) {
+    public record WriteImpact(List<ByteString> pointKeys,
+                              List<Boundary> deleteRanges,
+                              Map<ByteString, Integer> pointDeltaBytes) {
     }
 
     protected class WriteBatch {
@@ -168,17 +169,35 @@ class InMemKVSpaceWriterHelper {
         public WriteImpact endAndCollectImpact() {
             List<ByteString> putOrDeleteKeys = new ArrayList<>();
             List<Boundary> deleteRanges = new ArrayList<>();
-            metadata.forEach((k, v) -> kvSpaceEpochMap.get(rangeId).setMetadata(k, v));
+            Map<ByteString, Integer> pointDeltaBytes = new HashMap<>();
+            InMemKVSpaceEpoch epoch = kvSpaceEpochMap.get(rangeId);
+
+            metadata.forEach(epoch::setMetadata);
+
             for (KVAction action : actions) {
                 switch (action.type()) {
                     case Put -> {
                         WriteBatch.Put put = (WriteBatch.Put) action;
-                        kvSpaceEpochMap.get(rangeId).putData(put.key, put.value);
+                        // compute delta before mutation
+                        ByteString old = epoch.dataMap().get(put.key);
+                        int oldBytes = old == null ? 0 : (put.key.size() + old.size());
+                        int newBytes = put.key.size() + put.value.size();
+                        int delta = newBytes - oldBytes;
+                        if (delta != 0) {
+                            pointDeltaBytes.merge(put.key, delta, Integer::sum);
+                        }
+                        epoch.putData(put.key, put.value);
                         putOrDeleteKeys.add(put.key);
                     }
                     case Delete -> {
                         WriteBatch.Delete delete = (WriteBatch.Delete) action;
-                        kvSpaceEpochMap.get(rangeId).removeData(delete.key);
+                        // compute delta before mutation
+                        ByteString old = epoch.dataMap().get(delete.key);
+                        if (old != null) {
+                            int delta = -(delete.key.size() + old.size());
+                            pointDeltaBytes.merge(delete.key, delta, Integer::sum);
+                            epoch.removeData(delete.key);
+                        }
                         putOrDeleteKeys.add(delete.key);
                     }
                     case DeleteRange -> {
@@ -186,28 +205,33 @@ class InMemKVSpaceWriterHelper {
                         Boundary boundary = deleteRange.boundary;
                         NavigableSet<ByteString> inRangeKeys;
                         if (!boundary.hasStartKey() && !boundary.hasEndKey()) {
-                            inRangeKeys = kvSpaceEpochMap.get(rangeId).dataMap().navigableKeySet();
+                            inRangeKeys = epoch.dataMap().navigableKeySet();
                         } else if (!boundary.hasStartKey()) {
-                            inRangeKeys = kvSpaceEpochMap.get(rangeId).dataMap().headMap(boundary.getEndKey(), false)
-                                .navigableKeySet();
+                            inRangeKeys = epoch.dataMap().headMap(boundary.getEndKey(), false).navigableKeySet();
                         } else if (!boundary.hasEndKey()) {
-                            inRangeKeys = kvSpaceEpochMap.get(rangeId).dataMap().tailMap(boundary.getStartKey(), true)
-                                .navigableKeySet();
+                            inRangeKeys = epoch.dataMap().tailMap(boundary.getStartKey(), true).navigableKeySet();
                         } else {
-                            inRangeKeys =
-                                kvSpaceEpochMap.get(rangeId).dataMap()
-                                    .subMap(boundary.getStartKey(), true, boundary.getEndKey(), false)
-                                    .navigableKeySet();
+                            inRangeKeys = epoch.dataMap()
+                                .subMap(boundary.getStartKey(), true, boundary.getEndKey(), false)
+                                .navigableKeySet();
                         }
-                        inRangeKeys.forEach(k -> kvSpaceEpochMap.get(rangeId).removeData(k));
+                        // accumulate negative delta per key before removal
+                        for (ByteString k : inRangeKeys) {
+                            ByteString v = epoch.dataMap().get(k);
+                            if (v != null) {
+                                int delta = -(k.size() + v.size());
+                                pointDeltaBytes.merge(k, delta, Integer::sum);
+                            }
+                        }
+                        inRangeKeys.forEach(epoch::removeData);
                         deleteRanges.add(boundary);
                     }
                     default -> {
-
+                        // no-op
                     }
                 }
             }
-            return new WriteImpact(putOrDeleteKeys, deleteRanges);
+            return new WriteImpact(putOrDeleteKeys, deleteRanges, pointDeltaBytes);
         }
 
         public void abort() {

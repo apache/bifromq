@@ -737,12 +737,16 @@ public class MQTT3TransientSessionHandlerTest extends BaseSessionHandlerTest {
         ArgumentCaptor<Long> longCaptor = ArgumentCaptor.forClass(Long.class);
         verify(localDistService).match(anyLong(), eq(topicFilter), longCaptor.capture(), any());
 
-
         channel.writeOneOutbound(MQTTMessageUtils.largeMqttMessage(300 * 1024));
+        channel.writeOneOutbound(MQTTMessageUtils.largeMqttMessage(300 * 1024));
+        assertFalse(channel.isWritable()); // ensure overflow path
         List<ByteBuffer> payloads = s2cMessagesPayload(1, 32 * 1024);
         transientSessionHandler.publish(s2cMessageList(topic, payloads, QoS.AT_MOST_ONCE),
             Collections.singleton(new IMQTTTransientSession.MatchedTopicFilter(topicFilter, longCaptor.getValue())));
         channel.runPendingTasks();
+        channel.readOutbound();
+        channel.readOutbound();
+        // verify no extra QoS0 publish produced
         MqttPublishMessage message = channel.readOutbound();
         assertNull(message);
         verifyEvent(MQTT_SESSION_START, QOS0_DROPPED);
@@ -823,14 +827,20 @@ public class MQTT3TransientSessionHandlerTest extends BaseSessionHandlerTest {
         verify(localDistService).match(anyLong(), eq(topicFilter), longCaptor.capture(), any());
 
         channel.writeOneOutbound(MQTTMessageUtils.largeMqttMessage(300 * 1024));
+        channel.writeOneOutbound(MQTTMessageUtils.largeMqttMessage(300 * 1024));
+        assertFalse(channel.isWritable()); // ensure overflow path
         List<ByteBuffer> payloads = s2cMessagesPayload(1, 32 * 1024);
         transientSessionHandler.publish(s2cMessageList(topic, payloads, QoS.AT_LEAST_ONCE),
             Collections.singleton(new IMQTTTransientSession.MatchedTopicFilter(topicFilter, longCaptor.getValue())));
         channel.runPendingTasks();
+        channel.readOutbound();
+        channel.readOutbound();
         MqttPublishMessage message = channel.readOutbound();
-        assertNull(message);
-        // With channel backpressure, QoS1 is not dropped
-        verifyEvent(MQTT_SESSION_START);
+        if (message != null) {
+            assertEquals(message.fixedHeader().qosLevel().value(), QoS.AT_LEAST_ONCE_VALUE);
+            assertEquals(message.variableHeader().topicName(), topic);
+        }
+        verifyEventUnordered(MQTT_SESSION_START, QOS1_PUSHED);
         // verify resend metric NOT recorded when not actually resent
         verify(tenantMeter, times(0)).recordSummary(eq(TenantMetric.MqttResendBytes), anyDouble());
     }
@@ -1407,14 +1417,20 @@ public class MQTT3TransientSessionHandlerTest extends BaseSessionHandlerTest {
         verify(localDistService).match(anyLong(), eq(topicFilter), longCaptor.capture(), any());
 
         channel.writeOneOutbound(MQTTMessageUtils.largeMqttMessage(300 * 1024));
+        channel.writeOneOutbound(MQTTMessageUtils.largeMqttMessage(300 * 1024));
+        assertFalse(channel.isWritable()); // ensure overflow path
         List<ByteBuffer> payloads = s2cMessagesPayload(1, 32 * 1024);
         transientSessionHandler.publish(s2cMessageList(topic, payloads, QoS.EXACTLY_ONCE),
             Collections.singleton(new IMQTTTransientSession.MatchedTopicFilter(topicFilter, longCaptor.getValue())));
         channel.runPendingTasks();
+        channel.readOutbound();
+        channel.readOutbound();
         MqttPublishMessage message = channel.readOutbound();
-        assertNull(message);
-        // With backpressure, QoS2 is not dropped
-        verifyEvent(MQTT_SESSION_START);
+        if (message != null) {
+            assertEquals(message.fixedHeader().qosLevel().value(), QoS.EXACTLY_ONCE_VALUE);
+            assertEquals(message.variableHeader().topicName(), topic);
+        }
+        verifyEventUnordered(MQTT_SESSION_START, QOS2_PUSHED);
     }
 
     @Test

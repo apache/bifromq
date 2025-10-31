@@ -178,7 +178,7 @@ public abstract class MQTTTransientSessionHandler extends MQTTSessionHandler imp
             memUsage.addAndGet(-msg.estBytes());
         }
         confirmed.clear();
-        send();
+        send(false);
     }
 
     @Override
@@ -375,6 +375,7 @@ public abstract class MQTTTransientSessionHandler extends MQTTSessionHandler imp
                          List<TopicFilterAndPermission> topicFilterAndPermissions) {
         AtomicInteger totalMsgBytesSize = new AtomicInteger();
         long now = HLC.INST.get();
+        boolean flush = false;
         for (Message message : messages) {
             // deduplicate messages based on topic and publisher
             for (TopicFilterAndPermission tfp : topicFilterAndPermissions) {
@@ -384,6 +385,7 @@ public abstract class MQTTTransientSessionHandler extends MQTTSessionHandler imp
                 logInternalLatency(subMsg);
                 if (subMsg.qos() == QoS.AT_MOST_ONCE) {
                     sendQoS0SubMessage(subMsg);
+                    flush = true;
                 } else {
                     if (inbox.size() < settings.inboxQueueLength) {
                         inbox.put(msgSeqNo++, subMsg);
@@ -417,12 +419,15 @@ public abstract class MQTTTransientSessionHandler extends MQTTSessionHandler imp
             }
         }
         memUsage.addAndGet(totalMsgBytesSize.get());
-        send();
+        send(flush);
     }
 
-    private void send() {
+    private void send(boolean flushNeeded) {
         SortedMap<Long, RoutedMessage> toBeSent = inbox.tailMap(nextSendSeq);
         if (toBeSent.isEmpty()) {
+            if (flushNeeded) {
+                flush(true);
+            }
             return;
         }
         Iterator<Map.Entry<Long, RoutedMessage>> itr = toBeSent.entrySet().iterator();
@@ -433,6 +438,7 @@ public abstract class MQTTTransientSessionHandler extends MQTTSessionHandler imp
             sendConfirmableSubMessage(seq, msg);
             nextSendSeq = seq + 1;
         }
+        flush(true);
     }
 
     private void logInternalLatency(RoutedMessage message) {

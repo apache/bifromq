@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 
 package org.apache.bifromq.inbox.server;
@@ -29,10 +29,10 @@ public class FetcherSignaler implements InboxWriterPipeline.IWriteCallback {
     }
 
     @Override
-    public void afterWrite(TenantInboxInstance tenantInboxInstance, String delivererKey) {
+    public void afterWrite(TenantInboxInstance tenantInboxInstance, String delivererKey, long now) {
         for (IInboxFetcher fetcher : registry.get(tenantInboxInstance.tenantId(), delivererKey)) {
             if (fetcher.signalFetch(tenantInboxInstance.instance().inboxId(),
-                tenantInboxInstance.instance().incarnation())) {
+                tenantInboxInstance.instance().incarnation(), now)) {
                 break;
             }
         }

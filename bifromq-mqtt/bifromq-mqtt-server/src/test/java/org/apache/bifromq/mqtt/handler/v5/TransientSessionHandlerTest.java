@@ -1037,10 +1037,14 @@ public class TransientSessionHandlerTest extends BaseSessionHandlerTest {
         verify(localDistService).match(anyLong(), eq(topicFilter), longCaptor.capture(), any());
 
         channel.writeOneOutbound(MQTTMessageUtils.largeMqttMessage(300 * 1024));
+        channel.writeOneOutbound(MQTTMessageUtils.largeMqttMessage(300 * 1024));
+        assertFalse(channel.isWritable()); // ensure overflow path
         List<ByteBuffer> payloads = s2cMessagesPayload(1, 32 * 1024);
         transientSessionHandler.publish(s2cMQTT5MessageList(topic, payloads, QoS.AT_MOST_ONCE),
             Collections.singleton(new IMQTTTransientSession.MatchedTopicFilter(topicFilter, longCaptor.getValue())));
         channel.runPendingTasks();
+        channel.readOutbound();
+        channel.readOutbound();
         MqttPublishMessage message = channel.readOutbound();
         assertNull(message);
         verifyEvent(MQTT_SESSION_START, QOS0_DROPPED);

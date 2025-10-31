@@ -123,15 +123,15 @@ final class InboxFetchPipeline extends AckStream<InboxFetchHint, InboxFetched> i
     }
 
     @Override
-    public boolean signalFetch(String inboxId, long incarnation) {
+    public boolean signalFetch(String inboxId, long incarnation, long now) {
         log.trace("Signal fetch: tenantId={}, inboxId={}", tenantId, inboxId);
         // signal fetch won't refresh expiry
         Set<Long> sessionIds = inboxSessionMap.getOrDefault(new InboxId(inboxId, incarnation), Collections.emptySet());
         for (Long sessionId : sessionIds) {
             FetchState fetchState = inboxFetchSessions.get(sessionId);
-            if (fetchState != null) {
+            if (fetchState != null && fetchState.signalFetchTS.get() < now) {
                 fetchState.hasMore.set(true);
-                fetchState.signalFetchTS.set(System.nanoTime());
+                fetchState.signalFetchTS.set(now);
                 fetch(fetchState);
             }
         }

@@ -31,10 +31,9 @@ public abstract class MQTTMessageHandler extends ChannelDuplexHandler {
     private static final int DEFAULT_FLUSH_AFTER_FLUSHES = 128;
     private final int explicitFlushAfterFlushes;
     private final Runnable flushTask;
+    protected ChannelHandlerContext ctx;
     private int flushPendingCount;
     private Future<?> nextScheduledFlush;
-
-    protected ChannelHandlerContext ctx;
 
     protected MQTTMessageHandler() {
         this(DEFAULT_FLUSH_AFTER_FLUSHES);
@@ -86,6 +85,10 @@ public abstract class MQTTMessageHandler extends ChannelDuplexHandler {
             flushIfNeeded(ctx);
         }
         ctx.fireChannelWritabilityChanged();
+    }
+
+    protected ChannelFuture write(Object msg) {
+        return ctx.write(msg);
     }
 
     protected ChannelFuture writeAndFlush(Object msg) {

@@ -22,6 +22,7 @@ package org.apache.bifromq.inbox.server;
 import static org.apache.bifromq.inbox.server.Fixtures.matchInfo;
 import static org.apache.bifromq.inbox.server.Fixtures.sendRequest;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.doNothing;
 import static org.mockito.Mockito.when;
 import static org.testng.Assert.assertEquals;
@@ -125,7 +126,7 @@ public class InboxWriterPipelineTest {
         SendReply mockSendReply = SendReply.newBuilder().setReqId(1)
             .setReply(DeliveryReply.newBuilder().setCode(DeliveryReply.Code.ERROR).build()).build();
         when(inboxWriter.handle(any())).thenReturn(CompletableFuture.completedFuture(mockSendReply));
-        doNothing().when(fetcherSignaler).afterWrite(any(), any());
+        doNothing().when(fetcherSignaler).afterWrite(any(), any(), anyLong());
         InboxWriterPipeline writerPipeline = new InboxWriterPipeline(fetcherSignaler, inboxWriter, responseObserver);
         SendReply sendReply = writerPipeline.handleRequest("_", sendRequest()).join();
         assertEquals(sendReply, mockSendReply);
@@ -134,7 +135,7 @@ public class InboxWriterPipelineTest {
     private void testHandleRequest(DeliveryResult.Code code) {
         SendReply mockSendReply = createSendReply(code);
         when(inboxWriter.handle(any())).thenReturn(CompletableFuture.completedFuture(mockSendReply));
-        doNothing().when(fetcherSignaler).afterWrite(any(), any());
+        doNothing().when(fetcherSignaler).afterWrite(any(), any(), anyLong());
         InboxWriterPipeline writerPipeline = new InboxWriterPipeline(fetcherSignaler, inboxWriter, responseObserver);
         SendReply sendReply = writerPipeline.handleRequest("_", sendRequest()).join();
         assertEquals(sendReply, mockSendReply);
@@ -170,7 +171,7 @@ public class InboxWriterPipelineTest {
 
     private void testMemoryUsageThresholdExceed() {
         when(inboxWriter.handle(any())).thenReturn(CompletableFuture.completedFuture(SendReply.getDefaultInstance()));
-        doNothing().when(fetcherSignaler).afterWrite(any(), any());
+        doNothing().when(fetcherSignaler).afterWrite(any(), any(), anyLong());
         try (MockedStatic<MemUsage> mocked = Mockito.mockStatic(MemUsage.class)) {
             mocked.when(MemUsage::local).thenReturn(memUsage);
             SendRequest sendRequest = SendRequest.getDefaultInstance();
@@ -188,7 +189,7 @@ public class InboxWriterPipelineTest {
         CompletableFuture<SendReply> f2 = new CompletableFuture<>();
 
         when(inboxWriter.handle(any())).thenReturn(f1).thenReturn(f2);
-        doNothing().when(fetcherSignaler).afterWrite(any(), any());
+        doNothing().when(fetcherSignaler).afterWrite(any(), any(), anyLong());
 
         InboxWriterPipeline writerPipeline = new InboxWriterPipeline(fetcherSignaler, inboxWriter, responseObserver);
 

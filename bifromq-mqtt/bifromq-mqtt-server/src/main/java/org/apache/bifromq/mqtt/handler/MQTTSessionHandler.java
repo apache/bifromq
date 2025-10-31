@@ -1026,7 +1026,7 @@ public abstract class MQTTSessionHandler extends MQTTMessageHandler implements I
             return;
         }
         memUsage.addAndGet(msgSize);
-        writeAndFlush(pubMsg).addListener(f -> {
+        write(pubMsg).addListener(f -> {
             memUsage.addAndGet(-msgSize);
             if (f.isSuccess()) {
                 lastActiveAtNanos = sessionCtx.nanoTime();
@@ -1148,7 +1148,7 @@ public abstract class MQTTSessionHandler extends MQTTMessageHandler implements I
             tenantMeter.recordSummary(MqttResendBytes, msgSize);
         }
         confirmingMsg.sentCount++;
-        writeAndFlush(pubMsg).addListener(f -> {
+        write(pubMsg).addListener(f -> {
             memUsage.addAndGet(-msgSize);
             if (f.isSuccess()) {
                 if (settings.debugMode) {
@@ -1242,17 +1242,20 @@ public abstract class MQTTSessionHandler extends MQTTMessageHandler implements I
 
     private void resend() {
         long now = sessionCtx.nanoTime();
+        boolean flush = false;
         for (ConfirmingMessage confirmingMsg : unconfirmedPacketIds.values()) {
             if (confirmingMsg.sentCount <= settings.maxResendTimes) {
                 if (ctx.channel().isWritable()) {
                     if (confirmingMsg.sentCount == 0) {
                         // first time send immediately
                         writeConfirmableSubMessage(confirmingMsg, false);
+                        flush = true;
                     } else {
                         long lastSendTs = Math.max(confirmingMsg.timestamp, confirmingMsg.resendTimestamp);
                         if (Duration.ofNanos(now - lastSendTs).toSeconds() >= settings.resendTimeoutSeconds) {
                             // only send after resend timeout
                             writeConfirmableSubMessage(confirmingMsg, true);
+                            flush = true;
                         }
                     }
                 } else {
@@ -1264,6 +1267,9 @@ public abstract class MQTTSessionHandler extends MQTTMessageHandler implements I
                 confirm(confirmingMsg, false);
                 receiveQuota.onErrorSignal(now);
             }
+        }
+        if (flush) {
+            flush(true);
         }
         if (!unconfirmedPacketIds.isEmpty()) {
             scheduleResend();

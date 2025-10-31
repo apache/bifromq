@@ -531,6 +531,7 @@ public abstract class MQTTPersistentSessionHandler extends MQTTSessionHandler im
                     // deal with qos0
                     if (fetched.getQos0MsgCount() > 0) {
                         fetched.getQos0MsgList().forEach(this::pubQoS0Message);
+                        flush(true);
                         // commit immediately
                         qos0ConfirmUpToSeq = fetched.getQos0Msg(fetched.getQos0MsgCount() - 1).getSeq();
                         confirmQoS0();

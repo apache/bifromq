@@ -19,13 +19,22 @@
 
 package org.apache.bifromq.basekv.localengine.rocksdb;
 
+import static org.apache.bifromq.basekv.localengine.StructUtil.boolVal;
+import static org.apache.bifromq.basekv.localengine.StructUtil.numVal;
+import static org.apache.bifromq.basekv.localengine.StructUtil.strVal;
 import static org.apache.bifromq.basekv.localengine.metrics.KVSpaceMeters.getCounter;
 import static org.apache.bifromq.basekv.localengine.metrics.KVSpaceMeters.getTimer;
+import static org.apache.bifromq.basekv.localengine.rocksdb.RocksDBDefaultConfigs.COMPACT_MIN_TOMBSTONE_KEYS;
+import static org.apache.bifromq.basekv.localengine.rocksdb.RocksDBDefaultConfigs.COMPACT_MIN_TOMBSTONE_RANGES;
+import static org.apache.bifromq.basekv.localengine.rocksdb.RocksDBDefaultConfigs.COMPACT_TOMBSTONE_RATIO;
+import static org.apache.bifromq.basekv.localengine.rocksdb.RocksDBDefaultConfigs.DB_ROOT_DIR;
+import static org.apache.bifromq.basekv.localengine.rocksdb.RocksDBDefaultConfigs.MANUAL_COMPACTION;
 import static org.apache.bifromq.basekv.localengine.rocksdb.RocksDBHelper.deleteDir;
 import static org.apache.bifromq.basekv.localengine.rocksdb.RocksDBHelper.getMetadata;
 
 import com.google.common.collect.Maps;
 import com.google.protobuf.ByteString;
+import com.google.protobuf.Struct;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.Metrics;
 import io.micrometer.core.instrument.Tags;
@@ -52,15 +61,10 @@ import org.rocksdb.CompactRangeOptions;
 import org.rocksdb.WriteOptions;
 import org.slf4j.Logger;
 
-abstract class RocksDBKVSpace<
-    E extends RocksDBKVEngine<E, T, C, P>,
-    T extends RocksDBKVSpace<E, T, C, P>,
-    C extends RocksDBKVEngineConfigurator<C>,
-    P extends RocksDBKVSpaceEpochHandle<C>
-    > extends AbstractKVSpace<P> {
+abstract class RocksDBKVSpace extends AbstractKVSpace<RocksDBKVSpaceEpochHandle> {
 
-    protected final C configurator;
-    protected final E engine;
+    protected final Struct conf;
+    protected final RocksDBKVEngine<?> engine;
     protected final ISyncContext syncContext;
     protected final IWriteStatsRecorder writeStats;
     private final File keySpaceDBDir;
@@ -73,14 +77,14 @@ abstract class RocksDBKVSpace<
 
     @SneakyThrows
     public RocksDBKVSpace(String id,
-                          C configurator,
-                          E engine,
+                          Struct conf,
+                          RocksDBKVEngine<?> engine,
                           Runnable onDestroy,
                           KVSpaceOpMeters opMeters,
                           Logger logger,
                           String... tags) {
         super(id, onDestroy, opMeters, logger, tags);
-        this.configurator = configurator;
+        this.conf = conf;
         this.engine = engine;
         syncContext = new SyncContext();
         metadataRefresher = syncContext.refresher();
@@ -89,12 +93,16 @@ abstract class RocksDBKVSpace<
                 0L, TimeUnit.MILLISECONDS, new LinkedBlockingQueue<>(),
                 EnvProvider.INSTANCE.newThreadFactory("kvspace-compactor-" + id)),
             "compactor", "kvspace", Tags.of(tags));
-        this.writeStats = configurator.heuristicCompaction() ? new RocksDBKVSpaceCompactionTrigger(id,
-            configurator.compactMinTombstoneKeys(),
-            configurator.compactMinTombstoneRanges(),
-            configurator.compactTombstoneKeysRatio(),
-            this::scheduleCompact, tags) : NoopWriteStatsRecorder.INSTANCE;
-        keySpaceDBDir = new File(configurator.dbRootDir(), id);
+        if (boolVal(conf, MANUAL_COMPACTION)) {
+            int minKeys = (int) numVal(conf, COMPACT_MIN_TOMBSTONE_KEYS);
+            int minRanges = (int) numVal(conf, COMPACT_MIN_TOMBSTONE_RANGES);
+            double ratio = numVal(conf, COMPACT_TOMBSTONE_RATIO);
+            this.writeStats = new RocksDBKVSpaceCompactionTrigger(id, minKeys, minRanges, ratio, this::scheduleCompact,
+                tags);
+        } else {
+            this.writeStats = NoopWriteStatsRecorder.INSTANCE;
+        }
+        keySpaceDBDir = new File(strVal(conf, DB_ROOT_DIR), id);
     }
 
     @Override
@@ -143,7 +151,7 @@ abstract class RocksDBKVSpace<
         return keySpaceDBDir;
     }
 
-    protected abstract P handle();
+    protected abstract RocksDBKVSpaceEpochHandle handle();
 
     protected abstract WriteOptions writeOptions();
 

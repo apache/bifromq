@@ -19,7 +19,11 @@
 
 package org.apache.bifromq.basekv.localengine.rocksdb;
 
+import static org.apache.bifromq.basekv.localengine.StructUtil.strVal;
+import static org.apache.bifromq.basekv.localengine.rocksdb.RocksDBDefaultConfigs.DB_ROOT_DIR;
+
 import com.google.common.base.Strings;
+import com.google.protobuf.Struct;
 import io.micrometer.core.instrument.Gauge;
 import io.micrometer.core.instrument.Metrics;
 import io.micrometer.core.instrument.Tags;
@@ -35,12 +39,7 @@ import org.apache.bifromq.basekv.localengine.AbstractKVEngine;
 import org.apache.bifromq.basekv.localengine.KVEngineException;
 import org.rocksdb.RocksDB;
 
-abstract class RocksDBKVEngine<
-    E extends RocksDBKVEngine<E, T, C, P>,
-    T extends RocksDBKVSpace<E, T, C, P>,
-    C extends RocksDBKVEngineConfigurator<C>,
-    P extends RocksDBKVSpaceEpochHandle<C>
-    > extends AbstractKVEngine<T, C> {
+abstract class RocksDBKVEngine<T extends RocksDBKVSpace> extends AbstractKVEngine<T> {
 
     public static final String IDENTITY_FILE = "IDENTITY";
 
@@ -53,9 +52,9 @@ abstract class RocksDBKVEngine<
     private final boolean isCreate;
     private MetricManager metricManager;
 
-    public RocksDBKVEngine(String overrideIdentity, C configurator) {
-        super(overrideIdentity, configurator);
-        dbRootDir = new File(configurator.dbRootDir());
+    public RocksDBKVEngine(String overrideIdentity, Struct confRoot) {
+        super(overrideIdentity, confRoot);
+        dbRootDir = new File(strVal(engineConf, DB_ROOT_DIR));
         try {
             Files.createDirectories(dbRootDir.getAbsoluteFile().toPath());
             isCreate = isEmpty(dbRootDir.toPath());

@@ -14,26 +14,20 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 
 package org.apache.bifromq.basekv.store.wal;
 
+import static org.apache.bifromq.basekv.localengine.StructUtil.toValue;
+import static org.apache.bifromq.basekv.localengine.rocksdb.RocksDBDefaultConfigs.DB_ROOT_DIR;
 import static org.testng.Assert.assertEquals;
 import static org.testng.Assert.assertFalse;
 import static org.testng.Assert.assertTrue;
 import static org.testng.Assert.fail;
 
-import org.apache.bifromq.basekv.MockableTest;
-import org.apache.bifromq.basekv.TestUtil;
-import org.apache.bifromq.basekv.localengine.rocksdb.RocksDBWALableKVEngineConfigurator;
-import org.apache.bifromq.basekv.proto.KVRangeId;
-import org.apache.bifromq.basekv.raft.IRaftStateStore;
-import org.apache.bifromq.basekv.raft.proto.ClusterConfig;
-import org.apache.bifromq.basekv.raft.proto.LogEntry;
-import org.apache.bifromq.basekv.raft.proto.Snapshot;
-import org.apache.bifromq.basekv.utils.KVRangeIdUtil;
 import com.google.protobuf.ByteString;
+import com.google.protobuf.Struct;
 import java.io.File;
 import java.lang.reflect.Method;
 import java.nio.file.Files;
@@ -42,22 +36,31 @@ import java.nio.file.Paths;
 import java.util.Collections;
 import lombok.SneakyThrows;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.bifromq.basekv.MockableTest;
+import org.apache.bifromq.basekv.TestUtil;
+import org.apache.bifromq.basekv.localengine.rocksdb.RocksDBDefaultConfigs;
+import org.apache.bifromq.basekv.proto.KVRangeId;
+import org.apache.bifromq.basekv.raft.IRaftStateStore;
+import org.apache.bifromq.basekv.raft.proto.ClusterConfig;
+import org.apache.bifromq.basekv.raft.proto.LogEntry;
+import org.apache.bifromq.basekv.raft.proto.Snapshot;
+import org.apache.bifromq.basekv.utils.KVRangeIdUtil;
 import org.testng.annotations.Test;
 
 @Slf4j
 public class KVRangeWALStoreEngineTest extends MockableTest {
     private static final String DB_NAME = "testDB";
     private static final String DB_CHECKPOINT_DIR = "testDB_cp";
-    private String dbPath;
-    private RocksDBWALableKVEngineConfigurator engineConfigurator;
     public Path dbRootDir;
+    private String dbPath;
+    private Struct engineConf;
 
     @SneakyThrows
     @Override
     protected void doSetup(Method method) {
         dbRootDir = Files.createTempDirectory("");
         dbPath = Paths.get(dbRootDir.toString(), DB_NAME).toString();
-        engineConfigurator = RocksDBWALableKVEngineConfigurator.builder().dbRootDir(dbPath).build();
+        engineConf = RocksDBDefaultConfigs.WAL.toBuilder().putFields(DB_ROOT_DIR, toValue(dbPath)).build();
     }
 
     protected void doTearDown(Method method) {
@@ -71,9 +74,9 @@ public class KVRangeWALStoreEngineTest extends MockableTest {
     public void startAndStop() {
         try {
             KVRangeWALStorageEngine stateStorageEngine =
-                new KVRangeWALStorageEngine("testcluster", null, engineConfigurator);
+                new KVRangeWALStorageEngine("testcluster", null, "rocksdb", engineConf);
             stateStorageEngine.start();
-            if (engineConfigurator != null) {
+            if (engineConf != null) {
                 assertTrue((new File(dbPath)).isDirectory());
             }
             assertTrue(stateStorageEngine.allKVRangeIds().isEmpty());
@@ -89,7 +92,7 @@ public class KVRangeWALStoreEngineTest extends MockableTest {
         try {
             KVRangeId testId = KVRangeIdUtil.generate();
             KVRangeWALStorageEngine stateStorageEngine =
-                new KVRangeWALStorageEngine("testcluster", null, engineConfigurator);
+                new KVRangeWALStorageEngine("testcluster", null, "rocksdb", engineConf);
             stateStorageEngine.start();
             Snapshot snapshot = Snapshot.newBuilder()
                 .setIndex(0)
@@ -122,7 +125,7 @@ public class KVRangeWALStoreEngineTest extends MockableTest {
         KVRangeId testId1 = KVRangeIdUtil.generate();
         KVRangeId testId2 = KVRangeIdUtil.next(testId1);
         KVRangeWALStorageEngine stateStorageEngine =
-            new KVRangeWALStorageEngine("testcluster", null, engineConfigurator);
+            new KVRangeWALStorageEngine("testcluster", null, "rocksdb", engineConf);
         stateStorageEngine.start();
         Snapshot snapshot = Snapshot.newBuilder()
             .setIndex(0)
@@ -141,7 +144,7 @@ public class KVRangeWALStoreEngineTest extends MockableTest {
         assertEquals(walStore1.lastIndex(), 1);
         stateStorageEngine.stop();
 
-        stateStorageEngine = new KVRangeWALStorageEngine("testcluster", null, engineConfigurator);
+        stateStorageEngine = new KVRangeWALStorageEngine("testcluster", null, "rocksdb", engineConf);
         stateStorageEngine.start();
         assertEquals(stateStorageEngine.allKVRangeIds().size(), 2);
         IRaftStateStore stateStorage = stateStorageEngine.get(testId1);
@@ -158,7 +161,7 @@ public class KVRangeWALStoreEngineTest extends MockableTest {
         KVRangeId testId1 = KVRangeIdUtil.generate();
         KVRangeId testId2 = KVRangeIdUtil.next(testId1);
         KVRangeWALStorageEngine stateStorageEngine =
-            new KVRangeWALStorageEngine("testcluster", null, engineConfigurator);
+            new KVRangeWALStorageEngine("testcluster", null, "rocksdb", engineConf);
         stateStorageEngine.start();
         Snapshot snapshot = Snapshot.newBuilder()
             .setIndex(0)
@@ -175,7 +178,7 @@ public class KVRangeWALStoreEngineTest extends MockableTest {
         assertTrue(stateStorageEngine.has(testId2));
         stateStorageEngine.stop();
 
-        stateStorageEngine = new KVRangeWALStorageEngine("testcluster", null, engineConfigurator);
+        stateStorageEngine = new KVRangeWALStorageEngine("testcluster", null, "rocksdb", engineConf);
         stateStorageEngine.start();
         assertEquals(stateStorageEngine.allKVRangeIds().size(), 1);
         assertTrue(stateStorageEngine.has(testId2));
@@ -185,7 +188,7 @@ public class KVRangeWALStoreEngineTest extends MockableTest {
     public void destroyAndCreate() {
         KVRangeId testId1 = KVRangeIdUtil.generate();
         KVRangeWALStorageEngine stateStorageEngine =
-            new KVRangeWALStorageEngine("testcluster", null, engineConfigurator);
+            new KVRangeWALStorageEngine("testcluster", null, "rocksdb", engineConf);
         stateStorageEngine.start();
         Snapshot snapshot = Snapshot.newBuilder()
             .setIndex(0)

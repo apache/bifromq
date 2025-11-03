@@ -14,34 +14,92 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 
 package org.apache.bifromq.starter.config;
 
+import static org.apache.bifromq.basekv.localengine.rocksdb.RocksDBDefaultConfigs.DB_CHECKPOINT_ROOT_DIR;
+import static org.apache.bifromq.basekv.localengine.rocksdb.RocksDBDefaultConfigs.DB_ROOT_DIR;
+
 import com.google.common.base.Strings;
+import com.google.protobuf.Struct;
+import com.google.protobuf.Value;
 import io.netty.handler.ssl.util.SelfSignedCertificate;
 import java.net.InetAddress;
 import java.net.NetworkInterface;
+import java.nio.file.Paths;
 import java.security.cert.CertificateException;
 import java.util.Enumeration;
+import java.util.HashMap;
+import java.util.Map;
 import lombok.SneakyThrows;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.bifromq.basehookloader.BaseHookLoader;
+import org.apache.bifromq.basekv.localengine.StructUtil;
+import org.apache.bifromq.basekv.localengine.spi.IKVEngineProvider;
 import org.apache.bifromq.starter.config.model.ClusterConfig;
+import org.apache.bifromq.starter.config.model.EngineConfig;
 import org.apache.bifromq.starter.config.model.RPCConfig;
 import org.apache.bifromq.starter.config.model.SSLContextConfig;
 import org.apache.bifromq.starter.config.model.ServerSSLContextConfig;
 import org.apache.bifromq.starter.config.model.api.APIServerConfig;
+import org.apache.bifromq.starter.config.model.dist.DistWorkerConfig;
+import org.apache.bifromq.starter.config.model.inbox.InboxStoreConfig;
 import org.apache.bifromq.starter.config.model.mqtt.MQTTServerConfig;
+import org.apache.bifromq.starter.config.model.retain.RetainStoreConfig;
 
 @Slf4j
 public class StandaloneConfigConsolidator {
+    private static final String USER_DIR_PROP = "user.dir";
+    private static final String DATA_DIR_PROP = "DATA_DIR";
+    private static final String DATA_PATH_ROOT = "dataPathRoot";
 
     public static void consolidate(StandaloneConfig config) {
         consolidateClusterConfig(config);
         consolidateMQTTServerConfig(config);
         consolidateRPCConfig(config);
         consolidateAPIServerConfig(config);
+        consolidateEngineConfigs(config);
+    }
+
+    private static void consolidateEngineConfigs(StandaloneConfig config) {
+        // Dist
+        DistWorkerConfig distWorker = config.getDistServiceConfig().getWorker();
+        if (distWorker != null) {
+            consolidateEngine(distWorker.getDataEngineConfig(), true, "dist_data");
+            consolidateEngine(distWorker.getWalEngineConfig(), false, "dist_wal");
+        }
+        // Inbox
+        InboxStoreConfig inboxStore = config.getInboxServiceConfig().getStore();
+        if (inboxStore != null) {
+            consolidateEngine(inboxStore.getDataEngineConfig(), true, "inbox_data");
+            consolidateEngine(inboxStore.getWalEngineConfig(), false, "inbox_wal");
+        }
+        // Retain
+        RetainStoreConfig retainStore = config.getRetainServiceConfig().getStore();
+        if (retainStore != null) {
+            consolidateEngine(retainStore.getDataEngineConfig(), true, "retain_data");
+            consolidateEngine(retainStore.getWalEngineConfig(), false, "retain_wal");
+        }
+    }
+
+    private static void consolidateEngine(EngineConfig cfg, boolean cpable, String name) {
+        if (cfg == null) {
+            cfg = new EngineConfig();
+        }
+        String type = cfg.getType();
+        if (Strings.isNullOrEmpty(type)) {
+            type = "rocksdb";
+            cfg.setType(type);
+        }
+        IKVEngineProvider provider = findProvider(type);
+        Struct base = cpable ? provider.defaultsForCPable() : provider.defaultsForWALable();
+        Map<String, Object> override = cfg;
+        Map<String, Object> merged = overlay(base, override);
+        derivePathsIfNeeded(cfg, merged, cpable, name);
+        cfg.clear();
+        cfg.setProps(merged);
     }
 
     private static void consolidateClusterConfig(StandaloneConfig config) {
@@ -178,5 +236,92 @@ public class StandaloneConfigConsolidator {
         sslContextConfig.setCertFile(selfCert.certificate().getAbsolutePath());
         sslContextConfig.setKeyFile(selfCert.privateKey().getAbsolutePath());
         return sslContextConfig;
+    }
+
+    private static IKVEngineProvider findProvider(String type) {
+        Map<String, IKVEngineProvider> providers = BaseHookLoader.load(IKVEngineProvider.class);
+        IKVEngineProvider found = null;
+        for (IKVEngineProvider p : providers.values()) {
+            if (p.type().equalsIgnoreCase(type)) {
+                if (found != null) {
+                    throw new IllegalStateException("Duplicate storage engine provider type: " + type);
+                }
+                found = p;
+            }
+        }
+        if (found == null) {
+            throw new IllegalArgumentException("Unsupported storage engine type: " + type);
+        }
+        return found;
+    }
+
+    private static Map<String, Object> overlay(Struct base, Map<String, Object> override) {
+        Map<String, Object> merged = new HashMap<>();
+        base.getFieldsMap().forEach((k, defVal) -> {
+            if (override.containsKey(k)) {
+                Value newVal = StructUtil.toValue(override.get(k));
+                if (defVal.getKindCase() != newVal.getKindCase()) {
+                    log.warn("Invalid engine config value type: {}, required={}", newVal.getKindCase(),
+                        defVal.getKindCase());
+                    merged.put(k, normalizeNumber(StructUtil.fromValue(defVal)));
+                } else {
+                    merged.put(k, normalizeNumber(StructUtil.fromValue(newVal)));
+                }
+            } else {
+                merged.put(k, normalizeNumber(StructUtil.fromValue(defVal)));
+            }
+        });
+        override.forEach((k, v) -> {
+            if (!merged.containsKey(k) && k.equals(DATA_PATH_ROOT)) {
+                log.warn("Unrecognized engine config: {}={}", k, v);
+            }
+        });
+        return merged;
+    }
+
+    private static Object normalizeNumber(Object v) {
+        if (v instanceof Number) {
+            double d = ((Number) v).doubleValue();
+            if (Double.isFinite(d)) {
+                long l = (long) d;
+                if (d == l) {
+                    if (l >= Integer.MIN_VALUE && l <= Integer.MAX_VALUE) {
+                        return (int) l;
+                    }
+                    return l;
+                }
+            }
+        }
+        return v;
+    }
+
+    private static void derivePathsIfNeeded(EngineConfig cfg,
+                                            Map<String, Object> completeConf,
+                                            boolean cpable,
+                                            String name) {
+        if (!"rocksdb".equalsIgnoreCase(cfg.getType())) {
+            return;
+        }
+        String dataRootPath;
+        if (cfg.containsKey(DATA_PATH_ROOT)) {
+            // fill back data path root
+            completeConf.put(DATA_PATH_ROOT, cfg.get(DATA_PATH_ROOT));
+            if (Paths.get((String) cfg.get(DATA_PATH_ROOT)).isAbsolute()) {
+                dataRootPath = (String) cfg.get(DATA_PATH_ROOT);
+            } else {
+                String userDir = System.getProperty(USER_DIR_PROP);
+                String dataDir = System.getProperty(DATA_DIR_PROP, userDir);
+                dataRootPath = Paths.get(dataDir, (String) cfg.get(DATA_PATH_ROOT)).toAbsolutePath()
+                    .toString();
+            }
+        } else {
+            String userDir = System.getProperty(USER_DIR_PROP);
+            String dataDir = System.getProperty(DATA_DIR_PROP, userDir);
+            dataRootPath = Paths.get(dataDir).toAbsolutePath().toString();
+        }
+        completeConf.put(DB_ROOT_DIR, Paths.get(dataRootPath, name).toString());
+        if (cpable) {
+            completeConf.put(DB_CHECKPOINT_ROOT_DIR, Paths.get(dataRootPath, name + "_cp").toString());
+        }
     }
 }

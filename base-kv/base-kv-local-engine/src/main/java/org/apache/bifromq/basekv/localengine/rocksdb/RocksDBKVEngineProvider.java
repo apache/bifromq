@@ -19,14 +19,38 @@
 
 package org.apache.bifromq.basekv.localengine.rocksdb;
 
+import com.google.protobuf.Struct;
+import org.apache.bifromq.basekv.localengine.ICPableKVSpace;
 import org.apache.bifromq.basekv.localengine.IKVEngine;
-import org.apache.bifromq.basekv.localengine.IWALableKVEngineConfigurator;
 import org.apache.bifromq.basekv.localengine.IWALableKVSpace;
+import org.apache.bifromq.basekv.localengine.spi.IKVEngineProvider;
 
-public class RocksDBWALableKVEngineFactory {
-    public static IKVEngine<? extends IWALableKVSpace> create(String overrideIdentity,
-                                                              IWALableKVEngineConfigurator configurator) {
-        assert configurator instanceof RocksDBWALableKVEngineConfigurator;
-        return new RocksDBWALableKVEngine(overrideIdentity, (RocksDBWALableKVEngineConfigurator) configurator);
+/**
+ * Provider for RocksDB engine implementation.
+ */
+public class RocksDBKVEngineProvider implements IKVEngineProvider {
+    @Override
+    public Struct defaultsForCPable() {
+        return RocksDBDefaultConfigs.CP;
+    }
+
+    @Override
+    public Struct defaultsForWALable() {
+        return RocksDBDefaultConfigs.WAL;
+    }
+
+    @Override
+    public String type() {
+        return "rocksdb";
+    }
+
+    @Override
+    public IKVEngine<? extends ICPableKVSpace> createCPable(String overrideIdentity, Struct conf) {
+        return new RocksDBCPableKVEngine(overrideIdentity, conf);
+    }
+
+    @Override
+    public IKVEngine<? extends IWALableKVSpace> createWALable(String overrideIdentity, Struct conf) {
+        return new RocksDBWALableKVEngine(overrideIdentity, conf);
     }
 }

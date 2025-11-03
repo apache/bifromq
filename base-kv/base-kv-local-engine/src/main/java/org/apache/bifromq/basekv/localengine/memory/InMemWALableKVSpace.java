@@ -19,6 +19,7 @@
 
 package org.apache.bifromq.basekv.localengine.memory;
 
+import com.google.protobuf.Struct;
 import java.util.concurrent.CompletableFuture;
 import org.apache.bifromq.basekv.localengine.IKVSpaceWriter;
 import org.apache.bifromq.basekv.localengine.IWALableKVSpace;
@@ -30,13 +31,13 @@ class InMemWALableKVSpace extends InMemKVSpace<InMemWALableKVEngine, InMemWALabl
     private final InMemKVSpaceEpoch epoch;
 
     InMemWALableKVSpace(String id,
-                        InMemKVEngineConfigurator configurator,
+                        Struct conf,
                         InMemWALableKVEngine engine,
                         Runnable onDestroy,
                         KVSpaceOpMeters opMeters,
                         Logger logger,
                         String... tags) {
-        super(id, configurator, engine, onDestroy, opMeters, logger, tags);
+        super(id, conf, engine, onDestroy, opMeters, logger, tags);
         epoch = new InMemKVSpaceEpoch();
     }
 

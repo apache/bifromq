@@ -14,17 +14,17 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 
 package org.apache.bifromq.basekv.store.option;
 
-import org.apache.bifromq.basekv.localengine.ICPableKVEngineConfigurator;
-import org.apache.bifromq.basekv.localengine.IWALableKVEngineConfigurator;
-import org.apache.bifromq.basekv.localengine.rocksdb.RocksDBCPableKVEngineConfigurator;
-import org.apache.bifromq.basekv.localengine.rocksdb.RocksDBWALableKVEngineConfigurator;
-import org.apache.bifromq.basekv.store.util.ProcessUtil;
+import static org.apache.bifromq.basekv.localengine.rocksdb.RocksDBDefaultConfigs.DB_CHECKPOINT_ROOT_DIR;
+import static org.apache.bifromq.basekv.localengine.rocksdb.RocksDBDefaultConfigs.DB_ROOT_DIR;
+
+import com.google.protobuf.Struct;
 import java.nio.file.Paths;
+import java.util.Map;
 import lombok.AccessLevel;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -33,6 +33,11 @@ import lombok.NoArgsConstructor;
 import lombok.Setter;
 import lombok.ToString;
 import lombok.experimental.Accessors;
+import org.apache.bifromq.basehookloader.BaseHookLoader;
+import org.apache.bifromq.basekv.localengine.StructUtil;
+import org.apache.bifromq.basekv.localengine.spi.IKVEngineProvider;
+import org.apache.bifromq.basekv.store.util.ProcessUtil;
+
 
 @Accessors(chain = true)
 @Getter
@@ -48,17 +53,46 @@ public class KVRangeStoreOptions {
     @Builder.Default
     private int statsCollectIntervalSec = 5;
 
+    // Struct-only engine spec
     @Builder.Default
-    private ICPableKVEngineConfigurator dataEngineConfigurator = RocksDBCPableKVEngineConfigurator.builder()
-        .dbRootDir(Paths.get(System.getProperty("java.io.tmpdir"), "basekv",
-            ProcessUtil.processId(), "data").toString())
-        .dbCheckpointRootDir(Paths.get(System.getProperty("java.io.tmpdir"), "basekvcp",
-            ProcessUtil.processId(), "data").toString())
-        .build();
+    private String dataEngineType = "rocksdb";
+    @Builder.Default
+    private Struct dataEngineConf = defaultDataConf();
 
     @Builder.Default
-    private IWALableKVEngineConfigurator walEngineConfigurator = RocksDBWALableKVEngineConfigurator.builder()
-        .dbRootDir(Paths.get(System.getProperty("java.io.tmpdir"), "basekv",
-            ProcessUtil.processId(), "wal").toString())
-        .build();
+    private String walEngineType = "rocksdb";
+    @Builder.Default
+    private Struct walEngineConf = defaultWalConf();
+
+    private static Struct defaultDataConf() {
+        // use provider defaults and set temp dirs
+        IKVEngineProvider provider = findProvider("rocksdb");
+        Struct.Builder b = provider.defaultsForCPable().toBuilder();
+        String dbRoot = Paths.get(System.getProperty("java.io.tmpdir"), "basekv", ProcessUtil.processId(), "data")
+            .toString();
+        String cpRoot = Paths.get(System.getProperty("java.io.tmpdir"), "basekvcp", ProcessUtil.processId(), "data")
+            .toString();
+        b.putFields(DB_ROOT_DIR, StructUtil.toValue(dbRoot));
+        b.putFields(DB_CHECKPOINT_ROOT_DIR, StructUtil.toValue(cpRoot));
+        return b.build();
+    }
+
+    private static Struct defaultWalConf() {
+        IKVEngineProvider provider = findProvider("rocksdb");
+        Struct.Builder b = provider.defaultsForWALable().toBuilder();
+        String dbRoot = Paths.get(System.getProperty("java.io.tmpdir"), "basekv", ProcessUtil.processId(), "wal")
+            .toString();
+        b.putFields(DB_ROOT_DIR, StructUtil.toValue(dbRoot));
+        return b.build();
+    }
+
+    private static IKVEngineProvider findProvider(String type) {
+        Map<String, IKVEngineProvider> providers = BaseHookLoader.load(IKVEngineProvider.class);
+        for (IKVEngineProvider p : providers.values()) {
+            if (p.type().equalsIgnoreCase(type)) {
+                return p;
+            }
+        }
+        throw new IllegalArgumentException("Unsupported storage engine type: " + type);
+    }
 }

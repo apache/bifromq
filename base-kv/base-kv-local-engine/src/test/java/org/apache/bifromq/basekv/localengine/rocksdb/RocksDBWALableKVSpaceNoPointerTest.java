@@ -23,6 +23,8 @@ import static org.apache.bifromq.basekv.localengine.rocksdb.RocksDBCPableKVSpace
 import static org.testng.Assert.assertFalse;
 import static org.testng.Assert.assertTrue;
 
+import com.google.protobuf.Struct;
+import com.google.protobuf.Value;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import org.testng.annotations.AfterMethod;
@@ -64,8 +66,8 @@ public class RocksDBWALableKVSpaceNoPointerTest {
         Path dbRoot = tmpRoot.resolve("data");
         Files.createDirectories(dbRoot);
 
-        RocksDBWALableKVEngineConfigurator conf = RocksDBWALableKVEngineConfigurator.builder()
-            .dbRootDir(dbRoot.toString())
+        Struct conf = RocksDBDefaultConfigs.WAL.toBuilder()
+            .putFields(RocksDBDefaultConfigs.DB_ROOT_DIR, Value.newBuilder().setStringValue(dbRoot.toString()).build())
             .build();
         engine = new RocksDBWALableKVEngine(null, conf);
         engine.start("tag", "value");
@@ -77,4 +79,3 @@ public class RocksDBWALableKVSpaceNoPointerTest {
         assertTrue(Files.list(dbRoot.resolve(spaceId)).anyMatch(Files::isRegularFile));
     }
 }
-

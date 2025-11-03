@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 
 package org.apache.bifromq.basekv.store.wal;
@@ -24,11 +24,11 @@ import static org.apache.bifromq.basekv.store.wal.KVRangeWALKeys.KEY_LATEST_SNAP
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
+import com.google.protobuf.Struct;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicReference;
 import org.apache.bifromq.basekv.localengine.IKVEngine;
-import org.apache.bifromq.basekv.localengine.IWALableKVEngineConfigurator;
 import org.apache.bifromq.basekv.localengine.IWALableKVSpace;
 import org.apache.bifromq.basekv.localengine.KVEngineFactory;
 import org.apache.bifromq.basekv.proto.KVRangeId;
@@ -48,13 +48,13 @@ public class KVRangeWALStorageEngine implements IKVRangeWALStoreEngine {
     private final Map<KVRangeId, KVRangeWALStore> instances = Maps.newConcurrentMap();
     private final IKVEngine<? extends IWALableKVSpace> kvEngine;
 
-    public KVRangeWALStorageEngine(String clusterId,
-                                   String overrideIdentity,
-                                   IWALableKVEngineConfigurator configurator) {
+    public KVRangeWALStorageEngine(String clusterId, String overrideIdentity, String engineType, Struct conf) {
         this.clusterId = clusterId;
-        kvEngine = KVEngineFactory.createWALable(overrideIdentity, configurator);
+        kvEngine = KVEngineFactory.createWALable(overrideIdentity, engineType, conf);
         log = MDCLogger.getLogger(KVRangeWALStorageEngine.class, "clusterId", clusterId, "storeId", kvEngine.id());
     }
+
+    // configurator-based constructor removed; use type + struct only
 
     @Override
     public void stop() {

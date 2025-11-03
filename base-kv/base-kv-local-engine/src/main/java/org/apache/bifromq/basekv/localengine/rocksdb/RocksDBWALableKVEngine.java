@@ -19,27 +19,41 @@
 
 package org.apache.bifromq.basekv.localengine.rocksdb;
 
+import static org.apache.bifromq.basekv.localengine.StructUtil.strVal;
+import static org.apache.bifromq.basekv.localengine.rocksdb.RocksDBDefaultConfigs.DB_ROOT_DIR;
+
+import com.google.protobuf.Struct;
+import java.nio.file.Paths;
 import org.apache.bifromq.basekv.localengine.metrics.KVSpaceOpMeters;
 import org.slf4j.Logger;
 
-class RocksDBWALableKVEngine extends RocksDBKVEngine<
-    RocksDBWALableKVEngine,
-    RocksDBWALableKVSpace,
-    RocksDBWALableKVEngineConfigurator,
-    RocksDBWALableKVSpaceEpochHandle
-    > {
+class RocksDBWALableKVEngine extends RocksDBKVEngine<RocksDBWALableKVSpace> {
 
-    RocksDBWALableKVEngine(String overrideIdentity, RocksDBWALableKVEngineConfigurator configurator) {
-        super(overrideIdentity, configurator);
+    RocksDBWALableKVEngine(String overrideIdentity, Struct conf) {
+        super(overrideIdentity, conf);
     }
 
     @Override
     protected RocksDBWALableKVSpace doBuildKVSpace(String spaceId,
-                                                   RocksDBWALableKVEngineConfigurator configurator,
+                                                   Struct conf,
                                                    Runnable onDestroy,
                                                    KVSpaceOpMeters opMeters,
                                                    Logger logger,
                                                    String... tags) {
-        return new RocksDBWALableKVSpace(spaceId, configurator, this, onDestroy, opMeters, logger, tags);
+        return new RocksDBWALableKVSpace(spaceId, conf, this, onDestroy, opMeters, logger, tags);
+    }
+
+    @Override
+    protected Struct defaultConf() {
+        return RocksDBDefaultConfigs.WAL;
+    }
+
+    @Override
+    protected void validateSemantics(Struct conf) {
+        try {
+            Paths.get(strVal(conf, DB_ROOT_DIR));
+        } catch (Throwable t) {
+            throw new IllegalArgumentException("Invalid '" + DB_ROOT_DIR + "' path", t);
+        }
     }
 }

@@ -22,6 +22,9 @@ package org.apache.bifromq.basekv.store;
 import static com.google.protobuf.ByteString.copyFromUtf8;
 import static java.util.Collections.emptyMap;
 import static java.util.Collections.emptySet;
+import static org.apache.bifromq.basekv.localengine.StructUtil.toValue;
+import static org.apache.bifromq.basekv.localengine.rocksdb.RocksDBDefaultConfigs.DB_CHECKPOINT_ROOT_DIR;
+import static org.apache.bifromq.basekv.localengine.rocksdb.RocksDBDefaultConfigs.DB_ROOT_DIR;
 import static org.apache.bifromq.basekv.proto.State.StateType.Merged;
 import static org.apache.bifromq.basekv.proto.State.StateType.Normal;
 import static org.apache.bifromq.basekv.utils.BoundaryUtil.FULL_BOUNDARY;
@@ -35,6 +38,7 @@ import static org.testng.Assert.fail;
 
 import com.google.common.collect.Sets;
 import com.google.protobuf.ByteString;
+import com.google.protobuf.Struct;
 import io.reactivex.rxjava3.core.Observable;
 import io.reactivex.rxjava3.subjects.PublishSubject;
 import java.io.File;
@@ -58,8 +62,6 @@ import lombok.extern.slf4j.Slf4j;
 import org.apache.bifromq.baseenv.EnvProvider;
 import org.apache.bifromq.basekv.MockableTest;
 import org.apache.bifromq.basekv.TestCoProcFactory;
-import org.apache.bifromq.basekv.localengine.rocksdb.RocksDBCPableKVEngineConfigurator;
-import org.apache.bifromq.basekv.localengine.rocksdb.RocksDBWALableKVEngineConfigurator;
 import org.apache.bifromq.basekv.proto.EnsureRange;
 import org.apache.bifromq.basekv.proto.KVRangeDescriptor;
 import org.apache.bifromq.basekv.proto.KVRangeId;
@@ -105,16 +107,18 @@ public class KVRangeStoreTest extends MockableTest {
             EnvProvider.INSTANCE.newThreadFactory("bg-task-executor"));
 
         dbRootDir = Files.createTempDirectory("");
-        options.setDataEngineConfigurator((((RocksDBCPableKVEngineConfigurator) options.getDataEngineConfigurator()))
-            .toBuilder()
-            .dbCheckpointRootDir(Paths.get(dbRootDir.toString(), DB_CHECKPOINT_DIR_NAME)
-                .toString())
-            .dbRootDir(Paths.get(dbRootDir.toString(), DB_NAME).toString())
-            .build());
-        options.setWalEngineConfigurator(((RocksDBWALableKVEngineConfigurator) options.getWalEngineConfigurator())
-            .toBuilder()
-            .dbRootDir(Paths.get(dbRootDir.toString(), DB_WAL_NAME).toString())
-            .build());
+        Struct dataConf = options.getDataEngineConf().toBuilder()
+            .putFields(DB_CHECKPOINT_ROOT_DIR,
+                toValue(Paths.get(dbRootDir.toString(), DB_CHECKPOINT_DIR_NAME).toString()))
+            .putFields(DB_ROOT_DIR, toValue(Paths.get(dbRootDir.toString(), DB_NAME).toString()))
+            .build();
+        options.setDataEngineType(options.getDataEngineType());
+        options.setDataEngineConf(dataConf);
+        Struct walConf = options.getWalEngineConf().toBuilder()
+            .putFields(DB_ROOT_DIR, toValue(Paths.get(dbRootDir.toString(), DB_WAL_NAME).toString()))
+            .build();
+        options.setWalEngineType(options.getWalEngineType());
+        options.setWalEngineConf(walConf);
 
         rangeStore =
             new KVRangeStore("testCluster",

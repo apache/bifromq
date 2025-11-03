@@ -24,6 +24,7 @@ import static org.apache.bifromq.basekv.localengine.metrics.KVSpaceMeters.getGau
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
 import com.google.protobuf.ByteString;
+import com.google.protobuf.Struct;
 import io.micrometer.core.instrument.Gauge;
 import io.micrometer.core.instrument.Tags;
 import java.util.Optional;
@@ -47,13 +48,13 @@ class InMemCPableKVSpace extends InMemKVSpace<InMemCPableKVEngine, InMemCPableKV
     private volatile InMemKVSpaceCheckpoint latestCheckpoint;
 
     protected InMemCPableKVSpace(String id,
-                                 InMemKVEngineConfigurator configurator,
+                                 Struct conf,
                                  InMemCPableKVEngine engine,
                                  Runnable onDestroy,
                                  KVSpaceOpMeters opMeters,
                                  Logger logger,
                                  String... tags) {
-        super(id, configurator, engine, onDestroy, opMeters, logger, tags);
+        super(id, conf, engine, onDestroy, opMeters, logger, tags);
         activeEpoch = new AtomicReference<>(new InMemKVSpaceEpoch());
         checkpoints = Caffeine.newBuilder().weakValues().build();
         checkpointGauge = getGauge(id, GeneralKVSpaceMetric.CheckpointNumGauge, checkpoints::estimatedSize,

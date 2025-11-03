@@ -31,6 +31,10 @@
     <artifactId>build-bifromq-starter</artifactId>
 
     <dependencies>
+        <dependency>
+            <groupId>org.apache.bifromq</groupId>
+            <artifactId>base-hookloader</artifactId>
+        </dependency>
         <!-- third party compile dependencies -->
         <dependency>
             <groupId>commons-cli</groupId>

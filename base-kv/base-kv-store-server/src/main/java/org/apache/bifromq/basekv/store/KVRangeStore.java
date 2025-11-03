@@ -129,8 +129,8 @@ public class KVRangeStore implements IKVRangeStore {
         this.clusterId = clusterId;
         this.coProcFactory = coProcFactory;
         this.opts = opts.toBuilder().build();
-        this.walStorageEngine =
-            new KVRangeWALStorageEngine(clusterId, opts.getOverrideIdentity(), opts.getWalEngineConfigurator());
+        this.walStorageEngine = new KVRangeWALStorageEngine(clusterId, opts.getOverrideIdentity(),
+            opts.getWalEngineType(), opts.getWalEngineConf());
         id = walStorageEngine.id();
         String[] tags = new String[] {"clusterId", clusterId, "storeId", id};
         log = MDCLogger.getLogger(KVRangeStore.class, tags);
@@ -140,7 +140,7 @@ public class KVRangeStore implements IKVRangeStore {
             log.warn("KVRangeStore has been initialized with identity[{}], the override[{}] is ignored",
                 id, opts.getOverrideIdentity());
         }
-        kvRangeEngine = KVEngineFactory.createCPable(null, opts.getDataEngineConfigurator());
+        kvRangeEngine = KVEngineFactory.createCPable(null, opts.getDataEngineType(), opts.getDataEngineConf());
         this.queryExecutor = queryExecutor;
         this.bgTaskExecutor = bgTaskExecutor;
         this.tickExecutor = ExecutorServiceMetrics.monitor(Metrics.globalRegistry,

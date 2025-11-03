@@ -25,6 +25,7 @@ import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.lenient;
 
 import com.google.common.collect.Sets;
+import com.google.protobuf.Struct;
 import io.reactivex.rxjava3.core.Observable;
 import java.lang.reflect.Method;
 import java.time.Duration;
@@ -38,7 +39,6 @@ import org.apache.bifromq.basecluster.IAgentHost;
 import org.apache.bifromq.basecrdt.service.CRDTServiceOptions;
 import org.apache.bifromq.basecrdt.service.ICRDTService;
 import org.apache.bifromq.basekv.client.IBaseKVStoreClient;
-import org.apache.bifromq.basekv.localengine.memory.InMemKVEngineConfigurator;
 import org.apache.bifromq.basekv.metaservice.IBaseKVMetaService;
 import org.apache.bifromq.basekv.store.option.KVRangeStoreOptions;
 import org.apache.bifromq.basekv.utils.BoundaryUtil;
@@ -170,6 +170,7 @@ public abstract class MQTTTest {
             .trafficService(trafficService)
             .metaService(metaService)
             .build();
+        Struct memConf = Struct.newBuilder().build();
         inboxStore = IInboxStore.builder()
             .rpcServerBuilder(rpcServerBuilder)
             .agentHost(agentHost)
@@ -186,8 +187,10 @@ public abstract class MQTTTest {
             .bgTaskExecutor(bgTaskExecutor)
             .bootstrapDelay(Duration.ofSeconds(1))
             .storeOptions(new KVRangeStoreOptions()
-                .setDataEngineConfigurator(new InMemKVEngineConfigurator())
-                .setWalEngineConfigurator(new InMemKVEngineConfigurator()))
+                .setDataEngineType("memory")
+                .setDataEngineConf(memConf)
+                .setWalEngineType("memory")
+                .setWalEngineConf(memConf))
             .build();
         distClient = IDistClient.newBuilder()
             .trafficService(trafficService)
@@ -217,8 +220,10 @@ public abstract class MQTTTest {
             .bgTaskExecutor(bgTaskExecutor)
             .bootstrapDelay(Duration.ofSeconds(1))
             .storeOptions(new KVRangeStoreOptions()
-                .setDataEngineConfigurator(new InMemKVEngineConfigurator())
-                .setWalEngineConfigurator(new InMemKVEngineConfigurator()))
+                .setDataEngineType("memory")
+                .setDataEngineConf(memConf)
+                .setWalEngineType("memory")
+                .setWalEngineConf(memConf))
             .build();
 
         distWorkerStoreClient = IBaseKVStoreClient.newBuilder()
@@ -247,8 +252,10 @@ public abstract class MQTTTest {
             .bgTaskExecutor(bgTaskExecutor)
             .bootstrapDelay(Duration.ofSeconds(1))
             .storeOptions(new KVRangeStoreOptions()
-                .setDataEngineConfigurator(new InMemKVEngineConfigurator())
-                .setWalEngineConfigurator(new InMemKVEngineConfigurator()))
+                .setDataEngineType("memory")
+                .setDataEngineConf(memConf)
+                .setWalEngineType("memory")
+                .setWalEngineConf(memConf))
             .subBrokerManager(inboxBrokerMgr)
             .settingProvider(settingProvider)
             .build();
@@ -302,9 +309,12 @@ public abstract class MQTTTest {
             .filter(state -> state == IRPCClient.ConnState.READY)
             .firstElement()
             .blockingSubscribe();
-        await().forever().until(() -> BoundaryUtil.isValidSplitSet(distWorkerStoreClient.latestEffectiveRouter().keySet()));
-        await().forever().until(() -> BoundaryUtil.isValidSplitSet(inboxStoreKVStoreClient.latestEffectiveRouter().keySet()));
-        await().forever().until(() -> BoundaryUtil.isValidSplitSet(retainStoreKVStoreClient.latestEffectiveRouter().keySet()));
+        await().forever()
+            .until(() -> BoundaryUtil.isValidSplitSet(distWorkerStoreClient.latestEffectiveRouter().keySet()));
+        await().forever()
+            .until(() -> BoundaryUtil.isValidSplitSet(inboxStoreKVStoreClient.latestEffectiveRouter().keySet()));
+        await().forever()
+            .until(() -> BoundaryUtil.isValidSplitSet(retainStoreKVStoreClient.latestEffectiveRouter().keySet()));
         lenient().when(settingProvider.provide(any(), anyString()))
             .thenAnswer(invocation -> {
                 Setting setting = invocation.getArgument(0);

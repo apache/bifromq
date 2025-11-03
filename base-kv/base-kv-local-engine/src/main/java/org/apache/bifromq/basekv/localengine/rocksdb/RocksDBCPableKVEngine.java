@@ -19,28 +19,28 @@
 
 package org.apache.bifromq.basekv.localengine.rocksdb;
 
+import static org.apache.bifromq.basekv.localengine.StructUtil.strVal;
+import static org.apache.bifromq.basekv.localengine.rocksdb.RocksDBDefaultConfigs.DB_CHECKPOINT_ROOT_DIR;
+import static org.apache.bifromq.basekv.localengine.rocksdb.RocksDBDefaultConfigs.DB_ROOT_DIR;
+
+import com.google.protobuf.Struct;
 import io.micrometer.core.instrument.Gauge;
 import io.micrometer.core.instrument.Metrics;
 import io.micrometer.core.instrument.Tags;
 import java.io.File;
 import java.nio.file.Files;
+import java.nio.file.Paths;
 import org.apache.bifromq.basekv.localengine.KVEngineException;
 import org.apache.bifromq.basekv.localengine.metrics.KVSpaceOpMeters;
 import org.slf4j.Logger;
 
-class RocksDBCPableKVEngine extends RocksDBKVEngine<
-    RocksDBCPableKVEngine,
-    RocksDBCPableKVSpace,
-    RocksDBCPableKVEngineConfigurator,
-    RocksDBCPableKVSpaceEpochHandle
-    > {
+class RocksDBCPableKVEngine extends RocksDBKVEngine<RocksDBCPableKVSpace> {
     private final File cpRootDir;
     private MetricManager metricManager;
 
-    public RocksDBCPableKVEngine(String overrideIdentity,
-                                 RocksDBCPableKVEngineConfigurator configurator) {
-        super(overrideIdentity, configurator);
-        cpRootDir = new File(configurator.dbCheckpointRootDir());
+    public RocksDBCPableKVEngine(String overrideIdentity, Struct conf) {
+        super(overrideIdentity, conf);
+        cpRootDir = new File(strVal(conf, DB_CHECKPOINT_ROOT_DIR));
         try {
             Files.createDirectories(cpRootDir.getAbsoluteFile().toPath());
         } catch (Throwable e) {
@@ -50,12 +50,27 @@ class RocksDBCPableKVEngine extends RocksDBKVEngine<
 
     @Override
     protected RocksDBCPableKVSpace doBuildKVSpace(String spaceId,
-                                                  RocksDBCPableKVEngineConfigurator configurator,
+                                                  Struct conf,
                                                   Runnable onDestroy,
                                                   KVSpaceOpMeters opMeters,
                                                   Logger logger,
                                                   String... tags) {
-        return new RocksDBCPableKVSpace(spaceId, configurator, this, onDestroy, opMeters, logger, tags);
+        return new RocksDBCPableKVSpace(spaceId, conf, this, onDestroy, opMeters, logger, tags);
+    }
+
+    @Override
+    protected Struct defaultConf() {
+        return RocksDBDefaultConfigs.CP;
+    }
+
+    @Override
+    protected void validateSemantics(Struct conf) {
+        try {
+            Paths.get(strVal(conf, DB_ROOT_DIR));
+            Paths.get(strVal(conf, DB_CHECKPOINT_ROOT_DIR));
+        } catch (Throwable t) {
+            throw new IllegalArgumentException("Invalid RocksDB data/checkpoint path in configuration", t);
+        }
     }
 
     @Override

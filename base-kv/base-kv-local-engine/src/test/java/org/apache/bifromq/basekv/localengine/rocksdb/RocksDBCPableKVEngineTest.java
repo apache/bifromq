@@ -19,9 +19,13 @@
 
 package org.apache.bifromq.basekv.localengine.rocksdb;
 
+import static org.apache.bifromq.basekv.localengine.rocksdb.RocksDBDefaultConfigs.DB_CHECKPOINT_ROOT_DIR;
+import static org.apache.bifromq.basekv.localengine.rocksdb.RocksDBDefaultConfigs.DB_ROOT_DIR;
 import static org.testng.Assert.assertFalse;
 import static org.testng.Assert.assertTrue;
 
+import com.google.protobuf.Struct;
+import com.google.protobuf.Value;
 import io.reactivex.rxjava3.disposables.Disposable;
 import java.io.File;
 import java.nio.file.Paths;
@@ -34,22 +38,22 @@ import org.testng.annotations.Test;
 public class RocksDBCPableKVEngineTest extends AbstractRocksDBCPableEngineTest {
     private final String DB_NAME = "testDB";
     private final String DB_CHECKPOINT_DIR = "testDB_cp";
-    private RocksDBCPableKVEngineConfigurator configurator;
+    private Struct conf;
 
     @SneakyThrows
     @Override
     protected void beforeStart() {
         super.beforeStart();
-        configurator = RocksDBCPableKVEngineConfigurator.builder()
-            .dbRootDir(Paths.get(dbRootDir.toString(), DB_NAME).toString())
-            .dbCheckpointRootDir(Paths.get(dbRootDir.toString(), DB_CHECKPOINT_DIR).toString())
+        conf = RocksDBDefaultConfigs.CP.toBuilder()
+            .putFields(DB_ROOT_DIR, Value.newBuilder().setStringValue(Paths.get(dbRootDir.toString(), DB_NAME).toString()).build())
+            .putFields(DB_CHECKPOINT_ROOT_DIR, Value.newBuilder().setStringValue(Paths.get(dbRootDir.toString(), DB_CHECKPOINT_DIR).toString()).build())
             .build();
     }
 
     @SneakyThrows
     @Override
     protected IKVEngine<? extends ICPableKVSpace> newEngine() {
-        return new RocksDBCPableKVEngine(null, configurator);
+        return new RocksDBCPableKVEngine(null, conf);
     }
 
     @Test

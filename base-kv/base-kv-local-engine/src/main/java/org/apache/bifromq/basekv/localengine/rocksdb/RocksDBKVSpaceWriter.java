@@ -31,22 +31,18 @@ import org.rocksdb.RocksDBException;
 import org.rocksdb.WriteOptions;
 import org.slf4j.Logger;
 
-class RocksDBKVSpaceWriter<
-    E extends RocksDBKVEngine<E, T, C, P>,
-    T extends RocksDBKVSpace<E, T, C, P>,
-    C extends RocksDBKVEngineConfigurator<C>,
-    P extends RocksDBKVSpaceEpochHandle<C>> implements IKVSpaceWriter {
+class RocksDBKVSpaceWriter implements IKVSpaceWriter {
     protected final String id;
     protected final KVSpaceOpMeters opMeters;
     protected final Logger logger;
-    protected final E engine;
+    protected final RocksDBKVEngine<?> engine;
     protected final RocksDBKVSpaceWriterHelper helper;
     protected final IRocksDBKVSpaceEpochHandle dbHandle;
     private final IWriteStatsRecorder.IRecorder writeStatsRecorder;
 
     RocksDBKVSpaceWriter(String id,
                          IRocksDBKVSpaceEpochHandle dbHandle,
-                         E engine,
+                         RocksDBKVEngine<?> engine,
                          WriteOptions writeOptions,
                          ISyncContext syncContext,
                          IWriteStatsRecorder.IRecorder writeStatsRecorder,
@@ -59,7 +55,7 @@ class RocksDBKVSpaceWriter<
 
     private RocksDBKVSpaceWriter(String id,
                                  IRocksDBKVSpaceEpochHandle dbHandle,
-                                 E engine,
+                                 RocksDBKVEngine<?> engine,
                                  ISyncContext syncContext,
                                  RocksDBKVSpaceWriterHelper writerHelper,
                                  IWriteStatsRecorder.IRecorder writeStatsRecorder,

@@ -21,6 +21,9 @@ package org.apache.bifromq.retain.store;
 
 import static org.apache.bifromq.basekv.client.KVRangeRouterUtil.findByBoundary;
 import static org.apache.bifromq.basekv.client.KVRangeRouterUtil.findByKey;
+import static org.apache.bifromq.basekv.localengine.StructUtil.toValue;
+import static org.apache.bifromq.basekv.localengine.rocksdb.RocksDBDefaultConfigs.DB_CHECKPOINT_ROOT_DIR;
+import static org.apache.bifromq.basekv.localengine.rocksdb.RocksDBDefaultConfigs.DB_ROOT_DIR;
 import static org.apache.bifromq.basekv.utils.BoundaryUtil.FULL_BOUNDARY;
 import static org.apache.bifromq.metrics.TenantMetric.MqttRetainNumGauge;
 import static org.apache.bifromq.metrics.TenantMetric.MqttRetainSpaceGauge;
@@ -29,6 +32,7 @@ import static org.testng.Assert.assertEquals;
 import static org.testng.Assert.assertTrue;
 
 import com.google.protobuf.ByteString;
+import com.google.protobuf.Struct;
 import io.micrometer.core.instrument.Gauge;
 import io.micrometer.core.instrument.Meter;
 import io.micrometer.core.instrument.Metrics;
@@ -55,8 +59,6 @@ import org.apache.bifromq.baseenv.EnvProvider;
 import org.apache.bifromq.basehlc.HLC;
 import org.apache.bifromq.basekv.client.IBaseKVStoreClient;
 import org.apache.bifromq.basekv.client.KVRangeSetting;
-import org.apache.bifromq.basekv.localengine.rocksdb.RocksDBCPableKVEngineConfigurator;
-import org.apache.bifromq.basekv.localengine.rocksdb.RocksDBWALableKVEngineConfigurator;
 import org.apache.bifromq.basekv.metaservice.IBaseKVMetaService;
 import org.apache.bifromq.basekv.store.option.KVRangeStoreOptions;
 import org.apache.bifromq.basekv.store.proto.KVRangeROReply;
@@ -131,20 +133,25 @@ public class RetainStoreTest {
 
         String uuid = UUID.randomUUID().toString();
         options = new KVRangeStoreOptions();
-        options.setDataEngineConfigurator(((RocksDBCPableKVEngineConfigurator) options.getDataEngineConfigurator())
-            .toBuilder()
-            .dbCheckpointRootDir(Paths.get(dbRootDir.toString(), DB_CHECKPOINT_DIR_NAME, uuid).toString())
-            .dbRootDir(Paths.get(dbRootDir.toString(), DB_NAME, uuid).toString())
-            .build());
-        options.setWalEngineConfigurator(((RocksDBWALableKVEngineConfigurator) options.getWalEngineConfigurator())
-            .toBuilder()
-            .dbRootDir(Paths.get(dbRootDir.toString(), DB_WAL_NAME, uuid).toString())
-            .build());
+        Struct dataConf = options.getDataEngineConf().toBuilder()
+            .putFields(DB_ROOT_DIR, toValue(Paths.get(dbRootDir.toString(), DB_NAME, uuid).toString()))
+            .putFields(DB_CHECKPOINT_ROOT_DIR,
+                toValue(Paths.get(dbRootDir.toString(), DB_CHECKPOINT_DIR_NAME, uuid).toString()))
+            .build();
+        options.setDataEngineType(options.getDataEngineType());
+        options.setDataEngineConf(dataConf);
+        Struct walConf = options.getWalEngineConf().toBuilder()
+            .putFields(DB_ROOT_DIR, toValue(Paths.get(dbRootDir.toString(), DB_WAL_NAME, uuid).toString()))
+            .build();
+        options.setWalEngineType(options.getWalEngineType());
+        options.setWalEngineConf(walConf);
         bgTaskExecutor = new ScheduledThreadPoolExecutor(1, EnvProvider.INSTANCE.newThreadFactory("bg-task-executor"));
 
-        storeClient =
-            IBaseKVStoreClient.newBuilder().clusterId(IRetainStore.CLUSTER_NAME).trafficService(trafficService)
-                .metaService(metaService).build();
+        storeClient = IBaseKVStoreClient.newBuilder()
+            .clusterId(IRetainStore.CLUSTER_NAME)
+            .trafficService(trafficService)
+            .metaService(metaService)
+            .build();
         buildStoreServer();
         rpcServer.start();
         await().forever().until(() -> BoundaryUtil.isValidSplitSet(storeClient.latestEffectiveRouter().keySet()));

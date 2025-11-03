@@ -19,10 +19,11 @@
 
 package org.apache.bifromq.basekv.localengine.benchmark;
 
-import org.apache.bifromq.basekv.localengine.ICPableKVSpace;
-import org.apache.bifromq.basekv.localengine.IKVEngine;
-import org.apache.bifromq.basekv.localengine.KVEngineFactory;
-import org.apache.bifromq.basekv.localengine.rocksdb.RocksDBCPableKVEngineConfigurator;
+import static org.apache.bifromq.basekv.localengine.rocksdb.RocksDBDefaultConfigs.DB_CHECKPOINT_ROOT_DIR;
+import static org.apache.bifromq.basekv.localengine.rocksdb.RocksDBDefaultConfigs.DB_ROOT_DIR;
+
+import com.google.protobuf.Struct;
+import com.google.protobuf.Value;
 import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -31,6 +32,9 @@ import java.nio.file.Paths;
 import java.util.Comparator;
 import java.util.UUID;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.bifromq.basekv.localengine.ICPableKVSpace;
+import org.apache.bifromq.basekv.localengine.IKVEngine;
+import org.apache.bifromq.basekv.localengine.KVEngineFactory;
 import org.openjdk.jmh.annotations.Setup;
 import org.openjdk.jmh.annotations.TearDown;
 import org.openjdk.jmh.runner.Runner;
@@ -54,11 +58,13 @@ public abstract class BenchmarkTemplate {
         String DB_NAME = "testDB";
         String DB_CHECKPOINT_DIR = "testDB_cp";
         String uuid = UUID.randomUUID().toString();
-        RocksDBCPableKVEngineConfigurator configurator = RocksDBCPableKVEngineConfigurator.builder()
-            .dbCheckpointRootDir(Paths.get(dbRootDir.toString(), uuid, DB_CHECKPOINT_DIR).toString())
-            .dbRootDir(Paths.get(dbRootDir.toString(), uuid, DB_NAME).toString())
+        Struct conf = Struct.newBuilder()
+            .putFields(DB_ROOT_DIR,
+                Value.newBuilder().setStringValue(Paths.get(dbRootDir.toString(), uuid, DB_NAME).toString()).build())
+            .putFields(DB_CHECKPOINT_ROOT_DIR,
+                Value.newBuilder().setStringValue(Paths.get(dbRootDir.toString(), uuid, DB_CHECKPOINT_DIR).toString()).build())
             .build();
-        kvEngine = KVEngineFactory.createCPable(null, configurator);
+        kvEngine = KVEngineFactory.createCPable(null, "rocksdb", conf);
         kvEngine.start();
         doSetup();
     }

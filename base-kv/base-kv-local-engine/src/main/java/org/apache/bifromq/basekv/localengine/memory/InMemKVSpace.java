@@ -20,6 +20,7 @@
 package org.apache.bifromq.basekv.localengine.memory;
 
 import com.google.protobuf.ByteString;
+import com.google.protobuf.Struct;
 import java.util.Collections;
 import java.util.Map;
 import java.util.NavigableMap;
@@ -36,21 +37,19 @@ import org.slf4j.Logger;
 abstract class InMemKVSpace<
     E extends InMemKVEngine<E, T>,
     T extends InMemKVSpace<E, T>> extends AbstractKVSpace<InMemKVSpaceEpoch> {
-    protected final InMemKVEngineConfigurator configurator;
     protected final E engine;
     protected final ISyncContext syncContext = new SyncContext();
     protected final ISyncContext.IRefresher metadataRefresher = syncContext.refresher();
     protected final TrackedBoundaryIndex tracker = new TrackedBoundaryIndex();
 
     protected InMemKVSpace(String id,
-                           InMemKVEngineConfigurator configurator,
+                           Struct conf,
                            E engine,
                            Runnable onDestroy,
                            KVSpaceOpMeters opMeters,
                            Logger logger,
                            String... tags) {
         super(id, onDestroy, opMeters, logger, tags);
-        this.configurator = configurator;
         this.engine = engine;
     }
 

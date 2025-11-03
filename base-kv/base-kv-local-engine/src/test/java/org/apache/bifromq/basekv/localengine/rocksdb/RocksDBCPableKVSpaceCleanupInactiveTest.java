@@ -24,6 +24,8 @@ import static org.apache.bifromq.basekv.localengine.rocksdb.RocksDBKVEngine.IDEN
 import static org.testng.Assert.assertEquals;
 import static org.testng.Assert.assertTrue;
 
+import com.google.protobuf.Struct;
+import com.google.protobuf.Value;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.UUID;
@@ -79,9 +81,9 @@ public class RocksDBCPableKVSpaceCleanupInactiveTest {
         // An unrelated file under root should be removed as well
         Files.writeString(spaceRoot.resolve("leftover.txt"), "x");
 
-        RocksDBCPableKVEngineConfigurator conf = RocksDBCPableKVEngineConfigurator.builder()
-            .dbRootDir(dbRoot.toString())
-            .dbCheckpointRootDir(cpRoot.toString())
+        Struct conf = RocksDBDefaultConfigs.CP.toBuilder()
+            .putFields(RocksDBDefaultConfigs.DB_ROOT_DIR, Value.newBuilder().setStringValue(dbRoot.toString()).build())
+            .putFields(RocksDBDefaultConfigs.DB_CHECKPOINT_ROOT_DIR, Value.newBuilder().setStringValue(cpRoot.toString()).build())
             .build();
         engine = new RocksDBCPableKVEngine(null, conf);
         engine.start("tag", "value");

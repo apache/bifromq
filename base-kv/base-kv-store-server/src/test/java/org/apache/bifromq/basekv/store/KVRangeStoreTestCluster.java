@@ -21,6 +21,9 @@ package org.apache.bifromq.basekv.store;
 
 import static java.util.Collections.emptyMap;
 import static java.util.Collections.emptySet;
+import static org.apache.bifromq.basekv.localengine.StructUtil.toValue;
+import static org.apache.bifromq.basekv.localengine.rocksdb.RocksDBDefaultConfigs.DB_CHECKPOINT_ROOT_DIR;
+import static org.apache.bifromq.basekv.localengine.rocksdb.RocksDBDefaultConfigs.DB_ROOT_DIR;
 import static org.apache.bifromq.basekv.utils.BoundaryUtil.FULL_BOUNDARY;
 import static org.awaitility.Awaitility.await;
 
@@ -29,6 +32,7 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import com.google.protobuf.ByteString;
+import com.google.protobuf.Struct;
 import io.reactivex.rxjava3.core.Observable;
 import io.reactivex.rxjava3.disposables.CompositeDisposable;
 import io.reactivex.rxjava3.schedulers.Schedulers;
@@ -58,9 +62,6 @@ import lombok.extern.slf4j.Slf4j;
 import org.apache.bifromq.baseenv.EnvProvider;
 import org.apache.bifromq.basekv.TestCoProcFactory;
 import org.apache.bifromq.basekv.TestUtil;
-import org.apache.bifromq.basekv.localengine.memory.InMemKVEngineConfigurator;
-import org.apache.bifromq.basekv.localengine.rocksdb.RocksDBCPableKVEngineConfigurator;
-import org.apache.bifromq.basekv.localengine.rocksdb.RocksDBWALableKVEngineConfigurator;
 import org.apache.bifromq.basekv.proto.KVRangeDescriptor;
 import org.apache.bifromq.basekv.proto.KVRangeId;
 import org.apache.bifromq.basekv.proto.KVRangeStoreDescriptor;
@@ -470,20 +471,18 @@ public class KVRangeStoreTestCluster {
     private String buildStore(boolean isBootstrap) {
         String uuid = UUID.randomUUID().toString();
         KVRangeStoreOptions options = optionsTpl.toBuilder().build();
-        if (options.getDataEngineConfigurator() instanceof RocksDBCPableKVEngineConfigurator) {
-            options.setDataEngineConfigurator(((RocksDBCPableKVEngineConfigurator) options.getDataEngineConfigurator())
-                .toBuilder()
-                .dbRootDir(Paths.get(dbRootDir.toString(), DB_NAME, uuid).toString())
-                .dbCheckpointRootDir(Paths.get(dbRootDir.toString(), DB_CHECKPOINT_DIR_NAME, uuid)
-                    .toString())
-                .build());
-        }
-        if (options.getWalEngineConfigurator() instanceof RocksDBWALableKVEngineConfigurator) {
-            options.setWalEngineConfigurator(((RocksDBWALableKVEngineConfigurator) options
-                .getWalEngineConfigurator()).toBuilder()
-                .dbRootDir(Paths.get(dbRootDir.toString(), DB_WAL_NAME, uuid).toString())
-                .build());
-        }
+        Struct dataConf = options.getDataEngineConf().toBuilder()
+            .putFields(DB_ROOT_DIR, toValue(Paths.get(dbRootDir.toString(), DB_NAME, uuid).toString()))
+            .putFields(DB_CHECKPOINT_ROOT_DIR,
+                toValue(Paths.get(dbRootDir.toString(), DB_CHECKPOINT_DIR_NAME, uuid).toString()))
+            .build();
+        options.setDataEngineType(options.getDataEngineType());
+        options.setDataEngineConf(dataConf);
+        Struct walConf = options.getWalEngineConf().toBuilder()
+            .putFields(DB_ROOT_DIR, toValue(Paths.get(dbRootDir.toString(), DB_WAL_NAME, uuid).toString()))
+            .build();
+        options.setWalEngineType(options.getWalEngineType());
+        options.setWalEngineConf(walConf);
         KVRangeStore store = initStore(options);
         if (isBootstrap) {
             store.bootstrap(KVRangeIdUtil.generate(), FULL_BOUNDARY).join();
@@ -495,23 +494,21 @@ public class KVRangeStoreTestCluster {
     private void loadStore(String storeId) {
         String uuid = storePathMap.get(storeId);
         KVRangeStoreOptions options = optionsTpl.toBuilder().build();
-        if (options.getWalEngineConfigurator() instanceof InMemKVEngineConfigurator) {
+        if ("memory".equalsIgnoreCase(options.getWalEngineType())) {
             options.setOverrideIdentity(storeId);
         }
-        if (options.getDataEngineConfigurator() instanceof RocksDBCPableKVEngineConfigurator) {
-            options.setDataEngineConfigurator(((RocksDBCPableKVEngineConfigurator) options.getDataEngineConfigurator())
-                .toBuilder()
-                .dbRootDir(Paths.get(dbRootDir.toString(), DB_NAME, uuid).toString())
-                .dbCheckpointRootDir(Paths.get(dbRootDir.toString(), DB_CHECKPOINT_DIR_NAME, uuid).toString())
-                .build());
-        }
-        if (options.getWalEngineConfigurator() instanceof RocksDBWALableKVEngineConfigurator) {
-            options.setWalEngineConfigurator(((RocksDBWALableKVEngineConfigurator) options
-                .getWalEngineConfigurator())
-                .toBuilder()
-                .dbRootDir(Paths.get(dbRootDir.toString(), DB_WAL_NAME, uuid).toString())
-                .build());
-        }
+        Struct dataConf = options.getDataEngineConf().toBuilder()
+            .putFields(DB_ROOT_DIR, toValue(Paths.get(dbRootDir.toString(), DB_NAME, uuid).toString()))
+            .putFields(DB_CHECKPOINT_ROOT_DIR,
+                toValue(Paths.get(dbRootDir.toString(), DB_CHECKPOINT_DIR_NAME, uuid).toString()))
+            .build();
+        options.setDataEngineType(options.getDataEngineType());
+        options.setDataEngineConf(dataConf);
+        Struct walConf = options.getWalEngineConf().toBuilder()
+            .putFields(DB_ROOT_DIR, toValue(Paths.get(dbRootDir.toString(), DB_WAL_NAME, uuid).toString()))
+            .build();
+        options.setWalEngineType(options.getWalEngineType());
+        options.setWalEngineConf(walConf);
         initStore(options);
     }
 

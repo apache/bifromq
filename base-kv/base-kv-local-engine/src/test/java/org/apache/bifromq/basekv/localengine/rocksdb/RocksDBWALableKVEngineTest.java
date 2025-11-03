@@ -19,27 +19,29 @@
 
 package org.apache.bifromq.basekv.localengine.rocksdb;
 
+import com.google.protobuf.Struct;
+import com.google.protobuf.Value;
 import java.nio.file.Paths;
 import lombok.SneakyThrows;
 import org.apache.bifromq.basekv.localengine.IKVEngine;
 import org.apache.bifromq.basekv.localengine.IWALableKVSpace;
 
 public class RocksDBWALableKVEngineTest extends AbstractRocksDBWALableEngineTest {
-    protected RocksDBWALableKVEngineConfigurator configurator;
+    protected Struct conf;
 
     @SneakyThrows
     @Override
     protected void beforeStart() {
         super.beforeStart();
         String DB_NAME = "testDB";
-        configurator = RocksDBWALableKVEngineConfigurator.builder()
-            .dbRootDir(Paths.get(dbRootDir.toString(), DB_NAME).toString())
+        conf = RocksDBDefaultConfigs.WAL.toBuilder()
+            .putFields(RocksDBDefaultConfigs.DB_ROOT_DIR, Value.newBuilder().setStringValue(Paths.get(dbRootDir.toString(), DB_NAME).toString()).build())
             .build();
     }
 
     @SneakyThrows
     @Override
     protected IKVEngine<? extends IWALableKVSpace> newEngine() {
-        return new RocksDBWALableKVEngine(null, configurator);
+        return new RocksDBWALableKVEngine(null, conf);
     }
 }

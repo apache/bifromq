@@ -22,7 +22,7 @@ package org.apache.bifromq.basekv.localengine.rocksdb;
 /**
  * Handle to a RocksDB KV space epoch.
  */
-public interface IRocksDBKVSpaceEpochHandle extends IRocksDBKVSpaceEpoch {
+interface IRocksDBKVSpaceEpochHandle extends IRocksDBKVSpaceEpoch {
     /**
      * Close the handle and release any resources.
      */

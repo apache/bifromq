@@ -19,9 +19,6 @@
 
 package org.apache.bifromq.starter.module;
 
-import static org.apache.bifromq.starter.module.EngineConfUtil.buildDataEngineConf;
-import static org.apache.bifromq.starter.module.EngineConfUtil.buildWALEngineConf;
-
 import com.google.inject.AbstractModule;
 import com.google.inject.Inject;
 import com.google.inject.Key;
@@ -138,8 +135,10 @@ public class InboxServiceModule extends AbstractModule {
                         .setMaxWALFatchBatchSize(storeConfig.getMaxWALFetchSize())
                         .setCompactWALThreshold(storeConfig.getCompactWALThreshold())
                         .setEnableLoadEstimation(true))
-                    .setDataEngineConfigurator(buildDataEngineConf(storeConfig.getDataEngineConfig(), "inbox_data"))
-                    .setWalEngineConfigurator(buildWALEngineConf(storeConfig.getWalEngineConfig(), "inbox_wal")))
+                    .setDataEngineType(storeConfig.getDataEngineConfig().getType())
+                    .setDataEngineConf(storeConfig.getDataEngineConfig().toStruct())
+                    .setWalEngineType(storeConfig.getWalEngineConfig().getType())
+                    .setWalEngineConf(storeConfig.getWalEngineConfig().toStruct()))
                 .attributes(storeConfig.getAttributes())
                 .build());
         }

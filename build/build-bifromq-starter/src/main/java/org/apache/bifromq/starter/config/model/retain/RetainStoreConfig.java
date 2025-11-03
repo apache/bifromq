@@ -19,6 +19,10 @@
 
 package org.apache.bifromq.starter.config.model.retain;
 
+import static org.apache.bifromq.basekv.localengine.rocksdb.RocksDBDefaultConfigs.COMPACT_MIN_TOMBSTONE_KEYS;
+import static org.apache.bifromq.basekv.localengine.rocksdb.RocksDBDefaultConfigs.COMPACT_MIN_TOMBSTONE_RANGES;
+import static org.apache.bifromq.basekv.localengine.rocksdb.RocksDBDefaultConfigs.MANUAL_COMPACTION;
+
 import com.fasterxml.jackson.annotation.JsonMerge;
 import com.fasterxml.jackson.annotation.JsonSetter;
 import com.fasterxml.jackson.annotation.Nulls;
@@ -30,9 +34,7 @@ import lombok.Getter;
 import lombok.Setter;
 import org.apache.bifromq.baseenv.EnvProvider;
 import org.apache.bifromq.starter.config.model.BalancerOptions;
-import org.apache.bifromq.starter.config.model.RocksDBEngineConfig;
-import org.apache.bifromq.starter.config.model.StorageEngineConfig;
-import org.apache.bifromq.starter.config.model.StorageEngineConfigUtil;
+import org.apache.bifromq.starter.config.model.EngineConfig;
 
 @Getter
 @Setter
@@ -45,15 +47,25 @@ public class RetainStoreConfig {
     private int compactWALThreshold = 256 * 1024 * 1024;
     private int gcIntervalSeconds = 600;
     @JsonSetter(nulls = Nulls.SKIP)
-    private StorageEngineConfig dataEngineConfig = new RocksDBEngineConfig()
-        .setManualCompaction(true)
-        .setCompactMinTombstoneKeys(2500)
-        .setCompactMinTombstoneRanges(2);
+    private EngineConfig dataEngineConfig = new EngineConfig()
+        .setType("rocksdb")
+        .setProps(new HashMap<>() {
+            {
+                put(MANUAL_COMPACTION, true);
+                put(COMPACT_MIN_TOMBSTONE_KEYS, 2500);
+                put(COMPACT_MIN_TOMBSTONE_RANGES, 2);
+            }
+        });
     @JsonSetter(nulls = Nulls.SKIP)
-    private StorageEngineConfig walEngineConfig = new RocksDBEngineConfig()
-        .setManualCompaction(true)
-        .setCompactMinTombstoneKeys(2500)
-        .setCompactMinTombstoneRanges(2);
+    private EngineConfig walEngineConfig = new EngineConfig()
+        .setType("rocksdb")
+        .setProps(new HashMap<>() {
+            {
+                put(MANUAL_COMPACTION, true);
+                put(COMPACT_MIN_TOMBSTONE_KEYS, 2500);
+                put(COMPACT_MIN_TOMBSTONE_RANGES, 2);
+            }
+        });
     @JsonSetter(nulls = Nulls.SKIP)
     @JsonMerge
     private BalancerOptions balanceConfig = new BalancerOptions();
@@ -74,15 +86,5 @@ public class RetainStoreConfig {
                 .putFields("maxIODensity", Value.newBuilder().setNumberValue(100).build())
                 .putFields("ioNanosLimit", Value.newBuilder().setNumberValue(30_000).build())
                 .build());
-    }
-
-    @JsonSetter("dataEngineConfig")
-    public void setDataEngineConfig(Map<String, Object> conf) {
-        dataEngineConfig = StorageEngineConfigUtil.updateOrReplace(dataEngineConfig, conf);
-    }
-
-    @JsonSetter("walEngineConfig")
-    public void setWalEngineConfig(Map<String, Object> conf) {
-        walEngineConfig = StorageEngineConfigUtil.updateOrReplace(walEngineConfig, conf);
     }
 }

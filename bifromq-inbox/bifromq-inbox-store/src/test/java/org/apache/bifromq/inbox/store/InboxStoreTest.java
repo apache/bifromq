@@ -21,6 +21,9 @@ package org.apache.bifromq.inbox.store;
 
 import static org.apache.bifromq.basekv.client.KVRangeRouterUtil.findByBoundary;
 import static org.apache.bifromq.basekv.client.KVRangeRouterUtil.findByKey;
+import static org.apache.bifromq.basekv.localengine.StructUtil.toValue;
+import static org.apache.bifromq.basekv.localengine.rocksdb.RocksDBDefaultConfigs.DB_CHECKPOINT_ROOT_DIR;
+import static org.apache.bifromq.basekv.localengine.rocksdb.RocksDBDefaultConfigs.DB_ROOT_DIR;
 import static org.apache.bifromq.basekv.utils.BoundaryUtil.FULL_BOUNDARY;
 import static org.apache.bifromq.inbox.store.schema.KVSchemaUtil.inboxStartKeyPrefix;
 import static org.apache.bifromq.metrics.TenantMetric.MqttPersistentSessionNumGauge;
@@ -34,6 +37,7 @@ import static org.testng.Assert.assertEquals;
 import static org.testng.Assert.assertTrue;
 
 import com.google.protobuf.ByteString;
+import com.google.protobuf.Struct;
 import io.micrometer.core.instrument.Gauge;
 import io.micrometer.core.instrument.Meter;
 import io.micrometer.core.instrument.Metrics;
@@ -66,8 +70,6 @@ import org.apache.bifromq.basecrdt.service.ICRDTService;
 import org.apache.bifromq.baseenv.EnvProvider;
 import org.apache.bifromq.basekv.client.IBaseKVStoreClient;
 import org.apache.bifromq.basekv.client.KVRangeSetting;
-import org.apache.bifromq.basekv.localengine.rocksdb.RocksDBCPableKVEngineConfigurator;
-import org.apache.bifromq.basekv.localengine.rocksdb.RocksDBWALableKVEngineConfigurator;
 import org.apache.bifromq.basekv.metaservice.IBaseKVMetaService;
 import org.apache.bifromq.basekv.store.option.KVRangeStoreOptions;
 import org.apache.bifromq.basekv.store.proto.KVRangeROReply;
@@ -185,15 +187,18 @@ abstract class InboxStoreTest {
 
         String uuid = UUID.randomUUID().toString();
         options = new KVRangeStoreOptions();
-        options.setDataEngineConfigurator(((RocksDBCPableKVEngineConfigurator) options.getDataEngineConfigurator())
-            .toBuilder()
-            .dbCheckpointRootDir(Paths.get(dbRootDir.toString(), DB_CHECKPOINT_DIR_NAME, uuid).toString())
-            .dbRootDir(Paths.get(dbRootDir.toString(), DB_NAME, uuid).toString())
-            .build());
-        options.setWalEngineConfigurator(((RocksDBWALableKVEngineConfigurator) options.getWalEngineConfigurator())
-            .toBuilder()
-            .dbRootDir(Paths.get(dbRootDir.toString(), DB_WAL_NAME, uuid).toString())
-            .build());
+        Struct dataConf = options.getDataEngineConf().toBuilder()
+            .putFields(DB_ROOT_DIR, toValue(Paths.get(dbRootDir.toString(), DB_NAME, uuid).toString()))
+            .putFields(DB_CHECKPOINT_ROOT_DIR,
+                toValue(Paths.get(dbRootDir.toString(), DB_CHECKPOINT_DIR_NAME, uuid).toString()))
+            .build();
+        options.setDataEngineType(options.getDataEngineType());
+        options.setDataEngineConf(dataConf);
+        Struct walConf = options.getWalEngineConf().toBuilder()
+            .putFields(DB_ROOT_DIR, toValue(Paths.get(dbRootDir.toString(), DB_WAL_NAME, uuid).toString()))
+            .build();
+        options.setWalEngineType(options.getWalEngineType());
+        options.setWalEngineConf(walConf);
         queryExecutor = new ThreadPoolExecutor(2, 2, 0L,
             TimeUnit.MILLISECONDS, new LinkedTransferQueue<>(),
             EnvProvider.INSTANCE.newThreadFactory("query-executor"));
@@ -298,8 +303,7 @@ abstract class InboxStoreTest {
         return reply.getRoCoProcResult().getInboxService();
     }
 
-
-    private InboxServiceRWCoProcOutput mutate(ByteString routeKey, InboxServiceRWCoProcInput input) {
+    protected InboxServiceRWCoProcOutput mutate(ByteString routeKey, InboxServiceRWCoProcInput input) {
         KVRangeSetting s = findByKey(routeKey, storeClient.latestEffectiveRouter()).get();
         KVRangeRWReply reply = storeClient.execute(s.leader(), KVRangeRWRequest.newBuilder()
             .setReqId(input.getReqId())

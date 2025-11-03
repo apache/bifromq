@@ -27,7 +27,7 @@ import org.apache.bifromq.basekv.localengine.IKVSpaceWriter;
 public class InMemKVEngineTest extends AbstractKVEngineTest<ICPableKVSpace> {
     @Override
     protected IKVEngine<? extends ICPableKVSpace> newEngine() {
-        return new InMemCPableKVEngine(null, new InMemKVEngineConfigurator());
+        return new InMemCPableKVEngine(null, InMemDefaultConfigs.CP);
     }
 
     @Override

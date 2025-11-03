@@ -14,38 +14,41 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 
 package org.apache.bifromq.basekv.store.wal;
 
-import org.apache.bifromq.basekv.TestUtil;
-import org.apache.bifromq.basekv.localengine.rocksdb.RocksDBWALableKVEngineConfigurator;
-import org.apache.bifromq.basekv.raft.BasicStateStoreTest;
-import org.apache.bifromq.basekv.raft.IRaftStateStore;
-import org.apache.bifromq.basekv.raft.proto.Snapshot;
-import org.apache.bifromq.basekv.utils.KVRangeIdUtil;
+import static org.apache.bifromq.basekv.localengine.StructUtil.toValue;
+import static org.apache.bifromq.basekv.localengine.rocksdb.RocksDBDefaultConfigs.DB_ROOT_DIR;
+
+import com.google.protobuf.Struct;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import org.apache.bifromq.basekv.TestUtil;
+import org.apache.bifromq.basekv.localengine.rocksdb.RocksDBDefaultConfigs;
+import org.apache.bifromq.basekv.raft.BasicStateStoreTest;
+import org.apache.bifromq.basekv.raft.IRaftStateStore;
+import org.apache.bifromq.basekv.raft.proto.Snapshot;
+import org.apache.bifromq.basekv.utils.KVRangeIdUtil;
 import org.testng.annotations.AfterMethod;
 import org.testng.annotations.BeforeMethod;
 
 public class KVRangeWALStoreTest extends BasicStateStoreTest {
     private static final String DB_NAME = "testDB";
     private static final String DB_CHECKPOINT_DIR = "testDB_cp";
-    private KVRangeWALStorageEngine stateStorageEngine;
     public Path dbRootDir;
+    private KVRangeWALStorageEngine stateStorageEngine;
 
     @BeforeMethod
     public void setup() throws IOException {
-        RocksDBWALableKVEngineConfigurator walConfigurator;
         dbRootDir = Files.createTempDirectory("");
-        walConfigurator = RocksDBWALableKVEngineConfigurator.builder()
-            .dbRootDir(Paths.get(dbRootDir.toString(), DB_NAME).toString())
+        Struct walConf = RocksDBDefaultConfigs.WAL.toBuilder()
+            .putFields(DB_ROOT_DIR, toValue(Paths.get(dbRootDir.toString(), DB_NAME).toString()))
             .build();
-        stateStorageEngine = new KVRangeWALStorageEngine("testcluster", null, walConfigurator);
+        stateStorageEngine = new KVRangeWALStorageEngine("testcluster", null, "rocksdb", walConf);
         stateStorageEngine.start();
     }
 

@@ -19,34 +19,31 @@
 
 package org.apache.bifromq.basekv.localengine;
 
-import org.apache.bifromq.basekv.localengine.memory.InMemCPableKVEngineFactory;
-import org.apache.bifromq.basekv.localengine.memory.InMemKVEngineConfigurator;
-import org.apache.bifromq.basekv.localengine.memory.InMemWALableKVEngineFactory;
-import org.apache.bifromq.basekv.localengine.rocksdb.RocksDBCPableKVEngineConfigurator;
-import org.apache.bifromq.basekv.localengine.rocksdb.RocksDBCPableKVEngineFactory;
-import org.apache.bifromq.basekv.localengine.rocksdb.RocksDBWALableKVEngineConfigurator;
-import org.apache.bifromq.basekv.localengine.rocksdb.RocksDBWALableKVEngineFactory;
+import com.google.protobuf.Struct;
+import java.util.Map;
+import org.apache.bifromq.basehookloader.BaseHookLoader;
+import org.apache.bifromq.basekv.localengine.spi.IKVEngineProvider;
 
 public class KVEngineFactory {
-    public static IKVEngine<? extends ICPableKVSpace> createCPable(String overrideIdentity,
-                                                                   ICPableKVEngineConfigurator configurator) {
-        if (configurator instanceof InMemKVEngineConfigurator) {
-            return InMemCPableKVEngineFactory.createCPable(overrideIdentity, configurator);
+    public static IKVEngine<? extends ICPableKVSpace> createCPable(String overrideIdentity, String type, Struct conf) {
+        Map<String, IKVEngineProvider> providers = BaseHookLoader.load(IKVEngineProvider.class);
+        for (IKVEngineProvider provider : providers.values()) {
+            if (provider.type().equalsIgnoreCase(type)) {
+                return provider.createCPable(overrideIdentity, conf);
+            }
         }
-        if (configurator instanceof RocksDBCPableKVEngineConfigurator) {
-            return RocksDBCPableKVEngineFactory.create(overrideIdentity, configurator);
-        }
-        throw new UnsupportedOperationException();
+        throw new UnsupportedOperationException("No CP-able KVEngineProvider found for type: " + type);
     }
 
     public static IKVEngine<? extends IWALableKVSpace> createWALable(String overrideIdentity,
-                                                                     IWALableKVEngineConfigurator configurator) {
-        if (configurator instanceof InMemKVEngineConfigurator) {
-            return InMemWALableKVEngineFactory.createWALable(overrideIdentity, configurator);
+                                                                     String type,
+                                                                     Struct conf) {
+        Map<String, IKVEngineProvider> providers = BaseHookLoader.load(IKVEngineProvider.class);
+        for (IKVEngineProvider provider : providers.values()) {
+            if (provider.type().equalsIgnoreCase(type)) {
+                return provider.createWALable(overrideIdentity, conf);
+            }
         }
-        if (configurator instanceof RocksDBWALableKVEngineConfigurator) {
-            return RocksDBWALableKVEngineFactory.create(overrideIdentity, configurator);
-        }
-        throw new UnsupportedOperationException();
+        throw new UnsupportedOperationException("No WAL-able KVEngineProvider found for type: " + type);
     }
 }

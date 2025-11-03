@@ -24,6 +24,7 @@ import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.when;
 
+import com.google.protobuf.Struct;
 import java.time.Duration;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executors;
@@ -34,7 +35,6 @@ import org.apache.bifromq.basecluster.IAgentHost;
 import org.apache.bifromq.basecrdt.service.CRDTServiceOptions;
 import org.apache.bifromq.basecrdt.service.ICRDTService;
 import org.apache.bifromq.basekv.client.IBaseKVStoreClient;
-import org.apache.bifromq.basekv.localengine.memory.InMemKVEngineConfigurator;
 import org.apache.bifromq.basekv.metaservice.IBaseKVMetaService;
 import org.apache.bifromq.basekv.store.option.KVRangeStoreOptions;
 import org.apache.bifromq.basekv.utils.BoundaryUtil;
@@ -121,8 +121,11 @@ public abstract class DistServiceTest {
         distClient = IDistClient.newBuilder().trafficService(trafficService).build();
 
         KVRangeStoreOptions kvRangeStoreOptions = new KVRangeStoreOptions();
-        kvRangeStoreOptions.setDataEngineConfigurator(new InMemKVEngineConfigurator());
-        kvRangeStoreOptions.setWalEngineConfigurator(new InMemKVEngineConfigurator());
+        Struct memConf = Struct.newBuilder().build();
+        kvRangeStoreOptions.setDataEngineType("memory");
+        kvRangeStoreOptions.setDataEngineConf(memConf);
+        kvRangeStoreOptions.setWalEngineType("memory");
+        kvRangeStoreOptions.setWalEngineConf(memConf);
 
         workerClient = IBaseKVStoreClient
             .newBuilder()

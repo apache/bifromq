@@ -14,13 +14,10 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 
 package org.apache.bifromq.starter.module;
-
-import static org.apache.bifromq.starter.module.EngineConfUtil.buildDataEngineConf;
-import static org.apache.bifromq.starter.module.EngineConfUtil.buildWALEngineConf;
 
 import com.google.inject.AbstractModule;
 import com.google.inject.Inject;
@@ -124,8 +121,10 @@ public class RetainServiceModule extends AbstractModule {
                     .setKvRangeOptions(new KVRangeOptions()
                         .setMaxWALFatchBatchSize(storeConfig.getMaxWALFetchSize())
                         .setCompactWALThreshold(storeConfig.getCompactWALThreshold()))
-                    .setDataEngineConfigurator(buildDataEngineConf(storeConfig.getDataEngineConfig(), "retain_data"))
-                    .setWalEngineConfigurator(buildWALEngineConf(storeConfig.getWalEngineConfig(), "retain_wal")))
+                    .setDataEngineType(storeConfig.getDataEngineConfig().getType())
+                    .setDataEngineConf(storeConfig.getDataEngineConfig().toStruct())
+                    .setWalEngineType(storeConfig.getWalEngineConfig().getType())
+                    .setWalEngineConf(storeConfig.getWalEngineConfig().toStruct()))
                 .attributes(storeConfig.getAttributes())
                 .build());
         }

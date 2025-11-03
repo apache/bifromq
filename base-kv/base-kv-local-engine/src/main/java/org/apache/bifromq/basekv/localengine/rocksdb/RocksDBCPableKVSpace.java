@@ -20,13 +20,16 @@
 package org.apache.bifromq.basekv.localengine.rocksdb;
 
 import static java.nio.charset.StandardCharsets.UTF_8;
+import static org.apache.bifromq.basekv.localengine.StructUtil.strVal;
 import static org.apache.bifromq.basekv.localengine.metrics.KVSpaceMeters.getGauge;
 import static org.apache.bifromq.basekv.localengine.rocksdb.Keys.LATEST_CP_KEY;
+import static org.apache.bifromq.basekv.localengine.rocksdb.RocksDBDefaultConfigs.DB_CHECKPOINT_ROOT_DIR;
 import static org.apache.bifromq.basekv.localengine.rocksdb.RocksDBHelper.deleteDir;
 
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
 import com.google.protobuf.ByteString;
+import com.google.protobuf.Struct;
 import io.micrometer.core.instrument.Gauge;
 import io.micrometer.core.instrument.Tags;
 import io.micrometer.core.instrument.Timer;
@@ -60,13 +63,7 @@ import org.rocksdb.RocksDBException;
 import org.rocksdb.WriteOptions;
 import org.slf4j.Logger;
 
-class RocksDBCPableKVSpace extends RocksDBKVSpace<
-    RocksDBCPableKVEngine,
-    RocksDBCPableKVSpace,
-    RocksDBCPableKVEngineConfigurator,
-    RocksDBCPableKVSpaceEpochHandle
-    >
-    implements ICPableKVSpace {
+class RocksDBCPableKVSpace extends RocksDBKVSpace implements ICPableKVSpace {
     public static final String ACTIVE_GEN_POINTER = "ACTIVE";
     private static final String CP_SUFFIX = ".cp";
     private final RocksDBCPableKVEngine engine;
@@ -82,15 +79,15 @@ class RocksDBCPableKVSpace extends RocksDBKVSpace<
 
     @SneakyThrows
     RocksDBCPableKVSpace(String id,
-                         RocksDBCPableKVEngineConfigurator configurator,
+                         Struct conf,
                          RocksDBCPableKVEngine engine,
                          Runnable onDestroy,
                          KVSpaceOpMeters opMeters,
                          Logger logger,
                          String... tags) {
-        super(id, configurator, engine, onDestroy, opMeters, logger, tags);
+        super(id, conf, engine, onDestroy, opMeters, logger, tags);
         this.engine = engine;
-        cpRootDir = new File(configurator.dbCheckpointRootDir(), id);
+        cpRootDir = new File(strVal(conf, DB_CHECKPOINT_ROOT_DIR), id);
         checkpoints = Caffeine.newBuilder().weakValues().build();
         writeOptions = new WriteOptions().setDisableWAL(true);
         Files.createDirectories(cpRootDir.getAbsoluteFile().toPath());
@@ -141,7 +138,7 @@ class RocksDBCPableKVSpace extends RocksDBKVSpace<
 
     @Override
     public IKVSpaceMigratableWriter toWriter() {
-        return new RocksDBKVSpaceMigratableWriter<>(id, active.get(), engine, writeOptions(), syncContext,
+        return new RocksDBKVSpaceMigratableWriter(id, active.get(), engine, writeOptions(), syncContext,
             writeStats.newRecorder(), this::publishMetadata, opMeters, logger);
     }
 
@@ -178,8 +175,7 @@ class RocksDBCPableKVSpace extends RocksDBKVSpace<
     protected void doOpen() {
         try {
             // Use currentDBDir initialized during construction
-            this.active.set(
-                new RocksDBCPableKVSpaceEpochHandle(id, currentDBDir, configurator, this::isRetired, logger, tags));
+            this.active.set(newEpochHandle(currentDBDir));
             // cleanup inactive generations at startup
             cleanInactiveOnStartup();
             loadLatestCheckpoint();
@@ -187,6 +183,10 @@ class RocksDBCPableKVSpace extends RocksDBKVSpace<
         } catch (Throwable e) {
             throw new KVEngineException("Failed to open CPable KVSpace", e);
         }
+    }
+
+    private RocksDBCPableKVSpaceEpochHandle newEpochHandle(File dir) {
+        return new RocksDBCPableKVSpaceEpochHandle(id, dir, this.conf, this::isRetired, logger, tags);
     }
 
     private IRocksDBKVSpaceCheckpoint doCheckpoint() {
@@ -433,7 +433,7 @@ class RocksDBCPableKVSpace extends RocksDBKVSpace<
                 } else {
                     Files.createDirectories(stagingDir.toPath());
                 }
-                stagingHandle = new RocksDBCPableKVSpaceEpochHandle(id, stagingDir, configurator,
+                stagingHandle = new RocksDBCPableKVSpaceEpochHandle(id, stagingDir, RocksDBCPableKVSpace.this.conf,
                     RocksDBCPableKVSpace.this::isRetired, logger, tags);
                 helper = new RocksDBKVSpaceWriterHelper(stagingHandle.db, writeOptions);
             } catch (Throwable t) {

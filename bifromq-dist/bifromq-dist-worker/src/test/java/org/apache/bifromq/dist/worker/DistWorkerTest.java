@@ -20,6 +20,9 @@
 package org.apache.bifromq.dist.worker;
 
 import static org.apache.bifromq.basekv.client.KVRangeRouterUtil.findByKey;
+import static org.apache.bifromq.basekv.localengine.StructUtil.toValue;
+import static org.apache.bifromq.basekv.localengine.rocksdb.RocksDBDefaultConfigs.DB_CHECKPOINT_ROOT_DIR;
+import static org.apache.bifromq.basekv.localengine.rocksdb.RocksDBDefaultConfigs.DB_ROOT_DIR;
 import static org.apache.bifromq.dist.worker.schema.KVSchemaUtil.tenantBeginKey;
 import static org.apache.bifromq.dist.worker.schema.KVSchemaUtil.toGroupRouteKey;
 import static org.apache.bifromq.dist.worker.schema.KVSchemaUtil.toNormalRouteKey;
@@ -40,6 +43,7 @@ import static org.testng.Assert.assertEquals;
 import static org.testng.Assert.assertTrue;
 
 import com.google.protobuf.ByteString;
+import com.google.protobuf.Struct;
 import io.micrometer.core.instrument.Metrics;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.io.File;
@@ -68,8 +72,6 @@ import org.apache.bifromq.baseenv.NettyEnv;
 import org.apache.bifromq.basehlc.HLC;
 import org.apache.bifromq.basekv.client.IBaseKVStoreClient;
 import org.apache.bifromq.basekv.client.KVRangeSetting;
-import org.apache.bifromq.basekv.localengine.rocksdb.RocksDBCPableKVEngineConfigurator;
-import org.apache.bifromq.basekv.localengine.rocksdb.RocksDBWALableKVEngineConfigurator;
 import org.apache.bifromq.basekv.metaservice.IBaseKVMetaService;
 import org.apache.bifromq.basekv.store.option.KVRangeStoreOptions;
 import org.apache.bifromq.basekv.store.proto.KVRangeROReply;
@@ -206,15 +208,18 @@ public abstract class DistWorkerTest {
 
         String uuid = UUID.randomUUID().toString();
         KVRangeStoreOptions options = new KVRangeStoreOptions();
-        options.setDataEngineConfigurator(((RocksDBCPableKVEngineConfigurator) options.getDataEngineConfigurator())
-            .toBuilder()
-            .dbCheckpointRootDir(Paths.get(dbRootDir.toString(), DB_CHECKPOINT_DIR_NAME, uuid).toString())
-            .dbRootDir(Paths.get(dbRootDir.toString(), DB_NAME, uuid).toString())
-            .build());
-        options.setWalEngineConfigurator(((RocksDBWALableKVEngineConfigurator) options.getWalEngineConfigurator())
-            .toBuilder()
-            .dbRootDir(Paths.get(dbRootDir.toString(), DB_WAL_NAME, uuid).toString())
-            .build());
+        Struct dataConf = options.getDataEngineConf().toBuilder()
+            .putFields(DB_ROOT_DIR, toValue(Paths.get(dbRootDir.toString(), DB_NAME, uuid).toString()))
+            .putFields(DB_CHECKPOINT_ROOT_DIR,
+                toValue(Paths.get(dbRootDir.toString(), DB_CHECKPOINT_DIR_NAME, uuid).toString()))
+            .build();
+        options.setDataEngineType(options.getDataEngineType());
+        options.setDataEngineConf(dataConf);
+        Struct walConf = options.getWalEngineConf().toBuilder()
+            .putFields(DB_ROOT_DIR, toValue(Paths.get(dbRootDir.toString(), DB_WAL_NAME, uuid).toString()))
+            .build();
+        options.setWalEngineType(options.getWalEngineType());
+        options.setWalEngineConf(walConf);
 
         storeClient = IBaseKVStoreClient
             .newBuilder()

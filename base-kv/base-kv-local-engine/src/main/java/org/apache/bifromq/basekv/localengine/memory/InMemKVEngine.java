@@ -19,15 +19,16 @@
 
 package org.apache.bifromq.basekv.localengine.memory;
 
-import org.apache.bifromq.basekv.localengine.AbstractKVEngine;
+import com.google.protobuf.Struct;
 import java.util.UUID;
+import org.apache.bifromq.basekv.localengine.AbstractKVEngine;
 
 abstract class InMemKVEngine<E extends InMemKVEngine<E, T>, T extends InMemKVSpace<E, T>>
-    extends AbstractKVEngine<T, InMemKVEngineConfigurator> {
+    extends AbstractKVEngine<T> {
     private final String identity;
 
-    public InMemKVEngine(String overrideIdentity, InMemKVEngineConfigurator c) {
-        super(overrideIdentity, c);
+    public InMemKVEngine(String overrideIdentity, Struct conf) {
+        super(overrideIdentity, conf);
         if (overrideIdentity != null && !overrideIdentity.trim().isEmpty()) {
             identity = overrideIdentity;
         } else {

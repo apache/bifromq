@@ -32,16 +32,12 @@ import org.apache.bifromq.basekv.proto.Boundary;
 import org.rocksdb.WriteOptions;
 import org.slf4j.Logger;
 
-class RocksDBKVSpaceMigratableWriter<
-    E extends RocksDBKVEngine<E, T, C, P>,
-    T extends RocksDBKVSpace<E, T, C, P>,
-    C extends RocksDBKVEngineConfigurator<C>,
-    P extends RocksDBKVSpaceEpochHandle<C>> extends RocksDBKVSpaceWriter<E, T, C, P>
+class RocksDBKVSpaceMigratableWriter extends RocksDBKVSpaceWriter
     implements IKVSpaceMigratableWriter {
 
     RocksDBKVSpaceMigratableWriter(String id,
                                    IRocksDBKVSpaceEpochHandle dbHandle,
-                                   E engine,
+                                   RocksDBKVEngine<?> engine,
                                    WriteOptions writeOptions,
                                    ISyncContext syncContext,
                                    IWriteStatsRecorder.IRecorder writeStatsRecorder,

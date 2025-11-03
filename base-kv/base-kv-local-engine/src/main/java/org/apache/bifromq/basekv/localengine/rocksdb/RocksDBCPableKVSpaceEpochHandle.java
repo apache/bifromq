@@ -19,14 +19,20 @@
 
 package org.apache.bifromq.basekv.localengine.rocksdb;
 
+import static org.apache.bifromq.basekv.localengine.IKVEngine.DEFAULT_NS;
+import static org.apache.bifromq.basekv.localengine.rocksdb.RocksDBOptionsUtil.buildCPableCFDesc;
+
+import com.google.protobuf.Struct;
 import io.micrometer.core.instrument.Tags;
 import java.io.File;
 import java.lang.ref.Cleaner;
 import java.util.function.Predicate;
 import org.apache.bifromq.baseenv.EnvProvider;
+import org.rocksdb.ColumnFamilyDescriptor;
+import org.rocksdb.DBOptions;
 import org.slf4j.Logger;
 
-class RocksDBCPableKVSpaceEpochHandle extends RocksDBKVSpaceEpochHandle<RocksDBCPableKVEngineConfigurator> {
+class RocksDBCPableKVSpaceEpochHandle extends RocksDBKVSpaceEpochHandle {
     private static final Cleaner CLEANER = Cleaner.create(
         EnvProvider.INSTANCE.newThreadFactory("kvspace-epoch-cleaner", true));
     private final SpaceMetrics metrics;
@@ -34,11 +40,11 @@ class RocksDBCPableKVSpaceEpochHandle extends RocksDBKVSpaceEpochHandle<RocksDBC
 
     RocksDBCPableKVSpaceEpochHandle(String id,
                                     File dir,
-                                    RocksDBCPableKVEngineConfigurator configurator,
+                                    Struct conf,
                                     Predicate<String> isRetired,
                                     Logger logger,
                                     Tags tags) {
-        super(dir, configurator, logger);
+        super(dir, conf, logger);
         this.metrics = new SpaceMetrics(id, db, dbOptions, cf, cfDesc.getOptions(),
             tags.and("gen", dir.getName()), logger);
         cleanable = CLEANER.register(this, new ClosableResources(id, dir.getName(), dbOptions, cfDesc, cf, db,
@@ -48,5 +54,15 @@ class RocksDBCPableKVSpaceEpochHandle extends RocksDBKVSpaceEpochHandle<RocksDBC
     @Override
     public void close() {
         cleanable.clean();
+    }
+
+    @Override
+    protected DBOptions buildDBOptions(Struct conf) {
+        return RocksDBOptionsUtil.buildCPableDBOption(conf);
+    }
+
+    @Override
+    protected ColumnFamilyDescriptor buildCFDescriptor(Struct conf) {
+        return buildCPableCFDesc(DEFAULT_NS, conf);
     }
 }

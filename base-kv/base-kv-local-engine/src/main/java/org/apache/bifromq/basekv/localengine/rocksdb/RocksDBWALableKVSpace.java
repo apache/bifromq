@@ -19,6 +19,11 @@
 
 package org.apache.bifromq.basekv.localengine.rocksdb;
 
+import static org.apache.bifromq.basekv.localengine.StructUtil.boolVal;
+import static org.apache.bifromq.basekv.localengine.rocksdb.RocksDBDefaultConfigs.ASYNC_WAL_FLUSH;
+import static org.apache.bifromq.basekv.localengine.rocksdb.RocksDBDefaultConfigs.FSYNC_WAL;
+
+import com.google.protobuf.Struct;
 import io.micrometer.core.instrument.Metrics;
 import io.micrometer.core.instrument.Tags;
 import io.micrometer.core.instrument.Timer;
@@ -42,13 +47,7 @@ import org.apache.bifromq.basekv.localengine.rocksdb.metrics.RocksDBKVSpaceMetri
 import org.rocksdb.WriteOptions;
 import org.slf4j.Logger;
 
-class RocksDBWALableKVSpace extends RocksDBKVSpace<
-    RocksDBWALableKVEngine,
-    RocksDBWALableKVSpace,
-    RocksDBWALableKVEngineConfigurator,
-    RocksDBWALableKVSpaceEpochHandle>
-    implements IWALableKVSpace {
-    private final RocksDBWALableKVEngineConfigurator configurator;
+class RocksDBWALableKVSpace extends RocksDBKVSpace implements IWALableKVSpace {
     private final WriteOptions writeOptions;
     private final AtomicReference<CompletableFuture<Long>> flushFutureRef = new AtomicReference<>();
     private final ExecutorService flushExecutor;
@@ -56,17 +55,16 @@ class RocksDBWALableKVSpace extends RocksDBKVSpace<
     private RocksDBWALableKVSpaceEpochHandle handle;
 
     RocksDBWALableKVSpace(String id,
-                          RocksDBWALableKVEngineConfigurator configurator,
+                          Struct conf,
                           RocksDBWALableKVEngine engine,
                           Runnable onDestroy,
                           KVSpaceOpMeters opMeters,
                           Logger logger,
                           String... tags) {
-        super(id, configurator, engine, onDestroy, opMeters, logger, tags);
-        this.configurator = configurator;
+        super(id, conf, engine, onDestroy, opMeters, logger, tags);
         writeOptions = new WriteOptions().setDisableWAL(false);
-        if (!configurator.asyncWALFlush()) {
-            writeOptions.setSync(configurator.fsyncWAL());
+        if (isSyncWALFlush()) {
+            writeOptions.setSync(isFsyncWAL());
         }
         flushExecutor = ExecutorServiceMetrics.monitor(Metrics.globalRegistry, new ThreadPoolExecutor(1, 1,
                 0L, TimeUnit.MILLISECONDS,
@@ -81,7 +79,7 @@ class RocksDBWALableKVSpace extends RocksDBKVSpace<
         try {
             // WALable uses space root as DB directory
             Files.createDirectories(spaceRootDir().getAbsoluteFile().toPath());
-            handle = new RocksDBWALableKVSpaceEpochHandle(id, spaceRootDir(), configurator, logger, tags);
+            handle = new RocksDBWALableKVSpaceEpochHandle(id, spaceRootDir(), this.conf, logger, tags);
             super.doOpen();
         } catch (Throwable e) {
             throw new KVEngineException("Failed to open WALable KVSpace", e);
@@ -123,7 +121,7 @@ class RocksDBWALableKVSpace extends RocksDBKVSpace<
         if (state() != State.Opening) {
             return CompletableFuture.failedFuture(new KVEngineException("KVSpace not open"));
         }
-        if (!configurator.asyncWALFlush()) {
+        if (isSyncWALFlush()) {
             return CompletableFuture.completedFuture(System.nanoTime());
         }
         CompletableFuture<Long> flushFuture;
@@ -141,7 +139,7 @@ class RocksDBWALableKVSpace extends RocksDBKVSpace<
 
     @Override
     public IKVSpaceWriter toWriter() {
-        return new RocksDBKVSpaceWriter<>(id, handle, engine, writeOptions(), syncContext,
+        return new RocksDBKVSpaceWriter(id, handle, engine, writeOptions(), syncContext,
             writeStats.newRecorder(), this::publishMetadata, opMeters, logger);
     }
 
@@ -152,7 +150,7 @@ class RocksDBWALableKVSpace extends RocksDBKVSpace<
                 logger.trace("KVSpace[{}] flush wal start", id);
                 try {
                     Timer.Sample start = Timer.start();
-                    handle().db().flushWal(configurator.fsyncWAL());
+                    handle().db().flushWal(isFsyncWAL());
                     start.stop(metricMgr.flushTimer);
                     logger.trace("KVSpace[{}] flush complete", id);
                 } catch (Throwable e) {
@@ -166,6 +164,14 @@ class RocksDBWALableKVSpace extends RocksDBKVSpace<
                 onDone.completeExceptionally(new KVEngineException("KVSpace flush error", e));
             }
         });
+    }
+
+    private boolean isSyncWALFlush() {
+        return !boolVal(conf, ASYNC_WAL_FLUSH);
+    }
+
+    private boolean isFsyncWAL() {
+        return boolVal(conf, FSYNC_WAL);
     }
 
     @Override

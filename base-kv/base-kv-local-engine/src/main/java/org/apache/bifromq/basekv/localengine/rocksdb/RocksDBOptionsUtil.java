@@ -19,125 +19,53 @@
 
 package org.apache.bifromq.basekv.localengine.rocksdb;
 
-import static java.lang.Math.max;
+import static org.apache.bifromq.basekv.localengine.StructUtil.boolVal;
+import static org.apache.bifromq.basekv.localengine.StructUtil.numVal;
+import static org.apache.bifromq.basekv.localengine.StructUtil.strVal;
 import static org.apache.bifromq.basekv.localengine.rocksdb.AutoCleaner.autoRelease;
-import static org.rocksdb.HistogramType.BLOB_DB_GET_MICROS;
-import static org.rocksdb.HistogramType.BLOB_DB_WRITE_MICROS;
-import static org.rocksdb.HistogramType.COMPACTION_TIME;
-import static org.rocksdb.HistogramType.DB_GET;
-import static org.rocksdb.HistogramType.DB_SEEK;
-import static org.rocksdb.HistogramType.DB_WRITE;
-import static org.rocksdb.HistogramType.FLUSH_TIME;
-import static org.rocksdb.HistogramType.SST_READ_MICROS;
-import static org.rocksdb.HistogramType.SST_WRITE_MICROS;
+import static org.apache.bifromq.basekv.localengine.rocksdb.RocksDBDefaultConfigs.ASYNC_WAL_FLUSH;
+import static org.apache.bifromq.basekv.localengine.rocksdb.RocksDBDefaultConfigs.BLOCK_CACHE_SIZE;
+import static org.apache.bifromq.basekv.localengine.rocksdb.RocksDBDefaultConfigs.ENABLE_STATS;
+import static org.apache.bifromq.basekv.localengine.rocksdb.RocksDBDefaultConfigs.INCREASE_PARALLELISM;
+import static org.apache.bifromq.basekv.localengine.rocksdb.RocksDBDefaultConfigs.LEVEL0_FILE_NUM_COMPACTION_TRIGGER;
+import static org.apache.bifromq.basekv.localengine.rocksdb.RocksDBDefaultConfigs.LEVEL0_SLOWDOWN_WRITES_TRIGGER;
+import static org.apache.bifromq.basekv.localengine.rocksdb.RocksDBDefaultConfigs.LEVEL0_STOP_WRITES_TRIGGER;
+import static org.apache.bifromq.basekv.localengine.rocksdb.RocksDBDefaultConfigs.MAX_BACKGROUND_JOBS;
+import static org.apache.bifromq.basekv.localengine.rocksdb.RocksDBDefaultConfigs.MAX_BYTES_FOR_LEVEL_BASE;
+import static org.apache.bifromq.basekv.localengine.rocksdb.RocksDBDefaultConfigs.MAX_WRITE_BUFFER_NUMBER;
+import static org.apache.bifromq.basekv.localengine.rocksdb.RocksDBDefaultConfigs.MIN_BLOB_SIZE;
+import static org.apache.bifromq.basekv.localengine.rocksdb.RocksDBDefaultConfigs.MIN_WRITE_BUFFER_NUMBER_TO_MERGE;
+import static org.apache.bifromq.basekv.localengine.rocksdb.RocksDBDefaultConfigs.STATS_LEVEL;
+import static org.apache.bifromq.basekv.localengine.rocksdb.RocksDBDefaultConfigs.TARGET_FILE_SIZE_BASE;
+import static org.apache.bifromq.basekv.localengine.rocksdb.RocksDBDefaultConfigs.WRITE_BUFFER_SIZE;
 
+import com.google.protobuf.Struct;
 import java.util.EnumSet;
-import lombok.Builder;
-import lombok.Getter;
-import lombok.NoArgsConstructor;
-import lombok.experimental.Accessors;
-import lombok.experimental.SuperBuilder;
-import org.apache.bifromq.baseenv.EnvProvider;
-import org.apache.bifromq.basekv.localengine.IKVEngineConfigurator;
 import org.rocksdb.BlockBasedTableConfig;
 import org.rocksdb.BloomFilter;
+import org.rocksdb.ColumnFamilyDescriptor;
 import org.rocksdb.ColumnFamilyOptions;
-import org.rocksdb.ColumnFamilyOptionsInterface;
 import org.rocksdb.CompactionStyle;
 import org.rocksdb.CompressionType;
 import org.rocksdb.DBOptions;
-import org.rocksdb.DBOptionsInterface;
 import org.rocksdb.DataBlockIndexType;
 import org.rocksdb.Env;
 import org.rocksdb.HistogramType;
 import org.rocksdb.IndexType;
 import org.rocksdb.LRUCache;
-import org.rocksdb.MutableColumnFamilyOptionsInterface;
-import org.rocksdb.MutableDBOptionsInterface;
 import org.rocksdb.PrepopulateBlobCache;
 import org.rocksdb.RateLimiter;
 import org.rocksdb.Statistics;
 import org.rocksdb.StatsLevel;
 import org.rocksdb.util.SizeUnit;
 
-@NoArgsConstructor
-@Getter
-@Accessors(chain = true, fluent = true)
-@SuperBuilder(toBuilder = true)
-public abstract class RocksDBKVEngineConfigurator<T extends RocksDBKVEngineConfigurator<T>>
-    implements IKVEngineConfigurator {
-    private String dbRootDir;
-    @Builder.Default
-    private boolean enableStats = false;
-    @Builder.Default
-    private StatsLevel statsLevel = StatsLevel.EXCEPT_DETAILED_TIMERS;
-    @Builder.Default
-    private boolean heuristicCompaction = false;
-    @Builder.Default
-    private int compactMinTombstoneKeys = 50000;
-    @Builder.Default
-    private int compactMinTombstoneRanges = 10000;
-    @Builder.Default
-    private double compactTombstoneKeysRatio = 0.3;
-    @Builder.Default
-    private long blockCacheSize = 32 * SizeUnit.MB;
-    @Builder.Default
-    private long writeBufferSize = 128 * SizeUnit.MB;
-    @Builder.Default
-    private int maxWriteBufferNumber = 6;
-    @Builder.Default
-    private int minWriteBufferNumberToMerge = 2;
-    @Builder.Default
-    private long minBlobSize = 2 * SizeUnit.KB;
-    @Builder.Default
-    private int increaseParallelism = max(EnvProvider.INSTANCE.availableProcessors() / 4, 2);
-    @Builder.Default
-    private int maxBackgroundJobs = max(EnvProvider.INSTANCE.availableProcessors() / 4, 2);
-    @Builder.Default
-    private int level0FileNumCompactionTrigger = 8;
-    @Builder.Default
-    private int level0SlowdownWritesTrigger = 20;
-    @Builder.Default
-    private int level0StopWritesTrigger = 24;
-    @Builder.Default
-    private long maxBytesForLevelBase = 512 * SizeUnit.MB;
-    @Builder.Default
-    private long targetFileSizeBase = 64 * SizeUnit.MB;
-
-    public DBOptions dbOptions() {
-        DBOptions targetOption = new DBOptions();
-        configDBOptions((DBOptionsInterface<DBOptions>) targetOption);
-        configDBOptions((MutableDBOptionsInterface<DBOptions>) targetOption);
-        // we don't need atomic flush in both use cases
-        targetOption.setAtomicFlush(false);
-        if (enableStats) {
-            EnumSet<HistogramType> ignoreTypes = EnumSet.allOf(HistogramType.class);
-            ignoreTypes.remove(DB_GET);
-            ignoreTypes.remove(DB_WRITE);
-            ignoreTypes.remove(DB_SEEK);
-            ignoreTypes.remove(SST_READ_MICROS);
-            ignoreTypes.remove(SST_WRITE_MICROS);
-            ignoreTypes.remove(BLOB_DB_GET_MICROS);
-            ignoreTypes.remove(BLOB_DB_WRITE_MICROS);
-            ignoreTypes.remove(FLUSH_TIME);
-            ignoreTypes.remove(COMPACTION_TIME);
-            Statistics statistics = new Statistics(ignoreTypes);
-            statistics.setStatsLevel(statsLevel);
-            targetOption.setStatistics(statistics);
-        }
-        return targetOption;
-    }
-
-    public ColumnFamilyOptions cfOptions(String name) {
-        ColumnFamilyOptions targetOption = new ColumnFamilyOptions();
-        configCFOptions(name, (ColumnFamilyOptionsInterface<ColumnFamilyOptions>) targetOption);
-        configCFOptions(name, (MutableColumnFamilyOptionsInterface<ColumnFamilyOptions>) targetOption);
-        return targetOption;
-    }
-
-    protected void configDBOptions(DBOptionsInterface<DBOptions> targetOption) {
-        targetOption
-            .setEnv(Env.getDefault())
+/**
+ * Build RocksDB options from Struct configuration. Keys align with provider schema.
+ */
+final class RocksDBOptionsUtil {
+    private static DBOptions buildDBOptions(Struct conf) {
+        DBOptions opts = new DBOptions();
+        opts.setEnv(Env.getDefault())
             .setCreateIfMissing(true)
             .setCreateMissingColumnFamilies(true)
             .setAvoidUnnecessaryBlockingIO(true)
@@ -154,25 +82,69 @@ public abstract class RocksDBKVEngineConfigurator<T extends RocksDBKVEngineConfi
             .setRateLimiter(autoRelease(new RateLimiter(512 * SizeUnit.MB,
                 RateLimiter.DEFAULT_REFILL_PERIOD_MICROS,
                 RateLimiter.DEFAULT_FAIRNESS,
-                RateLimiter.DEFAULT_MODE, true), targetOption));
-    }
-
-    protected void configDBOptions(MutableDBOptionsInterface<DBOptions> targetOption) {
-        targetOption
+                RateLimiter.DEFAULT_MODE, true), opts))
             .setMaxOpenFiles(256)
-            .setIncreaseParallelism(increaseParallelism)
-            .setMaxBackgroundJobs(maxBackgroundJobs);
+            .setIncreaseParallelism((int) numVal(conf, INCREASE_PARALLELISM))
+            .setMaxBackgroundJobs((int) numVal(conf, MAX_BACKGROUND_JOBS));
+        // Atomic flush not used in current scenarios
+        opts.setAtomicFlush(false);
+
+        if (boolVal(conf, ENABLE_STATS)) {
+            EnumSet<HistogramType> ignoreTypes = EnumSet.allOf(HistogramType.class);
+            ignoreTypes.remove(HistogramType.DB_GET);
+            ignoreTypes.remove(HistogramType.DB_WRITE);
+            ignoreTypes.remove(HistogramType.DB_SEEK);
+            ignoreTypes.remove(HistogramType.SST_READ_MICROS);
+            ignoreTypes.remove(HistogramType.SST_WRITE_MICROS);
+            ignoreTypes.remove(HistogramType.BLOB_DB_GET_MICROS);
+            ignoreTypes.remove(HistogramType.BLOB_DB_WRITE_MICROS);
+            ignoreTypes.remove(HistogramType.FLUSH_TIME);
+            ignoreTypes.remove(HistogramType.COMPACTION_TIME);
+            Statistics statistics = new Statistics(ignoreTypes);
+            String level = strVal(conf, STATS_LEVEL);
+            statistics.setStatsLevel(StatsLevel.valueOf(level));
+            opts.setStatistics(statistics);
+        }
+        return opts;
     }
 
-    protected void configCFOptions(String name, ColumnFamilyOptionsInterface<ColumnFamilyOptions> targetOption) {
-        targetOption
+    static DBOptions buildCPableDBOption(Struct conf) {
+        DBOptions dbOptions = buildDBOptions(conf);
+        dbOptions.setRecycleLogFileNum(0)
+            .setAllowConcurrentMemtableWrite(true)
+            .setBytesPerSync(1048576);
+        return dbOptions;
+    }
+
+    static DBOptions buildWALableDBOption(Struct conf) {
+        DBOptions dbOptions = buildDBOptions(conf);
+        dbOptions.setManualWalFlush(boolVal(conf, ASYNC_WAL_FLUSH))
+            .setBytesPerSync(1048576)
+            .setAllowConcurrentMemtableWrite(true);
+        return dbOptions;
+    }
+
+    static ColumnFamilyDescriptor buildCPableCFDesc(String name, Struct conf) {
+        ColumnFamilyOptions cfOptions = buildCFOptions(conf);
+        cfOptions.setCompressionType(CompressionType.NO_COMPRESSION);
+        return new ColumnFamilyDescriptor(name.getBytes(), cfOptions);
+    }
+
+    static ColumnFamilyDescriptor buildWAlableCFDesc(String name, Struct conf) {
+        return new ColumnFamilyDescriptor(name.getBytes(), buildCFOptions(conf));
+    }
+
+    private static ColumnFamilyOptions buildCFOptions(Struct conf) {
+        ColumnFamilyOptions cfOptions = new ColumnFamilyOptions();
+        cfOptions
+            // immutable options start
             .setMergeOperatorName("uint64add")
             .setTableFormatConfig(
                 new BlockBasedTableConfig() //
                     // Begin to use partitioned index filters
                     // https://github.com/facebook/rocksdb/wiki/Partitioned-Index-Filters#how-to-use-it
                     .setIndexType(IndexType.kTwoLevelIndexSearch) //
-                    .setFilterPolicy(autoRelease(new BloomFilter(16, false), targetOption))
+                    .setFilterPolicy(autoRelease(new BloomFilter(16, false), cfOptions))
                     .setPartitionFilters(true) //
                     .setMetadataBlockSize(8 * SizeUnit.KB) //
                     .setCacheIndexAndFilterBlocks(true) //
@@ -185,27 +157,24 @@ public abstract class RocksDBKVEngineConfigurator<T extends RocksDBKVEngineConfi
                     .setDataBlockHashTableUtilRatio(0.75)
                     // End of partitioned index filters settings.
                     .setBlockSize(4 * SizeUnit.KB)//
-                    .setBlockCache(autoRelease(new LRUCache(blockCacheSize, 8), targetOption)))
+                    .setBlockCache(autoRelease(new LRUCache((long) numVal(conf, BLOCK_CACHE_SIZE), 8), cfOptions)))
             // https://github.com/facebook/rocksdb/pull/5744
             .setForceConsistencyChecks(true)
             .setCompactionStyle(CompactionStyle.LEVEL)
-            .setPrepopulateBlobCache(PrepopulateBlobCache.PREPOPULATE_BLOB_FLUSH_ONLY);
-    }
-
-    protected void configCFOptions(String name, MutableColumnFamilyOptionsInterface<ColumnFamilyOptions> targetOption) {
-        targetOption
+            .setPrepopulateBlobCache(PrepopulateBlobCache.PREPOPULATE_BLOB_FLUSH_ONLY)
+            // mutable options start
             .setCompressionType(CompressionType.LZ4_COMPRESSION)
             .setBottommostCompressionType(CompressionType.ZSTD_COMPRESSION)
             // Flushing options:
             // write_buffer_size sets the size of a single mem_table. Once mem_table exceeds
             // this size, it is marked immutable and a new one is created.
-            .setWriteBufferSize(writeBufferSize)
+            .setWriteBufferSize((long) numVal(conf, WRITE_BUFFER_SIZE))
             // Flushing options:
             // max_write_buffer_number sets the maximum number of mem_tables, both active
             // and immutable.  If the active mem_table fills up and the total number of
             // mem_tables is larger than max_write_buffer_number we stall further writes.
             // This may happen if the flush process is slower than the write rate.
-            .setMaxWriteBufferNumber(maxWriteBufferNumber)
+            .setMaxWriteBufferNumber((int) numVal(conf, MAX_WRITE_BUFFER_NUMBER))
             // Flushing options:
             // min_write_buffer_number_to_merge is the minimum number of mem_tables to be
             // merged before flushing to storage. For example, if this option is set to 2,
@@ -215,20 +184,20 @@ public abstract class RocksDBKVEngineConfigurator<T extends RocksDBKVEngineConfi
             // a single key. However, every Get() must traverse all immutable mem_tables
             // linearly to check if the key is there. Setting this option too high may hurt
             // read performance.
-            .setMinWriteBufferNumberToMerge(minWriteBufferNumberToMerge)
+            .setMinWriteBufferNumberToMerge((int) numVal(conf, MIN_WRITE_BUFFER_NUMBER_TO_MERGE))
             // Level Style Compaction:
             // level0_file_num_compaction_trigger -- Once level 0 reaches this number of
             // files, L0->L1 compaction is triggered. We can therefore estimate level 0
             // size in stable state as
             // write_buffer_size * min_write_buffer_number_to_merge * level0_file_num_compaction_trigger.
-            .setLevel0FileNumCompactionTrigger(level0FileNumCompactionTrigger)
+            .setLevel0FileNumCompactionTrigger((int) numVal(conf, LEVEL0_FILE_NUM_COMPACTION_TRIGGER))
             // Level Style Compaction:
             // max_bytes_for_level_base and max_bytes_for_level_multiplier
             //  -- max_bytes_for_level_base is total size of level 1. As mentioned, we
             // recommend that this be around the size of level 0. Each subsequent level
             // is max_bytes_for_level_multiplier larger than previous one. The default
             // is 10 and we do not recommend changing that.
-            .setMaxBytesForLevelBase(maxBytesForLevelBase)
+            .setMaxBytesForLevelBase((long) numVal(conf, MAX_BYTES_FOR_LEVEL_BASE))
             // Level Style Compaction:
             // target_file_size_base and target_file_size_multiplier
             //  -- Files in level 1 will have target_file_size_base bytes. Each next
@@ -238,7 +207,7 @@ public abstract class RocksDBKVEngineConfigurator<T extends RocksDBKVEngineConfi
             // number of database files, which is generally a good thing. We recommend setting
             // target_file_size_base to be max_bytes_for_level_base / 10, so that there are
             // 10 files in level 1.
-            .setTargetFileSizeBase(targetFileSizeBase)
+            .setTargetFileSizeBase((long) numVal(conf, TARGET_FILE_SIZE_BASE))
             // If prefix_extractor is set and memtable_prefix_bloom_size_ratio is not 0,
             // create prefix bloom for memtable with the size of
             // write_buffer_size * memtable_prefix_bloom_size_ratio.
@@ -247,34 +216,15 @@ public abstract class RocksDBKVEngineConfigurator<T extends RocksDBKVEngineConfi
             // Soft limit on number of level-0 files. We start slowing down writes at this
             // point. A value 0 means that no writing slow down will be triggered by number
             // of files in level-0.
-            .setLevel0SlowdownWritesTrigger(level0SlowdownWritesTrigger)
+            .setLevel0SlowdownWritesTrigger((int) numVal(conf, LEVEL0_SLOWDOWN_WRITES_TRIGGER))
             // Maximum number of level-0 files.  We stop writes at this point.
-            .setLevel0StopWritesTrigger(level0StopWritesTrigger)
+            .setLevel0StopWritesTrigger((int) numVal(conf, LEVEL0_STOP_WRITES_TRIGGER))
             .setLevelCompactionDynamicLevelBytes(false)
             // enable blob files
             .setEnableBlobFiles(true)
             .setPrepopulateBlobCache(PrepopulateBlobCache.PREPOPULATE_BLOB_FLUSH_ONLY)
-            .setMinBlobSize(minBlobSize())
+            .setMinBlobSize((long) numVal(conf, MIN_BLOB_SIZE))
             .enableBlobGarbageCollection();
-    }
-
-    public String dbRootDir() {
-        return this.dbRootDir;
-    }
-
-    public boolean heuristicCompaction() {
-        return this.heuristicCompaction;
-    }
-
-    public int compactMinTombstoneKeys() {
-        return this.compactMinTombstoneKeys;
-    }
-
-    public int compactMinTombstoneRanges() {
-        return this.compactMinTombstoneRanges;
-    }
-
-    public double compactTombstoneKeysRatio() {
-        return this.compactTombstoneKeysRatio;
+        return cfOptions;
     }
 }

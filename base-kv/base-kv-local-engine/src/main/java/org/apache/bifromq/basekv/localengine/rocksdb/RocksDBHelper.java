@@ -53,8 +53,8 @@ import org.rocksdb.Range;
 import org.rocksdb.RocksDB;
 import org.rocksdb.Slice;
 
-public class RocksDBHelper {
-    public static RocksDBHandle openDBInDir(File dir, DBOptions dbOptions, ColumnFamilyDescriptor cfDesc) {
+class RocksDBHelper {
+    static RocksDBHandle openDBInDir(File dir, DBOptions dbOptions, ColumnFamilyDescriptor cfDesc) {
         try {
             List<ColumnFamilyHandle> cfHandles = new ArrayList<>();
             RocksDB db = RocksDB.open(dbOptions, dir.getAbsolutePath(), Collections.singletonList(cfDesc), cfHandles);
@@ -66,7 +66,7 @@ public class RocksDBHelper {
         }
     }
 
-    public static void deleteDir(Path path) throws IOException {
+    static void deleteDir(Path path) throws IOException {
         Files.walkFileTree(path, new SimpleFileVisitor<>() {
             @Override
             public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) throws IOException {
@@ -82,7 +82,7 @@ public class RocksDBHelper {
         });
     }
 
-    public static long sizeOfBoundary(IRocksDBKVSpaceEpoch dbHandle, Boundary boundary) {
+    static long sizeOfBoundary(IRocksDBKVSpaceEpoch dbHandle, Boundary boundary) {
         byte[] start =
             !boundary.hasStartKey() ? DATA_SECTION_START : toDataKey(boundary.getStartKey().toByteArray());
         byte[] end =
@@ -97,7 +97,7 @@ public class RocksDBHelper {
         return 0;
     }
 
-    public static Map<ByteString, ByteString> getMetadata(IRocksDBKVSpaceEpoch dbHandle) {
+    static Map<ByteString, ByteString> getMetadata(IRocksDBKVSpaceEpoch dbHandle) {
         try (RocksDBKVEngineIterator metaItr = new RocksDBKVEngineIterator(dbHandle.db(), dbHandle.cf(),
             null,
             META_SECTION_START,
@@ -110,7 +110,6 @@ public class RocksDBHelper {
         }
     }
 
-
-    public record RocksDBHandle(RocksDB db, ColumnFamilyHandle cf) {
+    record RocksDBHandle(RocksDB db, ColumnFamilyHandle cf) {
     }
 }

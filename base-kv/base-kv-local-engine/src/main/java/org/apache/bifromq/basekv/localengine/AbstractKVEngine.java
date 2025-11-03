@@ -22,6 +22,8 @@ package org.apache.bifromq.basekv.localengine;
 import static com.google.common.collect.Lists.newArrayList;
 
 import com.google.common.collect.Iterables;
+import com.google.protobuf.Struct;
+import com.google.protobuf.Value;
 import io.micrometer.core.instrument.Gauge;
 import io.micrometer.core.instrument.Metrics;
 import io.micrometer.core.instrument.Tags;
@@ -30,6 +32,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicReference;
+import lombok.NonNull;
 import org.apache.bifromq.basekv.localengine.metrics.KVSpaceOpMeters;
 import org.apache.bifromq.logger.MDCLogger;
 import org.slf4j.Logger;
@@ -38,20 +41,20 @@ import org.slf4j.Logger;
  * The abstract class of KVEngine.
  *
  * @param <T> the type of KV space created by the engine
- * @param <C> the type of configurator
  */
-public abstract class AbstractKVEngine<T extends IKVSpace, C extends IKVEngineConfigurator> implements IKVEngine<T> {
+public abstract class AbstractKVEngine<T extends IKVSpace> implements IKVEngine<T> {
     protected final String overrideIdentity;
-    protected final C configurator;
+    protected final Struct engineConf;
     private final AtomicReference<State> state = new AtomicReference<>(State.INIT);
     private final Map<String, T> kvSpaceMap = new ConcurrentHashMap<>();
     protected Logger log;
     protected String[] metricTags;
     private Gauge gauge;
 
-    public AbstractKVEngine(String overrideIdentity, C configurator) {
+    public AbstractKVEngine(String overrideIdentity, @NonNull Struct conf) {
+        validateConf(conf);
         this.overrideIdentity = overrideIdentity;
-        this.configurator = configurator;
+        this.engineConf = conf;
     }
 
     @Override
@@ -111,33 +114,72 @@ public abstract class AbstractKVEngine<T extends IKVSpace, C extends IKVEngineCo
         assertStarted();
         return kvSpaceMap.computeIfAbsent(spaceId,
             k -> {
-                T space = buildKVSpace(spaceId, configurator, () -> kvSpaceMap.remove(spaceId), metricTags);
+                T space = buildKVSpace(spaceId, engineConf, () -> kvSpaceMap.remove(spaceId), metricTags);
                 space.open();
                 return space;
             });
     }
 
     protected final void load(String spaceId) {
-        T space = buildKVSpace(spaceId, configurator, () -> kvSpaceMap.remove(spaceId), metricTags);
+        T space = buildKVSpace(spaceId, engineConf, () -> kvSpaceMap.remove(spaceId), metricTags);
         space.open();
         T prev = kvSpaceMap.put(spaceId, space);
         assert prev == null;
     }
 
-    private T buildKVSpace(String spaceId, C configurator, Runnable onDestroy, String... tags) {
+    private T buildKVSpace(String spaceId, Struct conf, Runnable onDestroy, String... tags) {
         String[] tagList =
             newArrayList(Iterables.concat(List.of(tags), List.of("spaceId", spaceId))).toArray(String[]::new);
         KVSpaceOpMeters opMeters = new KVSpaceOpMeters(spaceId, Tags.of(tagList));
         Logger logger = MDCLogger.getLogger("space.logger", tagList);
-        return doBuildKVSpace(spaceId, configurator, onDestroy, opMeters, logger, tagList);
+        return doBuildKVSpace(spaceId, conf, onDestroy, opMeters, logger, tagList);
     }
 
     protected abstract T doBuildKVSpace(String spaceId,
-                                        C configurator,
+                                        Struct conf,
                                         Runnable onDestroy,
                                         KVSpaceOpMeters opMeters,
                                         Logger logger,
                                         String... tags);
+
+    /**
+     * Validate provided configuration is complete and valid.
+     * This method enforces structural completeness based on defaultConf,
+     * non-empty string constraints from nonEmptyStringKeys, then delegates to validateSemantics.
+     *
+     * @param conf caller provided conf
+     * @throws IllegalArgumentException if conf is invalid
+     */
+    protected final void validateConf(Struct conf) {
+        if (conf == null) {
+            throw new IllegalArgumentException("Engine configuration must not be null");
+        }
+        Struct defaults = defaultConf();
+        // Check required keys and non-null values
+        for (Map.Entry<String, Value> e : defaults.getFieldsMap().entrySet()) {
+            String key = e.getKey();
+            if (!conf.getFieldsMap().containsKey(key)) {
+                throw new IllegalArgumentException("Missing required config key: " + key);
+            }
+            Value v = conf.getFieldsMap().get(key);
+            if (v.getKindCase() == Value.KindCase.KIND_NOT_SET || v.hasNullValue()) {
+                throw new IllegalArgumentException("Config key has null value: " + key);
+            }
+        }
+        validateSemantics(conf);
+    }
+
+    /**
+     * Engine default full configuration used for completeness checking.
+     */
+    protected abstract Struct defaultConf();
+
+    /**
+     * Additional engine-specific semantic validation.
+     */
+    protected void validateSemantics(Struct conf) {
+        // no-op by default
+    }
 
     private enum State {
         INIT, STARTING, STARTED, FATAL_FAILURE, STOPPING, STOPPED

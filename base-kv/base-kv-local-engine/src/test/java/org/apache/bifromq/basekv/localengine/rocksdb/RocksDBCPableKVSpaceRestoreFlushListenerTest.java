@@ -22,6 +22,8 @@ package org.apache.bifromq.basekv.localengine.rocksdb;
 import static org.testng.Assert.assertTrue;
 
 import com.google.protobuf.ByteString;
+import com.google.protobuf.Struct;
+import com.google.protobuf.Value;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -69,9 +71,9 @@ public class RocksDBCPableKVSpaceRestoreFlushListenerTest {
         Files.createDirectories(dbRoot);
         Files.createDirectories(cpRoot);
 
-        RocksDBCPableKVEngineConfigurator conf = RocksDBCPableKVEngineConfigurator.builder()
-            .dbRootDir(dbRoot.toString())
-            .dbCheckpointRootDir(cpRoot.toString())
+        Struct conf = RocksDBDefaultConfigs.CP.toBuilder()
+            .putFields(RocksDBDefaultConfigs.DB_ROOT_DIR, Value.newBuilder().setStringValue(dbRoot.toString()).build())
+            .putFields(RocksDBDefaultConfigs.DB_CHECKPOINT_ROOT_DIR, Value.newBuilder().setStringValue(cpRoot.toString()).build())
             .build();
         engine = new RocksDBCPableKVEngine(null, conf);
         engine.start("tag", "value");
@@ -108,9 +110,9 @@ public class RocksDBCPableKVSpaceRestoreFlushListenerTest {
         Files.createDirectories(dbRoot);
         Files.createDirectories(cpRoot);
 
-        RocksDBCPableKVEngineConfigurator conf = RocksDBCPableKVEngineConfigurator.builder()
-            .dbRootDir(dbRoot.toString())
-            .dbCheckpointRootDir(cpRoot.toString())
+        Struct conf = RocksDBDefaultConfigs.CP.toBuilder()
+            .putFields(RocksDBDefaultConfigs.DB_ROOT_DIR, Value.newBuilder().setStringValue(dbRoot.toString()).build())
+            .putFields(RocksDBDefaultConfigs.DB_CHECKPOINT_ROOT_DIR, Value.newBuilder().setStringValue(cpRoot.toString()).build())
             .build();
         engine = new RocksDBCPableKVEngine(null, conf);
         engine.start("tag", "value");
@@ -133,4 +135,3 @@ public class RocksDBCPableKVSpaceRestoreFlushListenerTest {
         assertTrue(callbackCount.get() >= 1, "should flush at least once during overlay restore");
     }
 }
-

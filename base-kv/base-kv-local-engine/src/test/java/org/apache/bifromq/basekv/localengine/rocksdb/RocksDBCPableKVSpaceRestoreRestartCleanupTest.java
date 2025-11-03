@@ -24,6 +24,8 @@ import static org.testng.Assert.assertEquals;
 import static org.testng.Assert.assertNotEquals;
 
 import com.google.protobuf.ByteString;
+import com.google.protobuf.Struct;
+import com.google.protobuf.Value;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.stream.Stream;
@@ -70,9 +72,9 @@ public class RocksDBCPableKVSpaceRestoreRestartCleanupTest {
         Files.createDirectories(dbRoot);
         Files.createDirectories(cpRoot);
 
-        RocksDBCPableKVEngineConfigurator conf = RocksDBCPableKVEngineConfigurator.builder()
-            .dbRootDir(dbRoot.toString())
-            .dbCheckpointRootDir(cpRoot.toString())
+        Struct conf = RocksDBDefaultConfigs.CP.toBuilder()
+            .putFields(RocksDBDefaultConfigs.DB_ROOT_DIR, Value.newBuilder().setStringValue(dbRoot.toString()).build())
+            .putFields(RocksDBDefaultConfigs.DB_CHECKPOINT_ROOT_DIR, Value.newBuilder().setStringValue(cpRoot.toString()).build())
             .build();
         engine = new RocksDBCPableKVEngine(null, conf);
         engine.start("tag", "value");

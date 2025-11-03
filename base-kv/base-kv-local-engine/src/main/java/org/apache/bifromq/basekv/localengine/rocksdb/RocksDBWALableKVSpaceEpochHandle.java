@@ -19,20 +19,23 @@
 
 package org.apache.bifromq.basekv.localengine.rocksdb;
 
+import static org.apache.bifromq.basekv.localengine.IKVEngine.DEFAULT_NS;
+import static org.apache.bifromq.basekv.localengine.rocksdb.RocksDBOptionsUtil.buildWALableDBOption;
+import static org.apache.bifromq.basekv.localengine.rocksdb.RocksDBOptionsUtil.buildWAlableCFDesc;
+
+import com.google.protobuf.Struct;
 import io.micrometer.core.instrument.Tags;
 import java.io.File;
+import org.rocksdb.ColumnFamilyDescriptor;
+import org.rocksdb.DBOptions;
 import org.slf4j.Logger;
 
-public class RocksDBWALableKVSpaceEpochHandle extends RocksDBKVSpaceEpochHandle<RocksDBWALableKVEngineConfigurator> {
+class RocksDBWALableKVSpaceEpochHandle extends RocksDBKVSpaceEpochHandle {
     private final SpaceMetrics metrics;
     private final ClosableResources closableResources;
 
-    RocksDBWALableKVSpaceEpochHandle(String id,
-                                     File dir,
-                                     RocksDBWALableKVEngineConfigurator configurator,
-                                     Logger logger,
-                                     Tags tags) {
-        super(dir, configurator, logger);
+    RocksDBWALableKVSpaceEpochHandle(String id, File dir, Struct conf, Logger logger, Tags tags) {
+        super(dir, conf, logger);
         this.metrics = new SpaceMetrics(id, db, dbOptions, cf, cfDesc.getOptions(), tags.and("gen", "0"), logger);
         closableResources = new ClosableResources(id, dir.getName(), dbOptions, cfDesc, cf, db, checkpoint, dir,
             (test) -> false, metrics, logger);
@@ -41,5 +44,15 @@ public class RocksDBWALableKVSpaceEpochHandle extends RocksDBKVSpaceEpochHandle<
     @Override
     public void close() {
         closableResources.run();
+    }
+
+    @Override
+    protected DBOptions buildDBOptions(Struct conf) {
+        return buildWALableDBOption(conf);
+    }
+
+    @Override
+    protected ColumnFamilyDescriptor buildCFDescriptor(Struct conf) {
+        return buildWAlableCFDesc(DEFAULT_NS, conf);
     }
 }

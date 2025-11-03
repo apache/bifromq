@@ -19,14 +19,39 @@
 
 package org.apache.bifromq.basekv.localengine.memory;
 
+import com.google.protobuf.Struct;
+import org.apache.bifromq.basekv.localengine.ICPableKVSpace;
 import org.apache.bifromq.basekv.localengine.IKVEngine;
-import org.apache.bifromq.basekv.localengine.IWALableKVEngineConfigurator;
 import org.apache.bifromq.basekv.localengine.IWALableKVSpace;
+import org.apache.bifromq.basekv.localengine.spi.IKVEngineProvider;
 
-public class InMemWALableKVEngineFactory {
-    public static IKVEngine<? extends IWALableKVSpace> createWALable(String overrideIdentity,
-                                                                     IWALableKVEngineConfigurator configurator) {
-        assert configurator instanceof InMemKVEngineConfigurator;
-        return new InMemWALableKVEngine(overrideIdentity, (InMemKVEngineConfigurator) configurator);
+/**
+ * Provider for in-memory engine implementation.
+ */
+public class InMemKVEngineProvider implements IKVEngineProvider {
+
+    @Override
+    public String type() {
+        return "memory";
+    }
+
+    @Override
+    public IKVEngine<? extends ICPableKVSpace> createCPable(String overrideIdentity, Struct conf) {
+        return new InMemCPableKVEngine(overrideIdentity, conf);
+    }
+
+    @Override
+    public IKVEngine<? extends IWALableKVSpace> createWALable(String overrideIdentity, Struct conf) {
+        return new InMemWALableKVEngine(overrideIdentity, conf);
+    }
+
+    @Override
+    public Struct defaultsForCPable() {
+        return InMemDefaultConfigs.CP;
+    }
+
+    @Override
+    public Struct defaultsForWALable() {
+        return InMemDefaultConfigs.WAL;
     }
 }

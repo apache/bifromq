@@ -36,7 +36,7 @@ public class InMemCPableKVSpaceRestoreFlushListenerTest {
 
     @BeforeMethod
     public void setup() {
-        engine = new InMemCPableKVEngine(null, new InMemKVEngineConfigurator());
+        engine = new InMemCPableKVEngine(null, InMemDefaultConfigs.CP);
         engine.start();
     }
 
@@ -56,7 +56,6 @@ public class InMemCPableKVSpaceRestoreFlushListenerTest {
         AtomicLong totalEntries = new AtomicLong();
         AtomicLong totalBytes = new AtomicLong();
         IRestoreSession session = space.startRestore((c, b) -> {
-            // in-memory implementation reports at done
             callbackCount.incrementAndGet();
             totalEntries.addAndGet(c);
             totalBytes.addAndGet(b);
@@ -72,9 +71,8 @@ public class InMemCPableKVSpaceRestoreFlushListenerTest {
         }
         session.done();
 
-        assertEquals(callbackCount.get(), 1, "in-memory should report exactly once at done");
-        assertEquals(totalEntries.get(), n, "entries should equal number of puts");
-        assertEquals(totalBytes.get(), expectBytes, "bytes should equal sum of key+value sizes");
+        assertEquals(callbackCount.get(), 1);
+        assertEquals(totalEntries.get(), n);
+        assertEquals(totalBytes.get(), expectBytes);
     }
 }
-

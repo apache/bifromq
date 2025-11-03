@@ -19,16 +19,17 @@
 
 package org.apache.bifromq.basekv.store;
 
-import org.apache.bifromq.basekv.localengine.rocksdb.RocksDBCPableKVEngineConfigurator;
-import org.apache.bifromq.basekv.localengine.rocksdb.RocksDBWALableKVEngineConfigurator;
-import org.apache.bifromq.basekv.store.option.KVRangeStoreOptions;
-import org.apache.bifromq.basekv.store.stats.StatsCollector;
-import org.apache.bifromq.basekv.store.util.ProcessUtil;
+import static org.apache.bifromq.basekv.localengine.StructUtil.strVal;
+import static org.apache.bifromq.basekv.localengine.rocksdb.RocksDBDefaultConfigs.DB_ROOT_DIR;
+
 import java.io.File;
 import java.time.Duration;
 import java.util.Map;
 import java.util.concurrent.Executor;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.bifromq.basekv.store.option.KVRangeStoreOptions;
+import org.apache.bifromq.basekv.store.stats.StatsCollector;
+import org.apache.bifromq.basekv.store.util.ProcessUtil;
 
 @Slf4j
 class KVRangeStoreStatsCollector extends StatsCollector {
@@ -42,9 +43,9 @@ class KVRangeStoreStatsCollector extends StatsCollector {
 
     @Override
     protected void scrap(Map<String, Double> stats) {
-        if (opt.getDataEngineConfigurator() instanceof RocksDBCPableKVEngineConfigurator conf) {
+        if ("rocksdb".equalsIgnoreCase(opt.getDataEngineType())) {
             try {
-                File dbRootDir = new File(conf.dbRootDir());
+                File dbRootDir = new File(strVal(opt.getDataEngineConf(), DB_ROOT_DIR));
                 long total = dbRootDir.getTotalSpace();
                 if (total > 0) {
                     stats.put("db.usage", roundUsage(dbRootDir.getUsableSpace() / (double) total));
@@ -53,9 +54,9 @@ class KVRangeStoreStatsCollector extends StatsCollector {
                 log.error("Failed to calculate db usage", e);
             }
         }
-        if (opt.getWalEngineConfigurator() instanceof RocksDBWALableKVEngineConfigurator conf) {
+        if ("rocksdb".equalsIgnoreCase(opt.getWalEngineType())) {
             try {
-                File walRootDir = new File(conf.dbRootDir());
+                File walRootDir = new File(strVal(opt.getDataEngineConf(), DB_ROOT_DIR));
                 long total = walRootDir.getTotalSpace();
                 if (total > 0) {
                     stats.put("wal.usage", roundUsage(walRootDir.getUsableSpace() / (double) total));

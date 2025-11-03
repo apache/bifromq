@@ -17,7 +17,18 @@
  * under the License.
  */
 
-package org.apache.bifromq.basekv.localengine;
+package org.apache.bifromq.basekv.localengine.memory;
 
-public interface ICPableKVEngineConfigurator extends IKVEngineConfigurator {
+import com.google.protobuf.Struct;
+
+/**
+ * Default configuration constants for in-memory engines.
+ */
+public final class InMemDefaultConfigs {
+    public static final Struct CP = Struct.newBuilder().build();
+    public static final Struct WAL = CP;
+
+    private InMemDefaultConfigs() {
+    }
 }
+

@@ -19,13 +19,13 @@
 
 package org.apache.bifromq.basekv.localengine.rocksdb;
 
-import static org.apache.bifromq.basekv.localengine.IKVEngine.DEFAULT_NS;
 import static org.apache.bifromq.basekv.localengine.metrics.KVSpaceMeters.getFunctionCounter;
 import static org.apache.bifromq.basekv.localengine.metrics.KVSpaceMeters.getFunctionTimer;
 import static org.apache.bifromq.basekv.localengine.metrics.KVSpaceMeters.getGauge;
 import static org.apache.bifromq.basekv.localengine.rocksdb.RocksDBHelper.deleteDir;
 import static org.apache.bifromq.basekv.localengine.rocksdb.RocksDBHelper.openDBInDir;
 
+import com.google.protobuf.Struct;
 import io.micrometer.core.instrument.FunctionCounter;
 import io.micrometer.core.instrument.FunctionTimer;
 import io.micrometer.core.instrument.Gauge;
@@ -50,8 +50,7 @@ import org.rocksdb.Statistics;
 import org.rocksdb.TickerType;
 import org.slf4j.Logger;
 
-abstract class RocksDBKVSpaceEpochHandle<C extends RocksDBKVEngineConfigurator<C>> implements
-    IRocksDBKVSpaceEpochHandle {
+abstract class RocksDBKVSpaceEpochHandle implements IRocksDBKVSpaceEpochHandle {
     protected final Logger logger;
     final DBOptions dbOptions;
     final ColumnFamilyDescriptor cfDesc;
@@ -60,9 +59,9 @@ abstract class RocksDBKVSpaceEpochHandle<C extends RocksDBKVEngineConfigurator<C
     final File dir;
     final Checkpoint checkpoint;
 
-    RocksDBKVSpaceEpochHandle(File dir, C configurator, Logger logger) {
-        this.dbOptions = configurator.dbOptions();
-        this.cfDesc = new ColumnFamilyDescriptor(DEFAULT_NS.getBytes(), configurator.cfOptions(DEFAULT_NS));
+    RocksDBKVSpaceEpochHandle(File dir, Struct conf, Logger logger) {
+        this.dbOptions = buildDBOptions(conf);
+        this.cfDesc = buildCFDescriptor(conf);
         RocksDBHelper.RocksDBHandle dbHandle = openDBInDir(dir, dbOptions, cfDesc);
         this.db = dbHandle.db();
         this.cf = dbHandle.cf();
@@ -80,6 +79,10 @@ abstract class RocksDBKVSpaceEpochHandle<C extends RocksDBKVEngineConfigurator<C
     public ColumnFamilyHandle cf() {
         return cf;
     }
+
+    protected abstract DBOptions buildDBOptions(Struct conf);
+
+    protected abstract ColumnFamilyDescriptor buildCFDescriptor(Struct conf);
 
     protected record ClosableResources(String id,
                                        String genId,
@@ -135,7 +138,7 @@ abstract class RocksDBKVSpaceEpochHandle<C extends RocksDBKVEngineConfigurator<C
         private final Logger logger;
         private final Gauge blockCacheSizeGauge;
         private final Gauge tableReaderSizeGauge;
-        private final Gauge memtableSizeGauges;
+        private final Gauge memTableSizeGauges;
         private final Gauge pinedMemorySizeGauge;
         private final Gauge totalSSTFileSizeGauge;
         private final Gauge liveSSTFileSizeGauge;
@@ -185,7 +188,7 @@ abstract class RocksDBKVSpaceEpochHandle<C extends RocksDBKVEngineConfigurator<C
             }, metricTags);
             tableReaderSizeGauge = getGauge(id, RocksDBKVSpaceMetric.TableReader,
                 () -> safeGet(() -> db.getLongProperty(cfHandle, "rocksdb.estimate-table-readers-mem")), metricTags);
-            memtableSizeGauges = getGauge(id, RocksDBKVSpaceMetric.MemTable,
+            memTableSizeGauges = getGauge(id, RocksDBKVSpaceMetric.MemTable,
                 () -> safeGet(() -> db.getLongProperty(cfHandle, "rocksdb.cur-size-all-mem-tables")), metricTags);
             pinedMemorySizeGauge = getGauge(id, RocksDBKVSpaceMetric.PinnedMem, () -> {
                 BlockBasedTableConfig cfg = (BlockBasedTableConfig) cfOptions.tableFormatConfig();
@@ -360,7 +363,7 @@ abstract class RocksDBKVSpaceEpochHandle<C extends RocksDBKVEngineConfigurator<C
 
         void close() {
             blockCacheSizeGauge.close();
-            memtableSizeGauges.close();
+            memTableSizeGauges.close();
             tableReaderSizeGauge.close();
             pinedMemorySizeGauge.close();
             totalSSTFileSizeGauge.close();

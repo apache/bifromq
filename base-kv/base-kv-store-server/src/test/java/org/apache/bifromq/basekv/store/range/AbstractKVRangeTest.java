@@ -14,46 +14,51 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 
 package org.apache.bifromq.basekv.store.range;
 
-import org.apache.bifromq.basekv.MockableTest;
-import org.apache.bifromq.basekv.TestUtil;
-import org.apache.bifromq.basekv.localengine.ICPableKVSpace;
-import org.apache.bifromq.basekv.localengine.IKVEngine;
-import org.apache.bifromq.basekv.localengine.KVEngineFactory;
-import org.apache.bifromq.basekv.localengine.rocksdb.RocksDBCPableKVEngineConfigurator;
+import static org.apache.bifromq.basekv.localengine.StructUtil.toValue;
+import static org.apache.bifromq.basekv.localengine.rocksdb.RocksDBDefaultConfigs.DB_CHECKPOINT_ROOT_DIR;
+import static org.apache.bifromq.basekv.localengine.rocksdb.RocksDBDefaultConfigs.DB_ROOT_DIR;
+
+import com.google.protobuf.Struct;
 import java.lang.reflect.Method;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import lombok.SneakyThrows;
+import org.apache.bifromq.basekv.MockableTest;
+import org.apache.bifromq.basekv.TestUtil;
+import org.apache.bifromq.basekv.localengine.ICPableKVSpace;
+import org.apache.bifromq.basekv.localengine.IKVEngine;
+import org.apache.bifromq.basekv.localengine.KVEngineFactory;
+import org.apache.bifromq.basekv.localengine.rocksdb.RocksDBDefaultConfigs;
 
 public abstract class AbstractKVRangeTest extends MockableTest {
     public Path dbRootDir;
+    protected IKVEngine<? extends ICPableKVSpace> kvEngine;
     private String DB_NAME = "testDB";
     private String DB_CHECKPOINT_DIR_NAME = "testDB_cp";
-    private RocksDBCPableKVEngineConfigurator configurator = null;
-    protected IKVEngine<? extends ICPableKVSpace> kvEngine;
+    private Struct conf = null;
 
     @SneakyThrows
     protected void doSetup(Method method) {
         dbRootDir = Files.createTempDirectory("");
-        configurator = RocksDBCPableKVEngineConfigurator.builder()
-            .dbRootDir(Paths.get(dbRootDir.toString(), DB_NAME).toString())
-            .dbCheckpointRootDir(Paths.get(dbRootDir.toString(), DB_CHECKPOINT_DIR_NAME)
-                .toString())
+        conf = RocksDBDefaultConfigs.CP.toBuilder()
+            .putFields(DB_ROOT_DIR, toValue(Paths.get(dbRootDir.toString(), DB_NAME).toString()))
+            .putFields(DB_CHECKPOINT_ROOT_DIR,
+                toValue(Paths.get(dbRootDir.toString(), DB_CHECKPOINT_DIR_NAME).toString()))
             .build();
 
-        kvEngine = KVEngineFactory.createCPable(null, configurator);
+        kvEngine = KVEngineFactory.createCPable(null, "rocksdb", conf);
         kvEngine.start();
     }
 
     protected void doTearDown(Method method) {
         kvEngine.stop();
-        if (configurator != null) {
+        if (conf != null) {
             TestUtil.deleteDir(dbRootDir.toString());
             dbRootDir.toFile().delete();
         }

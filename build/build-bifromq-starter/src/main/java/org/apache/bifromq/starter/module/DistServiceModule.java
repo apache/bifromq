@@ -19,9 +19,6 @@
 
 package org.apache.bifromq.starter.module;
 
-import static org.apache.bifromq.starter.module.EngineConfUtil.buildDataEngineConf;
-import static org.apache.bifromq.starter.module.EngineConfUtil.buildWALEngineConf;
-
 import com.google.inject.AbstractModule;
 import com.google.inject.Inject;
 import com.google.inject.Key;
@@ -122,10 +119,10 @@ public class DistServiceModule extends AbstractModule {
                     .setKvRangeOptions(new KVRangeOptions()
                         .setMaxWALFatchBatchSize(workerConfig.getMaxWALFetchSize())
                         .setCompactWALThreshold(workerConfig.getCompactWALThreshold()))
-                    .setDataEngineConfigurator(buildDataEngineConf(workerConfig
-                        .getDataEngineConfig(), "dist_data"))
-                    .setWalEngineConfigurator(buildWALEngineConf(workerConfig
-                        .getWalEngineConfig(), "dist_wal")))
+                    .setDataEngineType(workerConfig.getDataEngineConfig().getType())
+                    .setDataEngineConf(workerConfig.getDataEngineConfig().toStruct())
+                    .setWalEngineType(workerConfig.getWalEngineConfig().getType())
+                    .setWalEngineConf(workerConfig.getWalEngineConfig().toStruct()))
                 .minGCInterval(Duration.ofSeconds(workerConfig.getMinGCIntervalSeconds()))
                 .maxGCInterval(Duration.ofSeconds(workerConfig.getMaxGCIntervalSeconds()))
                 .bootstrapDelay(Duration.ofMillis(workerConfig.getBalanceConfig().getBootstrapDelayInMS()))

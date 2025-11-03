@@ -19,21 +19,27 @@
 
 package org.apache.bifromq.basekv.localengine.memory;
 
+import com.google.protobuf.Struct;
 import org.apache.bifromq.basekv.localengine.metrics.KVSpaceOpMeters;
 import org.slf4j.Logger;
 
 class InMemCPableKVEngine extends InMemKVEngine<InMemCPableKVEngine, InMemCPableKVSpace> {
-    InMemCPableKVEngine(String overrideIdentity, InMemKVEngineConfigurator c) {
-        super(overrideIdentity, c);
+    InMemCPableKVEngine(String overrideIdentity, Struct conf) {
+        super(overrideIdentity, conf);
     }
 
     @Override
     protected InMemCPableKVSpace doBuildKVSpace(String spaceId,
-                                                InMemKVEngineConfigurator configurator,
+                                                Struct conf,
                                                 Runnable onDestroy,
                                                 KVSpaceOpMeters opMeters,
                                                 Logger logger,
                                                 String... tags) {
-        return new InMemCPableKVSpace(spaceId, configurator, this, onDestroy, opMeters, logger, tags);
+        return new InMemCPableKVSpace(spaceId, conf, this, onDestroy, opMeters, logger, tags);
+    }
+
+    @Override
+    protected Struct defaultConf() {
+        return InMemDefaultConfigs.CP;
     }
 }

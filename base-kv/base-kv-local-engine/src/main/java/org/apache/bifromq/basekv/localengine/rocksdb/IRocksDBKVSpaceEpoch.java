@@ -26,7 +26,7 @@ import org.rocksdb.RocksDB;
 /**
  * Interface for accessing RocksDB space epoch.
  */
-public interface IRocksDBKVSpaceEpoch extends IKVSpaceEpoch {
+interface IRocksDBKVSpaceEpoch extends IKVSpaceEpoch {
     /**
      * Get the backing RocksDB instance.
      *

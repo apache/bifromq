@@ -234,7 +234,23 @@ message InsertRequest{
 }
 
 message BatchInsertRequest{
+  message SubRef{
+    repeated MatchedRoute matchedRoute = 1;
+    uint32 messagePackIndex = 2;
+  }
+
+  message InsertRef{
+    string tenantId = 1;
+    string inboxId = 2;
+    uint64 incarnation = 3;
+    repeated SubRef subRef = 4;
+  }
+
+  // legacy non-compact format: will be removed in next major version
   repeated InsertRequest request = 1;
+  // new compact format
+  repeated commontype.TopicMessagePack topicMessagePack = 2;
+  repeated InsertRef insertRef = 3;
 }
 
 message InsertResult{

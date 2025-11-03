@@ -1178,6 +1178,151 @@ final class InboxStoreCoProc implements IKVRangeCoProc {
                                  boolean isLeader,
                                  IKVRangeReader reader,
                                  IKVWriter writer) {
+        // route to new or legacy implementation for better readability
+        if (request.getInsertRefCount() > 0) {
+            return batchInsertCompactLayout(request, replyBuilder, isLeader, reader, writer);
+        }
+        return batchInsertLegacy(request, replyBuilder, isLeader, reader, writer);
+    }
+
+    // handle insert with message pool and explicit references
+    private Runnable batchInsertCompactLayout(BatchInsertRequest request,
+                                              BatchInsertReply.Builder replyBuilder,
+                                              boolean isLeader,
+                                              IKVRangeReader reader,
+                                              IKVWriter writer) {
+        Map<String, Map<InboxMetadata, Boolean>> toBeCached = new HashMap<>();
+        Map<ClientInfo, Map<QoS, Integer>> dropCountMap = new HashMap<>();
+        Map<ClientInfo, Boolean> dropOldestMap = new HashMap<>();
+        List<TopicMessagePack> pool = request.getTopicMessagePackList();
+        for (BatchInsertRequest.InsertRef ref : request.getInsertRefList()) {
+            Optional<InboxMetadata> metadataOpt = inboxMetaCache.get(ref.getTenantId(), ref.getInboxId(),
+                ref.getIncarnation(), this.inboxMetadataProvider(reader));
+            if (metadataOpt.isEmpty()) {
+                replyBuilder.addResult(InsertResult.newBuilder().setCode(InsertResult.Code.NO_INBOX).build());
+                continue;
+            }
+            InboxMetadata metadata = metadataOpt.get();
+            List<SubMessage> qos0MsgList = new ArrayList<>();
+            List<SubMessage> bufferMsgList = new ArrayList<>();
+            Set<InsertResult.SubStatus> insertResults = new HashSet<>();
+            for (BatchInsertRequest.SubRef subRef : ref.getSubRefList()) {
+                int index = subRef.getMessagePackIndex();
+                if (index < 0 || index >= pool.size()) {
+                    log.warn("Invalid messagePackIndex: {} for tenantId={}, inboxId={}, inc={}",
+                        index, ref.getTenantId(), ref.getInboxId(), ref.getIncarnation());
+                    continue;
+                }
+                TopicMessagePack topicMsgPack = pool.get(index);
+                Map<String, TopicFilterOption> qos0TopicFilters = new HashMap<>();
+                Map<String, TopicFilterOption> qos1TopicFilters = new HashMap<>();
+                Map<String, TopicFilterOption> qos2TopicFilters = new HashMap<>();
+                for (MatchedRoute matchedRoute : subRef.getMatchedRouteList()) {
+                    long matchedIncarnation = matchedRoute.getIncarnation();
+                    TopicFilterOption tfOption = metadata.getTopicFiltersMap().get(matchedRoute.getTopicFilter());
+                    if (tfOption == null) {
+                        insertResults.add(InsertResult.SubStatus.newBuilder()
+                            .setMatchedRoute(matchedRoute)
+                            .setRejected(true)
+                            .build());
+                    } else {
+                        if (tfOption.getIncarnation() > matchedIncarnation) {
+                            log.debug(
+                                "Receive message from previous subscription: topicFilter={}, inc={}, prevInc={}",
+                                matchedRoute, tfOption.getIncarnation(), matchedIncarnation);
+                            insertResults.add(InsertResult.SubStatus.newBuilder()
+                                .setMatchedRoute(matchedRoute)
+                                .setRejected(true)
+                                .build());
+                        } else {
+                            insertResults.add(InsertResult.SubStatus.newBuilder()
+                                .setMatchedRoute(matchedRoute)
+                                .setRejected(false)
+                                .build());
+                        }
+                        switch (tfOption.getQos()) {
+                            case AT_MOST_ONCE -> qos0TopicFilters.put(matchedRoute.getTopicFilter(), tfOption);
+                            case AT_LEAST_ONCE -> qos1TopicFilters.put(matchedRoute.getTopicFilter(), tfOption);
+                            case EXACTLY_ONCE -> qos2TopicFilters.put(matchedRoute.getTopicFilter(), tfOption);
+                            default -> {
+                                // never happens
+                            }
+                        }
+                    }
+                }
+                if (qos0TopicFilters.isEmpty() && qos1TopicFilters.isEmpty() && qos2TopicFilters.isEmpty()) {
+                    continue;
+                }
+                String topic = topicMsgPack.getTopic();
+                for (TopicMessagePack.PublisherPack publisherPack : topicMsgPack.getMessageList()) {
+                    for (Message message : publisherPack.getMessageList()) {
+                        ClientInfo publisher = publisherPack.getPublisher();
+                        switch (message.getPubQoS()) {
+                            case AT_MOST_ONCE -> {
+                                Map<String, TopicFilterOption> topicFilters = new HashMap<>();
+                                topicFilters.putAll(qos0TopicFilters);
+                                topicFilters.putAll(qos1TopicFilters);
+                                topicFilters.putAll(qos2TopicFilters);
+                                qos0MsgList.add(new SubMessage(topic, publisher, message, topicFilters));
+                            }
+                            case AT_LEAST_ONCE, EXACTLY_ONCE -> {
+                                if (!qos0TopicFilters.isEmpty()) {
+                                    qos0MsgList.add(new SubMessage(topic, publisher, message, qos0TopicFilters));
+                                }
+                                if (!qos1TopicFilters.isEmpty() || !qos2TopicFilters.isEmpty()) {
+                                    Map<String, TopicFilterOption> topicFilters = new HashMap<>();
+                                    topicFilters.putAll(qos1TopicFilters);
+                                    topicFilters.putAll(qos2TopicFilters);
+                                    bufferMsgList.add(new SubMessage(topic, publisher, message, topicFilters));
+                                }
+                            }
+                            default -> {
+                                // never happens
+                            }
+                        }
+                    }
+                }
+            }
+
+            InboxMetadata.Builder metadataBuilder = metadata.toBuilder();
+            dropOldestMap.put(metadata.getClient(), metadata.getDropOldest());
+            ByteString inboxInstStartKey = inboxInstanceStartKey(ref.getTenantId(), ref.getInboxId(),
+                ref.getIncarnation());
+            Map<QoS, Integer> dropCounts = insertInbox(inboxInstStartKey, qos0MsgList, bufferMsgList,
+                metadataBuilder, reader, writer);
+            metadata = metadataBuilder.build();
+
+            Map<QoS, Integer> aggregated = dropCountMap.computeIfAbsent(metadata.getClient(), k -> new HashMap<>());
+            dropCounts.forEach((qos, count) -> aggregated.compute(qos, (k, v) -> v == null ? count : v + count));
+
+            replyBuilder.addResult(InsertResult.newBuilder()
+                .setCode(InsertResult.Code.OK)
+                .addAllResult(insertResults)
+                .build());
+
+            writer.put(inboxInstStartKey, metadata.toByteString());
+            toBeCached.computeIfAbsent(ref.getTenantId(), k -> new HashMap<>()).put(metadata, false);
+        }
+        return () -> {
+            updateTenantStates(toBeCached, isLeader);
+            dropCountMap.forEach((client, dropCounts) -> dropCounts.forEach((qos, count) -> {
+                if (count > 0) {
+                    eventCollector.report(getLocal(Overflowed.class)
+                        .oldest(dropOldestMap.get(client))
+                        .isQoS0(qos == QoS.AT_MOST_ONCE)
+                        .clientInfo(client)
+                        .dropCount(count));
+                }
+            }));
+        };
+    }
+
+    // handle legacy format with embedded SubMessagePack per InsertRequest
+    private Runnable batchInsertLegacy(BatchInsertRequest request,
+                                       BatchInsertReply.Builder replyBuilder,
+                                       boolean isLeader,
+                                       IKVRangeReader reader,
+                                       IKVWriter writer) {
         Map<String, Map<InboxMetadata, Boolean>> toBeCached = new HashMap<>();
         Map<ClientInfo, Map<QoS, Integer>> dropCountMap = new HashMap<>();
         Map<ClientInfo, Boolean> dropOldestMap = new HashMap<>();

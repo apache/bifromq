@@ -101,18 +101,19 @@ abstract class RocksDBKVSpaceEpochHandle implements IRocksDBKVSpaceEpochHandle {
             try (AutoCloseable guard = metrics.beginClose()) {
                 metrics.close();
                 log.debug("Clean up generation[{}] of kvspace[{}]", genId, id);
+                // Close checkpoint before DB resources
+                checkpoint.close();
                 try {
                     db.destroyColumnFamilyHandle(cfHandle);
                 } catch (Throwable e) {
                     log.error("Failed to destroy column family handle of generation[{}] for kvspace[{}]", genId, id, e);
                 }
+                cfDesc.getOptions().close();
                 try {
                     db.close();
                 } catch (Throwable e) {
                     log.error("Failed to close RocksDB of generation[{}] for kvspace[{}]", genId, id, e);
                 }
-                checkpoint.close();
-                cfDesc.getOptions().close();
                 Statistics statistics = dbOptions.statistics();
                 if (statistics != null) {
                     statistics.close();

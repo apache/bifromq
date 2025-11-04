@@ -30,13 +30,18 @@ import org.slf4j.Logger;
 class RocksDBKVSpaceCheckpointReader extends AbstractRocksDBKVSpaceReader {
     private final IRocksDBKVSpaceEpoch checkpoint;
     private final Map<ByteString, ByteString> metadata;
+    // Hold a strong reference to prevent premature GC of checkpoint
+    private RocksDBKVSpaceCheckpoint strongRef;
 
     RocksDBKVSpaceCheckpointReader(String id,
                                    KVSpaceOpMeters opMeters,
                                    Logger logger,
+                                   RocksDBKVSpaceCheckpoint strongRef,
                                    IRocksDBKVSpaceEpoch checkpoint,
                                    Map<ByteString, ByteString> metadata) {
         super(id, opMeters, logger);
+        // keep strong reference during reader lifetime
+        this.strongRef = strongRef;
         this.checkpoint = checkpoint;
         this.metadata = metadata;
     }
@@ -63,6 +68,7 @@ class RocksDBKVSpaceCheckpointReader extends AbstractRocksDBKVSpaceReader {
 
     @Override
     public void close() {
-
+        // release strong reference to allow GC of checkpoint
+        strongRef = null;
     }
 }

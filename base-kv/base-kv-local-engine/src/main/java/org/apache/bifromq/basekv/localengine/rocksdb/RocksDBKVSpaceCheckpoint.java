@@ -111,7 +111,7 @@ class RocksDBKVSpaceCheckpoint implements IRocksDBKVSpaceCheckpoint {
 
     @Override
     public IKVSpaceReader newReader() {
-        return new RocksDBKVSpaceCheckpointReader(id, opMeters, logger, handle, metadata);
+        return new RocksDBKVSpaceCheckpointReader(id, opMeters, logger, this, handle, metadata);
     }
 
     @Override

@@ -49,6 +49,7 @@ public class InboxStoreConfig {
     private int expireRateLimit = 1000;
     private int gcIntervalSeconds = 600;
     @JsonSetter(nulls = Nulls.SKIP)
+    @JsonMerge
     private EngineConfig dataEngineConfig = new EngineConfig()
         .setType("rocksdb")
         .setProps(new HashMap<>() {
@@ -59,6 +60,7 @@ public class InboxStoreConfig {
             }
         });
     @JsonSetter(nulls = Nulls.SKIP)
+    @JsonMerge
     private EngineConfig walEngineConfig = new EngineConfig()
         .setType("rocksdb")
         .setProps(new HashMap<>() {

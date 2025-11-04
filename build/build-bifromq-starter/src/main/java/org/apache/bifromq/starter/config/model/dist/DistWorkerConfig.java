@@ -23,6 +23,7 @@ import static org.apache.bifromq.basekv.localengine.rocksdb.RocksDBDefaultConfig
 import static org.apache.bifromq.basekv.localengine.rocksdb.RocksDBDefaultConfigs.COMPACT_MIN_TOMBSTONE_RANGES;
 import static org.apache.bifromq.basekv.localengine.rocksdb.RocksDBDefaultConfigs.MANUAL_COMPACTION;
 
+import com.fasterxml.jackson.annotation.JsonMerge;
 import com.fasterxml.jackson.annotation.JsonSetter;
 import com.fasterxml.jackson.annotation.Nulls;
 import com.google.protobuf.Struct;
@@ -46,6 +47,7 @@ public class DistWorkerConfig {
     private int minGCIntervalSeconds = 30; // every 30 s
     private int maxGCIntervalSeconds = 24 * 3600; // every day
     @JsonSetter(nulls = Nulls.SKIP)
+    @JsonMerge
     private EngineConfig dataEngineConfig = new EngineConfig()
         .setType("rocksdb")
         .setProps(new HashMap<>() {
@@ -56,6 +58,7 @@ public class DistWorkerConfig {
             }
         });
     @JsonSetter(nulls = Nulls.SKIP)
+    @JsonMerge
     private EngineConfig walEngineConfig = new EngineConfig()
         .setType("rocksdb")
         .setProps(new HashMap<>() {

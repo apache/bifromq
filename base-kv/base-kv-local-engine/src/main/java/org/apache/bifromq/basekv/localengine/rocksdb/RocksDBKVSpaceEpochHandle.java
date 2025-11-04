@@ -31,7 +31,6 @@ import io.micrometer.core.instrument.FunctionTimer;
 import io.micrometer.core.instrument.Gauge;
 import io.micrometer.core.instrument.Tags;
 import java.io.File;
-import java.io.IOException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.function.Function;
@@ -108,23 +107,19 @@ abstract class RocksDBKVSpaceEpochHandle implements IRocksDBKVSpaceEpochHandle {
                 } catch (Throwable e) {
                     log.error("Failed to destroy column family handle of generation[{}] for kvspace[{}]", genId, id, e);
                 }
-                cfDesc.getOptions().close();
                 try {
                     db.close();
                 } catch (Throwable e) {
                     log.error("Failed to close RocksDB of generation[{}] for kvspace[{}]", genId, id, e);
                 }
-                Statistics statistics = dbOptions.statistics();
-                if (statistics != null) {
-                    statistics.close();
-                }
+                cfDesc.getOptions().close();
                 dbOptions.close();
                 if (isRetired.test(genId)) {
                     log.debug("delete retired generation[{}] of kvspace[{}] in path: {}", genId, id,
                         dir.getAbsolutePath());
                     try {
                         deleteDir(dir.toPath());
-                    } catch (IOException e) {
+                    } catch (Throwable e) {
                         log.error("Failed to clean retired generation at path:{}", dir, e);
                     }
                 }
@@ -395,6 +390,7 @@ abstract class RocksDBKVSpaceEpochHandle implements IRocksDBKVSpaceEpochHandle {
                 flushLatencyTimer.close();
                 compactionLatencyTimer.close();
                 writeStallTimer.close();
+                statistics.close();
             }
         }
 

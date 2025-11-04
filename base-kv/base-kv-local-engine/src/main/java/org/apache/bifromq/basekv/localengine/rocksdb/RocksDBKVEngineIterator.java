@@ -19,7 +19,6 @@
 
 package org.apache.bifromq.basekv.localengine.rocksdb;
 
-import java.lang.ref.Cleaner;
 import org.apache.bifromq.basekv.localengine.KVEngineException;
 import org.rocksdb.ColumnFamilyHandle;
 import org.rocksdb.ReadOptions;
@@ -29,9 +28,8 @@ import org.rocksdb.Slice;
 import org.rocksdb.Snapshot;
 
 class RocksDBKVEngineIterator implements AutoCloseable {
-    private static final Cleaner CLEANER = Cleaner.create();
     private final RocksIterator rocksIterator;
-    private final Cleaner.Cleanable onClose;
+    private final Runnable onClose;
 
     RocksDBKVEngineIterator(RocksDB db, ColumnFamilyHandle cfHandle, Snapshot snapshot, byte[] startKey,
                             byte[] endKey) {
@@ -59,8 +57,7 @@ class RocksDBKVEngineIterator implements AutoCloseable {
             readOptions.setSnapshot(snapshot);
         }
         rocksIterator = db.newIterator(cfHandle, readOptions);
-        onClose = CLEANER.register(this, new NativeState(rocksIterator, readOptions, lowerSlice, upperSlice));
-
+        onClose = new NativeState(rocksIterator, readOptions, lowerSlice, upperSlice);
     }
 
     public byte[] key() {
@@ -109,7 +106,7 @@ class RocksDBKVEngineIterator implements AutoCloseable {
 
     @Override
     public void close() {
-        onClose.clean();
+        onClose.run();
     }
 
     private record NativeState(RocksIterator itr, ReadOptions readOptions, Slice lowerSlice, Slice upperSlice)

@@ -57,33 +57,37 @@ public final class RocksDBDefaultConfigs {
 
     static {
         // Build CP with all defaults
-        Struct.Builder cpBuilder = Struct.newBuilder();
-        cpBuilder.putFields(DB_ROOT_DIR, toValue(""));
-        cpBuilder.putFields(DB_CHECKPOINT_ROOT_DIR, toValue(""));
-        cpBuilder.putFields(ENABLE_STATS, toValue(false));
-        cpBuilder.putFields(STATS_LEVEL, toValue(StatsLevel.EXCEPT_DETAILED_TIMERS.name()));
-        cpBuilder.putFields(MANUAL_COMPACTION, toValue(false));
-        cpBuilder.putFields(COMPACT_MIN_TOMBSTONE_KEYS, toValue(200000));
-        cpBuilder.putFields(COMPACT_MIN_TOMBSTONE_RANGES, toValue(100000));
-        cpBuilder.putFields(COMPACT_TOMBSTONE_RATIO, toValue(0.3));
-        cpBuilder.putFields(BLOCK_CACHE_SIZE, toValue(32 * SizeUnit.MB));
-        cpBuilder.putFields(WRITE_BUFFER_SIZE, toValue(128 * SizeUnit.MB));
-        cpBuilder.putFields(MAX_WRITE_BUFFER_NUMBER, toValue(6));
-        cpBuilder.putFields(MIN_WRITE_BUFFER_NUMBER_TO_MERGE, toValue(2));
-        cpBuilder.putFields(MIN_BLOB_SIZE, toValue(2 * SizeUnit.KB));
-        cpBuilder.putFields(INCREASE_PARALLELISM, toValue(Math.max(EnvProvider.INSTANCE.availableProcessors(), 2)));
-        cpBuilder.putFields(MAX_BACKGROUND_JOBS, toValue(Math.max(EnvProvider.INSTANCE.availableProcessors(), 2)));
-        cpBuilder.putFields(LEVEL0_FILE_NUM_COMPACTION_TRIGGER, toValue(8));
-        cpBuilder.putFields(LEVEL0_SLOWDOWN_WRITES_TRIGGER, toValue(20));
-        cpBuilder.putFields(LEVEL0_STOP_WRITES_TRIGGER, toValue(24));
-        cpBuilder.putFields(MAX_BYTES_FOR_LEVEL_BASE, toValue(128 * 2 * 8 * SizeUnit.MB));
-        cpBuilder.putFields(TARGET_FILE_SIZE_BASE, toValue(128 * 2 * SizeUnit.MB));
-        CP = cpBuilder.build();
+        Struct.Builder configBuilder = Struct.newBuilder();
+        configBuilder.putFields(DB_ROOT_DIR, toValue(""));
+        configBuilder.putFields(ENABLE_STATS, toValue(false));
+        configBuilder.putFields(STATS_LEVEL, toValue(StatsLevel.EXCEPT_DETAILED_TIMERS.name()));
+        configBuilder.putFields(MANUAL_COMPACTION, toValue(true));
+        configBuilder.putFields(COMPACT_MIN_TOMBSTONE_KEYS, toValue(200000));
+        configBuilder.putFields(COMPACT_MIN_TOMBSTONE_RANGES, toValue(100000));
+        configBuilder.putFields(COMPACT_TOMBSTONE_RATIO, toValue(0.3));
+        configBuilder.putFields(BLOCK_CACHE_SIZE, toValue(32 * SizeUnit.MB));
+        configBuilder.putFields(WRITE_BUFFER_SIZE, toValue(128 * SizeUnit.MB));
+        configBuilder.putFields(MAX_WRITE_BUFFER_NUMBER, toValue(6));
+        configBuilder.putFields(MIN_WRITE_BUFFER_NUMBER_TO_MERGE, toValue(2));
+        configBuilder.putFields(MIN_BLOB_SIZE, toValue(2 * SizeUnit.KB));
+        configBuilder.putFields(INCREASE_PARALLELISM,
+            toValue(Math.max(EnvProvider.INSTANCE.availableProcessors() / 4, 2)));
+        configBuilder.putFields(MAX_BACKGROUND_JOBS,
+            toValue(Math.max(EnvProvider.INSTANCE.availableProcessors() / 4, 2)));
+        configBuilder.putFields(LEVEL0_FILE_NUM_COMPACTION_TRIGGER, toValue(8));
+        configBuilder.putFields(LEVEL0_SLOWDOWN_WRITES_TRIGGER, toValue(20));
+        configBuilder.putFields(LEVEL0_STOP_WRITES_TRIGGER, toValue(24));
+        configBuilder.putFields(MAX_BYTES_FOR_LEVEL_BASE, toValue(128 * 2 * 8 * SizeUnit.MB));
+        configBuilder.putFields(TARGET_FILE_SIZE_BASE, toValue(128 * 2 * SizeUnit.MB));
+        Struct sharedConfig = configBuilder.build();
+        CP = sharedConfig.toBuilder()
+            .putFields(DB_CHECKPOINT_ROOT_DIR, toValue(""))
+            .build();
 
         // Build WAL based on CP
-        Struct.Builder b = CP.toBuilder();
-        b.putFields(ASYNC_WAL_FLUSH, toValue(true));
-        b.putFields(FSYNC_WAL, toValue(false));
-        WAL = b.build();
+        WAL = sharedConfig.toBuilder()
+            .putFields(ASYNC_WAL_FLUSH, toValue(true))
+            .putFields(FSYNC_WAL, toValue(false))
+            .build();
     }
 }

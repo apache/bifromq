@@ -53,6 +53,33 @@ public class EngineConfigDeserializer extends StdDeserializer<EngineConfig> {
         return cfg;
     }
 
+    // Support in-place merge when @JsonMerge is present on the field
+    @Override
+    public EngineConfig deserialize(JsonParser p, DeserializationContext ctxt, EngineConfig intoValue)
+        throws IOException {
+        if (intoValue == null) {
+            // Fallback to regular deserialization
+            return deserialize(p, ctxt);
+        }
+        JsonNode node = p.getCodec().readTree(p);
+        if (node.has("type") && node.get("type").isTextual()) {
+            // Only override type when provided
+            intoValue.setType(node.get("type").asText());
+        }
+        Iterator<Map.Entry<String, JsonNode>> it = node.fields();
+        while (it.hasNext()) {
+            Map.Entry<String, JsonNode> e = it.next();
+            String k = e.getKey();
+            if ("type".equals(k)) {
+                continue;
+            }
+            JsonNode v = e.getValue();
+            // Put to keep provided key and preserve others untouched
+            intoValue.put(k, toJava(v));
+        }
+        return intoValue;
+    }
+
     private Object toJava(JsonNode v) {
         if (v == null || v.isNull()) {
             return null;
@@ -76,4 +103,3 @@ public class EngineConfigDeserializer extends StdDeserializer<EngineConfig> {
         return v.toString();
     }
 }
-

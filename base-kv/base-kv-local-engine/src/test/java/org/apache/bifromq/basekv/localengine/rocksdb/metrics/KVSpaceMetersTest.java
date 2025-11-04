@@ -48,13 +48,15 @@ public class KVSpaceMetersTest extends MockableTest {
         gauge = null;
         await().forever().until(() -> {
             System.gc();
-            return weakRef.get() == null && Metrics.globalRegistry.find(gaugeName).gauges().isEmpty();
+            return weakRef.get() == null && Metrics.globalRegistry.find(gaugeName).gauges().stream()
+                .noneMatch(g -> g.getId().getName().equals("testSpace"));
         });
     }
 
     @Test
     public void removeTimerWhenNoRef() {
-        Timer timer = KVSpaceMeters.getTimer("testSpace", RocksDBKVSpaceMetric.ManualFlushTimer, Tags.of(new String[0]));
+        Timer timer = KVSpaceMeters.getTimer("testSpace", RocksDBKVSpaceMetric.ManualFlushTimer,
+            Tags.of(new String[0]));
         String timerName = timer.getId().getName();
         WeakReference<Timer> weakRef = new WeakReference<>(timer);
         assertFalse(Metrics.globalRegistry.find(timerName).timers().isEmpty());

@@ -67,16 +67,27 @@ class RocksDBHelper {
     }
 
     static void deleteDir(Path path) throws IOException {
+        if (!path.toFile().exists()) {
+            return;
+        }
         Files.walkFileTree(path, new SimpleFileVisitor<>() {
             @Override
-            public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) throws IOException {
-                Files.delete(file);
+            public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) {
+                try {
+                    Files.delete(file);
+                } catch (IOException e) {
+                    // do nothing
+                }
                 return FileVisitResult.CONTINUE;
             }
 
             @Override
-            public FileVisitResult postVisitDirectory(Path dir, IOException exc) throws IOException {
-                Files.delete(dir);
+            public FileVisitResult postVisitDirectory(Path dir, IOException exc) {
+                try {
+                    Files.delete(dir);
+                } catch (IOException e) {
+                    // do nothing
+                }
                 return FileVisitResult.CONTINUE;
             }
         });

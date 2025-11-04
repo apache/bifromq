@@ -47,6 +47,7 @@ public class RetainStoreConfig {
     private int compactWALThreshold = 256 * 1024 * 1024;
     private int gcIntervalSeconds = 600;
     @JsonSetter(nulls = Nulls.SKIP)
+    @JsonMerge
     private EngineConfig dataEngineConfig = new EngineConfig()
         .setType("rocksdb")
         .setProps(new HashMap<>() {
@@ -57,6 +58,7 @@ public class RetainStoreConfig {
             }
         });
     @JsonSetter(nulls = Nulls.SKIP)
+    @JsonMerge
     private EngineConfig walEngineConfig = new EngineConfig()
         .setType("rocksdb")
         .setProps(new HashMap<>() {

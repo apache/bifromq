@@ -55,9 +55,9 @@ class BatchInsertCall extends BatchMutationCall<InsertRequest, InsertResult> {
         Iterable<ICallTask<InsertRequest, InsertResult, MutationCallBatcherKey>> callTasks) {
         BatchInsertRequest.Builder reqBuilder = BatchInsertRequest.newBuilder();
         // legacy non-compact format for backward compatibility
-        callTasks.forEach(call -> reqBuilder.addRequest(call.call()));
+        // callTasks.forEach(call -> reqBuilder.addRequest(call.call()));
 
-        // build message pool and insert references; dedup across tasks by identity to avoid heavy hashing
+        // build message pool and insert references;
         IdentityHashMap<TopicMessagePack, Integer> poolIndex = new IdentityHashMap<>();
         List<TopicMessagePack> pool = new LinkedList<>();
         List<BatchInsertRequest.InsertRef> insertRefs = new LinkedList<>();

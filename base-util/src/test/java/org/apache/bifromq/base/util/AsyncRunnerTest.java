@@ -60,6 +60,8 @@ public class AsyncRunnerTest {
         log.info("Test case[{}.{}] finished, doing teardown",
             method.getDeclaringClass().getName(), method.getName());
         try {
+            executor.shutdownNow();
+            executor.awaitTermination(5, TimeUnit.SECONDS);
             log.info("Test case[{}.{}] teared down",
                 method.getDeclaringClass().getName(), method.getName());
         } catch (Throwable e) {
@@ -92,18 +94,22 @@ public class AsyncRunnerTest {
         AtomicInteger counter = new AtomicInteger();
         for (int i = 0; i < 10; i++) {
             queue.add(() -> new CompletableFuture<Void>()
-                .orTimeout(10, TimeUnit.MILLISECONDS)
+                // Use a slightly larger timeout to reduce CI flakiness
+                .orTimeout(100, TimeUnit.MILLISECONDS)
                 .whenComplete((v, e) -> counter.incrementAndGet()));
         }
-        queue.awaitDone().toCompletableFuture().join();
+        // Add a guard timeout to avoid indefinite blocking in CI
+        queue.awaitDone().toCompletableFuture().orTimeout(5, TimeUnit.SECONDS).join();
         assertEquals(counter.get(), 10);
 
         for (int i = 0; i < 10; i++) {
             queue.add(() -> new CompletableFuture<Void>()
-                .orTimeout(10, TimeUnit.MILLISECONDS)
+                // Use a slightly larger timeout to reduce CI flakiness
+                .orTimeout(100, TimeUnit.MILLISECONDS)
                 .whenComplete((v, e) -> counter.incrementAndGet()));
         }
-        queue.awaitDone().toCompletableFuture().join();
+        // Add a guard timeout to avoid indefinite blocking in CI
+        queue.awaitDone().toCompletableFuture().orTimeout(5, TimeUnit.SECONDS).join();
         assertEquals(counter.get(), 20);
     }
 
@@ -115,8 +121,8 @@ public class AsyncRunnerTest {
         CountDownLatch latch1 = new CountDownLatch(1);
         CountDownLatch latch2 = new CountDownLatch(1);
 
-        CompletableFuture f1 = queue.add(() -> {
-            CompletableFuture f = new CompletableFuture<>();
+        CompletableFuture<Void> f1 = queue.add(() -> {
+            CompletableFuture<Void> f = new CompletableFuture<>();
             f.whenComplete((v, e) -> {
                 if (f.isCancelled()) {
                     canceled.set(true);
@@ -150,9 +156,9 @@ public class AsyncRunnerTest {
     @Test
     public void testCancelAll() {
         AsyncRunner queue = new AsyncRunner(executor);
-        CompletableFuture<Void> f1 = queue.add(() -> new CompletableFuture());
-        CompletableFuture<Void> f2 = queue.add(() -> new CompletableFuture());
-        CompletableFuture<Void> f3 = queue.add(() -> new CompletableFuture());
+        CompletableFuture<Void> f1 = queue.add(() -> new CompletableFuture<>());
+        CompletableFuture<Void> f2 = queue.add(() -> new CompletableFuture<>());
+        CompletableFuture<Void> f3 = queue.add(() -> new CompletableFuture<>());
         queue.cancelAll();
         queue.awaitDone().toCompletableFuture().join();
         assertTrue(f1.isCancelled());
@@ -207,10 +213,7 @@ public class AsyncRunnerTest {
         RuntimeException exp = new RuntimeException();
         try {
             queue.add(() -> {
-                if (true) {
-                    throw exp;
-                }
-                return new CompletableFuture<>();
+                throw exp;
             }).join();
             fail();
         } catch (Throwable e) {

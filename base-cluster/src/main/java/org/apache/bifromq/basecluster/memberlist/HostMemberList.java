@@ -381,6 +381,11 @@ public class HostMemberList implements IHostMemberList {
                 messenger.send(ClusterMessage.newBuilder()
                     .setJoin(Join.newBuilder().setMember(local).build())
                     .build(), getMemberAddress(joinMember.getEndpoint()), true);
+            } else if (newMember) {
+                // send back a join to speed up convergence
+                messenger.send(ClusterMessage.newBuilder()
+                    .setJoin(Join.newBuilder().setMember(local).build())
+                    .build(), getMemberAddress(joinMember.getEndpoint()), true);
             }
         } else {
             clearZombie(join.getExpectedHost());

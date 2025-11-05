@@ -203,6 +203,67 @@ public class HostMemberListTest {
     }
 
     @Test
+    public void handleJoinFromNewMemberWithoutExpectedHost() {
+        // ensure local crdt read returns empty and allow address resolve
+        when(hostListCRDT.getMVReg(any())).thenReturn(hostMemberOnCRDT);
+        when(hostMemberOnCRDT.read()).thenReturn(emptyIterator());
+        when(addressResolver.resolve(REMOTE_HOST_1_ENDPOINT)).thenReturn(REMOTE_ADDR_1);
+
+        IHostMemberList memberList = new HostMemberList(LOCAL_ADDR.getHostName(), LOCAL_ADDR.getPort(),
+            messenger, scheduler, store, addressResolver);
+
+        // send a normal join without expectedHost from a new member
+        messageSubject.onNext(joinMsg(HostMember.newBuilder()
+            .setEndpoint(REMOTE_HOST_1_ENDPOINT)
+            .setIncarnation(1)
+            .build()));
+
+        // verify one direct join is sent back to the new member
+        ArgumentCaptor<ClusterMessage> msgCap = ArgumentCaptor.forClass(ClusterMessage.class);
+        ArgumentCaptor<InetSocketAddress> addrCap = ArgumentCaptor.forClass(InetSocketAddress.class);
+        ArgumentCaptor<Boolean> reliableCap = ArgumentCaptor.forClass(Boolean.class);
+        verify(messenger, times(1)).send(msgCap.capture(), addrCap.capture(), reliableCap.capture());
+
+        assertEquals(msgCap.getValue().getJoin().getMember().getEndpoint(), LOCAL_ENDPOINT);
+        assertEquals(msgCap.getValue().getJoin().getMember().getIncarnation(), 0);
+        assertEquals(addrCap.getValue(), REMOTE_ADDR_1);
+        assertTrue(reliableCap.getValue());
+    }
+
+    @Test
+    public void handleDuplicatedJoinWithoutExpectedHost() {
+        // ensure local crdt read returns empty and allow address resolve
+        when(hostListCRDT.getMVReg(any())).thenReturn(hostMemberOnCRDT);
+        when(hostMemberOnCRDT.read()).thenReturn(emptyIterator());
+        when(addressResolver.resolve(REMOTE_HOST_1_ENDPOINT)).thenReturn(REMOTE_ADDR_1);
+
+        IHostMemberList memberList = new HostMemberList(LOCAL_ADDR.getHostName(), LOCAL_ADDR.getPort(),
+            messenger, scheduler, store, addressResolver);
+
+        // first join from new member triggers a send-back
+        messageSubject.onNext(joinMsg(HostMember.newBuilder()
+            .setEndpoint(REMOTE_HOST_1_ENDPOINT)
+            .setIncarnation(1)
+            .build()));
+
+        // duplicated join from the same member should not trigger another send-back
+        messageSubject.onNext(joinMsg(HostMember.newBuilder()
+            .setEndpoint(REMOTE_HOST_1_ENDPOINT)
+            .setIncarnation(1)
+            .build()));
+
+        ArgumentCaptor<ClusterMessage> msgCap = ArgumentCaptor.forClass(ClusterMessage.class);
+        ArgumentCaptor<InetSocketAddress> addrCap = ArgumentCaptor.forClass(InetSocketAddress.class);
+        ArgumentCaptor<Boolean> reliableCap = ArgumentCaptor.forClass(Boolean.class);
+        verify(messenger, times(1)).send(msgCap.capture(), addrCap.capture(), reliableCap.capture());
+
+        assertEquals(msgCap.getValue().getJoin().getMember().getEndpoint(), LOCAL_ENDPOINT);
+        assertEquals(msgCap.getValue().getJoin().getMember().getIncarnation(), 0);
+        assertEquals(addrCap.getValue(), REMOTE_ADDR_1);
+        assertTrue(reliableCap.getValue());
+    }
+
+    @Test
     public void handleJoinAndClearZombie() {
         when(hostListCRDT.getMVReg(any())).thenReturn(hostMemberOnCRDT);
         when(hostMemberOnCRDT.read()).thenReturn(emptyIterator());

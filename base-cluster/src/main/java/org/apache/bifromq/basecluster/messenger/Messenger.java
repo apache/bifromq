@@ -14,17 +14,11 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 
 package org.apache.bifromq.basecluster.messenger;
 
-import org.apache.bifromq.basecluster.messenger.proto.DirectMessage;
-import org.apache.bifromq.basecluster.messenger.proto.GossipMessage;
-import org.apache.bifromq.basecluster.messenger.proto.MessengerMessage;
-import org.apache.bifromq.basecluster.proto.ClusterMessage;
-import org.apache.bifromq.basecluster.transport.ITransport;
-import org.apache.bifromq.basecluster.util.RandomUtils;
 import com.google.common.collect.Maps;
 import com.google.protobuf.InvalidProtocolBufferException;
 import io.micrometer.core.instrument.Counter;
@@ -46,14 +40,15 @@ import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 import lombok.Builder;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.bifromq.basecluster.messenger.proto.DirectMessage;
+import org.apache.bifromq.basecluster.messenger.proto.GossipMessage;
+import org.apache.bifromq.basecluster.messenger.proto.MessengerMessage;
+import org.apache.bifromq.basecluster.proto.ClusterMessage;
+import org.apache.bifromq.basecluster.transport.ITransport;
+import org.apache.bifromq.basecluster.util.RandomUtils;
 
 @Slf4j
 public class Messenger implements IMessenger {
-    private enum State {
-        INIT, START, STOP
-    }
-
-    private State state = State.INIT;
     // threshold for determine which transport to use
     private final MessengerTransport transport;
     private final CompositeDisposable disposables = new CompositeDisposable();
@@ -61,11 +56,10 @@ public class Messenger implements IMessenger {
     private final Gossiper gossiper;
     private final Subject<Timed<MessageEnvelope>> publisher =
         PublishSubject.<Timed<MessageEnvelope>>create().toSerialized();
-
     private final Scheduler scheduler;
     private final MessengerOptions opts;
     private final MetricManager metricManager;
-
+    private State state = State.INIT;
     @Builder
     private Messenger(ITransport transport, Scheduler scheduler, MessengerOptions opts) {
         this.transport = new MessengerTransport(transport);
@@ -244,6 +238,10 @@ public class Messenger implements IMessenger {
         log.error("Received unexpected error:", throwable);
     }
 
+    private enum State {
+        INIT, START, STOP
+    }
+
     private static class MetricManager {
         final Map<ClusterMessage.ClusterMessageTypeCase, Counter> msgSendCounters = Maps.newHashMap();
         final Map<ClusterMessage.ClusterMessageTypeCase, Counter> msgRecvCounters = Maps.newHashMap();
@@ -253,17 +251,19 @@ public class Messenger implements IMessenger {
 
         MetricManager(InetSocketAddress localAddress) {
             for (ClusterMessage.ClusterMessageTypeCase typeCase : ClusterMessage.ClusterMessageTypeCase.values()) {
-                Tags tags = Tags
-                    .of("local", localAddress.getAddress().getHostAddress() + ":" + localAddress.getPort())
-                    .and("type", typeCase.name());
-                msgSendCounters.put(typeCase,
-                    Metrics.counter("basecluster.send.count", tags));
-                msgRecvCounters.put(typeCase,
-                    Metrics.counter("basecluster.recv.count", tags));
-                gossipGenCounters.put(typeCase,
-                    Metrics.counter("basecluster.gossip.gen.count", tags));
-                gossipHeardCounters.put(typeCase,
-                    Metrics.counter("basecluster.gossip.heard.count", tags));
+                if (typeCase != ClusterMessage.ClusterMessageTypeCase.CLUSTERMESSAGETYPE_NOT_SET) {
+                    Tags tags = Tags
+                        .of("local", localAddress.getAddress().getHostAddress() + ":" + localAddress.getPort())
+                        .and("type", typeCase.name());
+                    msgSendCounters.put(typeCase,
+                        Metrics.counter("basecluster.send.count", tags));
+                    msgRecvCounters.put(typeCase,
+                        Metrics.counter("basecluster.recv.count", tags));
+                    gossipGenCounters.put(typeCase,
+                        Metrics.counter("basecluster.gossip.gen.count", tags));
+                    gossipHeardCounters.put(typeCase,
+                        Metrics.counter("basecluster.gossip.heard.count", tags));
+                }
             }
         }
 

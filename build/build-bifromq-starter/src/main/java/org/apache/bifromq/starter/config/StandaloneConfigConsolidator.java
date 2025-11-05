@@ -272,7 +272,7 @@ public class StandaloneConfigConsolidator {
             }
         });
         override.forEach((k, v) -> {
-            if (!merged.containsKey(k) && k.equals(DATA_PATH_ROOT)) {
+            if (!merged.containsKey(k) && !k.equals(DATA_PATH_ROOT)) {
                 log.warn("Unrecognized engine config: {}={}", k, v);
             }
         });

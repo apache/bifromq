@@ -27,6 +27,8 @@ import static org.apache.bifromq.plugin.eventcollector.distservice.DistError.Dis
 import io.grpc.stub.StreamObserver;
 import java.time.Duration;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.bifromq.baseenv.MemUsage;
@@ -53,6 +55,8 @@ class DistResponsePipeline extends ResponsePipeline<DistRequest, DistReply> {
     private final int callQueueIdx = DistQueueAllocator.allocate();
     private final IEventCollector eventCollector;
     private final IDistWorkerCallScheduler distCallScheduler;
+    private final ConcurrentLinkedQueue<ReplyTask> tasks = new ConcurrentLinkedQueue<>();
+    private final AtomicBoolean draining = new AtomicBoolean(false);
 
     DistResponsePipeline(IDistWorkerCallScheduler distCallScheduler,
                          StreamObserver<DistReply> responseObserver,
@@ -65,7 +69,8 @@ class DistResponsePipeline extends ResponsePipeline<DistRequest, DistReply> {
 
     @Override
     protected CompletableFuture<DistReply> handleRequest(String tenantId, DistRequest request) {
-        return distCallScheduler.schedule(new TenantPubRequest(tenantId, request.getMessagesList(), callQueueIdx))
+        CompletableFuture<DistReply> work = distCallScheduler
+            .schedule(new TenantPubRequest(tenantId, request.getMessagesList(), callQueueIdx))
             .handle(unwrap((fanoutByTopic, e) -> {
                 DistReply.Builder replyBuilder = DistReply.newBuilder().setReqId(request.getReqId());
                 if (e != null) {
@@ -109,6 +114,47 @@ class DistResponsePipeline extends ResponsePipeline<DistRequest, DistReply> {
                 }
                 return replyBuilder.build();
             }));
+        ReplyTask task = new ReplyTask(request, work);
+        tasks.add(task);
+        work.whenComplete((v, e) -> drain());
+        return task.onDone;
+    }
+
+    private void drain() {
+        while (true) {
+            if (!draining.compareAndSet(false, true)) {
+                return;
+            }
+            try {
+                while (true) {
+                    ReplyTask head = tasks.peek();
+                    if (head == null) {
+                        break;
+                    }
+                    if (!head.work.isDone()) {
+                        break;
+                    }
+                    tasks.poll();
+                    bridge(head.work, head.onDone);
+                }
+            } finally {
+                draining.set(false);
+            }
+            ReplyTask head = tasks.peek();
+            if (head == null || !head.work.isDone()) {
+                return;
+            }
+        }
+    }
+
+    private void bridge(CompletableFuture<DistReply> from, CompletableFuture<DistReply> to) {
+        from.whenComplete((v, e) -> {
+            if (e != null) {
+                to.completeExceptionally(e);
+            } else {
+                to.complete(v);
+            }
+        });
     }
 
     private static class DistQueueAllocator {
@@ -117,6 +163,18 @@ class DistResponsePipeline extends ResponsePipeline<DistRequest, DistReply> {
 
         public static int allocate() {
             return IDX.getAndIncrement() % QUEUE_NUMS;
+        }
+    }
+
+    private static class ReplyTask {
+        final DistRequest request;
+        final CompletableFuture<DistReply> work; // real work
+        final CompletableFuture<DistReply> onDone; // ordered future returned to pipeline
+
+        ReplyTask(DistRequest request, CompletableFuture<DistReply> work) {
+            this.request = request;
+            this.work = work;
+            this.onDone = new CompletableFuture<>();
         }
     }
 }

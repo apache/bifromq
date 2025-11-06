@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 
 package org.apache.bifromq.baseenv;
@@ -23,6 +23,7 @@ import com.google.protobuf.ByteString;
 import com.google.protobuf.CodedInputStream;
 import com.google.protobuf.InvalidProtocolBufferException;
 import com.google.protobuf.Parser;
+import com.google.protobuf.UnsafeByteOperations;
 
 /**
  * A utility class for parsing protocol buffer messages from a ByteString using zero-copy parsing.
@@ -42,5 +43,18 @@ public class ZeroCopyParser {
         CodedInputStream input = bytes.newCodedInput();
         input.enableAliasing(true);
         return parser.parseFrom(input);
+    }
+
+    /**
+     * Parses a protocol buffer message from a byte array using zero-copy parsing.
+     *
+     * @param bytes The byte array to parse
+     * @param parser The parser for the protocol buffer message.
+     * @return The parsed protocol buffer message.
+     *
+     * @throws InvalidProtocolBufferException If the parsing fails.
+     */
+    public static <T> T parse(byte[] bytes, Parser<T> parser) throws InvalidProtocolBufferException {
+        return parse(UnsafeByteOperations.unsafeWrap(bytes), parser);
     }
 }

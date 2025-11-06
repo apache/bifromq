@@ -33,6 +33,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.apache.bifromq.basecluster.messenger.proto.MessengerMessage;
 import org.apache.bifromq.basecluster.transport.ITransport;
 import org.apache.bifromq.basecluster.transport.PacketEnvelope;
+import org.apache.bifromq.baseenv.ZeroCopyParser;
 
 @Slf4j
 final class MessengerTransport {
@@ -62,9 +63,11 @@ final class MessengerTransport {
     private Observable<Timed<MessengerMessageEnvelope>> convert(PacketEnvelope packetEnvelope) {
         return Observable.fromIterable(packetEnvelope.data.stream().map(b -> {
             try {
+                // Parse with aliasing directly from ByteString to reduce copies
+                MessengerMessage msg = ZeroCopyParser.parse(b, MessengerMessage.parser());
                 MessengerMessageEnvelope mmEnvelop = MessengerMessageEnvelope.builder()
                     .recipient(packetEnvelope.recipient)
-                    .message(MessengerMessage.parseFrom(b))
+                    .message(msg)
                     .sender(packetEnvelope.sender)
                     .build();
                 return new Timed<>(mmEnvelop, System.currentTimeMillis(), TimeUnit.MILLISECONDS);

@@ -46,6 +46,7 @@ import org.apache.bifromq.basecluster.messenger.proto.MessengerMessage;
 import org.apache.bifromq.basecluster.proto.ClusterMessage;
 import org.apache.bifromq.basecluster.transport.ITransport;
 import org.apache.bifromq.basecluster.util.RandomUtils;
+import org.apache.bifromq.baseenv.ZeroCopyParser;
 
 @Slf4j
 public class Messenger implements IMessenger {
@@ -196,8 +197,8 @@ public class Messenger implements IMessenger {
         switch (messengerMessageEnvelope.message.getMessengerMessageTypeCase()) {
             case DIRECT:
                 try {
-                    ClusterMessage clusterMessage =
-                        ClusterMessage.parseFrom(messengerMessageEnvelope.message.getDirect().getPayload());
+                    ClusterMessage clusterMessage = ZeroCopyParser.parse(
+                        messengerMessageEnvelope.message.getDirect().getPayload(), ClusterMessage.parser());
                     log.trace("Received message: sender={}, message={}",
                         messengerMessageEnvelope.sender, clusterMessage);
                     metricManager.msgRecvCounters.get(clusterMessage.getClusterMessageTypeCase()).increment();

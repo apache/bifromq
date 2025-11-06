@@ -14,14 +14,11 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 
 package org.apache.bifromq.basecluster.transport;
 
-import org.apache.bifromq.basecluster.transport.proto.Packet;
-import org.apache.bifromq.baseenv.NettyEnv;
-import org.apache.bifromq.basehlc.HLC;
 import com.google.protobuf.InvalidProtocolBufferException;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.DistributionSummary;
@@ -49,6 +46,10 @@ import java.util.concurrent.TimeUnit;
 import lombok.Builder;
 import lombok.NonNull;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.bifromq.basecluster.transport.proto.Packet;
+import org.apache.bifromq.baseenv.NettyEnv;
+import org.apache.bifromq.baseenv.ZeroCopyParser;
+import org.apache.bifromq.basehlc.HLC;
 
 @Slf4j
 public final class UDPTransport extends AbstractTransport {
@@ -151,7 +152,8 @@ public final class UDPTransport extends AbstractTransport {
             try {
                 byte[] data = new byte[dp.content().readableBytes()];
                 dp.content().readBytes(data);
-                Packet packet = Packet.parseFrom(data);
+                // Parse with aliasing to avoid extra copies of bytes fields
+                Packet packet = ZeroCopyParser.parse(data, Packet.parser());
                 transportLatency.record(HLC.INST.getPhysical(packet.getHlc() - HLC.INST.get()));
                 doReceive(packet, dp.sender(), dp.recipient());
             } catch (InvalidProtocolBufferException e) {

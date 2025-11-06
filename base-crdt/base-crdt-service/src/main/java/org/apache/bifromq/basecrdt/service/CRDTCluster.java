@@ -47,6 +47,7 @@ import org.apache.bifromq.basecrdt.core.api.ICausalCRDT;
 import org.apache.bifromq.basecrdt.proto.Replica;
 import org.apache.bifromq.basecrdt.store.ICRDTStore;
 import org.apache.bifromq.basecrdt.store.proto.CRDTStoreMessage;
+import org.apache.bifromq.baseenv.ZeroCopyParser;
 import org.apache.bifromq.logger.MDCLogger;
 import org.slf4j.Logger;
 
@@ -101,7 +102,9 @@ class CRDTCluster<O extends ICRDTOperation, C extends ICausalCRDT<O>> {
                     return;
                 }
                 try {
-                    this.storeMsgSubject.onNext(CRDTStoreMessage.parseFrom(agentMessage.getPayload()));
+                    // Parse with aliasing directly from ByteString
+                    this.storeMsgSubject.onNext(
+                        ZeroCopyParser.parse(agentMessage.getPayload(), CRDTStoreMessage.parser()));
                 } catch (InvalidProtocolBufferException e) {
                     log.error("Unable to parse crdt store message from agent message", e);
                 }
@@ -113,7 +116,8 @@ class CRDTCluster<O extends ICRDTOperation, C extends ICausalCRDT<O>> {
                 if (stopped.get()) {
                     return;
                 }
-                AgentMemberAddr target = AgentMemberAddr.parseFrom(msg.getReceiver());
+                // Parse receiver with aliasing directly from ByteString
+                AgentMemberAddr target = ZeroCopyParser.parse(msg.getReceiver(), AgentMemberAddr.parser()); ;
                 localMembership.send(target, msg.toByteString(), true)
                     .whenComplete((v, e) -> {
                         if (e != null) {

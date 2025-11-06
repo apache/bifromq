@@ -17,18 +17,17 @@
  * under the License.    
  */
 
-package org.apache.bifromq.sysprops.props;
+package org.apache.bifromq.basekv.store.range.hinter;
 
-import org.apache.bifromq.sysprops.BifroMQSysProp;
-import org.apache.bifromq.sysprops.parser.LongParser;
+import com.google.protobuf.Struct;
 
 /**
- * The window size in seconds for estimating the load of the retain store.
+ * Factory SPI for creating {@link IKVRangeSplitHinter} by configuration.
  */
-public final class RetainStoreLoadEstimationWindowSeconds extends BifroMQSysProp<Long, LongParser> {
-    public static final RetainStoreLoadEstimationWindowSeconds INSTANCE = new RetainStoreLoadEstimationWindowSeconds();
-
-    private RetainStoreLoadEstimationWindowSeconds() {
-        super("retain_store_load_estimation_window_seconds", 5L, LongParser.POSITIVE);
-    }
+public interface IKVRangeSplitHinterFactory {
+    /**
+     * Create a hinter instance with given context and plugin configuration.
+     */
+    IKVRangeSplitHinter create(SplitHinterContext ctx, Struct conf);
 }
+

@@ -14,26 +14,20 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 
 package org.apache.bifromq.basekv.store.range.hinter;
 
-import org.apache.bifromq.basekv.store.api.IKVLoadRecord;
+import java.time.Duration;
 import org.apache.bifromq.basekv.store.proto.ROCoProcInput;
 import org.apache.bifromq.basekv.store.proto.RWCoProcInput;
-import com.google.protobuf.ByteString;
-import java.time.Duration;
-import java.util.Optional;
-import java.util.function.Function;
 
 public class MutationKVLoadBasedSplitHinter extends KVLoadBasedSplitHinter {
     public static final String TYPE = "kv_io_mutation";
 
-    public MutationKVLoadBasedSplitHinter(Duration windowSizeSeconds,
-                                          Function<ByteString, Optional<ByteString>> toSplitKey,
-                                          String... tags) {
-        super(System::nanoTime, windowSizeSeconds, toSplitKey, tags);
+    public MutationKVLoadBasedSplitHinter(Duration windowSizeSeconds, String... tags) {
+        super(System::nanoTime, windowSizeSeconds, tags);
     }
 
 

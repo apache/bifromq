@@ -29,30 +29,16 @@ import java.util.TreeMap;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
-import java.util.function.Function;
 
 final class LoadRecordWindow {
-    private final Function<ByteString, Optional<ByteString>> toSplitKey;
     private final AtomicInteger records = new AtomicInteger();
     private final AtomicInteger totalKVIOs = new AtomicInteger();
     private final AtomicLong totalKVIONanos = new AtomicLong();
     private final AtomicLong totalLatency = new AtomicLong();
     private final Map<ByteString, AtomicLong> loadDistribution = new ConcurrentHashMap<>();
 
-    public LoadRecordWindow() {
-        this(Optional::of);
-    }
+    LoadRecordWindow() {
 
-    LoadRecordWindow(Function<ByteString, Optional<ByteString>> toSplitKey) {
-        this.toSplitKey = toSplitKey;
-    }
-
-    LoadRecordWindow(LoadRecordWindow other) {
-        this.toSplitKey = other.toSplitKey;
-        this.records.set(other.records.get());
-        this.totalKVIOs.set(other.totalKVIOs.get());
-        this.totalKVIONanos.set(other.totalKVIONanos.get());
-        this.totalLatency.set(other.totalLatency.get());
     }
 
     void record(Map<ByteString, Long> keyLoads, int kvIOs, long kvIOTimeNanos, long latencyNanos) {
@@ -89,20 +75,10 @@ final class LoadRecordWindow {
             totalKeyIONanos += entry.getValue().get();
         }
         long halfTotal = totalKeyIONanos / 2;
-        int attempt = 0;
         for (Map.Entry<ByteString, AtomicLong> e : slotDistro.entrySet()) {
             loadSum += e.getValue().get();
             if (loadSum >= halfTotal) {
-                Optional<ByteString> splitKey = toSplitKey.apply(e.getKey());
-                if (splitKey.isPresent()) {
-                    return splitKey;
-                }
-                attempt++;
-                if (attempt < 5) {
-                    attempt++;
-                } else {
-                    return Optional.empty();
-                }
+                return Optional.of(e.getKey());
             }
         }
         return Optional.empty();

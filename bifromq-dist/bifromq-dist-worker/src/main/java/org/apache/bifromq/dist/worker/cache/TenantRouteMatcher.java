@@ -38,7 +38,7 @@ import java.util.Set;
 import java.util.function.Supplier;
 import org.apache.bifromq.basekv.proto.Boundary;
 import org.apache.bifromq.basekv.store.api.IKVIterator;
-import org.apache.bifromq.basekv.store.range.IKVRangeRefreshableReader;
+import org.apache.bifromq.basekv.store.api.IKVRangeRefreshableReader;
 import org.apache.bifromq.dist.trie.ITopicFilterIterator;
 import org.apache.bifromq.dist.trie.ThreadLocalTopicFilterIterator;
 import org.apache.bifromq.dist.trie.TopicTrieNode;

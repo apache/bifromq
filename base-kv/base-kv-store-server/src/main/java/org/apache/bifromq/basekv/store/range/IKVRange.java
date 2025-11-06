@@ -25,6 +25,7 @@ import org.apache.bifromq.basekv.proto.KVRangeSnapshot;
 import org.apache.bifromq.basekv.proto.State;
 import org.apache.bifromq.basekv.raft.proto.ClusterConfig;
 import org.apache.bifromq.basekv.store.api.IKVRangeReader;
+import org.apache.bifromq.basekv.store.api.IKVRangeRefreshableReader;
 
 /**
  * Interface for accessing and updating a key-value range.

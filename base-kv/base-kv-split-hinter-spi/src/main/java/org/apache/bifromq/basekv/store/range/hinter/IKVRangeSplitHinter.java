@@ -17,18 +17,24 @@
  * under the License.
  */
 
-package org.apache.bifromq.sysprops.props;
+package org.apache.bifromq.basekv.store.range.hinter;
 
-import org.apache.bifromq.sysprops.BifroMQSysProp;
-import org.apache.bifromq.sysprops.parser.LongParser;
+import org.apache.bifromq.basekv.proto.Boundary;
+import org.apache.bifromq.basekv.proto.SplitHint;
+import org.apache.bifromq.basekv.store.proto.ROCoProcInput;
+import org.apache.bifromq.basekv.store.proto.RWCoProcInput;
 
 /**
- * The window seconds for load estimation in dist worker.
+ * The interface of Split hinter.
  */
-public final class DistWorkerLoadEstimationWindowSeconds extends BifroMQSysProp<Long, LongParser> {
-    public static final DistWorkerLoadEstimationWindowSeconds INSTANCE = new DistWorkerLoadEstimationWindowSeconds();
+public interface IKVRangeSplitHinter {
+    void recordQuery(ROCoProcInput input, IKVLoadRecord ioRecord);
 
-    private DistWorkerLoadEstimationWindowSeconds() {
-        super("dist_worker_load_estimation_window_seconds", 5L, LongParser.POSITIVE);
-    }
+    void recordMutate(RWCoProcInput input, IKVLoadRecord ioRecord);
+
+    void reset(Boundary boundary);
+
+    SplitHint estimate();
+
+    void close();
 }

@@ -23,7 +23,7 @@ import java.util.function.Supplier;
 import org.apache.bifromq.basekv.proto.KVRangeId;
 import org.apache.bifromq.basekv.store.api.IKVRangeCoProc;
 import org.apache.bifromq.basekv.store.api.IKVRangeCoProcFactory;
-import org.apache.bifromq.basekv.store.range.IKVRangeRefreshableReader;
+import org.apache.bifromq.basekv.store.api.IKVRangeRefreshableReader;
 
 public class TestCoProcFactory implements IKVRangeCoProcFactory {
     @Override

@@ -17,9 +17,7 @@
  * under the License.
  */
 
-package org.apache.bifromq.basekv.store.range;
-
-import org.apache.bifromq.basekv.store.api.IKVRangeReader;
+package org.apache.bifromq.basekv.store.api;
 
 /**
  * A KVRange reader that can be refreshed to the latest consistent-view.

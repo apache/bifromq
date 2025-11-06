@@ -40,7 +40,7 @@ import java.util.function.Supplier;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.bifromq.basekv.proto.Boundary;
 import org.apache.bifromq.basekv.store.api.IKVIterator;
-import org.apache.bifromq.basekv.store.range.IKVRangeRefreshableReader;
+import org.apache.bifromq.basekv.store.api.IKVRangeRefreshableReader;
 
 @Slf4j
 class TenantsStats implements ITenantsStats {

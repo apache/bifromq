@@ -43,7 +43,7 @@ import org.apache.bifromq.basekv.proto.Boundary;
 import org.apache.bifromq.basekv.proto.State;
 import org.apache.bifromq.basekv.raft.proto.ClusterConfig;
 import org.apache.bifromq.basekv.store.api.IKVIterator;
-import org.apache.bifromq.basekv.store.range.IKVRangeRefreshableReader;
+import org.apache.bifromq.basekv.store.api.IKVRangeRefreshableReader;
 import org.apache.bifromq.inbox.storage.proto.InboxMetadata;
 import org.apache.bifromq.metrics.ITenantMeter;
 import org.apache.bifromq.type.TopicFilterOption;

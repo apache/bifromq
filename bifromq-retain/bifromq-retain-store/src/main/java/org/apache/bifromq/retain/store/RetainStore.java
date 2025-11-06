@@ -68,7 +68,7 @@ class RetainStore implements IRetainStore {
         this.clusterId = builder.clusterId;
         this.storeClient = builder.retainStoreClient;
         this.gcInterval = builder.gcInterval;
-        coProcFactory = new RetainStoreCoProcFactory(builder.loadEstimateWindow);
+        coProcFactory = new RetainStoreCoProcFactory();
         Map<String, IRetainStoreBalancerFactory> loadedFactories =
             BaseHookLoader.load(IRetainStoreBalancerFactory.class);
         for (String factoryName : builder.balancerFactoryConfig.keySet()) {

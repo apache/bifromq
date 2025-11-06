@@ -72,7 +72,6 @@ public class InboxStoreBuilder {
     Map<String, Struct> balancerFactoryConfig = new HashMap<>();
     Duration detachTimeout = Duration.ofSeconds(PersistentSessionDetachTimeoutSecond.INSTANCE.get());
     Duration metaCacheExpireTime = Duration.ofSeconds(InboxMetaCacheExpirySeconds.INSTANCE.get());
-    Duration loadEstimateWindow = Duration.ofSeconds(5);
     int expireRateLimit = 1000;
     Duration gcInterval = Duration.ofMinutes(5);
     Map<String, String> attributes = new HashMap<>();

@@ -22,7 +22,7 @@ package org.apache.bifromq.dist.worker.cache;
 import com.google.common.collect.Sets;
 import java.util.Set;
 import java.util.function.Supplier;
-import org.apache.bifromq.basekv.store.range.IKVRangeRefreshableReader;
+import org.apache.bifromq.basekv.store.api.IKVRangeRefreshableReader;
 
 class ThreadLocalKVReader implements Supplier<IKVRangeRefreshableReader> {
     private final Set<IKVRangeRefreshableReader> threadReaders = Sets.newConcurrentHashSet();

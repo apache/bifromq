@@ -38,9 +38,11 @@
         <module>base-kv-local-engine</module>
         <module>base-kv-store-rpc-definition</module>
         <module>base-kv-store-client</module>
+        <module>base-kv-store-coproc-api</module>
         <module>base-kv-store-server</module>
         <module>base-kv-store-balance-controller</module>
         <module>base-kv-store-balance-spi</module>
+        <module>base-kv-split-hinter-spi</module>
         <module>base-kv-meta-service</module>
     </modules>
 </project>

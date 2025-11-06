@@ -19,21 +19,18 @@
 
 package org.apache.bifromq.basekv.store.api;
 
-import java.util.Collections;
-import java.util.List;
+import com.google.protobuf.ByteString;
+import java.util.Optional;
 import java.util.function.Supplier;
+import org.apache.bifromq.basekv.proto.Boundary;
 import org.apache.bifromq.basekv.proto.KVRangeId;
-import org.apache.bifromq.basekv.store.range.IKVRangeRefreshableReader;
 
 /**
  * The interface of KVRange co-processor factory.
  */
 public interface IKVRangeCoProcFactory {
-    default List<IKVRangeSplitHinter> createHinters(String clusterId,
-                                                    String storeId,
-                                                    KVRangeId id,
-                                                    Supplier<IKVRangeRefreshableReader> readerProvider) {
-        return Collections.emptyList();
+    default Optional<ByteString> toSplitKey(ByteString key, Boundary boundary) {
+        return Optional.ofNullable(key);
     }
 
     IKVRangeCoProc createCoProc(String clusterId,

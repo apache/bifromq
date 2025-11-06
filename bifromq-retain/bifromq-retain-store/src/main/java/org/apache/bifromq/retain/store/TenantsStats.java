@@ -32,7 +32,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.locks.StampedLock;
 import java.util.function.Supplier;
 import org.apache.bifromq.basekv.proto.Boundary;
-import org.apache.bifromq.basekv.store.range.IKVRangeRefreshableReader;
+import org.apache.bifromq.basekv.store.api.IKVRangeRefreshableReader;
 
 class TenantsStats {
     private final Map<String, TenantStats> retainedSet = new ConcurrentHashMap<>();

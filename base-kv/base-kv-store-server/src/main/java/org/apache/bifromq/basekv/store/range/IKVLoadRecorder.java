@@ -14,17 +14,17 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 
 package org.apache.bifromq.basekv.store.range;
 
-import org.apache.bifromq.basekv.store.api.IKVLoadRecord;
 import com.google.protobuf.ByteString;
+import org.apache.bifromq.basekv.store.range.hinter.IKVLoadRecord;
 
 public interface IKVLoadRecorder {
     /**
-     * The latency spent for accessing this key
+     * The latency spent for accessing this key.
      *
      * @param key          the accessed key
      * @param latencyNanos the nanos spent
@@ -32,7 +32,7 @@ public interface IKVLoadRecorder {
     void record(ByteString key, long latencyNanos);
 
     /**
-     * The latency spent for other kv activity
+     * The latency spent for other kv activity.
      *
      * @param latencyNanos the nanos spent
      */

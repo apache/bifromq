@@ -19,11 +19,6 @@
 
 package org.apache.bifromq.retain.store;
 
-import org.apache.bifromq.basecluster.IAgentHost;
-import org.apache.bifromq.basekv.client.IBaseKVStoreClient;
-import org.apache.bifromq.basekv.metaservice.IBaseKVMetaService;
-import org.apache.bifromq.basekv.store.option.KVRangeStoreOptions;
-import org.apache.bifromq.baserpc.server.RPCServerBuilder;
 import com.google.protobuf.Struct;
 import java.time.Duration;
 import java.util.HashMap;
@@ -33,6 +28,11 @@ import lombok.AccessLevel;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
 import lombok.experimental.Accessors;
+import org.apache.bifromq.basecluster.IAgentHost;
+import org.apache.bifromq.basekv.client.IBaseKVStoreClient;
+import org.apache.bifromq.basekv.metaservice.IBaseKVMetaService;
+import org.apache.bifromq.basekv.store.option.KVRangeStoreOptions;
+import org.apache.bifromq.baserpc.server.RPCServerBuilder;
 
 /**
  * The builder for building Retain Store.
@@ -54,7 +54,6 @@ public class RetainStoreBuilder {
     Duration zombieProbeDelay = Duration.ofSeconds(15);
     Duration balancerRetryDelay = Duration.ofSeconds(5);
     Map<String, Struct> balancerFactoryConfig = new HashMap<>();
-    Duration loadEstimateWindow = Duration.ofSeconds(5);
     Duration gcInterval = Duration.ofMinutes(60);
     Map<String, String> attributes = new HashMap<>();
 

@@ -133,17 +133,18 @@ import org.apache.bifromq.basekv.raft.proto.RaftMessage;
 import org.apache.bifromq.basekv.raft.proto.RaftNodeStatus;
 import org.apache.bifromq.basekv.raft.proto.RaftNodeSyncState;
 import org.apache.bifromq.basekv.raft.proto.Snapshot;
-import org.apache.bifromq.basekv.store.api.IKVLoadRecord;
 import org.apache.bifromq.basekv.store.api.IKVRangeCoProc;
 import org.apache.bifromq.basekv.store.api.IKVRangeCoProcFactory;
 import org.apache.bifromq.basekv.store.api.IKVRangeReader;
-import org.apache.bifromq.basekv.store.api.IKVRangeSplitHinter;
+import org.apache.bifromq.basekv.store.api.IKVRangeRefreshableReader;
 import org.apache.bifromq.basekv.store.exception.KVRangeException;
 import org.apache.bifromq.basekv.store.option.KVRangeOptions;
 import org.apache.bifromq.basekv.store.proto.ROCoProcInput;
 import org.apache.bifromq.basekv.store.proto.ROCoProcOutput;
 import org.apache.bifromq.basekv.store.proto.RWCoProcInput;
 import org.apache.bifromq.basekv.store.proto.RWCoProcOutput;
+import org.apache.bifromq.basekv.store.range.hinter.IKVLoadRecord;
+import org.apache.bifromq.basekv.store.range.hinter.IKVRangeSplitHinter;
 import org.apache.bifromq.basekv.store.stats.IStatsCollector;
 import org.apache.bifromq.basekv.store.util.VerUtil;
 import org.apache.bifromq.basekv.store.wal.IKVRangeWAL;
@@ -172,6 +173,7 @@ public class KVRangeFSM implements IKVRangeFSM {
     private final ExecutorService fsmExecutor;
     private final ExecutorService mgmtExecutor;
     private final AsyncRunner mgmtTaskRunner;
+    private final IKVRangeCoProcFactory coProcFactory;
     private final IKVRangeCoProc coProc;
     private final KVRangeQueryLinearizer linearizer;
     private final IKVRangeQueryRunner queryRunner;
@@ -226,6 +228,7 @@ public class KVRangeFSM implements IKVRangeFSM {
                       Executor queryExecutor,
                       Executor bgExecutor,
                       KVRangeOptions opts,
+                      List<IKVRangeSplitHinter> hinters,
                       QuitListener quitListener,
                       String... tags) {
         this.opts = opts.toBuilder().build();
@@ -249,7 +252,8 @@ public class KVRangeFSM implements IKVRangeFSM {
             "manager", "basekv.range", Tags.of(tags));
         this.mgmtTaskRunner =
             new AsyncRunner("basekv.runner.rangemanager", mgmtExecutor, "rangeId", KVRangeIdUtil.toString(id));
-        this.splitHinters = coProcFactory.createHinters(clusterId, hostStoreId, id, this.kvRange::newReader);
+        this.splitHinters = hinters;
+        this.coProcFactory = coProcFactory;
         this.coProc = coProcFactory.createCoProc(clusterId, hostStoreId, id, this.kvRange::newReader);
         this.snapshotBandwidthGovernor = new SnapshotBandwidthGovernor(opts.getSnapshotSyncBytesPerSec());
 
@@ -357,6 +361,14 @@ public class KVRangeFSM implements IKVRangeFSM {
                             Any fact = (Any) latest[8];
                             boolean readyForQuery = (boolean) latest[9];
                             log.trace("Split hints: \n{}", splitHints);
+                            List<SplitHint> alignedHints = splitHints.stream().map(h -> {
+                                if (h.hasSplitKey()) {
+                                    return coProcFactory.toSplitKey(h.getSplitKey(), boundary)
+                                        .map(k -> h.toBuilder().setSplitKey(k).build())
+                                        .orElseGet(() -> h.toBuilder().clearSplitKey().build());
+                                }
+                                return h;
+                            }).toList();
                             return KVRangeDescriptor.newBuilder()
                                 .setVer(ver)
                                 .setId(id)
@@ -366,7 +378,7 @@ public class KVRangeFSM implements IKVRangeFSM {
                                 .setConfig(clusterConfig)
                                 .putAllSyncState(syncStats)
                                 .putAllStatistics(rangeStats)
-                                .addAllHints(splitHints)
+                                .addAllHints(alignedHints)
                                 .setHlc(HLC.INST.get())
                                 .setFact(fact)
                                 .setReadyForQuery(readyForQuery)

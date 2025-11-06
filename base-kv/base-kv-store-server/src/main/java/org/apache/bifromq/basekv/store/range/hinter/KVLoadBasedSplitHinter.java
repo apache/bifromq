@@ -14,15 +14,11 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 
 package org.apache.bifromq.basekv.store.range.hinter;
 
-import org.apache.bifromq.basekv.proto.Boundary;
-import org.apache.bifromq.basekv.proto.SplitHint;
-import org.apache.bifromq.basekv.store.api.IKVLoadRecord;
-import org.apache.bifromq.basekv.store.api.IKVRangeSplitHinter;
 import com.google.common.base.Preconditions;
 import com.google.protobuf.ByteString;
 import io.micrometer.core.instrument.Gauge;
@@ -30,10 +26,10 @@ import io.micrometer.core.instrument.Metrics;
 import java.time.Duration;
 import java.util.Map;
 import java.util.NavigableMap;
-import java.util.Optional;
 import java.util.concurrent.ConcurrentSkipListMap;
-import java.util.function.Function;
 import java.util.function.Supplier;
+import org.apache.bifromq.basekv.proto.Boundary;
+import org.apache.bifromq.basekv.proto.SplitHint;
 
 public abstract class KVLoadBasedSplitHinter implements IKVRangeSplitHinter {
     public static final String LOAD_TYPE_IO_DENSITY = "ioDensity";
@@ -43,20 +39,15 @@ public abstract class KVLoadBasedSplitHinter implements IKVRangeSplitHinter {
     private final long windowSizeNanos;
     private final NavigableMap<Long, LoadRecordWindow> trackedKeySlots = new ConcurrentSkipListMap<>();
     private final NavigableMap<Long, SplitHint> recentLoadHints = new ConcurrentSkipListMap<>();
-    private final Function<ByteString, Optional<ByteString>> toSplitKey;
     private final Gauge ioDensityGuage;
     private final Gauge ioLatencyNanosGauge;
     private final Gauge avgLatencyNanosGauge;
     private volatile SplitHint latestHint = SplitHint.getDefaultInstance();
 
-    public KVLoadBasedSplitHinter(Supplier<Long> nanoSource,
-                                  Duration windowSize,
-                                  Function<ByteString, Optional<ByteString>> toSplitKey,
-                                  String... tags) {
+    public KVLoadBasedSplitHinter(Supplier<Long> nanoSource, Duration windowSize, String... tags) {
         Preconditions.checkArgument(!windowSize.isNegative(), "Window size must be positive");
         this.nanoSource = nanoSource;
         this.windowSizeNanos = windowSize.toNanos();
-        this.toSplitKey = toSplitKey;
         ioDensityGuage = Gauge.builder("basekv.load.est.iodensity",
                 () -> latestHint.getLoadOrDefault(LOAD_TYPE_IO_DENSITY, 0))
             .tags(tags)
@@ -101,15 +92,15 @@ public abstract class KVLoadBasedSplitHinter implements IKVRangeSplitHinter {
         if (mySlot < currentSlot) {
             // cross window slot
             long slotBegin = currentSlot * windowSizeNanos;
-            trackedKeySlots.computeIfAbsent(currentSlot, k -> new LoadRecordWindow(toSplitKey))
+            trackedKeySlots.computeIfAbsent(currentSlot, k -> new LoadRecordWindow())
                 .record(loadDistribution, kvIOs, kvNanos, now - slotBegin);
 
             if (mySlot + 1 < currentSlot) {
                 trackedKeySlots.computeIfAbsent(currentSlot - 1,
-                    k -> new LoadRecordWindow(toSplitKey)).record(loadDistribution, kvIOs, kvNanos, windowSizeNanos);
+                    k -> new LoadRecordWindow()).record(loadDistribution, kvIOs, kvNanos, windowSizeNanos);
             } else {
                 trackedKeySlots.computeIfAbsent(currentSlot - 1,
-                        k -> new LoadRecordWindow(toSplitKey))
+                        k -> new LoadRecordWindow())
                     .record(loadDistribution, kvIOs, kvNanos, slotBegin - startNanos);
             }
             // re-estimate
@@ -117,7 +108,7 @@ public abstract class KVLoadBasedSplitHinter implements IKVRangeSplitHinter {
         } else {
             // still in same window slot
             trackedKeySlots.computeIfAbsent(currentSlot,
-                k -> new LoadRecordWindow(toSplitKey)).record(loadDistribution, kvIOs, kvNanos, now - startNanos);
+                k -> new LoadRecordWindow()).record(loadDistribution, kvIOs, kvNanos, now - startNanos);
         }
     }
 

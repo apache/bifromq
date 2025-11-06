@@ -23,7 +23,7 @@ import com.google.protobuf.ByteString;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.function.Supplier;
-import org.apache.bifromq.basekv.store.api.IKVLoadRecord;
+import org.apache.bifromq.basekv.store.range.hinter.IKVLoadRecord;
 
 public class KVLoadRecorder implements IKVLoadRecorder {
     private final long startNanos;

@@ -138,6 +138,16 @@
             </dependency>
             <dependency>
                 <groupId>org.apache.bifromq</groupId>
+                <artifactId>base-kv-store-coproc-api</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.bifromq</groupId>
+                <artifactId>base-kv-split-hinter-spi</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.bifromq</groupId>
                 <artifactId>base-kv-store-server</artifactId>
                 <version>${project.version}</version>
             </dependency>

@@ -26,12 +26,12 @@ import java.util.function.Supplier;
 import org.apache.bifromq.basekv.proto.KVRangeId;
 import org.apache.bifromq.basekv.store.api.IKVRangeCoProc;
 import org.apache.bifromq.basekv.store.api.IKVRangeReader;
+import org.apache.bifromq.basekv.store.api.IKVRangeRefreshableReader;
 import org.apache.bifromq.basekv.store.api.IKVWriter;
 import org.apache.bifromq.basekv.store.proto.ROCoProcInput;
 import org.apache.bifromq.basekv.store.proto.ROCoProcOutput;
 import org.apache.bifromq.basekv.store.proto.RWCoProcInput;
 import org.apache.bifromq.basekv.store.proto.RWCoProcOutput;
-import org.apache.bifromq.basekv.store.range.IKVRangeRefreshableReader;
 
 public class TestCoProc implements IKVRangeCoProc {
     private final Supplier<IKVRangeRefreshableReader> rangeReaderProvider;

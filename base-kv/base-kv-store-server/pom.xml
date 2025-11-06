@@ -57,6 +57,14 @@
         </dependency>
         <dependency>
             <groupId>org.apache.bifromq</groupId>
+            <artifactId>base-kv-store-coproc-api</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.bifromq</groupId>
+            <artifactId>base-kv-split-hinter-spi</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.bifromq</groupId>
             <artifactId>base-kv-meta-service</artifactId>
         </dependency>
         <dependency>

@@ -35,6 +35,7 @@ import lombok.Setter;
 import org.apache.bifromq.baseenv.EnvProvider;
 import org.apache.bifromq.starter.config.model.BalancerOptions;
 import org.apache.bifromq.starter.config.model.EngineConfig;
+import org.apache.bifromq.starter.config.model.SplitHinterOptions;
 
 @Getter
 @Setter
@@ -74,6 +75,9 @@ public class InboxStoreConfig {
     @JsonMerge
     private BalancerOptions balanceConfig = new BalancerOptions();
     @JsonSetter(nulls = Nulls.SKIP)
+    @JsonMerge
+    private SplitHinterOptions splitHinterConfig = new SplitHinterOptions();
+    @JsonSetter(nulls = Nulls.SKIP)
     private Map<String, String> attributes = new HashMap<>();
 
     public InboxStoreConfig() {
@@ -91,5 +95,11 @@ public class InboxStoreConfig {
                 .build());
         balanceConfig.getBalancers().put("org.apache.bifromq.inbox.store.balance.RangeLeaderBalancerFactory",
             Struct.getDefaultInstance());
+
+        splitHinterConfig.getHinters()
+            .put("org.apache.bifromq.basekv.store.range.hinter.MutationKVLoadBasedSplitHinterFactory",
+                Struct.newBuilder()
+                    .putFields("windowSeconds", Value.newBuilder().setNumberValue(5).build())
+                    .build());
     }
 }

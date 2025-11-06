@@ -14,37 +14,25 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 
 package org.apache.bifromq.basekv.store.range.hinter;
 
-import org.apache.bifromq.basekv.store.api.IKVLoadRecord;
+import java.time.Duration;
+import java.util.function.Supplier;
 import org.apache.bifromq.basekv.store.proto.ROCoProcInput;
 import org.apache.bifromq.basekv.store.proto.RWCoProcInput;
-import com.google.protobuf.ByteString;
-import java.time.Duration;
-import java.util.Optional;
-import java.util.function.Function;
-import java.util.function.Supplier;
 
 public class QueryKVLoadBasedSplitHinter extends KVLoadBasedSplitHinter {
     public static final String TYPE = "kv_io_query";
 
     public QueryKVLoadBasedSplitHinter(Duration windowSize, String... tags) {
-        this(windowSize, Optional::of, tags);
+        this(System::nanoTime, windowSize, tags);
     }
 
-    public QueryKVLoadBasedSplitHinter(Duration windowSize,
-                                       Function<ByteString, Optional<ByteString>> toSplitKey,
-                                       String... tags) {
-        this(System::nanoTime, windowSize, toSplitKey, tags);
-    }
-
-    public QueryKVLoadBasedSplitHinter(Supplier<Long> nanoSource, Duration windowSize,
-                                       Function<ByteString, Optional<ByteString>> toSplitKey,
-                                       String... tags) {
-        super(nanoSource, windowSize, toSplitKey, tags);
+    public QueryKVLoadBasedSplitHinter(Supplier<Long> nanoSource, Duration windowSize, String... tags) {
+        super(nanoSource, windowSize, tags);
     }
 
     @Override

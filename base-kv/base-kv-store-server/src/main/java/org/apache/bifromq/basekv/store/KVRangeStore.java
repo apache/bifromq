@@ -88,6 +88,9 @@ import org.apache.bifromq.basekv.store.range.IKVRange;
 import org.apache.bifromq.basekv.store.range.IKVRangeFSM;
 import org.apache.bifromq.basekv.store.range.KVRangeFSM;
 import org.apache.bifromq.basekv.store.range.KVRangeFactory;
+import org.apache.bifromq.basekv.store.range.hinter.IKVRangeSplitHinter;
+import org.apache.bifromq.basekv.store.range.hinter.SplitHinterContext;
+import org.apache.bifromq.basekv.store.range.hinter.SplitHinterRegistry;
 import org.apache.bifromq.basekv.store.stats.IStatsCollector;
 import org.apache.bifromq.basekv.store.wal.IKVRangeWALStore;
 import org.apache.bifromq.basekv.store.wal.KVRangeWALStorageEngine;
@@ -116,6 +119,7 @@ public class KVRangeStore implements IKVRangeStore {
     private final KVRangeStoreOptions opts;
     private final MetricsManager metricsManager;
     private final Map<String, String> attributes;
+    private final SplitHinterRegistry splitHinterRegistry;
     private volatile ScheduledFuture<?> tickFuture;
     private IStoreMessenger messenger;
 
@@ -154,6 +158,7 @@ public class KVRangeStore implements IKVRangeStore {
         this.mgmtTaskRunner = new AsyncRunner(mgmtTaskExecutor);
         this.metricsManager = new MetricsManager(clusterId, id);
         this.attributes = attributes;
+        this.splitHinterRegistry = new SplitHinterRegistry(opts.getSplitHinterFactoryConfig(), log);
         storeStatsCollector =
             new KVRangeStoreStatsCollector(opts, Duration.ofSeconds(opts.getStatsCollectIntervalSec()),
                 this.bgTaskExecutor);
@@ -755,6 +760,14 @@ public class KVRangeStore implements IKVRangeStore {
                                         IKVRange kvRange,
                                         IKVRangeWALStore walStore,
                                         String... tags) {
+        List<IKVRangeSplitHinter> hinters = splitHinterRegistry.createHinters(
+            SplitHinterContext.builder()
+                .clusterId(clusterId)
+                .storeId(id)
+                .id(rangeId)
+                .readerProvider(kvRange::newReader)
+                .tags(tags)
+                .build());
         return new KVRangeFSM(
             clusterId,
             id,
@@ -765,6 +778,7 @@ public class KVRangeStore implements IKVRangeStore {
             queryExecutor,
             bgTaskExecutor,
             opts.getKvRangeOptions(),
+            hinters,
             this::quitKVRange,
             tags);
 

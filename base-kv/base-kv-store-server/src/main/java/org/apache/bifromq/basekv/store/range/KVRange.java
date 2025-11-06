@@ -37,6 +37,7 @@ import org.apache.bifromq.basekv.proto.KVRangeSnapshot;
 import org.apache.bifromq.basekv.proto.State;
 import org.apache.bifromq.basekv.raft.proto.ClusterConfig;
 import org.apache.bifromq.basekv.store.api.IKVRangeReader;
+import org.apache.bifromq.basekv.store.api.IKVRangeRefreshableReader;
 import org.apache.bifromq.basekv.store.util.KVUtil;
 import org.apache.bifromq.logger.MDCLogger;
 import org.slf4j.Logger;

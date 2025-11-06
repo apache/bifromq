@@ -43,7 +43,6 @@ import org.apache.bifromq.retain.store.IRetainStore;
 import org.apache.bifromq.starter.config.StandaloneConfig;
 import org.apache.bifromq.starter.config.model.retain.RetainServerConfig;
 import org.apache.bifromq.starter.config.model.retain.RetainStoreConfig;
-import org.apache.bifromq.sysprops.props.RetainStoreLoadEstimationWindowSeconds;
 
 public class RetainServiceModule extends AbstractModule {
     @Override
@@ -115,12 +114,12 @@ public class RetainServiceModule extends AbstractModule {
                 .zombieProbeDelay(Duration.ofMillis(storeConfig.getBalanceConfig().getZombieProbeDelayInMS()))
                 .balancerRetryDelay(Duration.ofMillis(storeConfig.getBalanceConfig().getRetryDelayInMS()))
                 .balancerFactoryConfig(storeConfig.getBalanceConfig().getBalancers())
-                .loadEstimateWindow(Duration.ofSeconds(RetainStoreLoadEstimationWindowSeconds.INSTANCE.get()))
                 .gcInterval(Duration.ofSeconds(storeConfig.getGcIntervalSeconds()))
                 .storeOptions(new KVRangeStoreOptions()
                     .setKvRangeOptions(new KVRangeOptions()
                         .setMaxWALFatchBatchSize(storeConfig.getMaxWALFetchSize())
                         .setCompactWALThreshold(storeConfig.getCompactWALThreshold()))
+                    .setSplitHinterFactoryConfig(storeConfig.getSplitHinterConfig().getHinters())
                     .setDataEngineType(storeConfig.getDataEngineConfig().getType())
                     .setDataEngineConf(storeConfig.getDataEngineConfig().toStruct())
                     .setWalEngineType(storeConfig.getWalEngineConfig().getType())

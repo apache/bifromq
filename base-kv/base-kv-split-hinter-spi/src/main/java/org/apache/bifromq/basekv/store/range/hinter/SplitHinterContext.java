@@ -14,33 +14,24 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.
+ * under the License.    
  */
 
-package org.apache.bifromq.basekv.store.api;
+package org.apache.bifromq.basekv.store.range.hinter;
 
-import com.google.protobuf.ByteString;
-import org.apache.bifromq.basekv.proto.Boundary;
+import java.util.function.Supplier;
+import lombok.Builder;
+import lombok.Value;
+import org.apache.bifromq.basekv.proto.KVRangeId;
+import org.apache.bifromq.basekv.store.api.IKVRangeReader;
 
-public interface IKVWriter {
-
-    void delete(ByteString key);
-
-    void clear(Boundary boundary);
-
-    /**
-     * Insert a non-exist key value pair, if the key is already exist, the result is undefined.
-     *
-     * @param key
-     * @param value
-     */
-    void insert(ByteString key, ByteString value);
-
-    /**
-     * Put a key value pair, if the key is existed, its value will be overridden.
-     *
-     * @param key
-     * @param value
-     */
-    void put(ByteString key, ByteString value);
+@Value
+@Builder
+public class SplitHinterContext {
+    String clusterId;
+    String storeId;
+    KVRangeId id;
+    Supplier<IKVRangeReader> readerProvider;
+    String[] tags;
 }
+

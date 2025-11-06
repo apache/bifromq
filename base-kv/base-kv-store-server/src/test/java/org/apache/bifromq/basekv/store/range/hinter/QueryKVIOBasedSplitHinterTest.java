@@ -27,14 +27,13 @@ import static org.testng.Assert.assertNotSame;
 import static org.testng.Assert.assertSame;
 import static org.testng.Assert.assertTrue;
 
+import com.google.protobuf.ByteString;
+import java.time.Duration;
+import java.util.function.Supplier;
 import org.apache.bifromq.basekv.MockableTest;
 import org.apache.bifromq.basekv.proto.SplitHint;
 import org.apache.bifromq.basekv.store.range.IKVLoadRecorder;
 import org.apache.bifromq.basekv.store.range.KVLoadRecorder;
-import com.google.protobuf.ByteString;
-import java.time.Duration;
-import java.util.Optional;
-import java.util.function.Supplier;
 import org.mockito.Mock;
 import org.testng.annotations.Test;
 
@@ -45,7 +44,7 @@ public class QueryKVIOBasedSplitHinterTest extends MockableTest {
     @Test
     public void noLoadRecorded() {
         QueryKVLoadBasedSplitHinter testEstimator =
-            new QueryKVLoadBasedSplitHinter(Duration.ofSeconds(5), Optional::of);
+            new QueryKVLoadBasedSplitHinter(Duration.ofSeconds(5));
         SplitHint hint = testEstimator.estimate();
         assertFalse(hint.hasSplitKey());
     }
@@ -53,7 +52,7 @@ public class QueryKVIOBasedSplitHinterTest extends MockableTest {
     @Test
     public void hintMemoization() {
         QueryKVLoadBasedSplitHinter estimator =
-            new QueryKVLoadBasedSplitHinter(nanoSource, Duration.ofSeconds(5), Optional::of);
+            new QueryKVLoadBasedSplitHinter(nanoSource, Duration.ofSeconds(5));
         long now = 0L;
         // track enough records
         for (int i = 0; i < 11; i++) {
@@ -76,7 +75,7 @@ public class QueryKVIOBasedSplitHinterTest extends MockableTest {
     @Test
     public void trackClearExpiredSlots() {
         QueryKVLoadBasedSplitHinter estimator =
-            new QueryKVLoadBasedSplitHinter(nanoSource, Duration.ofSeconds(1), Optional::of);
+            new QueryKVLoadBasedSplitHinter(nanoSource, Duration.ofSeconds(1));
         long now = 0L;
         for (int i = 0; i < 11; i++) {
             when(nanoSource.get()).thenReturn(now);

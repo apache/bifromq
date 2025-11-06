@@ -29,7 +29,7 @@ import io.micrometer.core.instrument.Metrics;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.util.Optional;
 import java.util.function.Supplier;
-import org.apache.bifromq.basekv.store.range.IKVRangeRefreshableReader;
+import org.apache.bifromq.basekv.store.api.IKVRangeRefreshableReader;
 import org.apache.bifromq.metrics.ITenantMeter;
 import org.apache.bifromq.metrics.TenantMetric;
 import org.testng.annotations.AfterMethod;

@@ -45,7 +45,6 @@ import org.apache.bifromq.plugin.subbroker.ISubBrokerManager;
 import org.apache.bifromq.starter.config.StandaloneConfig;
 import org.apache.bifromq.starter.config.model.dist.DistServerConfig;
 import org.apache.bifromq.starter.config.model.dist.DistWorkerConfig;
-import org.apache.bifromq.sysprops.props.DistWorkerLoadEstimationWindowSeconds;
 
 public class DistServiceModule extends AbstractModule {
     @Override
@@ -119,6 +118,7 @@ public class DistServiceModule extends AbstractModule {
                     .setKvRangeOptions(new KVRangeOptions()
                         .setMaxWALFatchBatchSize(workerConfig.getMaxWALFetchSize())
                         .setCompactWALThreshold(workerConfig.getCompactWALThreshold()))
+                    .setSplitHinterFactoryConfig(workerConfig.getSplitHinterConfig().getHinters())
                     .setDataEngineType(workerConfig.getDataEngineConfig().getType())
                     .setDataEngineConf(workerConfig.getDataEngineConfig().toStruct())
                     .setWalEngineType(workerConfig.getWalEngineConfig().getType())
@@ -131,7 +131,6 @@ public class DistServiceModule extends AbstractModule {
                 .balancerFactoryConfig(workerConfig.getBalanceConfig().getBalancers())
                 .subBrokerManager(injector.getInstance(ISubBrokerManager.class))
                 .settingProvider(injector.getInstance(SettingProviderManager.class))
-                .loadEstimateWindow(Duration.ofSeconds(DistWorkerLoadEstimationWindowSeconds.INSTANCE.get()))
                 .attributes(workerConfig.getAttributes())
                 .build());
         }

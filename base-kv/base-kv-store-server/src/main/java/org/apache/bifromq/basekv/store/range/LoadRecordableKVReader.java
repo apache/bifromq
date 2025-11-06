@@ -25,6 +25,7 @@ import org.apache.bifromq.basekv.proto.Boundary;
 import org.apache.bifromq.basekv.proto.State;
 import org.apache.bifromq.basekv.raft.proto.ClusterConfig;
 import org.apache.bifromq.basekv.store.api.IKVIterator;
+import org.apache.bifromq.basekv.store.api.IKVRangeRefreshableReader;
 
 class LoadRecordableKVReader implements IKVRangeRefreshableReader {
     private final IKVRangeRefreshableReader delegate;

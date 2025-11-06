@@ -23,12 +23,11 @@ import static org.mockito.Mockito.when;
 import static org.testng.Assert.assertEquals;
 import static org.testng.Assert.assertTrue;
 
-import org.apache.bifromq.basekv.MockableTest;
-import org.apache.bifromq.basekv.store.api.IKVLoadRecord;
-import org.apache.bifromq.basekv.store.range.KVLoadRecorder;
 import com.google.protobuf.ByteString;
 import java.util.Collections;
 import java.util.function.Supplier;
+import org.apache.bifromq.basekv.MockableTest;
+import org.apache.bifromq.basekv.store.range.KVLoadRecorder;
 import org.mockito.Mock;
 import org.testng.annotations.Test;
 

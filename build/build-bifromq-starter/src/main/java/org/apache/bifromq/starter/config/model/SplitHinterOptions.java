@@ -17,27 +17,26 @@
  * under the License.
  */
 
-package org.apache.bifromq.basekv.store.api;
+package org.apache.bifromq.starter.config.model;
 
-import com.google.protobuf.ByteString;
+import com.fasterxml.jackson.annotation.JsonSetter;
+import com.fasterxml.jackson.annotation.Nulls;
+import com.fasterxml.jackson.databind.annotation.JsonDeserialize;
+import com.fasterxml.jackson.databind.annotation.JsonSerialize;
+import com.google.protobuf.Struct;
+import java.util.HashMap;
 import java.util.Map;
+import lombok.Getter;
+import lombok.Setter;
+import org.apache.bifromq.starter.config.model.serde.StructMapDeserializer;
+import org.apache.bifromq.starter.config.model.serde.StructMapSerializer;
 
-public interface IKVLoadRecord {
-    long startNanos();
-
-    /**
-     * Get the kv io times.
-     *
-     * @return the access times to kv engine
-     */
-    int getKVIOs();
-
-    /**
-     * Get the total time spent on io of kv engine.
-     *
-     * @return the total time in nanos
-     */
-    long getKVIONanos();
-
-    Map<ByteString, Long> keyDistribution();
+@Getter
+@Setter
+public class SplitHinterOptions {
+    @JsonSetter(nulls = Nulls.SKIP)
+    @JsonSerialize(using = StructMapSerializer.class)
+    @JsonDeserialize(using = StructMapDeserializer.class)
+    private Map<String, Struct> hinters = new HashMap<>();
 }
+

@@ -14,21 +14,25 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 
-package org.apache.bifromq.sysprops.props;
+package org.apache.bifromq.basekv.store.range.hinter;
 
-import org.apache.bifromq.sysprops.BifroMQSysProp;
-import org.apache.bifromq.sysprops.parser.IntegerParser;
+import com.google.protobuf.Struct;
+import com.google.protobuf.Value;
+import java.time.Duration;
 
-/**
- * The fan-out routes threshold for splitting range in dist worker.
- */
-public final class DistWorkerFanOutSplitThreshold extends BifroMQSysProp<Integer, IntegerParser> {
-    public static final DistWorkerFanOutSplitThreshold INSTANCE = new DistWorkerFanOutSplitThreshold();
+public class MutationKVLoadBasedSplitHinterFactory implements IKVRangeSplitHinterFactory {
+    private static final String CONF_WINDOW_SECONDS = "windowSeconds";
 
-    private DistWorkerFanOutSplitThreshold() {
-        super("dist_worker_fanout_split_threshold", 100000, IntegerParser.POSITIVE);
+    @Override
+    public IKVRangeSplitHinter create(SplitHinterContext ctx, Struct conf) {
+        long windowSeconds = 5;
+        if (conf != null && conf.getFieldsOrDefault(CONF_WINDOW_SECONDS, Value.getDefaultInstance()).hasNumberValue()) {
+            windowSeconds = (long) conf.getFieldsOrThrow(CONF_WINDOW_SECONDS).getNumberValue();
+        }
+        return new MutationKVLoadBasedSplitHinter(Duration.ofSeconds(windowSeconds), ctx.getTags());
     }
 }
+

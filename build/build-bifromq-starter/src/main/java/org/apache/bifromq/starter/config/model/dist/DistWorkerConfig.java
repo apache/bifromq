@@ -34,6 +34,7 @@ import lombok.Getter;
 import lombok.Setter;
 import org.apache.bifromq.starter.config.model.BalancerOptions;
 import org.apache.bifromq.starter.config.model.EngineConfig;
+import org.apache.bifromq.starter.config.model.SplitHinterOptions;
 
 @Getter
 @Setter
@@ -71,6 +72,8 @@ public class DistWorkerConfig {
     @JsonSetter(nulls = Nulls.SKIP)
     private BalancerOptions balanceConfig = new BalancerOptions();
     @JsonSetter(nulls = Nulls.SKIP)
+    private SplitHinterOptions splitHinterConfig = new SplitHinterOptions();
+    @JsonSetter(nulls = Nulls.SKIP)
     private Map<String, String> attributes = new HashMap<>();
 
     public DistWorkerConfig() {
@@ -81,5 +84,15 @@ public class DistWorkerConfig {
                 .putFields("votersPerRange", Value.newBuilder().setNumberValue(3).build())
                 .putFields("learnersPerRange", Value.newBuilder().setNumberValue(-1).build())
                 .build());
+
+        splitHinterConfig.getHinters().put("org.apache.bifromq.dist.worker.hinter.FanoutSplitHinterFactory",
+            Struct.newBuilder()
+                .putFields("splitThreshold", Value.newBuilder().setNumberValue(100000).build())
+                .build());
+        splitHinterConfig.getHinters()
+            .put("org.apache.bifromq.basekv.store.range.hinter.MutationKVLoadBasedSplitHinterFactory",
+                Struct.newBuilder()
+                    .putFields("windowSeconds", Value.newBuilder().setNumberValue(5).build())
+                    .build());
     }
 }

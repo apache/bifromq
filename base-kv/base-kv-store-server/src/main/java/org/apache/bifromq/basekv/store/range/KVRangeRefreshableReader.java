@@ -20,6 +20,7 @@
 package org.apache.bifromq.basekv.store.range;
 
 import org.apache.bifromq.basekv.localengine.IKVSpaceRefreshableReader;
+import org.apache.bifromq.basekv.store.api.IKVRangeRefreshableReader;
 
 class KVRangeRefreshableReader extends KVRangeReader implements IKVRangeRefreshableReader {
     protected final IKVSpaceRefreshableReader kvSpaceReader;

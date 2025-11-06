@@ -19,32 +19,15 @@
 
 package org.apache.bifromq.retain.store;
 
-import java.time.Duration;
-import java.util.Collections;
-import java.util.List;
-import java.util.Optional;
 import java.util.function.Supplier;
 import org.apache.bifromq.basekv.proto.KVRangeId;
 import org.apache.bifromq.basekv.store.api.IKVRangeCoProc;
 import org.apache.bifromq.basekv.store.api.IKVRangeCoProcFactory;
-import org.apache.bifromq.basekv.store.api.IKVRangeSplitHinter;
-import org.apache.bifromq.basekv.store.range.IKVRangeRefreshableReader;
-import org.apache.bifromq.basekv.store.range.hinter.MutationKVLoadBasedSplitHinter;
-import org.apache.bifromq.basekv.utils.KVRangeIdUtil;
+import org.apache.bifromq.basekv.store.api.IKVRangeRefreshableReader;
 
 public class RetainStoreCoProcFactory implements IKVRangeCoProcFactory {
-    private final Duration loadEstWindow;
 
-    public RetainStoreCoProcFactory(Duration loadEstimateWindow) {
-        this.loadEstWindow = loadEstimateWindow;
-    }
-
-    @Override
-    public List<IKVRangeSplitHinter> createHinters(String clusterId, String storeId, KVRangeId id,
-                                                   Supplier<IKVRangeRefreshableReader> rangeReaderProvider) {
-        return Collections.singletonList(
-            new MutationKVLoadBasedSplitHinter(loadEstWindow, Optional::of,
-                "clusterId", clusterId, "storeId", storeId, "rangeId", KVRangeIdUtil.toString(id)));
+    public RetainStoreCoProcFactory() {
     }
 
     @Override

@@ -40,7 +40,6 @@ import org.apache.bifromq.plugin.settingprovider.ISettingProvider;
 import org.apache.bifromq.plugin.subbroker.ISubBrokerManager;
 import org.apache.bifromq.sysprops.props.DistFanOutParallelism;
 import org.apache.bifromq.sysprops.props.DistInlineFanOutThreshold;
-import org.apache.bifromq.sysprops.props.DistWorkerFanOutSplitThreshold;
 
 /**
  * The builder for building Dist Worker.
@@ -69,9 +68,7 @@ public class DistWorkerBuilder {
     Duration zombieProbeDelay = Duration.ofSeconds(15);
     Duration balancerRetryDelay = Duration.ofSeconds(5);
     Map<String, Struct> balancerFactoryConfig = new HashMap<>();
-    Duration loadEstimateWindow = Duration.ofSeconds(5);
     int fanoutParallelism = DistFanOutParallelism.INSTANCE.get();
-    int fanoutSplitThreshold = DistWorkerFanOutSplitThreshold.INSTANCE.get();
     int inlineFanoutThreshold = DistInlineFanOutThreshold.INSTANCE.get();
     Map<String, String> attributes = new HashMap<>();
 

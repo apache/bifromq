@@ -77,7 +77,6 @@ class InboxStore implements IInboxStore {
                 builder.resourceThrottler,
                 builder.detachTimeout,
                 builder.metaCacheExpireTime,
-                builder.loadEstimateWindow,
                 builder.expireRateLimit);
         Map<String, IInboxStoreBalancerFactory> loadedFactories = BaseHookLoader.load(IInboxStoreBalancerFactory.class);
         for (String factoryName : builder.balancerFactoryConfig.keySet()) {

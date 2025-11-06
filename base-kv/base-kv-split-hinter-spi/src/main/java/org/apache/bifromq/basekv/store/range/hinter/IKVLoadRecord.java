@@ -14,24 +14,43 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 
-package org.apache.bifromq.basekv.store.api;
+package org.apache.bifromq.basekv.store.range.hinter;
 
-import org.apache.bifromq.basekv.proto.Boundary;
-import org.apache.bifromq.basekv.proto.SplitHint;
-import org.apache.bifromq.basekv.store.proto.ROCoProcInput;
-import org.apache.bifromq.basekv.store.proto.RWCoProcInput;
+import com.google.protobuf.ByteString;
+import java.util.Map;
 
-public interface IKVRangeSplitHinter {
-    void recordQuery(ROCoProcInput input, IKVLoadRecord ioRecord);
+/**
+ * The load recorded collected during a time window.
+ */
+public interface IKVLoadRecord {
+    /**
+     * The start nanos of the record.
+     *
+     * @return the start time in nanos
+     */
+    long startNanos();
 
-    void recordMutate(RWCoProcInput input, IKVLoadRecord ioRecord);
+    /**
+     * Get the kv io times.
+     *
+     * @return the access times to kv engine
+     */
+    int getKVIOs();
 
-    void reset(Boundary boundary);
+    /**
+     * Get the total time spent on io of kv engine.
+     *
+     * @return the total time in nanos
+     */
+    long getKVIONanos();
 
-    SplitHint estimate();
-
-    void close();
+    /**
+     * Key distribution in the window.
+     *
+     * @return the map of key and access times.
+     */
+    Map<ByteString, Long> keyDistribution();
 }

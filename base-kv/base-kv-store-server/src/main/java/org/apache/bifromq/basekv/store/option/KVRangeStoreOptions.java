@@ -24,6 +24,7 @@ import static org.apache.bifromq.basekv.localengine.rocksdb.RocksDBDefaultConfig
 
 import com.google.protobuf.Struct;
 import java.nio.file.Paths;
+import java.util.HashMap;
 import java.util.Map;
 import lombok.AccessLevel;
 import lombok.AllArgsConstructor;
@@ -63,6 +64,9 @@ public class KVRangeStoreOptions {
     private String walEngineType = "rocksdb";
     @Builder.Default
     private Struct walEngineConf = defaultWalConf();
+
+    @Builder.Default
+    private Map<String, Struct> splitHinterFactoryConfig = new HashMap<>();
 
     private static Struct defaultDataConf() {
         // use provider defaults and set temp dirs

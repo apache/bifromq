@@ -35,11 +35,11 @@ import lombok.extern.slf4j.Slf4j;
 import org.apache.bifromq.basekv.proto.Boundary;
 import org.apache.bifromq.basekv.proto.SplitHint;
 import org.apache.bifromq.basekv.store.api.IKVIterator;
-import org.apache.bifromq.basekv.store.api.IKVLoadRecord;
-import org.apache.bifromq.basekv.store.api.IKVRangeSplitHinter;
+import org.apache.bifromq.basekv.store.api.IKVRangeReader;
 import org.apache.bifromq.basekv.store.proto.ROCoProcInput;
 import org.apache.bifromq.basekv.store.proto.RWCoProcInput;
-import org.apache.bifromq.basekv.store.range.IKVRangeRefreshableReader;
+import org.apache.bifromq.basekv.store.range.hinter.IKVLoadRecord;
+import org.apache.bifromq.basekv.store.range.hinter.IKVRangeSplitHinter;
 import org.apache.bifromq.basekv.utils.BoundaryUtil;
 import org.apache.bifromq.dist.rpc.proto.BatchMatchRequest;
 import org.apache.bifromq.dist.rpc.proto.BatchUnmatchRequest;
@@ -51,17 +51,17 @@ public class FanoutSplitHinter implements IKVRangeSplitHinter {
     public static final String LOAD_TYPE_FANOUT_TOPIC_FILTERS = "fanout_topicfilters";
     public static final String LOAD_TYPE_FANOUT_SCALE = "fanout_scale";
     private final int splitAtScale;
-    private final Supplier<IKVRangeRefreshableReader> readerSupplier;
+    private final Supplier<IKVRangeReader> readerSupplier;
     // key: matchRecordKeyPrefix, value: splitKey
     private final Map<ByteString, FanOutSplit> fanoutSplitKeys = new ConcurrentHashMap<>();
     private final Gauge fanOutTopicFiltersGauge;
     private final Gauge fanOutScaleGauge;
     private volatile Boundary boundary;
 
-    public FanoutSplitHinter(Supplier<IKVRangeRefreshableReader> readerSupplier, int splitAtScale, String... tags) {
+    public FanoutSplitHinter(Supplier<IKVRangeReader> readerSupplier, int splitAtScale, String... tags) {
         this.splitAtScale = splitAtScale;
         this.readerSupplier = readerSupplier;
-        try (IKVRangeRefreshableReader reader = readerSupplier.get()) {
+        try (IKVRangeReader reader = readerSupplier.get()) {
             boundary = reader.boundary();
         }
         fanOutTopicFiltersGauge = Gauge.builder("dist.fanout.topicfilters", fanoutSplitKeys::size)
@@ -170,7 +170,7 @@ public class FanoutSplitHinter implements IKVRangeSplitHinter {
 
     private void doEstimate(Map<ByteString, RecordEstimation> routeKeyLoads) {
         Map<ByteString, RangeEstimation> splitCandidate = new HashMap<>();
-        try (IKVRangeRefreshableReader reader = readerSupplier.get()) {
+        try (IKVRangeReader reader = readerSupplier.get()) {
             routeKeyLoads.forEach((matchRecordKeyPrefix, recordEst) -> {
                 long dataSize = (reader.size(Boundary.newBuilder()
                     .setStartKey(matchRecordKeyPrefix)

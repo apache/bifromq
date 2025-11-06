@@ -17,18 +17,33 @@
  * under the License.
  */
 
-package org.apache.bifromq.sysprops.props;
+package org.apache.bifromq.basekv.store.api;
 
-import org.apache.bifromq.sysprops.BifroMQSysProp;
-import org.apache.bifromq.sysprops.parser.LongParser;
+import com.google.protobuf.ByteString;
+import org.apache.bifromq.basekv.proto.Boundary;
 
 /**
- * The window size in seconds for estimating the load of the inbox store.
+ * The writer for KV mutation.
  */
-public final class InboxStoreLoadEstimationWindowSeconds extends BifroMQSysProp<Long, LongParser> {
-    public static final InboxStoreLoadEstimationWindowSeconds INSTANCE = new InboxStoreLoadEstimationWindowSeconds();
+public interface IKVWriter {
 
-    private InboxStoreLoadEstimationWindowSeconds() {
-        super("inbox_store_load_estimation_window_seconds", 5L, LongParser.POSITIVE);
-    }
+    void delete(ByteString key);
+
+    void clear(Boundary boundary);
+
+    /**
+     * Insert a non-exist key value pair, if the key is already exist, the result is undefined.
+     *
+     * @param key the key to insert
+     * @param value the value to insert
+     */
+    void insert(ByteString key, ByteString value);
+
+    /**
+     * Put a key value pair, if the key is existed, its value will be overridden.
+     *
+     * @param key the key to put
+     * @param value the value to put
+     */
+    void put(ByteString key, ByteString value);
 }

@@ -47,7 +47,6 @@ import org.apache.bifromq.sessiondict.client.ISessionDictClient;
 import org.apache.bifromq.starter.config.StandaloneConfig;
 import org.apache.bifromq.starter.config.model.inbox.InboxServerConfig;
 import org.apache.bifromq.starter.config.model.inbox.InboxStoreConfig;
-import org.apache.bifromq.sysprops.props.InboxStoreLoadEstimationWindowSeconds;
 
 public class InboxServiceModule extends AbstractModule {
     @Override
@@ -120,7 +119,6 @@ public class InboxServiceModule extends AbstractModule {
                 .workerThreads(storeConfig.getWorkerThreads())
                 .bgTaskExecutor(
                     injector.getInstance(Key.get(ScheduledExecutorService.class, Names.named("bgTaskScheduler"))))
-                .loadEstimateWindow(Duration.ofSeconds(InboxStoreLoadEstimationWindowSeconds.INSTANCE.get()))
                 .expireRateLimit(storeConfig.getExpireRateLimit())
                 .gcInterval(
                     Duration.ofSeconds(storeConfig.getGcIntervalSeconds()))
@@ -135,6 +133,7 @@ public class InboxServiceModule extends AbstractModule {
                         .setMaxWALFatchBatchSize(storeConfig.getMaxWALFetchSize())
                         .setCompactWALThreshold(storeConfig.getCompactWALThreshold())
                         .setEnableLoadEstimation(true))
+                    .setSplitHinterFactoryConfig(storeConfig.getSplitHinterConfig().getHinters())
                     .setDataEngineType(storeConfig.getDataEngineConfig().getType())
                     .setDataEngineConf(storeConfig.getDataEngineConfig().toStruct())
                     .setWalEngineType(storeConfig.getWalEngineConfig().getType())

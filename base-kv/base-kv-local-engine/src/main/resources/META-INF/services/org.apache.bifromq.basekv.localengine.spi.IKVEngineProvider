@@ -1,2 +1,0 @@
-org.apache.bifromq.basekv.localengine.memory.InMemKVEngineProvider
-org.apache.bifromq.basekv.localengine.rocksdb.RocksDBKVEngineProvider

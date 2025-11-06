@@ -27,13 +27,16 @@
         <artifactId>base-kv</artifactId>
         <version>${revision}</version>
     </parent>
-
-    <artifactId>base-kv-store-server</artifactId>
+    <artifactId>base-kv-local-engine-spi</artifactId>
 
     <dependencies>
         <dependency>
             <groupId>org.apache.bifromq</groupId>
-            <artifactId>base-logger</artifactId>
+            <artifactId>base-hookloader</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.bifromq</groupId>
+            <artifactId>base-kv-type-proto</artifactId>
         </dependency>
         <dependency>
             <groupId>org.apache.bifromq</groupId>
@@ -41,55 +44,19 @@
         </dependency>
         <dependency>
             <groupId>org.apache.bifromq</groupId>
-            <artifactId>base-hlc</artifactId>
+            <artifactId>base-logger</artifactId>
         </dependency>
         <dependency>
-            <groupId>org.apache.bifromq</groupId>
-            <artifactId>base-cluster</artifactId>
+            <groupId>org.pcollections</groupId>
+            <artifactId>pcollections</artifactId>
         </dependency>
         <dependency>
-            <groupId>org.apache.bifromq</groupId>
-            <artifactId>base-rpc-server</artifactId>
+            <groupId>io.reactivex.rxjava3</groupId>
+            <artifactId>rxjava</artifactId>
         </dependency>
         <dependency>
-            <groupId>org.apache.bifromq</groupId>
-            <artifactId>base-crdt-service</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>org.apache.bifromq</groupId>
-            <artifactId>base-kv-store-coproc-api</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>org.apache.bifromq</groupId>
-            <artifactId>base-kv-split-hinter-spi</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>org.apache.bifromq</groupId>
-            <artifactId>base-kv-meta-service</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>org.apache.bifromq</groupId>
-            <artifactId>base-kv-store-rpc-definition</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>org.apache.bifromq</groupId>
-            <artifactId>base-kv-local-engine-spi</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>org.apache.bifromq</groupId>
-            <artifactId>base-kv-local-engine-rocksdb</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>org.apache.bifromq</groupId>
-            <artifactId>base-kv-local-engine-memory</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>org.apache.bifromq</groupId>
-            <artifactId>base-kv-raft</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>org.apache.bifromq</groupId>
-            <artifactId>base-util</artifactId>
+            <groupId>io.micrometer</groupId>
+            <artifactId>micrometer-core</artifactId>
         </dependency>
         <dependency>
             <groupId>com.google.protobuf</groupId>
@@ -104,30 +71,30 @@
             <artifactId>caffeine</artifactId>
         </dependency>
         <dependency>
-            <groupId>io.reactivex.rxjava3</groupId>
-            <artifactId>rxjava</artifactId>
-        </dependency>
-        <dependency>
             <groupId>org.slf4j</groupId>
             <artifactId>slf4j-api</artifactId>
         </dependency>
-        <!-- for testing-->
+        <!-- test -->
+        <dependency>
+            <groupId>org.awaitility</groupId>
+            <artifactId>awaitility</artifactId>
+            <scope>test</scope>
+        </dependency>
         <dependency>
             <groupId>org.mockito</groupId>
             <artifactId>mockito-core</artifactId>
             <scope>test</scope>
         </dependency>
         <dependency>
-            <groupId>org.awaitility</groupId>
-            <artifactId>awaitility</artifactId>
-        </dependency>
-        <dependency>
             <groupId>org.openjdk.jmh</groupId>
             <artifactId>jmh-core</artifactId>
+            <scope>test</scope>
         </dependency>
         <dependency>
             <groupId>org.openjdk.jmh</groupId>
             <artifactId>jmh-generator-annprocess</artifactId>
+            <version>${jmh.version}</version>
+            <scope>test</scope>
         </dependency>
         <dependency>
             <groupId>org.apache.logging.log4j</groupId>
@@ -145,4 +112,22 @@
             <scope>test</scope>
         </dependency>
     </dependencies>
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.xolstice.maven.plugins</groupId>
+                <artifactId>protobuf-maven-plugin</artifactId>
+            </plugin>
+            <plugin>
+                <artifactId>maven-jar-plugin</artifactId>
+                <executions>
+                    <execution>
+                        <goals>
+                            <goal>test-jar</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+        </plugins>
+    </build>
 </project>

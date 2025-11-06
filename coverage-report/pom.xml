@@ -50,7 +50,15 @@
         </dependency>
         <dependency>
             <groupId>org.apache.bifromq</groupId>
-            <artifactId>base-kv-local-engine</artifactId>
+            <artifactId>base-kv-local-engine-spi</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.bifromq</groupId>
+            <artifactId>base-kv-local-engine-rocksdb</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.bifromq</groupId>
+            <artifactId>base-kv-local-engine-memory</artifactId>
         </dependency>
         <dependency>
             <groupId>org.apache.bifromq</groupId>

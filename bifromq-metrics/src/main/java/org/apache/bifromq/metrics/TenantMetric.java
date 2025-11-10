@@ -61,6 +61,7 @@ public enum TenantMetric {
     MqttConfirmingMessages("mqtt.ex.confirming", Meter.Type.DISTRIBUTION_SUMMARY),
     MqttResendBytes("mqtt.ex.resend.bytes", Meter.Type.DISTRIBUTION_SUMMARY),
     MqttDeDupBytes("mqtt.ex.dedup.bytes", Meter.Type.DISTRIBUTION_SUMMARY),
+    MqttStalledCount("mqtt.ex.stalled.count", Meter.Type.COUNTER),
 
     // subscription related metrics
     MqttRouteSpaceGauge("mqtt.route.space.gauge", Meter.Type.GAUGE),

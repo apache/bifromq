@@ -308,8 +308,6 @@ public class DistWorkerCoProcTest {
         // at least once (added map refresh); there may also be an empty removed map refresh
         verify(routeCache, atLeast(1)).refresh(any());
         verify(tenantsState, times(1)).incNormalRoutes(eq("tenant0"), eq(1));
-
-        verify(refreshableReader, times(1)).refresh();
     }
 
     @SneakyThrows
@@ -351,8 +349,6 @@ public class DistWorkerCoProcTest {
         verify(writer, times(1)).put(any(), eq(BSUtil.toByteString(1L)));
         verify(routeCache, atLeast(1)).refresh(any());
         verify(tenantsState, times(1)).incNormalRoutes(eq("tenantC"), eq(1));
-
-        verify(refreshableReader, times(1)).refresh();
     }
 
     @SneakyThrows
@@ -395,7 +391,6 @@ public class DistWorkerCoProcTest {
             && m.get("tenantA").routes.keySet()
             .contains(TopicUtil.from("topicA"))));
         verify(tenantsState, times(1)).decNormalRoutes(eq("tenantA"), eq(1));
-        verify(refreshableReader, times(1)).refresh();
     }
 
     @SneakyThrows
@@ -437,7 +432,6 @@ public class DistWorkerCoProcTest {
         verify(routeCache, times(1)).refresh(argThat(m -> m.containsKey("tenantB")
             && m.get("tenantB").routes.keySet().contains(TopicUtil.from("topicB"))));
         verify(tenantsState, times(1)).decNormalRoutes(eq("tenantB"), eq(1));
-        verify(refreshableReader, times(1)).refresh();
     }
 
     @Test

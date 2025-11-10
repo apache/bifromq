@@ -249,7 +249,6 @@ class DistWorkerCoProc implements IKVRangeCoProc {
         }
         if (needRefresh) {
             try (IKVRangeRefreshableReader reader = readerProvider.get(); IKVIterator itr = reader.iterator()) {
-                reader.refresh();
                 setFact(itr);
             }
         }

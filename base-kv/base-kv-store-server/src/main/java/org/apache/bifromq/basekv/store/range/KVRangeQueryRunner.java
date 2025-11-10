@@ -188,7 +188,6 @@ class KVRangeQueryRunner implements IKVRangeQueryRunner {
                     new KVRangeException.TryLater("Range has been in state: " + state.getType().name().toLowerCase()));
                 return onDone;
             }
-            refreshableReader.refresh();
             return queryFn.apply(refreshableReader)
                 .whenCompleteAsync((v, e) -> {
                     queryLock.unlockRead(stamp);

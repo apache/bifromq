@@ -198,7 +198,6 @@ public class TenantsStats implements ITenantStats {
         tenantStatsMap.values().forEach(TenantStats::destroy);
         tenantStatsMap.clear();
         try (IKVRangeRefreshableReader reader = readerSupplier.get(); IKVIterator itr = reader.iterator()) {
-            reader.refresh();
             for (itr.seekToFirst(); itr.isValid(); ) {
                 String tenantId = parseTenantId(itr.key());
                 loadStats(tenantId, itr);

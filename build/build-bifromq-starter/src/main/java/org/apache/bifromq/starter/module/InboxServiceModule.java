@@ -120,8 +120,8 @@ public class InboxServiceModule extends AbstractModule {
                 .bgTaskExecutor(
                     injector.getInstance(Key.get(ScheduledExecutorService.class, Names.named("bgTaskScheduler"))))
                 .expireRateLimit(storeConfig.getExpireRateLimit())
-                .gcInterval(
-                    Duration.ofSeconds(storeConfig.getGcIntervalSeconds()))
+                .minGCInterval(Duration.ofSeconds(storeConfig.getMinGCIntervalSeconds()))
+                .maxGCInterval(Duration.ofSeconds(storeConfig.getMaxGCIntervalSeconds()))
                 .bootstrapDelay(Duration.ofMillis(storeConfig.getBalanceConfig().getBootstrapDelayInMS()))
                 .zombieProbeDelay(Duration.ofMillis(storeConfig.getBalanceConfig().getZombieProbeDelayInMS()))
                 .balancerRetryDelay(Duration.ofMillis(

@@ -14,14 +14,14 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 
 package org.apache.bifromq.inbox.store.schema;
 
+import static com.google.protobuf.UnsafeByteOperations.unsafeWrap;
 import static org.apache.bifromq.util.BSUtil.toByteString;
 import static org.apache.bifromq.util.BSUtil.toShort;
-import static com.google.protobuf.UnsafeByteOperations.unsafeWrap;
 
 import com.google.protobuf.ByteString;
 import java.nio.charset.StandardCharsets;
@@ -98,7 +98,7 @@ public class KVSchemaUtil {
     }
 
     private static int inboxInstanceStartKeyPrefixLength(ByteString inboxStoreKey) {
-        // inboxInstanceStartKeyPrefix: <INBOX_INSTANCE_START_KEY_PREFIX><incarnation>
+        // inboxInstanceStartKeyPrefix: <INBOX_START_KEY_PREFIX><incarnation>
         return inboxStartKeyPrefixLength(inboxStoreKey) + Long.BYTES;
     }
 
@@ -115,6 +115,10 @@ public class KVSchemaUtil {
             }
         }
         return false;
+    }
+
+    public static ByteString parseInboxStartKeyPrefix(ByteString inboxInstanceStartKey) {
+        return inboxInstanceStartKey.substring(0, inboxInstanceStartKey.size() - Long.BYTES);
     }
 
     public static String parseTenantId(ByteString inboxStoreKey) {

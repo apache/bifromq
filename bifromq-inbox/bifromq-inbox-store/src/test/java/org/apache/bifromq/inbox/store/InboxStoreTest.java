@@ -238,7 +238,8 @@ abstract class InboxStoreTest {
             .tickerThreads(tickerThreads)
             .bgTaskExecutor(bgTaskExecutor)
             .detachTimeout(Duration.ofSeconds(1))
-            .gcInterval(Duration.ofSeconds(1))
+            .minGCInterval(Duration.ofSeconds(1))
+            .maxGCInterval(Duration.ofSeconds(2))
             .bootstrapDelay(Duration.ofSeconds(1))
             .build();
         rpcServer = rpcServerBuilder.build();

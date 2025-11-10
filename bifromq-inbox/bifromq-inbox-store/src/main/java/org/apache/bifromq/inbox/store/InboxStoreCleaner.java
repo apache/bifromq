@@ -17,7 +17,7 @@
  * under the License.
  */
 
-package org.apache.bifromq.dist.worker;
+package org.apache.bifromq.inbox.store;
 
 import static org.apache.bifromq.basekv.client.KVRangeRouterUtil.findByBoundary;
 import static org.apache.bifromq.basekv.utils.BoundaryUtil.FULL_BOUNDARY;
@@ -32,7 +32,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.Collection;
 import java.util.HashMap;
-import java.util.List;
+import java.util.Iterator;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ScheduledExecutorService;
@@ -48,13 +48,14 @@ import org.apache.bifromq.basekv.proto.KVRangeId;
 import org.apache.bifromq.basekv.store.proto.KVRangeRORequest;
 import org.apache.bifromq.basekv.store.proto.ROCoProcInput;
 import org.apache.bifromq.basekv.store.proto.ReplyCode;
+import org.apache.bifromq.basekv.utils.BoundaryUtil;
 import org.apache.bifromq.basekv.utils.KVRangeIdUtil;
-import org.apache.bifromq.dist.rpc.proto.DistServiceROCoProcInput;
-import org.apache.bifromq.dist.rpc.proto.GCReply;
-import org.apache.bifromq.dist.rpc.proto.GCRequest;
+import org.apache.bifromq.inbox.storage.proto.GCReply;
+import org.apache.bifromq.inbox.storage.proto.GCRequest;
+import org.apache.bifromq.inbox.storage.proto.InboxServiceROCoProcInput;
 
 @Slf4j
-class DistWorkerCleaner {
+class InboxStoreCleaner {
     private static final int MAX_STEP = 10;
     private static final int SCAN_QUOTA_BASE = 512;
     private static final int FIRST_SWEEP_SCAN_QUOTA = 50_000;
@@ -65,7 +66,7 @@ class DistWorkerCleaner {
     private static final double GROWTH = 1.5;
     private static final double SHRINK = 2.0;
     private final AtomicBoolean started = new AtomicBoolean(false);
-    private final IBaseKVStoreClient distWorkerClient;
+    private final IBaseKVStoreClient inboxStoreClient;
     private final Duration minCleanInterval;
     private final Duration maxCleanInterval;
     private final ScheduledExecutorService jobScheduler;
@@ -74,28 +75,33 @@ class DistWorkerCleaner {
     private final Map<KVRangeId, RangeGcState> rangeStates = new HashMap<>();
     private volatile ScheduledFuture<?> cleanerFuture;
 
-    DistWorkerCleaner(IBaseKVStoreClient distWorkerClient,
+    InboxStoreCleaner(IBaseKVStoreClient inboxStoreClient,
                       Duration minCleanInterval,
                       Duration maxCleanInterval,
                       ScheduledExecutorService jobScheduler) {
-        this(distWorkerClient, minCleanInterval, maxCleanInterval, jobScheduler, Clock.systemUTC());
+        this(inboxStoreClient, minCleanInterval, maxCleanInterval, jobScheduler, Clock.systemUTC());
     }
 
-    DistWorkerCleaner(IBaseKVStoreClient distWorkerClient,
+    InboxStoreCleaner(IBaseKVStoreClient inboxStoreClient,
                       Duration minCleanInterval,
                       Duration maxCleanInterval,
                       ScheduledExecutorService jobScheduler,
                       Clock clock) {
-        this.distWorkerClient = distWorkerClient;
+        this.inboxStoreClient = inboxStoreClient;
         this.minCleanInterval = minCleanInterval;
         this.maxCleanInterval = maxCleanInterval;
         this.jobScheduler = jobScheduler;
         this.clock = clock;
     }
 
+    private static boolean equalsBoundary(Boundary a, Boundary b) {
+        return BoundaryUtil.compareStartKey(BoundaryUtil.startKey(a), BoundaryUtil.startKey(b)) == 0
+            && BoundaryUtil.compareEndKeys(BoundaryUtil.endKey(a), BoundaryUtil.endKey(b)) == 0;
+    }
+
     void start(String storeId) {
         if (started.compareAndSet(false, true)) {
-            log.info("DistWorkerCleaner started");
+            log.info("InboxStoreCleaner started");
             doStart(storeId);
         }
     }
@@ -105,7 +111,7 @@ class DistWorkerCleaner {
             cleanerFuture.cancel(true);
             CompletableFuture<Void> onDone = new CompletableFuture<>();
             jobScheduler.execute(() -> {
-                log.info("DistWorkerCleaner stopped");
+                log.info("InboxStoreCleaner stopped");
                 // remove all gauges on stop
                 for (RangeGcState st : rangeStates.values()) {
                     if (st.stepGauge != null) {
@@ -115,6 +121,7 @@ class DistWorkerCleaner {
                         Metrics.globalRegistry.removeByPreFilterId(st.intervalGauge.getId());
                     }
                 }
+                rangeStates.clear();
                 onDone.complete(null);
             });
             return onDone;
@@ -139,57 +146,58 @@ class DistWorkerCleaner {
                 anyDueNow = true;
             }
         }
-        Duration delay = anyDueNow ? Duration.ZERO : (chosenDelay != null ? chosenDelay : minCleanInterval);
-        log.debug("DistWorkerCleaner next round in {} ms", delay.toMillis());
+        Duration delay = anyDueNow ? Duration.ZERO : chosenDelay == null ? minCleanInterval : chosenDelay;
         cleanerFuture = jobScheduler.schedule(() -> {
-            doGC(storeId).thenRun(() -> doStart(storeId));
+            doClean(storeId).thenRun(() -> doStart(storeId));
         }, delay.toMillis(), TimeUnit.MILLISECONDS);
     }
 
-    private CompletableFuture<Void> doGC(String storeId) {
-        Collection<KVRangeSetting> leaders = findByBoundary(FULL_BOUNDARY, distWorkerClient.latestEffectiveRouter())
+    private CompletableFuture<Void> doClean(String storeId) {
+        if (!started.get()) {
+            return CompletableFuture.completedFuture(null);
+        }
+        Collection<KVRangeSetting> leaders = findByBoundary(FULL_BOUNDARY, inboxStoreClient.latestEffectiveRouter())
             .stream().filter(r -> r.leader().equals(storeId)).toList();
-
         Map<KVRangeId, KVRangeSetting> currentLeaderMap = new HashMap<>();
         for (KVRangeSetting rs : leaders) {
             currentLeaderMap.put(rs.id(), rs);
-            RangeGcState state = rangeStates.get(rs.id());
-            if (state == null) {
-                state = new RangeGcState();
+            RangeGcState state = rangeStates.computeIfAbsent(rs.id(), rid -> {
+                RangeGcState ns = new RangeGcState();
+                ns.step = 1;
+                ns.interval = FIRST_SWEEP_INTERVAL;
+                ns.lowRatioHits = 0;
+                ns.wrappedOnce = false;
+                ns.nextDue = clock.instant();
+                ns.ver = rs.ver();
+                ns.boundary = rs.boundary();
+                ns.sprinted = false;
+                // register per-range gauges when state created
+                Tags tags = Tags.of("storeId", storeId).and("rangeId", KVRangeIdUtil.toString(rs.id()));
+                ns.intervalGauge = Gauge.builder("inbox.gc.interval.ms", ns, s -> s.interval.toMillis())
+                    .tags(tags)
+                    .register(Metrics.globalRegistry);
+                ns.stepGauge = Gauge.builder("inbox.gc.step", ns, s -> (double) s.step)
+                    .tags(tags)
+                    .register(Metrics.globalRegistry);
+                return ns;
+            });
+            if (state.ver != rs.ver() || !equalsBoundary(state.boundary, rs.boundary())) {
+                if (state.nextKey != null) {
+                    state.nextKey = clampToBoundary(state.nextKey, rs.boundary());
+                }
                 state.step = 1;
-                state.interval = FIRST_SWEEP_INTERVAL;
+                state.interval = state.sprinted ? minCleanInterval : FIRST_SWEEP_INTERVAL;
                 state.lowRatioHits = 0;
-                state.nextDue = Instant.EPOCH;
+                state.wrappedOnce = false;
                 state.ver = rs.ver();
                 state.boundary = rs.boundary();
-                state.wrappedOnce = false;
-                state.sprinted = false;
-                Tags tags = Tags.of("storeId", storeId).and("rangeId", KVRangeIdUtil.toString(rs.id()));
-                state.intervalGauge = Gauge.builder("dist.gc.interval.ms", state, s -> s.interval.toMillis())
-                    .tags(tags)
-                    .register(Metrics.globalRegistry);
-                state.stepGauge = Gauge.builder("dist.gc.step", state, s -> (double) s.step)
-                    .tags(tags)
-                    .register(Metrics.globalRegistry);
-                rangeStates.put(rs.id(), state);
-            } else {
-                if (state.ver != rs.ver() || !state.boundary.equals(rs.boundary())) {
-                    // clamp nextKey into new boundary and reset step/interval
-                    if (state.nextKey != null) {
-                        state.nextKey = clampToBoundary(state.nextKey, rs.boundary());
-                    }
-                    state.step = 1;
-                    state.interval = state.sprinted ? minCleanInterval : FIRST_SWEEP_INTERVAL;
-                    state.lowRatioHits = 0;
-                    state.wrappedOnce = false;
-                    state.ver = rs.ver();
-                    state.boundary = rs.boundary();
-                }
             }
         }
-        rangeStates.entrySet().removeIf(e -> {
-            boolean remove = !currentLeaderMap.containsKey(e.getKey());
-            if (remove) {
+        // clean up metrics for ranges no longer led by this store
+        Iterator<Map.Entry<KVRangeId, RangeGcState>> iter = rangeStates.entrySet().iterator();
+        while (iter.hasNext()) {
+            Map.Entry<KVRangeId, RangeGcState> e = iter.next();
+            if (!currentLeaderMap.containsKey(e.getKey())) {
                 RangeGcState st = e.getValue();
                 if (st.stepGauge != null) {
                     Metrics.globalRegistry.removeByPreFilterId(st.stepGauge.getId());
@@ -197,24 +205,21 @@ class DistWorkerCleaner {
                 if (st.intervalGauge != null) {
                     Metrics.globalRegistry.removeByPreFilterId(st.intervalGauge.getId());
                 }
+                iter.remove();
             }
-            return remove;
-        });
+        }
 
         long reqId = HLC.INST.getPhysical();
         Instant now = clock.instant();
-        List<CompletableFuture<?>> futures = leaders.stream()
+        CompletableFuture<?>[] futures = leaders.stream()
             .map(rs -> {
                 RangeGcState s = rangeStates.get(rs.id());
-                if (s == null) {
-                    return CompletableFuture.<Void>completedFuture(null);
+                if (s == null || s.nextDue.isAfter(now)) {
+                    return CompletableFuture.completedFuture(null);
                 }
-                if (s.nextDue.isAfter(now)) {
-                    return CompletableFuture.<Void>completedFuture(null);
-                }
-                GCRequest.Builder gcReq = GCRequest.newBuilder().setReqId(reqId)
-                    .setStepHint(s.sprinted ? Math.max(1, s.step) : 1)
-                    .setScanQuota(s.sprinted ? SCAN_QUOTA_BASE * Math.max(1, s.step) : FIRST_SWEEP_SCAN_QUOTA);
+                GCRequest.Builder gcReq = GCRequest.newBuilder().setNow(now.toEpochMilli());
+                int quotaToUse = s.sprinted ? SCAN_QUOTA_BASE * s.step : FIRST_SWEEP_SCAN_QUOTA;
+                gcReq.setScanQuota(quotaToUse);
                 if (s.nextKey != null) {
                     ByteString start = clampToBoundary(s.nextKey, rs.boundary());
                     if (start != null) {
@@ -222,16 +227,15 @@ class DistWorkerCleaner {
                     }
                 }
                 String rangeIdStr = KVRangeIdUtil.toString(rs.id());
-                int stepHint = gcReq.getStepHint();
-                int quota = gcReq.getScanQuota();
-                log.debug("[DistWorker] start gc: reqId={}, rangeId={}, stepHint={}, quota={}",
-                    reqId, rangeIdStr, stepHint, quota);
-                return distWorkerClient.query(rs.leader(), KVRangeRORequest.newBuilder()
+                log.debug("[InboxStore] start gc: reqId={}, rangeId={}, step={}, quota={}",
+                    reqId, rangeIdStr, s.step, quotaToUse);
+                return inboxStoreClient.query(rs.leader(), KVRangeRORequest.newBuilder()
                         .setReqId(reqId)
                         .setKvRangeId(rs.id())
                         .setVer(rs.ver())
                         .setRoCoProc(ROCoProcInput.newBuilder()
-                            .setDistService(DistServiceROCoProcInput.newBuilder()
+                            .setInboxService(InboxServiceROCoProcInput.newBuilder()
+                                .setReqId(reqId)
                                 .setGc(gcReq.build())
                                 .build())
                             .build())
@@ -239,20 +243,20 @@ class DistWorkerCleaner {
                     .handle((v, e) -> {
                         try {
                             if (e != null) {
-                                log.debug("[DistWorker] gc error: reqId={}, rangeId={}", reqId, rangeIdStr, e);
+                                log.debug("[InboxStore] gc error: reqId={}, rangeId={}", reqId, rangeIdStr, e);
                                 onGCFailure(s);
                                 return null;
                             }
                             if (v.getCode() != ReplyCode.Ok) {
-                                log.debug("[DistWorker] gc rejected: reqId={}, rangeId={}, reason={}", reqId,
+                                log.debug("[InboxStore] gc rejected: reqId={}, rangeId={}, reason={}", reqId,
                                     rangeIdStr, v.getCode());
                                 onGCFailure(s);
                                 return null;
                             }
-                            GCReply reply = v.getRoCoProcResult().getDistService().getGc();
+                            GCReply reply = v.getRoCoProcResult().getInboxService().getGc();
                             onGCSuccess(s, reply);
                             log.debug(
-                                "[DistWorker] gc done: reqId={}, rangeId={}, inspected={}, removeSuccess={}, wrapped={}",
+                                "[InboxStore] gc done: reqId={}, rangeId={}, inspected={}, removed={}, wrapped={}",
                                 reqId, rangeIdStr, reply.getInspectedCount(), reply.getRemoveSuccess(),
                                 reply.getWrapped());
                         } finally {
@@ -261,12 +265,11 @@ class DistWorkerCleaner {
                         return null;
                     });
             })
-            .toList();
-        return CompletableFuture.allOf(futures.toArray(new CompletableFuture[0]));
+            .toArray(CompletableFuture[]::new);
+        return CompletableFuture.allOf(futures);
     }
 
     private void onGCFailure(RangeGcState s) {
-        // reset on failure
         s.step = 1;
         s.interval = s.sprinted ? minCleanInterval : FIRST_SWEEP_INTERVAL;
         s.lowRatioHits = 0;
@@ -334,7 +337,8 @@ class DistWorkerCleaner {
         long ver;
         Boundary boundary;
         boolean sprinted;
-        Gauge stepGauge;
-        Gauge intervalGauge;
+        // metrics
+        Gauge stepGauge; // gauge for adaptive step
+        Gauge intervalGauge; // gauge for gc interval in ms
     }
 }

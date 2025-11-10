@@ -48,7 +48,9 @@ public class InboxStoreConfig {
     private int maxWALFetchSize = -1; // no limit
     private int compactWALThreshold = 256 * 1024 * 1024; // size threshold in bytes
     private int expireRateLimit = 1000;
-    private int gcIntervalSeconds = 600;
+    private int minGCIntervalSeconds = 30; // every 30 s
+    private int maxGCIntervalSeconds = 24 * 3600; // every day
+
     @JsonSetter(nulls = Nulls.SKIP)
     @JsonMerge
     private EngineConfig dataEngineConfig = new EngineConfig()

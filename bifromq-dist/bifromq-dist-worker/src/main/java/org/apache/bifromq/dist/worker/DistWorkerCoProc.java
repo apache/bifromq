@@ -582,19 +582,19 @@ class DistWorkerCoProc implements IKVRangeCoProc {
                 itr.seekToFirst();
             }
 
-            // if range is empty, return immediately
             if (!itr.isValid()) {
                 return CompletableFuture.completedFuture(GCReply.newBuilder()
                     .setReqId(request.getReqId())
                     .setInspectedCount(0)
                     .setRemoveSuccess(0)
-                    .setWrapped(false)
+                    .setWrapped(true)
                     .build());
             }
 
             AtomicInteger inspectedCount = new AtomicInteger();
             AtomicBoolean wrapped = new AtomicBoolean(false);
             ByteString sessionStartKey = null;
+            AtomicReference<ByteString> nextStartKeySnapshot = new AtomicReference<>();
 
             outer:
             while (true) {
@@ -637,7 +637,8 @@ class DistWorkerCoProc implements IKVRangeCoProc {
                         GroupMatching groupMatching = ((GroupMatching) matching);
                         if (!routeCache.isCached(groupMatching.tenantId(), matching.matcher.getFilterLevelList())) {
                             for (NormalMatching normalMatching : groupMatching.receiverList) {
-                                checkRequestBuilders.computeIfAbsent(normalMatching.subBrokerId(), k -> new HashMap<>())
+                                checkRequestBuilders.computeIfAbsent(normalMatching.subBrokerId(),
+                                        k -> new HashMap<>())
                                     .computeIfAbsent(normalMatching.delivererKey(), k -> new HashMap<>())
                                     .computeIfAbsent(normalMatching.tenantId(), k -> CheckRequest.newBuilder()
                                         .setTenantId(k)
@@ -652,22 +653,22 @@ class DistWorkerCoProc implements IKVRangeCoProc {
                 }
                 inspectedCount.incrementAndGet();
                 if (inspectedCount.get() >= scanQuota) {
-                    // stop by quota
                     itr.next();
                     break;
                 }
 
-                // skip over stepUsed-1 entries
                 int skip = stepUsed - 1;
                 while (skip-- > 0) {
                     itr.next();
                     if (!itr.isValid()) {
-                        // let outer loop handle wrap or stop
                         continue outer;
                     }
                 }
-                // move to next for next iteration
                 itr.next();
+            }
+
+            if (itr.isValid()) {
+                nextStartKeySnapshot.set(itr.key());
             }
 
             // aggregate sweep results
@@ -692,8 +693,8 @@ class DistWorkerCoProc implements IKVRangeCoProc {
                     .setInspectedCount(inspectedCount.get())
                     .setRemoveSuccess(success)
                     .setWrapped(wrapped.get());
-                if (itr.isValid()) {
-                    reply.setNextStartKey(itr.key());
+                if (nextStartKeySnapshot.get() != null) {
+                    reply.setNextStartKey(nextStartKeySnapshot.get());
                 }
                 return reply.build();
             });

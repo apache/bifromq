@@ -128,7 +128,7 @@ public class DistWorkerCoProcGCTest {
         assertEquals(r.getReqId(), 1001L);
         assertEquals(r.getInspectedCount(), 0);
         assertEquals(r.getRemoveSuccess(), 0);
-        assertFalse(r.getWrapped());
+        assertTrue(r.getWrapped());
         assertFalse(r.hasNextStartKey());
     }
 

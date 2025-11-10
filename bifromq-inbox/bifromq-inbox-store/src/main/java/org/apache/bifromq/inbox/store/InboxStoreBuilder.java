@@ -73,7 +73,8 @@ public class InboxStoreBuilder {
     Duration detachTimeout = Duration.ofSeconds(PersistentSessionDetachTimeoutSecond.INSTANCE.get());
     Duration metaCacheExpireTime = Duration.ofSeconds(InboxMetaCacheExpirySeconds.INSTANCE.get());
     int expireRateLimit = 1000;
-    Duration gcInterval = Duration.ofMinutes(5);
+    Duration minGCInterval = Duration.ofMinutes(5);
+    Duration maxGCInterval = Duration.ofHours(24);
     Map<String, String> attributes = new HashMap<>();
 
     public IInboxStore build() {

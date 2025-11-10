@@ -137,7 +137,7 @@ final class SessionDictClient implements ISessionDictClient {
                 }
             })
             .exceptionally(e -> {
-                log.debug("Kill all failed", e);
+                log.debug("Failed to handle KillAllRequest", e);
                 return KillAllReply.newBuilder()
                     .setReqId(reqId)
                     .setResult(KillAllReply.Result.ERROR)
@@ -151,7 +151,7 @@ final class SessionDictClient implements ISessionDictClient {
         return rpcClient.invoke(request.getTenantId(), null, request,
                 SessionDictServiceGrpc.getGetMethod())
             .exceptionally(e -> {
-                log.debug("Get failed", e);
+                log.debug("Failed to handle GetRequest", e);
                 return GetReply.newBuilder()
                     .setReqId(request.getReqId())
                     .setResult(GetReply.Result.ERROR)

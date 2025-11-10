@@ -323,9 +323,19 @@ message ExpireTenantReply{
 
 message GCRequest {
   uint64 now = 1;
+  optional bytes startKey = 2;
+  uint32 scanQuota = 3;
 }
 
 message GCReply {
+  // next start key for the following round
+  optional bytes nextStartKey = 1;
+  // number of metadata keys inspected in this round
+  uint32 inspectedCount = 2;
+  // number of successfully scheduled removals in this round
+  uint32 removeSuccess = 3;
+  // whether wrapped to range start in this round
+  bool wrapped = 4;
 }
 
 message InboxServiceRWCoProcInput{

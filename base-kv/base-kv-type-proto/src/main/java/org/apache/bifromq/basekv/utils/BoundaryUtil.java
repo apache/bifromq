@@ -354,6 +354,21 @@ public class BoundaryUtil {
         return boundary.hasEndKey() ? boundary.getEndKey().toByteArray() : null;
     }
 
+    public static ByteString clampToBoundary(ByteString key, Boundary boundary) {
+        if (key == null) {
+            return null;
+        }
+        ByteString startBoundary = BoundaryUtil.startKey(boundary);
+        ByteString endBoundary = BoundaryUtil.endKey(boundary);
+        if (startBoundary != null && BoundaryUtil.compare(key, startBoundary) < 0) {
+            return startBoundary;
+        }
+        if (endBoundary != null && BoundaryUtil.compare(key, endBoundary) >= 0) {
+            return startBoundary;
+        }
+        return key;
+    }
+
     private static ByteString minStartKey(ByteString a, ByteString b) {
         return (compareStartKey(a, b) < 0) ? a : b;
     }

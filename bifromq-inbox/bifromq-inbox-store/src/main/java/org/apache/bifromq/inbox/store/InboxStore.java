@@ -22,11 +22,9 @@ package org.apache.bifromq.inbox.store;
 import com.google.common.util.concurrent.MoreExecutors;
 import io.micrometer.core.instrument.Metrics;
 import io.micrometer.core.instrument.binder.jvm.ExecutorServiceMetrics;
-import java.time.Duration;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.LinkedTransferQueue;
 import java.util.concurrent.ScheduledExecutorService;
@@ -37,7 +35,6 @@ import java.util.concurrent.atomic.AtomicReference;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.bifromq.base.util.AsyncRunner;
 import org.apache.bifromq.baseenv.EnvProvider;
-import org.apache.bifromq.basehlc.HLC;
 import org.apache.bifromq.basehookloader.BaseHookLoader;
 import org.apache.bifromq.basekv.balance.KVStoreBalanceController;
 import org.apache.bifromq.basekv.client.IBaseKVStoreClient;
@@ -57,15 +54,12 @@ class InboxStore implements IInboxStore {
     private final AsyncRunner jobRunner;
     private final ScheduledExecutorService jobScheduler;
     private final boolean jobExecutorOwner;
-    private final Duration gcInterval;
     private final List<IInboxStoreBalancerFactory> effectiveBalancerFactories = new LinkedList<>();
-    private IInboxStoreGCProcessor inboxStoreGCProc;
-    private volatile CompletableFuture<Void> gcJob;
+    private final InboxStoreCleaner cleaner;
 
     InboxStore(InboxStoreBuilder builder) {
         this.clusterId = builder.clusterId;
         this.inboxStoreClient = builder.inboxStoreClient;
-        this.gcInterval = builder.gcInterval;
         coProcFactory =
             new InboxStoreCoProcFactory(
                 builder.distClient,
@@ -133,6 +127,8 @@ class InboxStore implements IInboxStore {
             .attributes(builder.attributes)
             .finish()
             .build();
+        this.cleaner = new InboxStoreCleaner(inboxStoreClient, builder.minGCInterval, builder.maxGCInterval,
+            jobScheduler);
         start();
     }
 
@@ -144,15 +140,15 @@ class InboxStore implements IInboxStore {
         if (status.compareAndSet(Status.INIT, Status.STARTING)) {
             log.info("Starting inbox store");
             storeServer.start();
+            String storeId = storeServer.storeId(clusterId);
             balanceController.start(storeServer.storeId(clusterId));
             status.compareAndSet(Status.STARTING, Status.STARTED);
-            this.inboxStoreGCProc = new InboxStoreGCProcessor(inboxStoreClient, id());
             inboxStoreClient
                 .connState()
                 // observe the first READY state
                 .filter(connState -> connState == IConnectable.ConnState.READY)
                 .takeUntil(connState -> connState == IConnectable.ConnState.READY)
-                .doOnComplete(() -> scheduleGC(Duration.ofSeconds(5)))
+                .doOnComplete(() -> cleaner.start(storeId))
                 .subscribe();
             log.debug("Inbox store started");
         }
@@ -162,6 +158,7 @@ class InboxStore implements IInboxStore {
         if (status.compareAndSet(Status.STARTED, Status.STOPPING)) {
             log.info("Stopping InboxStore");
             jobRunner.awaitDone().toCompletableFuture().join();
+            cleaner.stop().join();
             balanceController.stop();
             storeServer.stop();
             log.debug("Stopping CoProcFactory");
@@ -175,28 +172,6 @@ class InboxStore implements IInboxStore {
             log.debug("InboxStore stopped");
             status.compareAndSet(Status.STOPPING, Status.STOPPED);
         }
-    }
-
-    private void scheduleGC(Duration delay) {
-        if (status.get() != Status.STARTED) {
-            return;
-        }
-        jobScheduler.schedule(this::gc, delay.toMillis(), TimeUnit.MILLISECONDS);
-    }
-
-    private void gc() {
-        jobRunner.add(() -> {
-            if (status.get() != Status.STARTED) {
-                return;
-            }
-            long reqId = HLC.INST.getPhysical();
-            log.debug("Start GC job, reqId={}", reqId);
-            gcJob = inboxStoreGCProc.gc(reqId, HLC.INST.getPhysical())
-                .handle((v, e) -> {
-                    scheduleGC(gcInterval);
-                    return null;
-                });
-        });
     }
 
     private enum Status {

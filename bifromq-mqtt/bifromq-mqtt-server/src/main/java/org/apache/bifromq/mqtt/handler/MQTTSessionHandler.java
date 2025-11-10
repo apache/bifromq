@@ -63,7 +63,6 @@ import static org.apache.bifromq.util.TopicUtil.isSharedSubscription;
 import static org.apache.bifromq.util.TopicUtil.isValidTopicFilter;
 import static org.apache.bifromq.util.TopicUtil.isWildcardTopicFilter;
 
-import com.github.benmanes.caffeine.cache.Cache;
 import com.google.common.collect.Sets;
 import io.netty.channel.ChannelFutureListener;
 import io.netty.channel.ChannelHandlerContext;
@@ -88,7 +87,6 @@ import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
-import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Collectors;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.bifromq.base.util.FutureTracker;
@@ -977,7 +975,7 @@ public abstract class MQTTSessionHandler extends MQTTMessageHandler implements I
             }
             return;
         }
-        if (messageExpiryInterval(pubMsg.variableHeader().properties()).orElse(Integer.MAX_VALUE) < 0) {
+        if (messageExpiryInterval(pubMsg.variableHeader().properties()).orElse(Integer.MAX_VALUE) <= 0) {
             // If the Message Expiry Interval has passed and the Server has not managed to start onward delivery
             // to a matching subscriber, then it MUST delete the copy of the message for that subscriber [MQTT-3.3.2-5]
             if (settings.debugMode) {
@@ -1118,7 +1116,7 @@ public abstract class MQTTSessionHandler extends MQTTMessageHandler implements I
             ctx.executor().execute(() -> confirm(packetId, false));
             return;
         }
-        if (messageExpiryInterval(pubMsg.variableHeader().properties()).orElse(Integer.MAX_VALUE) < 0) {
+        if (messageExpiryInterval(pubMsg.variableHeader().properties()).orElse(Integer.MAX_VALUE) <= 0) {
             //  If the Message Expiry Interval has passed and the Server has not managed to start onward delivery
             //  to a matching subscriber, then it MUST delete the copy of the message for that subscriber [MQTT-3.3.2-5]
             if (settings.debugMode) {
@@ -1574,8 +1572,10 @@ public abstract class MQTTSessionHandler extends MQTTMessageHandler implements I
         }
     }
 
-    protected final boolean isDuplicateMessage(ClientInfo publisher, Message message,
-                                               Cache<String, AtomicReference<Long>> latestMsgTsByPublisher) {
+    protected final boolean isDuplicateMessage(String topic,
+                                               ClientInfo publisher,
+                                               Message message,
+                                               DedupCache dedupCache) {
         if (message.getIsRetained()) {
             return false;
         }
@@ -1584,12 +1584,7 @@ public abstract class MQTTSessionHandler extends MQTTMessageHandler implements I
             // don't deduplicate message published from HTTP API
             return false;
         }
-        AtomicReference<Long> lastPubRef = latestMsgTsByPublisher.get(mqttPublisherKey, k -> new AtomicReference<>(0L));
-        if (lastPubRef.get() >= message.getTimestamp()) {
-            return true;
-        }
-        lastPubRef.set(message.getTimestamp());
-        return false;
+        return dedupCache.isDuplicate(mqttPublisherKey, topic, message.getTimestamp());
     }
 
     private CompletableFuture<Void> doPubLastWill(LWT willMessage) {

@@ -19,7 +19,7 @@
 
 package org.apache.bifromq.mqtt.handler.v5;
 
-
+import static io.netty.handler.codec.mqtt.MqttMessageType.PUBREL;
 import static org.apache.bifromq.inbox.rpc.proto.UnsubReply.Code.ERROR;
 import static org.apache.bifromq.inbox.rpc.proto.UnsubReply.Code.OK;
 import static org.apache.bifromq.mqtt.handler.MQTTSessionIdUtil.userSessionId;
@@ -32,13 +32,21 @@ import static org.apache.bifromq.plugin.eventcollector.EventType.QOS1_DROPPED;
 import static org.apache.bifromq.plugin.eventcollector.EventType.QOS1_PUSHED;
 import static org.apache.bifromq.plugin.eventcollector.EventType.QOS2_CONFIRMED;
 import static org.apache.bifromq.plugin.eventcollector.EventType.QOS2_DROPPED;
+import static org.apache.bifromq.plugin.eventcollector.EventType.QOS2_PUSHED;
+import static org.apache.bifromq.plugin.eventcollector.EventType.QOS2_RECEIVED;
 import static org.apache.bifromq.plugin.eventcollector.EventType.RETAIN_MSG_MATCHED;
 import static org.apache.bifromq.plugin.eventcollector.EventType.SUB_ACKED;
 import static org.apache.bifromq.plugin.eventcollector.EventType.UNSUB_ACKED;
+import static org.apache.bifromq.type.MQTTClientInfoConstants.MQTT_CHANNEL_ID_KEY;
+import static org.apache.bifromq.type.MQTTClientInfoConstants.MQTT_TYPE_VALUE;
 import static org.apache.bifromq.type.QoS.AT_LEAST_ONCE;
 import static org.apache.bifromq.type.QoS.EXACTLY_ONCE;
+import static org.awaitility.Awaitility.await;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.argThat;
+import static org.mockito.Mockito.atLeast;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.reset;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -47,6 +55,7 @@ import static org.testng.Assert.assertFalse;
 import static org.testng.Assert.assertNull;
 import static org.testng.Assert.assertTrue;
 
+import com.google.protobuf.ByteString;
 import io.netty.channel.Channel;
 import io.netty.channel.ChannelDuplexHandler;
 import io.netty.channel.ChannelHandlerContext;
@@ -56,6 +65,7 @@ import io.netty.channel.embedded.EmbeddedChannel;
 import io.netty.handler.codec.mqtt.MqttDecoder;
 import io.netty.handler.codec.mqtt.MqttMessage;
 import io.netty.handler.codec.mqtt.MqttMessageBuilders;
+import io.netty.handler.codec.mqtt.MqttMessageIdVariableHeader;
 import io.netty.handler.codec.mqtt.MqttPublishMessage;
 import io.netty.handler.codec.mqtt.MqttReasonCodeAndPropertiesVariableHeader;
 import io.netty.handler.codec.mqtt.MqttSubAckMessage;
@@ -65,24 +75,34 @@ import io.netty.handler.codec.mqtt.MqttVersion;
 import io.netty.handler.traffic.ChannelTrafficShapingHandler;
 import java.lang.reflect.Method;
 import java.net.InetSocketAddress;
+import java.time.Duration;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 import lombok.SneakyThrows;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.bifromq.basehlc.HLC;
 import org.apache.bifromq.inbox.rpc.proto.CommitReply;
 import org.apache.bifromq.inbox.rpc.proto.CommitRequest;
 import org.apache.bifromq.inbox.rpc.proto.UnsubReply;
 import org.apache.bifromq.inbox.storage.proto.Fetched;
 import org.apache.bifromq.inbox.storage.proto.Fetched.Result;
+import org.apache.bifromq.inbox.storage.proto.InboxMessage;
 import org.apache.bifromq.inbox.storage.proto.InboxVersion;
 import org.apache.bifromq.mqtt.handler.BaseSessionHandlerTest;
 import org.apache.bifromq.mqtt.handler.ChannelAttrs;
 import org.apache.bifromq.mqtt.handler.TenantSettings;
 import org.apache.bifromq.mqtt.handler.v5.reason.MQTT5DisconnectReasonCode;
 import org.apache.bifromq.mqtt.utils.MQTTMessageUtils;
+import org.apache.bifromq.plugin.eventcollector.mqttbroker.pushhandling.DropReason;
+import org.apache.bifromq.plugin.eventcollector.mqttbroker.pushhandling.QoS0Dropped;
 import org.apache.bifromq.plugin.eventcollector.mqttbroker.pushhandling.QoS1Confirmed;
+import org.apache.bifromq.plugin.eventcollector.mqttbroker.pushhandling.QoS1Dropped;
 import org.apache.bifromq.plugin.eventcollector.mqttbroker.pushhandling.QoS2Confirmed;
+import org.apache.bifromq.type.ClientInfo;
+import org.apache.bifromq.type.Message;
 import org.apache.bifromq.type.QoS;
+import org.apache.bifromq.type.TopicFilterOption;
+import org.apache.bifromq.type.TopicMessage;
 import org.testng.Assert;
 import org.testng.annotations.AfterMethod;
 import org.testng.annotations.BeforeMethod;
@@ -364,30 +384,30 @@ public class PersistentSessionHandlerTest extends BaseSessionHandlerTest {
         verify(inboxClient, times(messageCount)).unsub(any());
     }
 
-//    @Test
-//    public void qoS2PubAndRel() {
-//        mockCheckPermission(true);
-//        mockInboxCommit(CommitReply.Code.OK);
-//        int messageCount = 2;
-//        inboxFetchConsumer.accept(fetch(messageCount, 128, EXACTLY_ONCE));
-//        channel.runPendingTasks();
-//        // s2c pub received and rec
-//        for (int i = 0; i < messageCount; i++) {
-//            MqttPublishMessage message = channel.readOutbound();
-//            assertEquals(message.fixedHeader().qosLevel().value(), QoS.EXACTLY_ONCE_VALUE);
-//            assertEquals(message.variableHeader().topicName(), topic);
-//            channel.writeInbound(MQTTMessageUtils.publishRecMessage(message.variableHeader().packetId()));
-//        }
-//        // pubRel received and comp
-//        for (int i = 0; i < messageCount; i++) {
-//            MqttMessage message = channel.readOutbound();
-//            assertEquals(message.fixedHeader().messageType(), PUBREL);
-//            channel.writeInbound(MQTTMessageUtils.publishCompMessage(
-//                ((MqttMessageIdVariableHeader) message.variableHeader()).messageId()));
-//        }
-//        verifyEvent(QOS2_PUSHED, QOS2_PUSHED, QOS2_RECEIVED, QOS2_RECEIVED, QOS2_CONFIRMED, QOS2_CONFIRMED);
-//        verify(inboxClient, times(2)).commit(argThat(CommitRequest::hasSendBufferUpToSeq));
-//    }
+    @Test
+    public void qoS2PubAndRel() {
+        mockCheckPermission(true);
+        mockInboxCommit(CommitReply.Code.OK);
+        int messageCount = 2;
+        inboxFetchConsumer.accept(fetch(messageCount, 128, EXACTLY_ONCE));
+        channel.runPendingTasks();
+        // s2c pub received and rec
+        for (int i = 0; i < messageCount; i++) {
+            MqttPublishMessage message = channel.readOutbound();
+            assertEquals(message.fixedHeader().qosLevel().value(), QoS.EXACTLY_ONCE_VALUE);
+            assertEquals(message.variableHeader().topicName(), topic);
+            channel.writeInbound(MQTTMessageUtils.publishMQTT5RecMessage(message.variableHeader().packetId()));
+        }
+        // pubRel received and comp
+        for (int i = 0; i < messageCount; i++) {
+            MqttMessage message = channel.readOutbound();
+            assertEquals(message.fixedHeader().messageType(), PUBREL);
+            channel.writeInbound(MQTTMessageUtils.publishCompMessage(
+                ((MqttMessageIdVariableHeader) message.variableHeader()).messageId()));
+        }
+        verifyEvent(QOS2_PUSHED, QOS2_PUSHED, QOS2_RECEIVED, QOS2_RECEIVED, QOS2_CONFIRMED, QOS2_CONFIRMED);
+        verify(inboxClient, times(1)).commit(argThat(CommitRequest::hasSendBufferUpToSeq));
+    }
 
     @Test
     public void qoS2PubAuthFailed() {
@@ -435,5 +455,154 @@ public class PersistentSessionHandlerTest extends BaseSessionHandlerTest {
         channel.advanceTimeBy(6, TimeUnit.SECONDS);
         channel.runPendingTasks();
         verifyEvent(INBOX_TRANSIENT_ERROR);
+    }
+
+    @Test
+    public void qoS0DuplicateIsDropped() {
+        reset(eventCollector);
+        mockInboxCommit(CommitReply.Code.OK);
+        mockCheckPermission(true);
+        // build two qos0 messages with same topic and same channel, second is duplicate by timestamp
+        Fetched.Builder builder = Fetched.newBuilder();
+        byte[] bytes = new byte[8];
+        ClientInfo publisher = ClientInfo.newBuilder().setType(MQTT_TYPE_VALUE)
+            .putMetadata(MQTT_CHANNEL_ID_KEY, "dup-chan").build();
+
+        long now = HLC.INST.get();
+        TopicMessage m1 = TopicMessage.newBuilder()
+            .setTopic(topic)
+            .setPublisher(publisher)
+            .setMessage(Message.newBuilder()
+                .setMessageId(1)
+                .setPubQoS(QoS.AT_MOST_ONCE)
+                .setTimestamp(now)
+                .setExpiryInterval(5000)
+                .setPayload(ByteString.copyFrom(bytes))
+                .build())
+            .build();
+        TopicMessage m2dup = TopicMessage.newBuilder()
+            .setTopic(topic)
+            .setPublisher(publisher)
+            .setMessage(Message.newBuilder()
+                .setMessageId(2)
+                .setPubQoS(QoS.AT_MOST_ONCE)
+                .setTimestamp(now)
+                .setExpiryInterval(5000)
+                .setPayload(ByteString.copyFrom(bytes))
+                .build())
+            .build();
+        InboxMessage im1 = InboxMessage.newBuilder().setSeq(0)
+            .putMatchedTopicFilter(topicFilter, TopicFilterOption.newBuilder().setQos(QoS.AT_MOST_ONCE).build())
+            .setMsg(m1).build();
+        InboxMessage im2 = InboxMessage.newBuilder().setSeq(1)
+            .putMatchedTopicFilter(topicFilter, TopicFilterOption.newBuilder().setQos(QoS.AT_MOST_ONCE).build())
+            .setMsg(m2dup).build();
+        builder.addQos0Msg(im1).addQos0Msg(im2);
+        inboxFetchConsumer.accept(builder.build());
+        channel.runPendingTasks();
+        await().atMost(Duration.ofSeconds(2)).untilAsserted(() ->
+            verify(eventCollector, atLeast(2)).report(any())
+        );
+        verify(eventCollector, atLeast(1)).report(argThat(e ->
+            e.type() == QOS0_DROPPED && ((QoS0Dropped) e).reason() == DropReason.Duplicated));
+        verify(eventCollector, atLeast(1)).report(argThat(e -> e.type() == QOS0_PUSHED));
+    }
+
+    @Test
+    public void qoS1DuplicateIsDropped() {
+        reset(eventCollector);
+        mockInboxCommit(CommitReply.Code.OK);
+        mockCheckPermission(true);
+        Fetched.Builder builder = Fetched.newBuilder();
+        byte[] bytes = new byte[8];
+        ClientInfo publisher = ClientInfo.newBuilder().setType(MQTT_TYPE_VALUE)
+            .putMetadata(MQTT_CHANNEL_ID_KEY, "dup-chan").build();
+        long now = HLC.INST.get();
+        TopicMessage m1 = TopicMessage.newBuilder()
+            .setTopic(topic)
+            .setPublisher(publisher)
+            .setMessage(Message.newBuilder()
+                .setMessageId(1)
+                .setPubQoS(QoS.AT_LEAST_ONCE)
+                .setTimestamp(now)
+                .setExpiryInterval(120)
+                .setPayload(ByteString.copyFrom(bytes))
+                .build())
+            .build();
+        TopicMessage m2dup = TopicMessage.newBuilder()
+            .setTopic(topic)
+            .setPublisher(publisher)
+            .setMessage(Message.newBuilder()
+                .setMessageId(2)
+                .setPubQoS(QoS.AT_LEAST_ONCE)
+                .setTimestamp(now)
+                .setExpiryInterval(120)
+                .setPayload(ByteString.copyFrom(bytes))
+                .build())
+            .build();
+        InboxMessage im1 = InboxMessage.newBuilder().setSeq(0)
+            .putMatchedTopicFilter(topicFilter, TopicFilterOption.newBuilder().setQos(QoS.AT_LEAST_ONCE).build())
+            .setMsg(m1).build();
+        InboxMessage im2 = InboxMessage.newBuilder().setSeq(1)
+            .putMatchedTopicFilter(topicFilter, TopicFilterOption.newBuilder().setQos(QoS.AT_LEAST_ONCE).build())
+            .setMsg(m2dup).build();
+        builder.addSendBufferMsg(im1).addSendBufferMsg(im2);
+        inboxFetchConsumer.accept(builder.build());
+        channel.runPendingTasks();
+        await().atMost(Duration.ofSeconds(2)).untilAsserted(() ->
+            verify(eventCollector, atLeast(2)).report(any())
+        );
+        verify(eventCollector, atLeast(1)).report(argThat(e ->
+            e.type() == QOS1_DROPPED && ((QoS1Dropped) e).reason() == DropReason.Duplicated));
+        verify(eventCollector, atLeast(1)).report(argThat(e ->
+            e.type() == QOS1_PUSHED));
+    }
+
+    @Test
+    public void crossTopicOutOfOrderNotDropped() {
+        reset(eventCollector);
+        mockInboxCommit(CommitReply.Code.OK);
+        mockCheckPermission(true);
+        Fetched.Builder builder = Fetched.newBuilder();
+        byte[] bytes = new byte[8];
+        ClientInfo publisher = ClientInfo.newBuilder().setType(MQTT_TYPE_VALUE)
+            .putMetadata(MQTT_CHANNEL_ID_KEY, "same-chan").build();
+        long now = HLC.INST.get();
+        TopicMessage a = TopicMessage.newBuilder()
+            .setTopic("topic/a")
+            .setPublisher(publisher)
+            .setMessage(Message.newBuilder()
+                .setMessageId(1)
+                .setPubQoS(QoS.AT_MOST_ONCE)
+                .setTimestamp(now)
+                .setExpiryInterval(120)
+                .setPayload(ByteString.copyFrom(bytes))
+                .build())
+            .build();
+        TopicMessage b = TopicMessage.newBuilder()
+            .setTopic("topic/b")
+            .setPublisher(publisher)
+            .setMessage(Message.newBuilder()
+                .setMessageId(2)
+                .setPubQoS(QoS.AT_MOST_ONCE)
+                .setTimestamp(now)
+                .setExpiryInterval(120)
+                .setPayload(ByteString.copyFrom(bytes))
+                .build())
+            .build();
+        InboxMessage im1 = InboxMessage.newBuilder().setSeq(0)
+            .putMatchedTopicFilter(topicFilter, TopicFilterOption.newBuilder().setQos(QoS.AT_MOST_ONCE).build())
+            .setMsg(a).build();
+        InboxMessage im2 = InboxMessage.newBuilder().setSeq(1)
+            .putMatchedTopicFilter(topicFilter, TopicFilterOption.newBuilder().setQos(QoS.AT_MOST_ONCE).build())
+            .setMsg(b).build();
+        builder.addQos0Msg(im1).addQos0Msg(im2);
+        inboxFetchConsumer.accept(builder.build());
+        channel.runPendingTasks();
+        await().atMost(Duration.ofSeconds(2)).untilAsserted(() ->
+            verify(eventCollector, atLeast(1)).report(any())
+        );
+        verify(eventCollector, never()).report(argThat(e ->
+            e.type() == QOS0_DROPPED && ((QoS0Dropped) e).reason() == DropReason.Duplicated));
     }
 }

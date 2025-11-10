@@ -524,10 +524,10 @@ public class MQTT5ProtocolHelper implements IMQTTProtocolHelper {
         }
         String topic = message.variableHeader().topicName();
         MqttProperties mqttProperties = message.variableHeader().properties();
-        if (messageExpiryInterval(mqttProperties).orElse(Integer.MAX_VALUE) == 0) {
+        if (messageExpiryInterval(mqttProperties).orElse(Integer.MAX_VALUE) < 0) {
             return farewell(MQTT5MessageBuilders.disconnect().reasonCode(MQTT5DisconnectReasonCode.ProtocolError)
-                    .reasonString("MessageExpiryInterval must be positive integer").build(),
-                getLocal(ProtocolViolation.class).statement("MessageExpiryInterval must be positive integer")
+                    .reasonString("MessageExpiryInterval must be non-negative integer").build(),
+                getLocal(ProtocolViolation.class).statement("MessageExpiryInterval must be non-negative integer")
                     .clientInfo(clientInfo));
         }
         if (subscriptionIdentifier(mqttProperties).isPresent()) {

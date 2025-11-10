@@ -40,7 +40,6 @@ import io.netty.handler.codec.mqtt.MqttSubAckMessage;
 import io.netty.handler.codec.mqtt.MqttSubAckPayload;
 import io.netty.handler.codec.mqtt.MqttUnsubAckMessage;
 import io.netty.handler.codec.mqtt.MqttUnsubAckPayload;
-import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import org.apache.bifromq.basehlc.HLC;
@@ -418,12 +417,17 @@ public class MQTT5MessageBuilders {
             }
             extraUserProps.forEach(userProp -> propsBuilder.addUserProperty(userProp.key(), userProp.value()));
             if (message.message().getExpiryInterval() < Integer.MAX_VALUE) {
-                // If absent, the Application Message does not expire
-                int leftDelayInterval = (int) Duration.ofMillis(
-                        Duration.ofSeconds(message.message().getExpiryInterval()).toMillis()
-                            - (HLC.INST.getPhysical() - HLC.INST.getPhysical(message.message().getTimestamp())))
-                    .toSeconds();
-                propsBuilder.addMessageExpiryInterval(leftDelayInterval);
+                long nowMs = HLC.INST.getPhysical();
+                long msgMs = HLC.INST.getPhysical(message.message().getTimestamp());
+                long elapsedMs = nowMs - msgMs;
+                long totalMs = message.message().getExpiryInterval() * 1000L;
+                long leftMs = totalMs - elapsedMs;
+                if (leftMs > 0) {
+                    int leftSec = (int) Math.max(1L, (long) Math.ceil(leftMs / 1000.0));
+                    propsBuilder.addMessageExpiryInterval(leftSec);
+                } else {
+                    propsBuilder.addMessageExpiryInterval(0);
+                }
             }
 
             MqttFixedHeader mqttFixedHeader =

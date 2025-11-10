@@ -38,8 +38,6 @@ import static org.apache.bifromq.plugin.resourcethrottler.TenantResourceType.Tot
 import static org.apache.bifromq.plugin.resourcethrottler.TenantResourceType.TotalTransientSubscriptions;
 import static org.apache.bifromq.plugin.resourcethrottler.TenantResourceType.TotalTransientUnsubscribePerSecond;
 
-import com.github.benmanes.caffeine.cache.Cache;
-import com.github.benmanes.caffeine.cache.Caffeine;
 import com.google.common.collect.Sets;
 import io.micrometer.core.instrument.Timer;
 import io.netty.channel.ChannelHandlerContext;
@@ -59,7 +57,6 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
-import java.util.concurrent.atomic.AtomicReference;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.bifromq.basehlc.HLC;
 import org.apache.bifromq.dist.client.MatchResult;
@@ -80,6 +77,8 @@ import org.apache.bifromq.plugin.eventcollector.session.MQTTSessionStop;
 import org.apache.bifromq.retain.rpc.proto.MatchReply;
 import org.apache.bifromq.retain.rpc.proto.MatchRequest;
 import org.apache.bifromq.sysprops.props.DataPlaneMaxBurstLatencyMillis;
+import org.apache.bifromq.sysprops.props.MaxActiveDedupChannels;
+import org.apache.bifromq.sysprops.props.MaxActiveDedupTopicsPerChannel;
 import org.apache.bifromq.type.ClientInfo;
 import org.apache.bifromq.type.InboxState;
 import org.apache.bifromq.type.LastWillInfo;
@@ -95,12 +94,11 @@ public abstract class MQTTTransientSessionHandler extends MQTTSessionHandler imp
     // the topicFilters could be accessed concurrently
     private final Map<String, TopicFilterOption> topicFilters = new ConcurrentHashMap<>();
     private final NavigableMap<Long, RoutedMessage> inbox = new TreeMap<>();
-    private final Cache<String, AtomicReference<Long>> latestMsgTsByMQTTPublisher = Caffeine.newBuilder()
-        // we simply use 2 times of the burst latency as the expiration time
-        // which is a rough estimation of stabilizing time of internal resource scheduling
-        // during which the internal retry mechanism takes effect.
-        .expireAfterAccess(2 * DataPlaneMaxBurstLatencyMillis.INSTANCE.get(), TimeUnit.MILLISECONDS)
-        .build();
+    private final DedupCache dedupCache = new DedupCache(
+        2 * DataPlaneMaxBurstLatencyMillis.INSTANCE.get(),
+        MaxActiveDedupChannels.INSTANCE.get(),
+        MaxActiveDedupTopicsPerChannel.INSTANCE.get()
+    );
     private long nextSendSeq = 0;
     private long msgSeqNo = 0;
     private AtomicLong subNumGauge;
@@ -381,7 +379,7 @@ public abstract class MQTTTransientSessionHandler extends MQTTSessionHandler imp
             for (TopicFilterAndPermission tfp : topicFilterAndPermissions) {
                 RoutedMessage subMsg = new RoutedMessage(topic, message, publisher, tfp.topicFilter, tfp.option, now,
                     tfp.permissionCheckFuture.join().hasGranted(),
-                    isDuplicateMessage(publisher, message, latestMsgTsByMQTTPublisher));
+                    isDuplicateMessage(topic, publisher, message, dedupCache));
                 logInternalLatency(subMsg);
                 if (subMsg.qos() == QoS.AT_MOST_ONCE) {
                     sendQoS0SubMessage(subMsg);

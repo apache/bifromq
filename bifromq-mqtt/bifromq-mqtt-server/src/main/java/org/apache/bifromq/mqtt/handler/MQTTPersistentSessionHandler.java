@@ -39,8 +39,6 @@ import static org.apache.bifromq.plugin.resourcethrottler.TenantResourceType.Tot
 import static org.apache.bifromq.plugin.resourcethrottler.TenantResourceType.TotalPersistentUnsubscribePerSecond;
 import static org.apache.bifromq.type.QoS.AT_LEAST_ONCE;
 
-import com.github.benmanes.caffeine.cache.Cache;
-import com.github.benmanes.caffeine.cache.Caffeine;
 import io.micrometer.core.instrument.Timer;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.handler.codec.mqtt.MqttMessage;
@@ -53,7 +51,6 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicReference;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.bifromq.base.util.AsyncRetry;
 import org.apache.bifromq.basehlc.HLC;
@@ -76,6 +73,8 @@ import org.apache.bifromq.plugin.eventcollector.mqttbroker.clientdisconnect.ByCl
 import org.apache.bifromq.retain.rpc.proto.MatchReply;
 import org.apache.bifromq.retain.rpc.proto.MatchRequest;
 import org.apache.bifromq.sysprops.props.DataPlaneMaxBurstLatencyMillis;
+import org.apache.bifromq.sysprops.props.MaxActiveDedupChannels;
+import org.apache.bifromq.sysprops.props.MaxActiveDedupTopicsPerChannel;
 import org.apache.bifromq.type.ClientInfo;
 import org.apache.bifromq.type.MatchInfo;
 import org.apache.bifromq.type.Message;
@@ -92,12 +91,16 @@ public abstract class MQTTPersistentSessionHandler extends MQTTSessionHandler im
     private final InboxVersion inboxVersion;
     private final NavigableMap<Long, StagingMessage> stagingBuffer = new TreeMap<>();
     private final IInboxClient inboxClient;
-    private final Cache<String, AtomicReference<Long>> qoS0TimestampsByMQTTPublisher = Caffeine.newBuilder()
-        .expireAfterAccess(2 * DataPlaneMaxBurstLatencyMillis.INSTANCE.get(), TimeUnit.MILLISECONDS)
-        .build();
-    private final Cache<String, AtomicReference<Long>> qoS12TimestampsByMQTTPublisher = Caffeine.newBuilder()
-        .expireAfterAccess(2 * DataPlaneMaxBurstLatencyMillis.INSTANCE.get(), TimeUnit.MILLISECONDS)
-        .build();
+    private final DedupCache qoS0DedupCache = new DedupCache(
+        2 * DataPlaneMaxBurstLatencyMillis.INSTANCE.get(),
+        MaxActiveDedupChannels.INSTANCE.get(),
+        MaxActiveDedupTopicsPerChannel.INSTANCE.get()
+    );
+    private final DedupCache qoS12DedupCache = new DedupCache(
+        2 * DataPlaneMaxBurstLatencyMillis.INSTANCE.get(),
+        MaxActiveDedupChannels.INSTANCE.get(),
+        MaxActiveDedupTopicsPerChannel.INSTANCE.get()
+    );
     private boolean qos0Confirming = false;
     private boolean inboxConfirming = false;
     private long nextSendSeq = 0;
@@ -563,8 +566,8 @@ public abstract class MQTTPersistentSessionHandler extends MQTTSessionHandler im
     }
 
     private void pubQoS0Message(InboxMessage inboxMsg) {
-        boolean isDup = isDuplicateMessage(inboxMsg.getMsg().getPublisher(), inboxMsg.getMsg().getMessage(),
-            qoS0TimestampsByMQTTPublisher);
+        boolean isDup = isDuplicateMessage(inboxMsg.getMsg().getTopic(),
+            inboxMsg.getMsg().getPublisher(), inboxMsg.getMsg().getMessage(), qoS0DedupCache);
         inboxMsg.getMatchedTopicFilterMap()
             .forEach((topicFilter, option) -> pubQoS0Message(topicFilter, option, inboxMsg.getMsg(), isDup));
     }
@@ -584,8 +587,8 @@ public abstract class MQTTPersistentSessionHandler extends MQTTSessionHandler im
     }
 
     private void pubBufferedMessage(InboxMessage inboxMsg, boolean batchEnd) {
-        boolean isDup = isDuplicateMessage(inboxMsg.getMsg().getPublisher(), inboxMsg.getMsg().getMessage(),
-            qoS12TimestampsByMQTTPublisher);
+        boolean isDup = isDuplicateMessage(inboxMsg.getMsg().getTopic(),
+            inboxMsg.getMsg().getPublisher(), inboxMsg.getMsg().getMessage(), qoS12DedupCache);
         int i = 0;
         for (Map.Entry<String, TopicFilterOption> entry : inboxMsg.getMatchedTopicFilterMap().entrySet()) {
             String topicFilter = entry.getKey();

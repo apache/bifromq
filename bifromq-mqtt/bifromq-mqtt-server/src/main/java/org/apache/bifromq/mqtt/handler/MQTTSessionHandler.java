@@ -405,6 +405,7 @@ public abstract class MQTTSessionHandler extends MQTTMessageHandler implements I
         if (noDelayLWT != null) {
             addBgTask(pubWillMessage(noDelayLWT));
         }
+        cancelStallTask();
         Sets.newHashSet(fgTasks).forEach(t -> t.cancel(true));
         doTearDown(ctx);
         sessionCtx.localSessionRegistry.remove(channelId(), this);

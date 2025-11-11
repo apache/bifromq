@@ -179,4 +179,34 @@ public class MQTTSessionStallEventTest extends BaseSessionHandlerTest {
         assert captor.getValue().type() == EventType.SUB_STALLED;
         verify(tenantMeter, times(1)).recordCount(TenantMetric.MqttStalledCount);
     }
+
+    @Test
+    public void cancelOnChannelInactive() {
+        mockCheckPermission(true);
+        inboxFetchConsumer.accept(fetch(1, 128, QoS.AT_LEAST_ONCE));
+        channel.runPendingTasks();
+
+        reset(eventCollector);
+        mockSessionReg();
+
+        ChannelHandlerContext mockCtx = mock(ChannelHandlerContext.class);
+        Channel fakeCh = Mockito.mock(Channel.class);
+        when(fakeCh.isWritable()).thenReturn(false);
+        when(fakeCh.eventLoop()).thenReturn(channel.eventLoop());
+        when(fakeCh.pipeline()).thenReturn(channel.pipeline());
+        when(fakeCh.bytesBeforeUnwritable()).thenReturn(0L);
+        when(fakeCh.bytesBeforeWritable()).thenReturn(0L);
+        when(fakeCh.config()).thenReturn(channel.config());
+        when(mockCtx.channel()).thenReturn(fakeCh);
+        when(mockCtx.executor()).thenReturn(channel.eventLoop());
+        handler.channelWritabilityChanged(mockCtx);
+
+        channel.close();
+
+        channel.advanceTimeBy(2, TimeUnit.SECONDS);
+        channel.runScheduledPendingTasks();
+
+        verify(eventCollector, times(0)).report(Mockito.argThat(e -> e.type() == EventType.SUB_STALLED));
+        verify(tenantMeter, times(0)).recordCount(TenantMetric.MqttStalledCount);
+    }
 }

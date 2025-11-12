@@ -215,12 +215,19 @@ public class MQTTLastWillTest extends MQTTTest {
 
         kill(deviceKey, "lwtPubclient").join();
 
-        topicSub.awaitCount(2);
-        MqttMsg msg = topicSub.values().get(topicSub.values().size() - 1);
-        assertEquals(msg.topic, willTopic);
-        assertEquals(msg.qos, 2);
-        assertEquals(msg.payload, willPayload);
-        assertFalse(msg.isRetain);
+        // Wait until the last observed message is the will message
+        await().until(() -> {
+            try {
+                MqttMsg last = topicSub.values().get(topicSub.values().size() - 1);
+                assertEquals(last.topic, willTopic);
+                assertEquals(last.qos, 2);
+                assertEquals(last.payload, willPayload);
+                assertFalse(last.isRetain);
+                return true;
+            } catch (Throwable e) {
+                return false; // keep waiting until the will message arrives
+            }
+        });
     }
 
     @Test(groups = "integration")

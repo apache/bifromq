@@ -95,8 +95,10 @@ public class BaseKVBalancerStateProposeTest {
         IBaseKVStoreBalancerStatesProposer statesProposer = metaService.balancerStatesProposer("test");
         statesProposer.proposeRunState("balancer1", true).join();
         statesProposer.clearProposedState("balancer1").join();
-
-        Map<String, BalancerStateSnapshot> expected = statesProposal.expectedBalancerStates().blockingFirst();
+        Map<String, BalancerStateSnapshot> expected = statesProposal.expectedBalancerStates()
+            .filter(map -> !map.containsKey("balancer1"))
+            .timeout(2, TimeUnit.SECONDS)
+            .blockingFirst();
         assertFalse(expected.containsKey("balancer1"));
     }
 }

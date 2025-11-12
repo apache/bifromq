@@ -1218,7 +1218,7 @@ public abstract class MQTTSessionHandler extends MQTTMessageHandler implements I
             } else {
                 receiveQuota.onErrorSignal(sessionCtx.nanoTime());
                 if (settings.debugMode) {
-                    String detail = f.cause() == null ? "unknown" : f.cause().getMessage();
+                    String detail = getPushErrorDetail(f.cause());
                     switch (msg.qos()) {
                         case AT_LEAST_ONCE -> eventCollector.report(getLocal(QoS1PushError.class)
                             .detail(detail)
@@ -1245,6 +1245,16 @@ public abstract class MQTTSessionHandler extends MQTTMessageHandler implements I
                 }
             }
         });
+    }
+
+    private String getPushErrorDetail(Throwable cause) {
+        if (cause == null) {
+            return "unknown";
+        }
+        if (cause.getMessage() != null) {
+            return cause.getMessage();
+        }
+        return cause.getClass().getSimpleName();
     }
 
     private void reportDropConfirmableMsgEvent(RoutedMessage msg, DropReason reason) {

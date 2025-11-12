@@ -76,7 +76,10 @@ final class InboxFetchPipeline extends AckStream<InboxFetchHint, InboxFetched> i
                 log.trace("Got hint: tenantId={}, inboxId={}\n{}", tenantId, inboxId, fetchHint);
                 if (fetchHint.getCapacity() < 0) {
                     inboxFetchSessions.computeIfPresent(fetchHint.getSessionId(), (k, v) -> {
-                        inboxSessionMap.remove(new InboxId(v.inboxId, v.incarnation));
+                        inboxSessionMap.computeIfPresent(new InboxId(v.inboxId, v.incarnation), (k1, set) -> {
+                            set.remove(fetchHint.getSessionId());
+                            return set.isEmpty() ? null : set;
+                        });
                         return null;
                     });
                 } else {
@@ -175,10 +178,6 @@ final class InboxFetchPipeline extends AckStream<InboxFetchHint, InboxFetched> i
                 }
                 if (e != null) {
                     try {
-                        inboxFetchSessions.computeIfPresent(sessionId, (k, v) -> {
-                            inboxSessionMap.remove(new InboxId(v.inboxId, v.incarnation));
-                            return null;
-                        });
                         if (e instanceof BatcherUnavailableException) {
                             send(InboxFetched.newBuilder()
                                 .setSessionId(fetchState.sessionId)
@@ -211,9 +210,10 @@ final class InboxFetchPipeline extends AckStream<InboxFetchHint, InboxFetched> i
                                 .setResult(Fetched.Result.ERROR)
                                 .build())
                             .build());
-
                     } catch (Throwable t) {
                         log.error("Unexpected error", t);
+                    } finally {
+                        fetchState.fetching.set(false);
                     }
                 } else {
                     log.trace("Fetched inbox: tenantId={}, inboxId={}, incarnation={}\n{}",
@@ -243,13 +243,6 @@ final class InboxFetchPipeline extends AckStream<InboxFetchHint, InboxFetched> i
                             fetchState.hasMore.set(fetchState.signalFetchTS.get() > fetchTS);
                         }
                         fetchState.fetching.set(false);
-                        inboxFetchSessions.compute(sessionId, (k, v) -> {
-                            if (v == null) {
-                                inboxSessionMap.computeIfAbsent(new InboxId(fetchState.inboxId, fetchState.incarnation),
-                                    k1 -> new HashSet<>()).add(fetchState.sessionId);
-                            }
-                            return fetchState;
-                        });
                         if (fetchState.downStreamCapacity.get() > 0 && fetchState.hasMore.get()) {
                             fetch(sessionId);
                         }

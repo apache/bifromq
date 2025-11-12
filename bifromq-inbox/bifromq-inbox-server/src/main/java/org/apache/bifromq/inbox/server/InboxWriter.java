@@ -103,9 +103,14 @@ class InboxWriter implements InboxWriterPipeline.ISendRequestHandler {
                     if (e == null) {
                         return false;
                     }
-                    return e instanceof BatcherUnavailableException
+                    boolean needRetry = e instanceof BatcherUnavailableException
                         || e instanceof TryLaterException
                         || e instanceof BadVersionException;
+                    if (needRetry) {
+                        log.debug("Retrying insert for inbox {} incarnation {} due to {}",
+                            insertRequest.getInboxId(), insertRequest.getIncarnation(), e.getClass().getSimpleName());
+                    }
+                    return needRetry;
                 }, retryTimeoutNanos / 5, retryTimeoutNanos);
             }).toList();
         return CompletableFuture.allOf(replyFutures.toArray(new CompletableFuture[0]))

@@ -795,21 +795,13 @@ final class InboxStoreCoProc implements IKVRangeCoProc {
                 TenantInboxInstance inboxInstance = new TenantInboxInstance(
                     TENANT_ID_INTERNER.intern(tenantId),
                     new InboxInstance(metadata.getInboxId(), metadata.getIncarnation()));
-                // schedule a task for sending LWT or expiry session
+                // schedule tasks for historical incarnations immediately
                 if (metadata.hasLwt()) {
-                    Duration delay = ofSeconds(
-                        Integer.compareUnsigned(metadata.getLwt().getDelaySeconds(), metadata.getExpirySeconds())
-                            < 0 ? metadata.getLwt().getDelaySeconds() : metadata.getExpirySeconds())
-                        .plusMillis(ThreadLocalRandom.current().nextLong(0, 1000));
                     delayTaskRunner.scheduleIfAbsent(inboxInstance,
-                        new SendLWTTask(delay, metadata.getMod(), inboxClient));
+                        new SendLWTTask(Duration.ZERO, metadata.getMod(), inboxClient));
                 } else {
-                    if (Integer.compareUnsigned(metadata.getExpirySeconds(), UINT_MAX) < 0) {
-                        // UINT_MAX never expire according to MQTT5 spec
-                        Duration delay = ofSeconds(metadata.getExpirySeconds());
-                        delayTaskRunner.scheduleIfAbsent(inboxInstance,
-                            new ExpireInboxTask(delay, metadata.getMod(), inboxClient));
-                    }
+                    delayTaskRunner.scheduleIfAbsent(inboxInstance,
+                        new ExpireInboxTask(Duration.ZERO, metadata.getMod(), inboxClient));
                 }
             }));
         };
@@ -892,21 +884,13 @@ final class InboxStoreCoProc implements IKVRangeCoProc {
                 TenantInboxInstance inboxInstance = new TenantInboxInstance(
                     TENANT_ID_INTERNER.intern(tenantId),
                     new InboxInstance(metadata.getInboxId(), metadata.getIncarnation()));
-                // schedule a task for sending LWT or expiry session
+                // schedule tasks for historical incarnations immediately
                 if (metadata.hasLwt()) {
-                    Duration delay = ofSeconds(
-                        Integer.compareUnsigned(metadata.getLwt().getDelaySeconds(), metadata.getExpirySeconds())
-                            < 0 ? metadata.getLwt().getDelaySeconds() : metadata.getExpirySeconds())
-                        .plusMillis(ThreadLocalRandom.current().nextLong(0, 1000));
                     delayTaskRunner.scheduleIfAbsent(inboxInstance,
-                        new SendLWTTask(delay, metadata.getMod(), inboxClient));
+                        new SendLWTTask(Duration.ZERO, metadata.getMod(), inboxClient));
                 } else {
-                    if (Integer.compareUnsigned(metadata.getExpirySeconds(), UINT_MAX) < 0) {
-                        // UINT_MAX never expire according to MQTT5 spec
-                        Duration delay = ofSeconds(metadata.getExpirySeconds());
-                        delayTaskRunner.scheduleIfAbsent(inboxInstance,
-                            new ExpireInboxTask(delay, metadata.getMod(), inboxClient));
-                    }
+                    delayTaskRunner.scheduleIfAbsent(inboxInstance,
+                        new ExpireInboxTask(Duration.ZERO, metadata.getMod(), inboxClient));
                 }
             }));
         };

@@ -283,6 +283,48 @@ public class MQTT3PersistentSessionHandlerTest extends BaseSessionHandlerTest {
     }
 
     @Test
+    public void tryLaterImmediateOnly() {
+        fetchHints.clear();
+        inboxFetchConsumer.accept(Fetched.newBuilder().setResult(Result.TRY_LATER).build());
+        channel.runPendingTasks();
+        assertEquals(fetchHints.size(), 1);
+        channel.advanceTimeBy(60, TimeUnit.SECONDS);
+        channel.runScheduledPendingTasks();
+        channel.runPendingTasks();
+        assertEquals(fetchHints.size(), 1);
+    }
+
+    @Test
+    public void backPressureSchedulesOneShotHint() {
+        fetchHints.clear();
+        inboxFetchConsumer.accept(Fetched.newBuilder().setResult(Result.BACK_PRESSURE_REJECTED).build());
+        channel.runPendingTasks();
+        assertEquals(fetchHints.size(), 0);
+        channel.advanceTimeBy(60, TimeUnit.SECONDS);
+        channel.runScheduledPendingTasks();
+        channel.runPendingTasks();
+        assertEquals(fetchHints.size(), 1);
+        channel.advanceTimeBy(60, TimeUnit.SECONDS);
+        channel.runScheduledPendingTasks();
+        channel.runPendingTasks();
+        assertEquals(fetchHints.size(), 1);
+    }
+
+    @Test
+    public void okCancelsScheduledHint() {
+        fetchHints.clear();
+        inboxFetchConsumer.accept(Fetched.newBuilder().setResult(Result.BACK_PRESSURE_REJECTED).build());
+        channel.runPendingTasks();
+        assertEquals(fetchHints.size(), 0);
+        inboxFetchConsumer.accept(Fetched.newBuilder().setResult(Result.OK).build());
+        channel.runPendingTasks();
+        channel.advanceTimeBy(60, TimeUnit.SECONDS);
+        channel.runScheduledPendingTasks();
+        channel.runPendingTasks();
+        assertEquals(fetchHints.size(), 0);
+    }
+
+    @Test
     public void qoS0PubAuthFailed() {
         // not by pass
         when(authProvider.checkPermission(any(ClientInfo.class),

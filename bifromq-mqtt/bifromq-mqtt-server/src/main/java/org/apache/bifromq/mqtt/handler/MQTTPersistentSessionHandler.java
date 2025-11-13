@@ -110,7 +110,6 @@ public abstract class MQTTPersistentSessionHandler extends MQTTSessionHandler im
     private State state = State.INIT;
     private ScheduledFuture<?> confirmTimeout;
     private ScheduledFuture<?> hintTimeout;
-    private int currentHint = 1;
 
     protected MQTTPersistentSessionHandler(TenantSettings settings,
                                            ITenantMeter tenantMeter,
@@ -154,9 +153,7 @@ public abstract class MQTTPersistentSessionHandler extends MQTTSessionHandler im
 
     @Override
     public void doTearDown(ChannelHandlerContext ctx) {
-        if (hintTimeout != null && !hintTimeout.isCancelled()) {
-            hintTimeout.cancel(false);
-        }
+        cancelScheduledHint();
         if (inboxReader != null) {
             inboxReader.close();
         }
@@ -388,19 +385,25 @@ public abstract class MQTTPersistentSessionHandler extends MQTTSessionHandler im
         inboxReader = inboxClient.openInboxReader(clientInfo().getTenantId(), userSessionId,
             inboxVersion.getIncarnation());
         inboxReader.fetch(this::consume);
-        currentHint = clientReceiveQuota();
-        scheduleHintTimeout();
-        inboxReader.hint(currentHint);
+        inboxReader.hint(clientReceiveQuota());
         // resume channel read after inbox being setup
         onInitialized();
         resumeChannelRead();
     }
 
     private void scheduleHintTimeout() {
+        cancelScheduledHint();
         hintTimeout = ctx.executor().schedule(() -> {
-            inboxReader.hint(currentHint);
-            scheduleHintTimeout();
+            inboxReader.hint(clientReceiveQuota());
+            hintTimeout = null;
         }, ThreadLocalRandom.current().nextLong(15, 45), TimeUnit.SECONDS);
+    }
+
+    private void cancelScheduledHint() {
+        if (hintTimeout != null && !hintTimeout.isDone()) {
+            hintTimeout.cancel(true);
+            hintTimeout = null;
+        }
     }
 
     private void scheduleConfirmTimeout(long upToSeq) {
@@ -465,8 +468,7 @@ public abstract class MQTTPersistentSessionHandler extends MQTTSessionHandler im
             }
         }
         confirmedMsgs.clear();
-        currentHint = clientReceiveQuota();
-        inboxReader.hint(currentHint);
+        inboxReader.hint(clientReceiveQuota());
         ctx.executor().execute(this::drainStaging);
     }
 
@@ -494,8 +496,7 @@ public abstract class MQTTPersistentSessionHandler extends MQTTSessionHandler im
                         if (upToSeq < inboxConfirmedUpToSeq) {
                             confirmSendBuffer();
                         } else {
-                            currentHint = clientReceiveQuota();
-                            inboxReader.hint(currentHint);
+                            inboxReader.hint(clientReceiveQuota());
                         }
                     }
                     case NO_INBOX, CONFLICT ->
@@ -512,9 +513,7 @@ public abstract class MQTTPersistentSessionHandler extends MQTTSessionHandler im
                         if (upToSeq < inboxConfirmedUpToSeq) {
                             confirmSendBuffer();
                         } else {
-                            currentHint = clientReceiveQuota();
-                            inboxReader.hint(currentHint);
-                            scheduleHintTimeout();
+                            inboxReader.hint(clientReceiveQuota());
                         }
                     }
                     default -> {
@@ -526,11 +525,9 @@ public abstract class MQTTPersistentSessionHandler extends MQTTSessionHandler im
 
     private void consume(Fetched fetched) {
         ctx.executor().execute(() -> {
-            if (hintTimeout != null && !hintTimeout.isCancelled()) {
-                hintTimeout.cancel(false);
-            }
             switch (fetched.getResult()) {
                 case OK -> {
+                    cancelScheduledHint();
                     // deal with qos0
                     if (fetched.getQos0MsgCount() > 0) {
                         fetched.getQos0MsgList().forEach(this::pubQoS0Message);
@@ -547,15 +544,8 @@ public abstract class MQTTPersistentSessionHandler extends MQTTSessionHandler im
                         }
                     }
                 }
-                case BACK_PRESSURE_REJECTED -> {
-                    currentHint = clientReceiveQuota();
-                    scheduleHintTimeout();
-                }
-                case TRY_LATER -> {
-                    currentHint = clientReceiveQuota();
-                    scheduleHintTimeout();
-                    inboxReader.hint(currentHint);
-                }
+                case BACK_PRESSURE_REJECTED -> scheduleHintTimeout();
+                case TRY_LATER -> inboxReader.hint(clientReceiveQuota());
                 case NO_INBOX, ERROR ->
                     handleProtocolResponse(helper().onInboxTransientError(fetched.getResult().name()));
                 default -> {

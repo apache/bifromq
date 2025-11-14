@@ -52,6 +52,7 @@ class KVRangeDumpSession {
     private static final int MAX_CHUNK_BYTES = 2 * 1024 * 1024;
     private static final double TARGET_ROUND_TRIP_NANOS = Duration.ofMillis(70).toNanos();
     private static final double EMA_ALPHA = 0.2d;
+    private static final long PROGRESS_LOG_INTERVAL_NANOS = Duration.ofSeconds(5).toNanos();
     private final Logger log;
     private final String sessionId;
     private final KVRangeSnapshot snapshot;
@@ -72,6 +73,7 @@ class KVRangeDumpSession {
     private long totalEntries = 0;
     private long totalBytes = 0;
     private long lastSendTS;
+    private long lastProgressLogTS = startDumpTS;
     private double buildTimeEwma = TARGET_ROUND_TRIP_NANOS;
     private double roundTripEwma = TARGET_ROUND_TRIP_NANOS;
     private int chunkHint;
@@ -301,9 +303,12 @@ class KVRangeDumpSession {
                     "Dump snapshot completed: sessionId={}, follower={}, totalEntries={}, totalBytes={}, cost={}ms",
                     sessionId, receiverStoreId, totalEntries, totalBytes,
                     TimeUnit.NANOSECONDS.toMillis(now - startDumpTS));
-            } else {
-                log.info("Dump snapshot data: sessionId={}, follower={}, entries={}, bytes={}",
-                    sessionId, receiverStoreId, reqBuilder.getKvCount(), dumpBytes);
+            } else if (now - lastProgressLogTS >= PROGRESS_LOG_INTERVAL_NANOS) {
+                log.info(
+                    "Dump snapshot progress: sessionId={}, follower={}, totalEntries={}, totalBytes={}, elapsed={}ms",
+                    sessionId, receiverStoreId, totalEntries, totalBytes,
+                    TimeUnit.NANOSECONDS.toMillis(now - startDumpTS));
+                lastProgressLogTS = now;
             }
             messenger.send(currentRequest);
             if (currentRequest.getSaveSnapshotDataRequest().getFlag() == SaveSnapshotDataRequest.Flag.Error) {

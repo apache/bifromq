@@ -19,6 +19,7 @@
 
 package org.apache.bifromq.basekv.store.range;
 
+import java.time.Duration;
 import java.util.Objects;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
@@ -33,6 +34,7 @@ import org.apache.bifromq.logger.MDCLogger;
 import org.slf4j.Logger;
 
 class KVRangeRestorer {
+    private static final long PROGRESS_LOG_INTERVAL_NANOS = Duration.ofSeconds(5).toNanos();
     private final Logger log;
     private final IKVRange range;
     private final IKVRangeMessenger messenger;
@@ -84,9 +86,18 @@ class KVRangeRestorer {
         CompletableFuture<Void> onDone = session.doneFuture;
         long startNanos = System.nanoTime();
         try {
-            IKVRangeRestoreSession restoreSession = range.startRestore(rangeSnapshot, (count, bytes) ->
-                log.info("Received snapshot data: session={}, leader={}, entries={}, bytes={}",
-                    session.id, leader, count, bytes));
+            IKVRangeRestoreSession restoreSession = range.startRestore(rangeSnapshot, (count, bytes) -> {
+                session.totalEntries += count;
+                session.totalBytes += bytes;
+                long now = System.nanoTime();
+                if (now - session.lastProgressLogTS >= PROGRESS_LOG_INTERVAL_NANOS) {
+                    log.info(
+                        "Restore snapshot progress: sessionId={}, leader={}, totalEntries={}, totalBytes={}, elapsed={}ms",
+                        session.id, leader, session.totalEntries, session.totalBytes,
+                        TimeUnit.NANOSECONDS.toMillis(now - session.startNanos));
+                    session.lastProgressLogTS = now;
+                }
+            });
             log.info("Restoring from snapshot: session={}, leader={} \n{}", session.id, leader, rangeSnapshot);
             IKVRangeSnapshotReceiver receiver = new KVRangeSnapshotReceiver(session.id, rangeSnapshot.getId(), leader,
                 messenger, metricManager, executor, idleTimeSec, log);
@@ -136,10 +147,19 @@ class KVRangeRestorer {
         final KVRangeSnapshot snapshot;
         final CompletableFuture<Void> doneFuture = new CompletableFuture<>();
         final String leader;
+        // fields for progress tracking
+        long startNanos;
+        long lastProgressLogTS;
+        long totalEntries;
+        long totalBytes;
 
         private RestoreSession(KVRangeSnapshot snapshot, String leader) {
             this.snapshot = snapshot;
             this.leader = leader;
+            this.startNanos = System.nanoTime();
+            this.lastProgressLogTS = startNanos;
+            this.totalEntries = 0L;
+            this.totalBytes = 0L;
         }
     }
 }

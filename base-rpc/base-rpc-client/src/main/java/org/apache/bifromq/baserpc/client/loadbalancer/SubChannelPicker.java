@@ -19,9 +19,9 @@
 
 package org.apache.bifromq.baserpc.client.loadbalancer;
 
+import static io.grpc.ConnectivityState.READY;
 import static org.apache.bifromq.baserpc.client.exception.ExceptionUtil.SERVER_NOT_FOUND;
 import static org.apache.bifromq.baserpc.client.exception.ExceptionUtil.SERVER_UNREACHABLE;
-import static io.grpc.ConnectivityState.READY;
 
 import io.grpc.LoadBalancer;
 import java.util.HashMap;
@@ -51,9 +51,9 @@ class SubChannelPicker extends LoadBalancer.SubchannelPicker {
             pickSubchannelArgs.getHeaders().remove(Constants.DESIRED_SERVER_META_KEY, desiredServerId);
             Optional<LoadBalancer.Subchannel> selectedSubChannel = getSubChannel(desiredServerId);
             return selectedSubChannel.map(LoadBalancer.PickResult::withSubchannel)
-                .orElseGet(() -> LoadBalancer.PickResult.withDrop(SERVER_UNREACHABLE));
+                .orElseGet(() -> LoadBalancer.PickResult.withError(SERVER_UNREACHABLE));
         }
-        return LoadBalancer.PickResult.withDrop(SERVER_NOT_FOUND);
+        return LoadBalancer.PickResult.withError(SERVER_NOT_FOUND);
     }
 
     private Optional<LoadBalancer.Subchannel> getSubChannel(String serverId) {

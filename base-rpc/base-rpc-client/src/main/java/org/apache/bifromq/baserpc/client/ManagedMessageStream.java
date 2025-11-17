@@ -107,6 +107,7 @@ class ManagedMessageStream<MsgT, AckT> extends ManagedBiDiStream<AckT, MsgT>
     public void close() {
         if (isClosed.compareAndSet(false, true)) {
             super.close();
+            meter.recordCount(RPCMetric.StreamCompleteCount);
             ackSendingBuffers.clear();
             msgSubject.onComplete();
             retargetSubject.onComplete();

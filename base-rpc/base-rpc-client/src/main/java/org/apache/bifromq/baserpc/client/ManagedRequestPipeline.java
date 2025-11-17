@@ -140,6 +140,7 @@ public class ManagedRequestPipeline<ReqT, RespT> extends ManagedBiDiStream<ReqT,
     public void close() {
         if (isClosed.compareAndSet(false, true)) {
             super.close();
+            meter.recordCount(RPCMetric.ReqPipelineCompleteCount);
             cancelPreflightTasks(new RequestAbortException("Pipeline has closed"));
         }
     }

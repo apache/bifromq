@@ -25,6 +25,7 @@ import static org.awaitility.Awaitility.await;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doAnswer;
 import static org.testng.Assert.assertEquals;
+import static org.testng.Assert.assertNotNull;
 import static org.testng.Assert.assertTrue;
 
 import io.grpc.Context;
@@ -35,14 +36,18 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.LinkedBlockingQueue;
 import lombok.SneakyThrows;
 import org.apache.bifromq.baserpc.RPCContext;
 import org.apache.bifromq.baserpc.metrics.IRPCMeter;
 import org.apache.bifromq.baserpc.metrics.RPCMetric;
 import org.apache.bifromq.inbox.rpc.proto.InboxFetchHint;
 import org.apache.bifromq.inbox.rpc.proto.InboxFetched;
+import org.apache.bifromq.inbox.server.scheduler.FetchRequest;
 import org.apache.bifromq.inbox.storage.proto.Fetched;
+import org.apache.bifromq.inbox.storage.proto.InboxMessage;
 import org.mockito.Mock;
 import org.mockito.MockitoAnnotations;
 import org.mockito.stubbing.Answer;
@@ -61,13 +66,20 @@ public class InboxFetchPipelineMappingTest {
     private ServerCallStreamObserver<InboxFetched> responseObserver;
 
     private static InboxFetchHint hint(long sessionId, int capacity) {
+        return hint(sessionId, capacity, -1, -1);
+    }
+
+    private static InboxFetchHint hint(long sessionId,
+                                       int capacity,
+                                       long lastFetchQoS0Seq,
+                                       long lastFetchSendBufferSeq) {
         return InboxFetchHint.newBuilder()
             .setSessionId(sessionId)
             .setInboxId(INBOX)
             .setIncarnation(INCARNATION)
             .setCapacity(capacity)
-            .setLastFetchQoS0Seq(-1)
-            .setLastFetchSendBufferSeq(-1)
+            .setLastFetchQoS0Seq(lastFetchQoS0Seq)
+            .setLastFetchSendBufferSeq(lastFetchSendBufferSeq)
             .build();
     }
 
@@ -153,9 +165,76 @@ public class InboxFetchPipelineMappingTest {
         assertEquals(last.getSessionId(), sessionA);
     }
 
+    @Test
+    public void shouldNotRewindStartAfterWhenHintIsStale() {
+        InboxFetcherRegistry registry = new InboxFetcherRegistry();
+        TestFetcher fetcher = new TestFetcher();
+        InboxFetchPipeline pipeline = new InboxFetchPipeline(responseObserver, fetcher, registry);
+
+        long sessionId = 3003L;
+        pipeline.onNext(hint(sessionId, 2, -1, -1));
+
+        FetchRequest firstRequest = fetcher.awaitRequest();
+        assertEquals(firstRequest.params().getQos0StartAfter(), -1);
+        assertEquals(firstRequest.params().getSendBufferStartAfter(), -1);
+
+        fetcher.completeNext(Fetched.newBuilder()
+            .setResult(Fetched.Result.OK)
+            .addQos0Msg(InboxMessage.newBuilder().setSeq(5).build())
+            .addQos0Msg(InboxMessage.newBuilder().setSeq(6).build())
+            .addSendBufferMsg(InboxMessage.newBuilder().setSeq(10).build())
+            .addSendBufferMsg(InboxMessage.newBuilder().setSeq(11).build())
+            .build());
+
+        await().until(() -> {
+            synchronized (received) {
+                return !received.isEmpty();
+            }
+        });
+
+        pipeline.onNext(hint(sessionId, 3, 1, 7));
+
+        FetchRequest secondRequest = fetcher.awaitRequest();
+        assertEquals(secondRequest.params().getQos0StartAfter(), 6);
+        assertEquals(secondRequest.params().getSendBufferStartAfter(), 11);
+
+        fetcher.completeNext(Fetched.newBuilder()
+            .setResult(Fetched.Result.OK)
+            .build());
+
+        pipeline.close();
+    }
+
     private InboxFetched lastReceived() {
         synchronized (received) {
             return received.get(received.size() - 1);
+        }
+    }
+
+    private static class TestFetcher implements InboxFetchPipeline.Fetcher {
+        private final BlockingQueue<FetchRequest> requests = new LinkedBlockingQueue<>();
+        private final BlockingQueue<CompletableFuture<Fetched>> responses = new LinkedBlockingQueue<>();
+
+        @Override
+        public CompletableFuture<Fetched> fetch(FetchRequest request) {
+            CompletableFuture<Fetched> future = new CompletableFuture<>();
+            requests.add(request);
+            responses.add(future);
+            return future;
+        }
+
+        FetchRequest awaitRequest() {
+            await().until(() -> !requests.isEmpty());
+            FetchRequest request = requests.poll();
+            assertNotNull(request);
+            return request;
+        }
+
+        void completeNext(Fetched fetched) {
+            await().until(() -> !responses.isEmpty());
+            CompletableFuture<Fetched> future = responses.poll();
+            assertNotNull(future);
+            future.complete(fetched);
         }
     }
 }

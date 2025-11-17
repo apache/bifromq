@@ -92,8 +92,10 @@ final class InboxFetchPipeline extends AckStream<InboxFetchHint, InboxFetched> i
                                 new InboxId(fetchHint.getInboxId(), fetchHint.getIncarnation()),
                                 k1 -> new HashSet<>()).add(fetchHint.getSessionId());
                         }
-                        v.lastFetchQoS0Seq.set(fetchHint.getLastFetchQoS0Seq());
-                        v.lastFetchSendBufferSeq.set(fetchHint.getLastFetchSendBufferSeq());
+                        v.lastFetchQoS0Seq.set(
+                            Math.max(fetchHint.getLastFetchQoS0Seq(), v.lastFetchQoS0Seq.get()));
+                        v.lastFetchSendBufferSeq.set(
+                            Math.max(fetchHint.getLastFetchSendBufferSeq(), v.lastFetchSendBufferSeq.get()));
                         v.downStreamCapacity.set(Math.max(0, fetchHint.getCapacity()));
                         return v;
                     });

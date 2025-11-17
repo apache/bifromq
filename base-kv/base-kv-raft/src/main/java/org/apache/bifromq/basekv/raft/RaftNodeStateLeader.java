@@ -25,10 +25,13 @@ import static org.apache.bifromq.basekv.raft.RaftConfigChanger.State.JointConfig
 import static org.apache.bifromq.basekv.raft.RaftConfigChanger.State.TargetConfigCommitting;
 
 import com.google.protobuf.ByteString;
+import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.Deque;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -62,7 +65,9 @@ class RaftNodeStateLeader extends RaftNodeState {
     private final PeerLogTracker peerLogTracker;
     private final RaftConfigChanger configChanger;
     private final ReadProgressTracker readProgressTracker;
+    private final Deque<SnapshotTask> pendingCompactions = new ArrayDeque<>();
     private LeaderTransferTask leaderTransferTask;
+    private PendingCompaction activeCompaction;
     private int electionElapsedTick;
 
     RaftNodeStateLeader(long term,
@@ -142,6 +147,7 @@ class RaftNodeStateLeader extends RaftNodeState {
             onSnapshotInstalled,
             tags);
         abortPendingRequests(AbortReason.LeaderStepDown);
+        checkPendingCompaction(true);
         return nextState;
     }
 
@@ -154,6 +160,7 @@ class RaftNodeStateLeader extends RaftNodeState {
     RaftNodeState tick() {
         electionElapsedTick++;
         peerLogTracker.tick();
+        onPendingCompactionTick();
         if (configChanger.tick(currentTerm())) {
             // there is a state change after tick
             if (configChanger.state() == JointConfigCommitting
@@ -194,6 +201,7 @@ class RaftNodeStateLeader extends RaftNodeState {
                 // step down as a follower and abort any pending futures
                 log.warn("Quorum check failed[{}], leader stepped down to follower", quorumCheckResult);
                 abortPendingRequests(AbortReason.LeaderStepDown);
+                checkPendingCompaction(true);
                 return new RaftNodeStateFollower(
                     currentTerm(), // update term
                     commitIndex,
@@ -213,6 +221,7 @@ class RaftNodeStateLeader extends RaftNodeState {
         if (!appendEntriesToSend.isEmpty()) {
             submitRaftMessages(appendEntriesToSend);
         }
+        checkPendingCompaction(false);
         return this;
     }
 
@@ -253,7 +262,14 @@ class RaftNodeStateLeader extends RaftNodeState {
         // update self progress
         log.trace("Log entries before index[{}] stabilized", stabledIndex);
         peerLogTracker.confirmMatch(stateStorage.local(), stabledIndex);
+        checkPendingCompaction(false);
         return commit();
+    }
+
+    @Override
+    protected void onSnapshotReady(Snapshot snapshot, CompletableFuture<Void> onDone) {
+        pendingCompactions.addLast(new SnapshotTask(snapshot, onDone));
+        scheduleCompactionQueue();
     }
 
     @Override
@@ -325,6 +341,7 @@ class RaftNodeStateLeader extends RaftNodeState {
             log.debug("Got higher term[{}] message[{}] from peer[{}], start to step down",
                 message.getTerm(), message.getMessageTypeCase(), fromPeer);
             abortPendingRequests(AbortReason.LeaderStepDown);
+            checkPendingCompaction(true);
             nextState = new RaftNodeStateFollower(
                 message.getTerm(), // update term
                 commitIndex,
@@ -410,6 +427,7 @@ class RaftNodeStateLeader extends RaftNodeState {
     public void stop() {
         super.stop();
         abortPendingRequests(AbortReason.Cancelled);
+        checkPendingCompaction(true);
     }
 
     private RaftNodeState handleAppendEntriesReply(String fromPeer, AppendEntriesReply reply) {
@@ -429,6 +447,7 @@ class RaftNodeStateLeader extends RaftNodeState {
                 log.debug("Follower[{}] with last entry[index:{},term:{}] rejected entries appending from index[{}]",
                     fromPeer, reject.getLastIndex(), reject.getTerm(), reject.getRejectedIndex());
                 peerLogTracker.backoff(fromPeer, reject.getRejectedIndex(), reject.getLastIndex());
+                checkPendingCompaction(false);
                 List<RaftMessage> messages = prepareAppendEntriesForPeer(fromPeer, true);
                 submitRaftMessages(fromPeer, messages);
                 return this;
@@ -437,6 +456,7 @@ class RaftNodeStateLeader extends RaftNodeState {
             log.trace("Follower[{}] accepted entries, and advance match index[{}]",
                 fromPeer, accept.getLastIndex());
             peerLogTracker.confirmMatch(fromPeer, accept.getLastIndex());
+            checkPendingCompaction(false);
             if (leaderTransferTask != null && fromPeer.equals(leaderTransferTask.nextLeader)
                 && peerLogTracker.matchIndex(fromPeer) == stateStorage.lastIndex()) {
                 log.info("Started leadership transfer by sending TimeoutNow to follower[{}]", fromPeer);
@@ -464,10 +484,12 @@ class RaftNodeStateLeader extends RaftNodeState {
             log.debug("Follower[{}] rejected snapshot with last entry of index[{}]",
                 fromPeer, reply.getLastIndex());
             peerLogTracker.backoff(fromPeer, reply.getLastIndex(), reply.getLastIndex());
+            checkPendingCompaction(false);
             return this;
         } else {
             log.debug("Follower[{}] installed snapshot, advance last index[{}]", fromPeer, reply.getLastIndex());
             peerLogTracker.confirmMatch(fromPeer, reply.getLastIndex());
+            checkPendingCompaction(false);
             return commit();
         }
     }
@@ -505,6 +527,7 @@ class RaftNodeStateLeader extends RaftNodeState {
                             snapshot.getIndex(), snapshot.getTerm(), peer);
                         // there is a new snapshot generated, reset the tracker explicitly using previous snapshot
                         peerLogTracker.backoff(peer, peerLogTracker.matchIndex(peer), peerLogTracker.matchIndex(peer));
+                        checkPendingCompaction(false);
                     }
                     break;
                 }
@@ -831,6 +854,56 @@ class RaftNodeStateLeader extends RaftNodeState {
         }
     }
 
+    private void checkPendingCompaction(boolean force) {
+        PendingCompaction pending = activeCompaction;
+        if (pending == null) {
+            return;
+        }
+        if (force) {
+            log.debug("Force finish pending compaction at index[{}]", pending.snapshot.getIndex());
+            completePendingCompaction(pending);
+            return;
+        }
+        pending.refresh();
+        if (pending.isDone()) {
+            completePendingCompaction(pending);
+        }
+    }
+
+    private void onPendingCompactionTick() {
+        PendingCompaction pending = activeCompaction;
+        if (pending != null) {
+            pending.onTick();
+        }
+    }
+
+    private void completePendingCompaction(PendingCompaction pending) {
+        if (activeCompaction != pending) {
+            return;
+        }
+        activeCompaction = null;
+        applySnapshot(pending.snapshot, pending.onDone);
+        scheduleCompactionQueue();
+    }
+
+    private void scheduleCompactionQueue() {
+        if (activeCompaction != null) {
+            return;
+        }
+        while (!pendingCompactions.isEmpty()) {
+            SnapshotTask task = pendingCompactions.pollFirst();
+            PendingCompaction pending = new PendingCompaction(task.snapshot, task.onDone);
+            if (pending.isDone()) {
+                applySnapshot(task.snapshot, task.onDone);
+                continue;
+            }
+            log.debug("Delay compaction at index[{}] until peers{} catch up", task.snapshot.getIndex(),
+                pending.waitingPeers);
+            activeCompaction = pending;
+            break;
+        }
+    }
+
     private enum AbortReason {
         LeaderStepDown,
         Cancelled
@@ -851,6 +924,76 @@ class RaftNodeStateLeader extends RaftNodeState {
 
         void done() {
             onDone.complete(null);
+        }
+    }
+
+    private static final class SnapshotTask {
+        final Snapshot snapshot;
+        final CompletableFuture<Void> onDone;
+
+        SnapshotTask(Snapshot snapshot, CompletableFuture<Void> onDone) {
+            this.snapshot = snapshot;
+            this.onDone = onDone;
+        }
+    }
+
+    private final class PendingCompaction {
+        final Snapshot snapshot;
+        final CompletableFuture<Void> onDone;
+        final Set<String> waitingPeers = new HashSet<>();
+        final Map<String, Integer> waitTicks = new HashMap<>();
+
+        PendingCompaction(Snapshot snapshot, CompletableFuture<Void> onDone) {
+            this.snapshot = snapshot;
+            this.onDone = onDone;
+            long targetIndex = snapshot.getIndex();
+            for (String peer : peerLogTracker.peers()) {
+                if (peer.equals(stateStorage.local())) {
+                    continue;
+                }
+                if (peerLogTracker.status(peer) == RaftNodeSyncState.Replicating
+                    && peerLogTracker.matchIndex(peer) < targetIndex) {
+                    waitingPeers.add(peer);
+                    waitTicks.put(peer, 0);
+                }
+            }
+        }
+
+        void onTick() {
+            waitingPeers.forEach(peer -> waitTicks.merge(peer, 1, Integer::sum));
+        }
+
+        void refresh() {
+            Iterator<String> itr = waitingPeers.iterator();
+            while (itr.hasNext()) {
+                String peer = itr.next();
+                if (!peerLogTracker.isTracking(peer)) {
+                    itr.remove();
+                    waitTicks.remove(peer);
+                    continue;
+                }
+                if (peerLogTracker.status(peer) != RaftNodeSyncState.Replicating) {
+                    itr.remove();
+                    waitTicks.remove(peer);
+                    continue;
+                }
+                if (peerLogTracker.matchIndex(peer) >= snapshot.getIndex()) {
+                    itr.remove();
+                    waitTicks.remove(peer);
+                    continue;
+                }
+                int elapsed = waitTicks.getOrDefault(peer, 0);
+                if (elapsed >= config.getElectionTimeoutTick()) {
+                    itr.remove();
+                    waitTicks.remove(peer);
+                    log.debug("Follower[{}] wait timeout for pending compaction at index[{}]", peer,
+                        snapshot.getIndex());
+                }
+            }
+        }
+
+        boolean isDone() {
+            return waitingPeers.isEmpty();
         }
     }
 }

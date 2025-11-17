@@ -185,16 +185,24 @@ abstract class RaftNodeState implements IRaftNodeState {
                 .setTerm(compactEntry.map(LogEntry::getTerm).orElse(stateStorage.latestSnapshot().getTerm()))
                 .setData(fsmSnapshot)
                 .build();
-            try {
-                long firstIndex = stateStorage.firstIndex();
-                stateStorage.applySnapshot(newSnapshot);
-                log.debug("Compacted entries[{},{}]", firstIndex, compactIndex);
-                onDone.complete(null);
-            } catch (Throwable e) {
-                onDone.completeExceptionally(new CompactionException("Failed to apply snapshot", e));
-            }
+            onSnapshotReady(newSnapshot, onDone);
         } else {
             onDone.completeExceptionally(CompactionException.staleSnapshot());
+        }
+    }
+
+    protected void onSnapshotReady(Snapshot snapshot, CompletableFuture<Void> onDone) {
+        applySnapshot(snapshot, onDone);
+    }
+
+    protected final void applySnapshot(Snapshot snapshot, CompletableFuture<Void> onDone) {
+        try {
+            long firstIndex = stateStorage.firstIndex();
+            stateStorage.applySnapshot(snapshot);
+            log.debug("Compacted entries[{},{}]", firstIndex, snapshot.getIndex());
+            onDone.complete(null);
+        } catch (Throwable e) {
+            onDone.completeExceptionally(new CompactionException("Failed to apply snapshot", e));
         }
     }
 

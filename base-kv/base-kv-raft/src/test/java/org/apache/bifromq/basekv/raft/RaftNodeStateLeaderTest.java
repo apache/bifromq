@@ -14,17 +14,32 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 
 package org.apache.bifromq.basekv.raft;
 
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
 import static org.testng.Assert.assertEquals;
 import static org.testng.Assert.assertFalse;
 import static org.testng.Assert.assertSame;
 import static org.testng.Assert.assertTrue;
 import static org.testng.Assert.fail;
 
+import com.google.protobuf.ByteString;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.Iterator;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Set;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.apache.bifromq.basekv.raft.event.CommitEvent;
 import org.apache.bifromq.basekv.raft.event.ElectionEvent;
 import org.apache.bifromq.basekv.raft.event.RaftEventType;
@@ -42,17 +57,9 @@ import org.apache.bifromq.basekv.raft.proto.RaftNodeSyncState;
 import org.apache.bifromq.basekv.raft.proto.RequestVote;
 import org.apache.bifromq.basekv.raft.proto.Snapshot;
 import org.apache.bifromq.basekv.raft.proto.TimeoutNow;
-import com.google.protobuf.ByteString;
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.HashMap;
-import java.util.HashSet;
-import java.util.Iterator;
-import java.util.LinkedHashMap;
-import java.util.List;
-import java.util.Set;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.atomic.AtomicInteger;
+import org.mockito.AdditionalAnswers;
+import org.mockito.ArgumentCaptor;
+import org.mockito.Mockito;
 import org.mockito.MockitoAnnotations;
 import org.testng.annotations.AfterMethod;
 import org.testng.annotations.BeforeMethod;
@@ -91,7 +98,8 @@ public class RaftNodeStateLeaderTest extends RaftNodeStateTest {
         //   1      targetConfigEntry
         //   2      commandEntry
         // commitIndex = 2, compact all entries
-        leader.compact(ByteString.copyFromUtf8("appSMSnapshot"), 2, new CompletableFuture<>());
+        CompletableFuture<Void> compactDone = new CompletableFuture<>();
+        leader.compact(ByteString.copyFromUtf8("appSMSnapshot"), 2, compactDone);
 
         // tick to heartbeat, send empty appendEntry to v1 and v2
         leader.tick();
@@ -125,9 +133,11 @@ public class RaftNodeStateLeaderTest extends RaftNodeStateTest {
                 .build())
             .build();
         leader.receive("v2", appendEntriesReplyRejected);
+        compactDone.join();
+        // follower rejects again after leader probes with truncated log, then switches to snapshot syncing
+        leader.receive("v2", appendEntriesReplyRejected);
         assertSame(peerLogTracker.status("v2"), RaftNodeSyncState.SnapshotSyncing);
         // tick to heartbeat, send empty appendEntry to v1 and send snapshot to v2
-        leader.tick();
         leader.tick();
         leader.tick();
 
@@ -142,6 +152,108 @@ public class RaftNodeStateLeaderTest extends RaftNodeStateTest {
             .build();
         leader.receive("v2", installSnapshotReply);
         assertSame(peerLogTracker.status("v2"), RaftNodeSyncState.Replicating);
+    }
+
+    @Test
+    public void testCompactWaitsUntilReplicatingFollowerCatchesUp() {
+        IRaftStateStore delegate = new InMemoryStateStore("testLocal", Snapshot.newBuilder()
+            .setClusterConfig(clusterConfig).build());
+        IRaftStateStore stateStorage = Mockito.mock(IRaftStateStore.class, AdditionalAnswers.delegatesTo(delegate));
+        RaftNodeStateLeader leader = startUpLeader(stateStorage, null);
+        long compactIndex = prepareCommittedEntryBehindLearner(leader, stateStorage);
+        CompletableFuture<Void> onCompact = new CompletableFuture<>();
+        leader.compact(ByteString.EMPTY, compactIndex, onCompact);
+        assertFalse(onCompact.isDone());
+        verify(stateStorage, never()).applySnapshot(any(Snapshot.class));
+        leader.receive("l1", acceptReply(compactIndex));
+        assertTrue(onCompact.isDone());
+        ArgumentCaptor<Snapshot> snapshotCaptor = ArgumentCaptor.forClass(Snapshot.class);
+        verify(stateStorage, times(1)).applySnapshot(snapshotCaptor.capture());
+        assertEquals(snapshotCaptor.getValue().getIndex(), compactIndex);
+    }
+
+    @Test
+    public void testCompactCompletesWhenReplicatingFollowerFallsBehind() {
+        IRaftStateStore delegate = new InMemoryStateStore("testLocal", Snapshot.newBuilder()
+            .setClusterConfig(clusterConfig).build());
+        IRaftStateStore stateStorage = Mockito.mock(IRaftStateStore.class, AdditionalAnswers.delegatesTo(delegate));
+        RaftNodeStateLeader leader = startUpLeader(stateStorage, null);
+        long compactIndex = prepareCommittedEntryBehindLearner(leader, stateStorage);
+        CompletableFuture<Void> onCompact = new CompletableFuture<>();
+        leader.compact(ByteString.EMPTY, compactIndex, onCompact);
+        assertFalse(onCompact.isDone());
+
+        leader.receive("l1", rejectReply(compactIndex, compactIndex - 1));
+        assertTrue(onCompact.isDone());
+        ArgumentCaptor<Snapshot> snapshotCaptor = ArgumentCaptor.forClass(Snapshot.class);
+        verify(stateStorage, times(1)).applySnapshot(snapshotCaptor.capture());
+        assertEquals(snapshotCaptor.getValue().getIndex(), compactIndex);
+    }
+
+    @Test
+    public void testCompactForcedWhenReelectionHappens() {
+        IRaftStateStore delegate = new InMemoryStateStore("testLocal", Snapshot.newBuilder()
+            .setClusterConfig(clusterConfig).build());
+        IRaftStateStore stateStorage = Mockito.mock(IRaftStateStore.class, AdditionalAnswers.delegatesTo(delegate));
+        RaftNodeStateLeader leader = startUpLeader(stateStorage, null);
+        long compactIndex = prepareCommittedEntryBehindLearner(leader, stateStorage);
+        CompletableFuture<Void> onCompact = new CompletableFuture<>();
+        leader.compact(ByteString.EMPTY, compactIndex, onCompact);
+        assertFalse(onCompact.isDone());
+
+        leader.receive("v2", RaftMessage.newBuilder()
+            .setTerm(2)
+            .setRequestVote(RequestVote.newBuilder().setCandidateId("v2").build())
+            .build());
+        assertTrue(onCompact.isDone());
+        ArgumentCaptor<Snapshot> snapshotCaptor = ArgumentCaptor.forClass(Snapshot.class);
+        verify(stateStorage, times(1)).applySnapshot(snapshotCaptor.capture());
+        assertEquals(snapshotCaptor.getValue().getIndex(), compactIndex);
+    }
+
+    @Test
+    public void testCompactQueuedWhenAnotherIsPending() {
+        IRaftStateStore delegate = new InMemoryStateStore("testLocal", Snapshot.newBuilder()
+            .setClusterConfig(clusterConfig).build());
+        IRaftStateStore stateStorage = Mockito.mock(IRaftStateStore.class, AdditionalAnswers.delegatesTo(delegate));
+        RaftNodeStateLeader leader = startUpLeader(stateStorage, null);
+        long compactIndex = prepareCommittedEntryBehindLearner(leader, stateStorage);
+        CompletableFuture<Void> first = new CompletableFuture<>();
+        leader.compact(ByteString.EMPTY, compactIndex, first);
+        assertFalse(first.isDone());
+
+        CompletableFuture<Void> second = new CompletableFuture<>();
+        leader.compact(ByteString.EMPTY, compactIndex, second);
+        assertFalse(second.isDone());
+
+        leader.receive("l1", acceptReply(compactIndex));
+        assertTrue(first.isDone());
+        assertTrue(second.isDone());
+        ArgumentCaptor<Snapshot> snapshotCaptor = ArgumentCaptor.forClass(Snapshot.class);
+        verify(stateStorage, times(2)).applySnapshot(snapshotCaptor.capture());
+        snapshotCaptor.getAllValues().forEach(snapshot -> assertEquals(snapshot.getIndex(), compactIndex));
+    }
+
+    @Test
+    public void testCompactCompletesAfterReplicatingFollowerWaitTimeout() {
+        IRaftStateStore delegate = new InMemoryStateStore("testLocal", Snapshot.newBuilder()
+            .setClusterConfig(clusterConfig).build());
+        IRaftStateStore stateStorage = Mockito.mock(IRaftStateStore.class, AdditionalAnswers.delegatesTo(delegate));
+        RaftNodeStateLeader leader = startUpLeader(stateStorage, null);
+        long compactIndex = prepareCommittedEntryBehindLearner(leader, stateStorage);
+        CompletableFuture<Void> onCompact = new CompletableFuture<>();
+        leader.compact(ByteString.EMPTY, compactIndex, onCompact);
+        assertFalse(onCompact.isDone());
+
+        for (int i = 0; i < defaultRaftConfig.getElectionTimeoutTick(); i++) {
+            leader.tick();
+            leader.receive("l1", acceptReply(compactIndex - 1));
+        }
+
+        assertTrue(onCompact.isDone());
+        ArgumentCaptor<Snapshot> snapshotCaptor = ArgumentCaptor.forClass(Snapshot.class);
+        verify(stateStorage, times(1)).applySnapshot(snapshotCaptor.capture());
+        assertEquals(snapshotCaptor.getValue().getIndex(), compactIndex);
     }
 
     @Test
@@ -337,6 +449,42 @@ public class RaftNodeStateLeaderTest extends RaftNodeStateTest {
         onDone = new CompletableFuture<>();
         leader.transferLeadership("notInClusterConfig", onDone);
         assertTrue(onDone.isCompletedExceptionally());
+    }
+
+    private long prepareCommittedEntryBehindLearner(RaftNodeStateLeader leader, IRaftStateStore stateStorage) {
+        leader.receive("l1", acceptReply(stateStorage.lastIndex()));
+        CompletableFuture<Long> proposalDone = new CompletableFuture<>();
+        leader.propose(command, proposalDone);
+        long newIndex = stateStorage.lastIndex();
+        RaftMessage accept = acceptReply(newIndex);
+        leader.receive("v1", accept);
+        leader.receive("v2", accept);
+        assertTrue(proposalDone.isDone());
+        return newIndex;
+    }
+
+    private RaftMessage acceptReply(long lastIndex) {
+        return RaftMessage.newBuilder()
+            .setTerm(1)
+            .setAppendEntriesReply(AppendEntriesReply.newBuilder()
+                .setAccept(AppendEntriesReply.Accept.newBuilder()
+                    .setLastIndex(lastIndex)
+                    .build())
+                .build())
+            .build();
+    }
+
+    private RaftMessage rejectReply(long rejectedIndex, long lastIndex) {
+        return RaftMessage.newBuilder()
+            .setTerm(1)
+            .setAppendEntriesReply(AppendEntriesReply.newBuilder()
+                .setReject(AppendEntriesReply.Reject.newBuilder()
+                    .setTerm(1)
+                    .setRejectedIndex(rejectedIndex)
+                    .setLastIndex(lastIndex)
+                    .build())
+                .build())
+            .build();
     }
 
     @Test

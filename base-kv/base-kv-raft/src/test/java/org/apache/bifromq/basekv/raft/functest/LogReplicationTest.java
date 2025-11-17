@@ -14,22 +14,21 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 
 package org.apache.bifromq.basekv.raft.functest;
 
-import static org.testng.Assert.assertEquals;
 import static org.testng.Assert.assertTrue;
 import static org.testng.Assert.fail;
 
-import org.apache.bifromq.basekv.raft.functest.annotation.Cluster;
-import org.apache.bifromq.basekv.raft.functest.template.SharedRaftConfigTestTemplate;
-import org.apache.bifromq.basekv.raft.proto.RaftNodeSyncState;
 import com.google.protobuf.ByteString;
 import java.util.Arrays;
 import java.util.List;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.bifromq.basekv.raft.functest.annotation.Cluster;
+import org.apache.bifromq.basekv.raft.functest.template.SharedRaftConfigTestTemplate;
+import org.apache.bifromq.basekv.raft.proto.RaftNodeSyncState;
 import org.testng.annotations.Test;
 
 @Slf4j
@@ -124,8 +123,16 @@ public class LogReplicationTest extends SharedRaftConfigTestTemplate {
                 fail();
             }
         }
-        assertEquals(group.syncStateLogs(slowFollower),
-            Arrays.asList(RaftNodeSyncState.Probing, RaftNodeSyncState.Replicating,
-                RaftNodeSyncState.SnapshotSyncing, RaftNodeSyncState.Replicating));
+        assertTrue(statusLog.equals(Arrays.asList(
+            RaftNodeSyncState.Probing,
+            RaftNodeSyncState.Replicating,
+            RaftNodeSyncState.SnapshotSyncing,
+            RaftNodeSyncState.Replicating)) || statusLog.equals(Arrays.asList(
+            RaftNodeSyncState.Probing,
+            RaftNodeSyncState.Replicating,
+            RaftNodeSyncState.Probing,
+            RaftNodeSyncState.SnapshotSyncing,
+            RaftNodeSyncState.Replicating)),
+            "Unexpected sync state transitions: " + statusLog);
     }
 }

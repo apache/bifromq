@@ -14,18 +14,19 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 
 package org.apache.bifromq.basekv.raft;
 
-import org.apache.bifromq.basekv.raft.event.SyncStateChangedEvent;
-import org.apache.bifromq.basekv.raft.proto.RaftNodeSyncState;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Set;
 import java.util.function.Predicate;
 import java.util.stream.Collectors;
+import org.apache.bifromq.basekv.raft.event.SyncStateChangedEvent;
+import org.apache.bifromq.basekv.raft.proto.RaftNodeSyncState;
 import org.slf4j.Logger;
 
 class PeerLogTracker {
@@ -69,6 +70,10 @@ class PeerLogTracker {
 
     public boolean isTracking(String peerId) {
         return replicators.containsKey(peerId);
+    }
+
+    public Set<String> peers() {
+        return Collections.unmodifiableSet(replicators.keySet());
     }
 
     public void stopTracking(Set<String> peerIds) {

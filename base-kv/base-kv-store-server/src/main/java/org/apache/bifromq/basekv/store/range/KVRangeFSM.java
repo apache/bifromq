@@ -75,6 +75,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executor;
 import java.util.concurrent.ExecutorService;
@@ -547,15 +548,11 @@ public class KVRangeFSM implements IKVRangeFSM {
             return CompletableFuture.failedFuture(
                 new KVRangeException.InternalException("Range not open:" + KVRangeIdUtil.toString(id)));
         }
-        return changeReplicaConfig(nextTaskId(), ver, newVoters, newLearners);
-    }
-
-    private CompletableFuture<Void> changeReplicaConfig(String taskId,
-                                                        long ver,
-                                                        Set<String> newVoters,
-                                                        Set<String> newLearners) {
+        if (!dumpSessions.isEmpty()) {
+            return CompletableFuture.failedFuture(new KVRangeException.TryLater("Range is dumping data, try later"));
+        }
         return metricManager.recordConfigChange(() -> submitManagementCommand(KVRangeCommand.newBuilder()
-            .setTaskId(taskId)
+            .setTaskId(nextTaskId())
             .setVer(ver)
             .setChangeConfig(ChangeConfig.newBuilder()
                 .addAllVoters(newVoters)
@@ -566,6 +563,9 @@ public class KVRangeFSM implements IKVRangeFSM {
 
     @Override
     public CompletableFuture<Void> split(long ver, ByteString splitKey) {
+        if (!dumpSessions.isEmpty()) {
+            return CompletableFuture.failedFuture(new KVRangeException.TryLater("Range is dumping data, try later"));
+        }
         return metricManager.recordSplit(() -> submitManagementCommand(KVRangeCommand.newBuilder()
             .setTaskId(nextTaskId())
             .setVer(ver)
@@ -578,6 +578,9 @@ public class KVRangeFSM implements IKVRangeFSM {
 
     @Override
     public CompletableFuture<Void> merge(long ver, KVRangeId mergeeId, Set<String> mergeeVoters) {
+        if (!dumpSessions.isEmpty()) {
+            return CompletableFuture.failedFuture(new KVRangeException.TryLater("Range is dumping data, try later"));
+        }
         return metricManager.recordMerge(() -> submitManagementCommand(KVRangeCommand.newBuilder()
             .setTaskId(nextTaskId())
             .setVer(ver)
@@ -866,7 +869,10 @@ public class KVRangeFSM implements IKVRangeFSM {
                             .setType(Normal)
                             .setTaskId(taskId)
                             .build());
-                        return () -> compactWAL().thenRunAsync(() -> finishCommand(taskId), fsmExecutor);
+                        return () -> {
+                            finishCommand(taskId);
+                            return CompletableFuture.completedFuture(null);
+                        };
                     }
                 } else {
                     rangeWriter.state(State.newBuilder()
@@ -2018,7 +2024,9 @@ public class KVRangeFSM implements IKVRangeFSM {
             return wal.compact(snapshot)
                 .whenComplete((v, e) -> {
                     if (e != null) {
-                        log.error("Failed to compact WAL due to {}: \n{}", e.getMessage(), snapshot);
+                        Throwable cause = e instanceof CompletionException && e.getCause() != null
+                            ? e.getCause() : e;
+                        log.error("Failed to compact WAL due to {}: \n{}", cause.getMessage(), snapshot);
                     }
                 });
         });
@@ -2346,6 +2354,7 @@ public class KVRangeFSM implements IKVRangeFSM {
             }, tags);
         dumpSessions.put(session.id(), session);
         session.awaitDone().whenComplete((result, e) -> {
+            dumpSessions.remove(session.id(), session);
             switch (result) {
                 case OK -> log.info("Snapshot dumped: session={}, follower={}", session.id(), targetStoreId);
                 case Canceled ->
@@ -2360,7 +2369,6 @@ public class KVRangeFSM implements IKVRangeFSM {
                     // do nothing
                 }
             }
-            dumpSessions.remove(session.id(), session);
         });
     }
 

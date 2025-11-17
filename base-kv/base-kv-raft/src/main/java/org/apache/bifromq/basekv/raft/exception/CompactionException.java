@@ -14,22 +14,22 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 
 package org.apache.bifromq.basekv.raft.exception;
 
 public class CompactionException extends RuntimeException {
-    public static StaleSnapshotException staleSnapshot() {
-        return new StaleSnapshotException();
-    }
-
     public CompactionException(String message, Throwable cause) {
         super(message, cause);
     }
 
     private CompactionException(String message) {
         super(message);
+    }
+
+    public static StaleSnapshotException staleSnapshot() {
+        return new StaleSnapshotException();
     }
 
     public static class StaleSnapshotException extends CompactionException {

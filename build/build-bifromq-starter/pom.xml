@@ -189,7 +189,7 @@
         </dependency>
     </dependencies>
     <build>
-        <finalName>bifromq-${project.parent.version}</finalName>
+        <finalName>apache-bifromq-${project.parent.version}</finalName>
         <plugins>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
@@ -206,7 +206,7 @@
                                 <descriptor>assembly/assembly.xml</descriptor>
                             </descriptors>
                             <appendAssemblyId>false</appendAssemblyId>
-                            <finalName>bifromq-${project.parent.version}</finalName>
+                            <finalName>apache-bifromq-${project.parent.version}</finalName>
                             <tarLongFileMode>posix</tarLongFileMode>
                             <outputDirectory>${build.output.dir}</outputDirectory>
                         </configuration>
@@ -222,7 +222,7 @@
                                 <descriptor>assembly/assembly-windows.xml</descriptor>
                             </descriptors>
                             <appendAssemblyId>false</appendAssemblyId>
-                            <finalName>bifromq-${project.parent.version}-windows</finalName>
+                            <finalName>apache-bifromq-${project.parent.version}-windows</finalName>
                             <tarLongFileMode>posix</tarLongFileMode>
                             <outputDirectory>${build.output.dir}</outputDirectory>
                         </configuration>

@@ -29,7 +29,6 @@
         </Console>
     </Appenders>
     <Loggers>
-        <Logger name="org.apache.bifromq.inbox" level="DEBUG"/>
         <Root level="INFO">
             <AppenderRef ref="CONSOLE"/>
         </Root>

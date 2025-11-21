@@ -46,6 +46,7 @@ set -e
 # =====================================================
 
 PROJECT_NAME="bifromq"
+ARCHIVE_PREFIX="apache-${PROJECT_NAME}"
 ASF_SVN_DEV_URL="https://dist.apache.org/repos/dist/dev/incubator/${PROJECT_NAME}"
 
 BRANCH="$1"
@@ -96,7 +97,7 @@ for f in LICENSE NOTICE DISCLAIMER; do
   [ -f "$f" ] || { echo "Missing $f file."; exit 1; }
 done
 
-SRC_DIR="${PROJECT_NAME}-${VERSION}-src"
+SRC_DIR="${ARCHIVE_PREFIX}-${VERSION}-src"
 SRC_TARBALL="${SRC_DIR}.tar.gz"
 git archive --format=tar.gz --prefix="${SRC_DIR}/" -o "$WORKDIR/$SRC_TARBALL" "$LATEST_TAG"
 
@@ -104,7 +105,7 @@ echo "Building binary via Maven..."
 mvn clean package -DskipTests
 
 cd "$WORKDIR"
-cp "$TMPDIR/repo/target/output/bifromq-*.*" "${WORKDIR}"
+cp "$TMPDIR/repo/target/output/${ARCHIVE_PREFIX}-*.*" "${WORKDIR}"
 
 cd "$WORKDIR"
 find . -maxdepth 1 -type f ! -name '*.asc' ! -name '*.sha512' -print0 | while IFS= read -r -d '' ARTIFACT; do
@@ -127,5 +128,5 @@ else
 fi
 
 echo "========================================================="
-echo "BifroMQ release $VERSION has been successfully created."
+echo "Apache BifroMQ release $VERSION has been successfully created."
 echo "========================================================="

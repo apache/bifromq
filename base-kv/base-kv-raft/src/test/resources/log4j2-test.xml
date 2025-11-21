@@ -29,7 +29,6 @@
         </Console>
     </Appenders>
     <Loggers>
-        <Logger name="org.apache.bifromq.basekv.raft" level="INFO"/>
         <Root level="INFO">
             <AppenderRef ref="CONSOLE"/>
         </Root>

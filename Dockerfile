@@ -34,10 +34,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates
     && rm -rf openjdk-17.0.2_linux-${JDK_ARCH}_bin.tar.gz \
     && rm -rf /var/lib/apt/lists/*
 
-COPY bifromq-*-standalone.tar.gz /
+COPY apache-bifromq-*-standalone.tar.gz /
 
-RUN mkdir /bifromq && tar -zxvf /bifromq-*-standalone.tar.gz --strip-components 1 -C /bifromq \
-    && rm -rf /bifromq-*-standalone.tar.gz
+RUN mkdir /bifromq && tar -zxvf /apache-bifromq-*-standalone.tar.gz --strip-components 1 -C /bifromq \
+    && rm -rf /apache-bifromq-*-standalone.tar.gz
 
 FROM --platform=$TARGETPLATFORM ${BASE_IMAGE}
 

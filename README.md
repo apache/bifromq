@@ -3,7 +3,7 @@
 [![GitHub Release](https://img.shields.io/github/release/bifromqio/bifromq?color=brightgreen&label=Release)](https://github.com/bifromqio/bifromq/releases)
 <a href="https://discord.gg/Pfs3QRadRB"><img src="https://img.shields.io/discord/1115542029531885599?logo=discord&logoColor=white" alt="BifroMQ Discord server" /></a>
 
-BifroMQ is a high-performance, distributed MQTT broker that natively supports multi-tenancy. It is designed to enable the building of large-scale IoT device connectivity and messaging systems.
+Apache BifroMQ is a high-performance, distributed MQTT broker that natively supports multi-tenancy. It is designed to enable the building of large-scale IoT device connectivity and messaging systems.
 
 ## Features
 
@@ -33,12 +33,12 @@ docker run -d -m <MEM_LIMIT> -e MEM_LIMIT='<MEM_LIMIT_IN_BYTES>' --name bifromq 
 ```
 
 Substitute `<MEM_LIMIT>` and `<MEM_LIMIT_IN_BYTES>` with the actual memory allocation for the Docker process, for
-example, `2G` for `<MEM_LIMIT>` and `2147483648` for `<MEM_LIMIT_IN_BYTES>`. If not specified, BifroMQ defaults to using
+example, `2G` for `<MEM_LIMIT>` and `2147483648` for `<MEM_LIMIT_IN_BYTES>`. If not specified, Apache BifroMQ defaults to using
 the hosting server's physical memory for determining JVM parameters. This can result in the Docker process being
 terminated by the host's Out-of-Memory (OOM) Killer. Refer to [here](https://bifromq.apache.org/docs/installation/docker/)
 for more information.
 
-You can build a BifroMQ cluster using Docker Compose on a single host for development and testing. Suppose you want to create a cluster with three nodes: node1, 
+You can build a Apache BifroMQ cluster using Docker Compose on a single host for development and testing. Suppose you want to create a cluster with three nodes: node1, 
 node2, and node3. The directory structure should be as follows:
 ```
 |- docker-compose.yml
@@ -122,13 +122,13 @@ Navigate to the project root folder and execute the following commands to build 
 ```
 cd bifromq
 mvn wrapper:wrapper
-./mvnw -U clean package
+./mvnw -U clean package -DskipTests
 ```
 
 The build output consists of several archive files located under `/target/output`
 
-* `bifromq-<VERSION>.tar.gz`
-* `bifromq-<VERSION>-windows.zip`
+* `apache-bifromq-<VERSION>.tar.gz`
+* `apache-bifromq-<VERSION>-windows.zip`
 
 #### Running the tests
 
@@ -142,7 +142,7 @@ mvn test
 
 ### Quick Start
 
-To quickly set up a BifroMQ server, extract the `bifromq-<VERSION>.tar.gz` file into a directory. You will see the
+To quickly set up a Apache BifroMQ server, extract the `apache-bifromq-<VERSION>.tar.gz` file into a directory. You will see the
 following directory structure:
 
 ```
@@ -169,7 +169,7 @@ in a self-explanatory manner. By default, the standalone server stores persisten
 
 ### Plugin Development
 
-To jump start your BifroMQ plugin development, execute the following Maven command:
+To jump start your Apache BifroMQ plugin development, execute the following Maven command:
 
 ```
 mvn archetype:generate \
@@ -187,7 +187,7 @@ mvn archetype:generate \
 
 Replace `<YOUR_GROUP_ID>`, `<YOUR_ARTIFACT_ID>`, `<YOUR_PROJECT_VERSION>`, `<YOUR_PLUGIN_CLASS_NAME>`,
 and `< YOUR_PLUGIN_CONTEXT_CLASS_NAME>` with your specific details. This command generates a ready-to-build multi-module
-project structured for BifroMQ plugin development.
+project structured for Apache BifroMQ plugin development.
 
 Important Note: The archetype version should be 3.2.0 or higher as the archetype is compatible starting from version
 3.2.0. Ensure that <BIFROMQ_VERSION> is set accordingly.
@@ -212,7 +212,7 @@ of workload. These sub-clusters work together coherently to form a logical MQTT 
 
 ## User Community
 
-We welcome you to connect with the BifroMQ community:
+We welcome you to connect with the Apache BifroMQ community:
 
 * **[Mailing Lists](https://bifromq.apache.org/community/#about-the-mailing-list)** – Stay informed, discuss development topics, and collaborate with other contributors via our public mailing lists.
 * **[Discord server](https://discord.gg/Pfs3QRadRB)** – Join us to chat, share ideas, and get real-time updates on ongoing work.

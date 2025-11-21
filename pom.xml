@@ -104,31 +104,31 @@
     </mailingLists>
 
     <properties>
-        <revision>4.0.0-SNAPSHOT</revision>
+        <revision>1.0.0-incubating</revision>
         <apache.commons.cli.version>1.5.0</apache.commons.cli.version>
         <apache.commons.collections.version>4.4</apache.commons.collections.version>
         <bouncycastle.version>1.79</bouncycastle.version>
-        <caffeine.version>3.2.2</caffeine.version>
+        <caffeine.version>3.2.3</caffeine.version>
         <guice.version>7.0.0</guice.version>
-        <grpc.version>1.72.0</grpc.version>
+        <grpc.version>1.77.0</grpc.version>
         <guava.version>33.2.1-jre</guava.version>
         <jackson.version>2.18.1</jackson.version>
         <jakarta.ws.rs-api.version>4.0.0</jakarta.ws.rs-api.version>
         <lombok.version>1.18.34</lombok.version>
         <log4j.version>2.24.3</log4j.version>
         <micrometer.version>1.11.12</micrometer.version>
-        <netty.version>4.1.121.Final</netty.version>
+        <netty.version>4.1.127.Final</netty.version>
         <pcollections.version>4.0.2</pcollections.version>
         <pf4j.version>3.13.0</pf4j.version>
         <protobuf-java.version>4.30.2</protobuf-java.version>
         <reflections.verion>0.10.2</reflections.verion>
         <rocksdb.version>9.7.3</rocksdb.version>
-        <rxjava3.version>3.1.10</rxjava3.version>
-        <slf4j.version>2.0.16</slf4j.version>
+        <rxjava3.version>3.1.12</rxjava3.version>
+        <slf4j.version>2.0.17</slf4j.version>
         <swagger.version>2.2.30</swagger.version>
 
         <!-- test dependencies-->
-        <awaitility.version>4.2.2</awaitility.version>
+        <awaitility.version>4.3.0</awaitility.version>
         <paho.mqtt.version>1.2.5</paho.mqtt.version>
         <mockito.version>5.12.0</mockito.version>
         <testng.version>7.10.2</testng.version>
@@ -156,6 +156,7 @@
         <checkstyle.version>10.11.0</checkstyle.version>
 
         <!-- build properties -->
+        <argLine/> <!-- to be overridden in CI -->
         <maven.compiler.release>17</maven.compiler.release>
         <source.encoding>UTF-8</source.encoding>
         <release.version>${project.version}</release.version>
@@ -166,13 +167,429 @@
 
     <dependencyManagement>
         <dependencies>
-            <!-- bom modules -->
+            <!-- bifromq modules -->
+            <!-- base-env -->
             <dependency>
                 <groupId>org.apache.bifromq</groupId>
-                <artifactId>bifromq-bom</artifactId>
+                <artifactId>base-env-provider</artifactId>
                 <version>${project.version}</version>
-                <scope>import</scope>
-                <type>pom</type>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.bifromq</groupId>
+                <artifactId>base-env-provider-spi</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <!-- base-hlc -->
+            <dependency>
+                <groupId>org.apache.bifromq</groupId>
+                <artifactId>base-hlc</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <!-- base-logger -->
+            <dependency>
+                <groupId>org.apache.bifromq</groupId>
+                <artifactId>base-logger</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <!-- base-rpc -->
+            <dependency>
+                <groupId>org.apache.bifromq</groupId>
+                <artifactId>base-rpc-grpc-inproc</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.bifromq</groupId>
+                <artifactId>base-rpc-common</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.bifromq</groupId>
+                <artifactId>base-rpc-client</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.bifromq</groupId>
+                <artifactId>base-rpc-server</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.bifromq</groupId>
+                <artifactId>base-rpc-traffic-governor</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <!-- base-cluster -->
+            <dependency>
+                <groupId>org.apache.bifromq</groupId>
+                <artifactId>base-cluster</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <!-- base-crdt -->
+            <dependency>
+                <groupId>org.apache.bifromq</groupId>
+                <artifactId>base-crdt-store</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.bifromq</groupId>
+                <artifactId>base-crdt-service</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <!-- base-scheduler -->
+            <dependency>
+                <groupId>org.apache.bifromq</groupId>
+                <artifactId>base-scheduler</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <!-- base-hookloader -->
+            <dependency>
+                <groupId>org.apache.bifromq</groupId>
+                <artifactId>base-hookloader</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <!-- base-kv -->
+            <dependency>
+                <groupId>org.apache.bifromq</groupId>
+                <artifactId>base-kv-type-proto</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.bifromq</groupId>
+                <artifactId>base-kv-raft-type</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.bifromq</groupId>
+                <artifactId>base-kv-raft</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.bifromq</groupId>
+                <artifactId>base-kv-local-engine-spi</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.bifromq</groupId>
+                <artifactId>base-kv-local-engine-rocksdb</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.bifromq</groupId>
+                <artifactId>base-kv-local-engine-memory</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.bifromq</groupId>
+                <artifactId>base-kv-meta-service</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.bifromq</groupId>
+                <artifactId>base-kv-store-rpc-definition</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.bifromq</groupId>
+                <artifactId>base-kv-store-client</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.bifromq</groupId>
+                <artifactId>base-kv-store-coproc-api</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.bifromq</groupId>
+                <artifactId>base-kv-split-hinter-spi</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.bifromq</groupId>
+                <artifactId>base-kv-store-server</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.bifromq</groupId>
+                <artifactId>base-kv-store-balance-spi</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.bifromq</groupId>
+                <artifactId>base-kv-store-balance-controller</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <!-- base-util -->
+            <dependency>
+                <groupId>org.apache.bifromq</groupId>
+                <artifactId>base-util</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.bifromq</groupId>
+                <artifactId>bifromq-util</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.bifromq</groupId>
+                <artifactId>bifromq-common-type</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.bifromq</groupId>
+                <artifactId>bifromq-metrics</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.bifromq</groupId>
+                <artifactId>bifromq-sysprops</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <!-- bifromq-plugins -->
+            <dependency>
+                <groupId>org.apache.bifromq</groupId>
+                <artifactId>bifromq-plugin-auth-provider</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.bifromq</groupId>
+                <artifactId>bifromq-plugin-auth-provider-helper</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.bifromq</groupId>
+                <artifactId>bifromq-plugin-client-balancer</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.bifromq</groupId>
+                <artifactId>bifromq-plugin-client-balancer-helper</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.bifromq</groupId>
+                <artifactId>bifromq-plugin-event-collector</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.bifromq</groupId>
+                <artifactId>bifromq-plugin-event-collector-helper</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.bifromq</groupId>
+                <artifactId>bifromq-plugin-resource-throttler</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.bifromq</groupId>
+                <artifactId>bifromq-plugin-resource-throttler-helper</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.bifromq</groupId>
+                <artifactId>bifromq-plugin-setting-provider</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.bifromq</groupId>
+                <artifactId>bifromq-plugin-setting-provider-helper</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.bifromq</groupId>
+                <artifactId>bifromq-plugin-sub-broker</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.bifromq</groupId>
+                <artifactId>bifromq-plugin-sub-broker-helper</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.bifromq</groupId>
+                <artifactId>bifromq-plugin-manager</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.bifromq</groupId>
+                <artifactId>bifromq-plugin-context</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.bifromq</groupId>
+                <artifactId>bifromq-plugin-main</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.bifromq</groupId>
+                <artifactId>bifromq-plugin-archetype</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.bifromq</groupId>
+                <artifactId>bifromq-deliverer</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <!-- bifromq-retain -->
+            <dependency>
+                <groupId>org.apache.bifromq</groupId>
+                <artifactId>bifromq-retain-client</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.bifromq</groupId>
+                <artifactId>bifromq-retain-coproc-proto</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.bifromq</groupId>
+                <artifactId>bifromq-retain-rpc-definition</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.bifromq</groupId>
+                <artifactId>bifromq-retain-gc</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.bifromq</groupId>
+                <artifactId>bifromq-retain-store-spi</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.bifromq</groupId>
+                <artifactId>bifromq-retain-store-schema</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.bifromq</groupId>
+                <artifactId>bifromq-retain-store</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.bifromq</groupId>
+                <artifactId>bifromq-retain-server</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <!-- bifromq-inbox -->
+            <dependency>
+                <groupId>org.apache.bifromq</groupId>
+                <artifactId>bifromq-inbox-client</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.bifromq</groupId>
+                <artifactId>bifromq-inbox-coproc-proto</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.bifromq</groupId>
+                <artifactId>bifromq-inbox-rpc-definition</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.bifromq</groupId>
+                <artifactId>bifromq-inbox-store-spi</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.bifromq</groupId>
+                <artifactId>bifromq-inbox-store</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.bifromq</groupId>
+                <artifactId>bifromq-inbox-store-schema</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.bifromq</groupId>
+                <artifactId>bifromq-inbox-server</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <!-- bifromq-dist -->
+            <dependency>
+                <groupId>org.apache.bifromq</groupId>
+                <artifactId>bifromq-dist-client</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.bifromq</groupId>
+                <artifactId>bifromq-dist-worker-spi</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.bifromq</groupId>
+                <artifactId>bifromq-dist-worker</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.bifromq</groupId>
+                <artifactId>bifromq-dist-server</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.bifromq</groupId>
+                <artifactId>bifromq-dist-rpc-definition</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.bifromq</groupId>
+                <artifactId>bifromq-dist-coproc-proto</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.bifromq</groupId>
+                <artifactId>bifromq-dist-worker-schema</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <!-- bifromq-session-dict -->
+            <dependency>
+                <groupId>org.apache.bifromq</groupId>
+                <artifactId>bifromq-session-dict-client</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.bifromq</groupId>
+                <artifactId>bifromq-session-dict-server</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.bifromq</groupId>
+                <artifactId>bifromq-session-dict-rpc-definition</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <!-- bifromq-mqtt -->
+            <dependency>
+                <groupId>org.apache.bifromq</groupId>
+                <artifactId>bifromq-mqtt-broker-client</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.bifromq</groupId>
+                <artifactId>bifromq-mqtt-server-spi</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.bifromq</groupId>
+                <artifactId>bifromq-mqtt-broker-rpc-definition</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.bifromq</groupId>
+                <artifactId>bifromq-mqtt-server</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <!-- bifromq-api -->
+            <dependency>
+                <groupId>org.apache.bifromq</groupId>
+                <artifactId>bifromq-apiserver</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <!-- bifromq-demo -->
+            <dependency>
+                <groupId>org.apache.bifromq</groupId>
+                <artifactId>build-plugin-demo</artifactId>
+                <version>${project.version}</version>
             </dependency>
             <!-- 3rd party modules -->
             <dependency>
@@ -548,7 +965,7 @@
                     <version>${maven.surefire.plugin.version}</version>
                     <configuration>
                         <argLine>
-                            ${argLine} -XX:+EnableDynamicAgentLoading -Djdk.instrument.traceUsage=false
+                            @{argLine} -XX:+EnableDynamicAgentLoading -Djdk.instrument.traceUsage=false
                         </argLine>
                         <excludes>
                             <exclude>**/benchmark/**</exclude>

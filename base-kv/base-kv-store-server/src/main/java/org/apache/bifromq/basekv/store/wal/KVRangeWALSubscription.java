@@ -48,6 +48,7 @@ class KVRangeWALSubscription implements IKVRangeWALSubscription {
     private final IKVRangeWALSubscriber subscriber;
     private final CompositeDisposable disposables = new CompositeDisposable();
     private final AtomicBoolean fetching = new AtomicBoolean();
+    private final AtomicBoolean restoring = new AtomicBoolean();
     private final AtomicBoolean stopped = new AtomicBoolean();
     private final CompletableFuture<Void> stopSign = new CompletableFuture<>();
     private final AtomicLong lastFetchedIdx = new AtomicLong();
@@ -72,22 +73,32 @@ class KVRangeWALSubscription implements IKVRangeWALSubscription {
         this.lastFetchedIdx.set(lastFetchedIndex);
         this.subscriber.onSubscribe(this);
         disposables.add(wal.snapshotRestoreTask()
-            .subscribe(task -> fetchRunner.add(() -> {
+            .subscribe(task -> {
                 // snapshot restore work is preemptive
                 applyRunner.cancelAll();
-                applyRunner.add(restore(task))
-                    .handle((snap, e) -> fetchRunner.add(() -> {
-                        if (e != null) {
-                            log.error("Failed to restore from snapshot\n{}", task.snapshot, e);
-                            return;
-                        }
-                        log.debug("Snapshot installed\n{}", snap);
-                        lastFetchedIdx.set(snap.getLastAppliedIndex());
-                        pendingApplies.clear();
-                    }));
-            })));
+                fetchRunner.cancelAll();
+                fetching.set(false);
+                restoring.set(true);
+                fetchRunner.add(() -> {
+                    applyRunner.cancelAll();
+                    return applyRunner.add(restore(task));
+                }).handle((snap, e) -> fetchRunner.add(() -> {
+                    if (e != null) {
+                        log.error("Failed to restore from snapshot\n{}", task.snapshot, e);
+                        return;
+                    }
+                    log.debug("Snapshot installed\n{}", snap);
+                    lastFetchedIdx.set(snap.getLastAppliedIndex());
+                    pendingApplies.clear();
+                    restoring.set(false);
+                    scheduleFetchWAL();
+                }));
+            }));
         disposables.add(commitIndex
             .subscribe(c -> fetchRunner.add(() -> {
+                if (restoring.get()) {
+                    return;
+                }
                 Map.Entry<Long, Boolean> prevCommitIdx = pendingApplies.floorEntry(c.index);
                 if (prevCommitIdx != null && prevCommitIdx.getValue() == c.isLeader) {
                     pendingApplies.remove(prevCommitIdx.getKey());
@@ -121,6 +132,10 @@ class KVRangeWALSubscription implements IKVRangeWALSubscription {
     }
 
     private CompletableFuture<Void> fetchWAL() {
+        if (restoring.get()) {
+            fetching.set(false);
+            return CompletableFuture.completedFuture(null);
+        }
         NavigableMap<Long, Boolean> toFetch = shouldFetch();
         if (!toFetch.isEmpty()) {
             return wal.retrieveCommitted(lastFetchedIdx.get() + 1, maxFetchBytes)

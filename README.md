@@ -38,7 +38,7 @@ the hosting server's physical memory for determining JVM parameters. This can re
 terminated by the host's Out-of-Memory (OOM) Killer. Refer to [here](https://bifromq.apache.org/docs/installation/docker/)
 for more information.
 
-You can build a Apache BifroMQ cluster using Docker Compose on a single host for development and testing. Suppose you want to create a cluster with three nodes: node1, 
+You can build an Apache BifroMQ cluster using Docker Compose on a single host for development and testing. Suppose you want to create a cluster with three nodes: node1, 
 node2, and node3. The directory structure should be as follows:
 ```
 |- docker-compose.yml
@@ -142,7 +142,7 @@ mvn test
 
 ### Quick Start
 
-To quickly set up a Apache BifroMQ server, extract the `apache-bifromq-<VERSION>.tar.gz` file into a directory. You will see the
+To quickly set up an Apache BifroMQ server, extract the `apache-bifromq-<VERSION>.tar.gz` file into a directory. You will see the
 following directory structure:
 
 ```

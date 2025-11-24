@@ -23,9 +23,10 @@
 # Print usage information
 usage() {
   cat <<EOF
-Usage: $(basename "$0") <release-branch> [--upload] [<svn-username> <svn-password>]
+Usage: $(basename "$0") <release-branch> [--upload] [--gpg-passphrase <pass>] [<svn-username> <svn-password>]
   <release-branch>   Release branch in format release-v<major>.<minor>.x (e.g. release-v4.0.x)
   --upload           (Optional) Upload artifacts to Apache dist/dev SVN
+  --gpg-passphrase   (Optional) GPG passphrase used for signing
   <svn-username>      (Optional) SVN username for committing to Apache Dev repo
   <svn-password>      (Optional) SVN password for committing to Apache Dev repo
 
@@ -53,12 +54,40 @@ BRANCH="$1"
 UPLOAD=false
 USERNAME=""
 PASSWORD=""
+GPG_PASSPHRASE=""
+SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
+
+verify_gpg_access() {
+  local pass="$1"
+  local sign_cmd=(gpg --armor --batch --yes --pinentry-mode loopback --sign)
+  if [[ -n "$pass" ]]; then
+    if ! echo test | "${sign_cmd[@]}" --passphrase "$pass" >/dev/null 2>&1; then
+      echo "ERROR: Provided GPG passphrase is invalid or key is not accessible."
+      exit 1
+    fi
+  else
+    if ! echo test | "${sign_cmd[@]}" >/dev/null 2>&1; then
+      echo "ERROR: GPG passphrase required. Provide it via --gpg-passphrase or ensure gpg-agent has it cached."
+      exit 1
+    fi
+  fi
+}
 
 shift
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --upload)
       UPLOAD=true
+      shift
+      ;;
+    --gpg-passphrase)
+      shift
+      if [[ -z "${1:-}" ]]; then
+        echo "ERROR: --gpg-passphrase requires a value"
+        usage
+        exit 1
+      fi
+      GPG_PASSPHRASE="$1"
       shift
       ;;
     *)
@@ -81,20 +110,24 @@ if [[ ! "$BRANCH" =~ ^release-v([0-9]+)\.([0-9]+)\.x.*$ ]]; then
   exit 1
 fi
 
-WORKDIR=$(pwd)
+WORKDIR="${SCRIPT_DIR}/output"
+mkdir -p "$WORKDIR"
 TMPDIR=$(mktemp -d)
 trap 'rm -rf "$TMPDIR"' EXIT
 
 command -v gpg >/dev/null || { echo "GPG is required but not installed."; exit 1; }
+export GPG_TTY=${GPG_TTY:-$(tty)}
+gpg --list-secret-keys --with-colons | grep -q '^sec' || { echo "ERROR: No GPG secret key found for signing."; exit 1; }
+verify_gpg_access "$GPG_PASSPHRASE"
 
 echo "Cloning repository to temp dir..."
 cd "$TMPDIR"
-git clone https://github.com/apache/${PROJECT_NAME}.git repo
+git clone https://github.com/popduke/${PROJECT_NAME}.git repo
 cd repo
 git checkout "$BRANCH"
 
 echo "Reading revision from POM..."
-REVISION=$(xmllint --xpath "string(//project/properties/revision)" pom.xml)
+REVISION=$(xmllint --xpath "string(//*[local-name()='project']/*[local-name()='properties']/*[local-name()='revision'])" pom.xml)
 if [[ -z "$REVISION" ]]; then
   echo "ERROR: Cannot read revision from pom.xml"
   exit 1
@@ -116,12 +149,20 @@ done
 
 echo "Running Maven build (build-release profile)..."
 echo "You may be prompted for GPG passphrase by gpg-agent/pinentry."
-mvn -Pbuild-release -DskipTests clean verify
+MVN_ARGS=(-Pbuild-release -DskipTests)
+if [[ -n "$GPG_PASSPHRASE" ]]; then
+  MVN_ARGS+=("-Dgpg.passphrase=${GPG_PASSPHRASE}")
+fi
+mvn "${MVN_ARGS[@]}" clean verify
 
 cd "$TMPDIR/repo"
 ARTIFACTS=(target/output/apache-bifromq-*.tar.gz target/output/apache-bifromq-*.zip)
 ls "${ARTIFACTS[@]}" 2>/dev/null || { echo "No artifacts found under target/output"; exit 1; }
-cp target/output/* "$WORKDIR"
+for f in target/output/*; do
+  if [[ -f "$f" ]]; then
+    cp "$f" "$WORKDIR"
+  fi
+done
 
 if [ "$UPLOAD" = true ]; then
   SVN_TMP=$(mktemp -d)

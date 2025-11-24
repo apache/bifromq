@@ -15,43 +15,44 @@
 # specific language governing permissions and limitations
 # under the License.
 
-ARG BASE_IMAGE=debian:buster-slim
+ARG BASE_IMAGE=debian:bookworm-slim
 
-FROM --platform=$TARGETPLATFORM ${BASE_IMAGE} AS builder
+FROM --platform=$TARGETPLATFORM ${BASE_IMAGE} AS verifier
 
-ARG TARGETPLATFORM
+ARG TARGETARCH
+ARG BIFROMQ_VERSION
 
-# Install necessary tools for diagnostics and JDK download
-RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl net-tools lsof netcat procps less \
-    && if [ "$TARGETPLATFORM" = "linux/amd64" ]; then \
-        export JDK_ARCH=x64; \
-    else \
-        export JDK_ARCH=aarch64; \
-    fi \
-    && echo "JDK_ARCH is set to ${JDK_ARCH}" \
-    && curl --retry 5 -S -L -O https://download.java.net/java/GA/jdk17.0.2/dfd4a8d0985749f896bed50d7138ee7f/8/GPL/openjdk-17.0.2_linux-${JDK_ARCH}_bin.tar.gz \
-    && tar -zxvf openjdk-17.0.2_linux-${JDK_ARCH}_bin.tar.gz \
-    && rm -rf openjdk-17.0.2_linux-${JDK_ARCH}_bin.tar.gz \
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ca-certificates gnupg dirmngr tar \
     && rm -rf /var/lib/apt/lists/*
 
-COPY apache-bifromq-*-standalone.tar.gz /
+COPY KEYS /tmp/release/KEYS
+COPY apache-bifromq-${BIFROMQ_VERSION}-standalone.tar.gz /tmp/release/
+COPY apache-bifromq-${BIFROMQ_VERSION}-standalone.tar.gz.asc /tmp/release/
+COPY apache-bifromq-${BIFROMQ_VERSION}-standalone.tar.gz.sha512 /tmp/release/
 
-RUN mkdir /bifromq && tar -zxvf /apache-bifromq-*-standalone.tar.gz --strip-components 1 -C /bifromq \
-    && rm -rf /apache-bifromq-*-standalone.tar.gz
+RUN cd /tmp/release \
+    && sha512sum -c apache-bifromq-*-standalone.tar.gz.sha512 \
+    && gpg --import KEYS \
+    && gpg --batch --verify apache-bifromq-*-standalone.tar.gz.asc apache-bifromq-*-standalone.tar.gz \
+    && mkdir /bifromq \
+    && tar -zxvf apache-bifromq-*-standalone.tar.gz --strip-components 1 -C /bifromq
 
 FROM --platform=$TARGETPLATFORM ${BASE_IMAGE}
+
+ARG TARGETARCH
 
 RUN groupadd -r -g 1000 bifromq \
     && useradd -r -m -u 1000 -g bifromq bifromq \
     && apt-get update \
-    && apt-get install -y --no-install-recommends net-tools lsof netcat procps less \
-    && rm -rf /var/lib/apt/lists/*
+    && apt-get install -y --no-install-recommends ca-certificates net-tools lsof netcat procps less openjdk-17-jre-headless \
+    && rm -rf /var/lib/apt/lists/* \
+COPY DISCLAIMER /home/bifromq/
 
-COPY --chown=bifromq:bifromq --from=builder /jdk-17.0.2 /usr/share/jdk-17.0.2
-COPY --chown=bifromq:bifromq --from=builder /bifromq /home/bifromq/
+ENV JAVA_HOME /usr/lib/jvm/java-17-openjdk-$TARGETARCH
+ENV PATH $JAVA_HOME/bin:$PATH
 
-ENV JAVA_HOME /usr/share/jdk-17.0.2
-ENV PATH /usr/share/jdk-17.0.2/bin:$PATH
+COPY --chown=bifromq:bifromq --from=verifier /bifromq /home/bifromq/
 
 WORKDIR /home/bifromq
 

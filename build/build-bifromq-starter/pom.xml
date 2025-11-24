@@ -91,7 +91,7 @@
         </dependency>
         <dependency>
             <groupId>io.netty</groupId>
-            <artifactId>netty-tcnative-boringssl-static</artifactId>
+            <artifactId>netty-tcnative-classes</artifactId>
             <scope>runtime</scope>
         </dependency>
         <!-- bifromq modules -->
@@ -231,4 +231,65 @@
             </plugin>
         </plugins>
     </build>
+    <profiles>
+        <profile>
+            <id>with-tcnative</id>
+            <properties>
+                <tcnative.classifier>${os.detected.classifier}</tcnative.classifier>
+            </properties>
+            <dependencies>
+                <dependency>
+                    <groupId>io.netty</groupId>
+                    <artifactId>netty-tcnative</artifactId>
+                    <version>${tcnative.version}</version>
+                    <classifier>${tcnative.classifier}</classifier>
+                    <scope>runtime</scope>
+                </dependency>
+            </dependencies>
+        </profile>
+        <profile>
+            <id>with-boringssl-static</id>
+            <properties>
+                <tcnative.classifier>${os.detected.classifier}</tcnative.classifier>
+            </properties>
+            <dependencies>
+                <dependency>
+                    <groupId>io.netty</groupId>
+                    <artifactId>netty-tcnative-boringssl-static</artifactId>
+                    <version>${tcnative.version}</version>
+                    <classifier>${tcnative.classifier}</classifier>
+                    <scope>runtime</scope>
+                </dependency>
+            </dependencies>
+        </profile>
+        <profile>
+            <id>build-release</id>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-antrun-plugin</artifactId>
+                        <executions>
+                            <execution>
+                                <id>sign-release-artifacts</id>
+                                <phase>verify</phase>
+                                <goals>
+                                    <goal>run</goal>
+                                </goals>
+                                <configuration>
+                                    <target>
+                                        <exec executable="bash" failonerror="true">
+                                            <arg value="${maven.multiModuleProjectDirectory}/release/sign-artifacts.sh"/>
+                                            <arg value="${build.output.dir}"/>
+                                            <arg value="${gpg.passphrase}"/>
+                                        </exec>
+                                    </target>
+                                </configuration>
+                            </execution>
+                        </executions>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+    </profiles>
 </project>

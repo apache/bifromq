@@ -107,6 +107,7 @@ docker compose up -d
 
 * JDK 17+
 * Maven 3.5.0+
+* (Optional for native TLS) OpenSSL available on the host; if absent, TLS falls back to JDK implementation.
 
 #### Get source & Build
 
@@ -129,6 +130,15 @@ The build output consists of several archive files located under `/target/output
 
 * `apache-bifromq-<VERSION>.tar.gz`
 * `apache-bifromq-<VERSION>-windows.zip`
+
+#### Native TLS options
+
+* Default binary bundles `netty-tcnative-classes` only; if system OpenSSL is unavailable, TLS falls back to JDK TLS automatically.
+* To build with system OpenSSL (no static libs shipped): `mvn -Pwith-tcnative -Dtcnative.classifier=<your_platform_classifier> clean package`
+  * Example classifiers: `linux-x86_64`, `linux-aarch_64`, `osx-aarch_64`, `osx-x86_64`, `windows-x86_64`.
+  * Requires OpenSSL installed on the host.
+* To build a user-only BoringSSL static bundle (not an ASF release): `mvn -Pwith-boringssl-static -Dtcnative.classifier=<your_platform_classifier> clean package`
+  * Includes the BoringSSL static native library; ensure you accept the OpenSSL/SSLeay terms.
 
 #### Running the tests
 

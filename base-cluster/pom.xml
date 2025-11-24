@@ -80,7 +80,7 @@
         <!-- for testing-->
         <dependency>
             <groupId>io.netty</groupId>
-            <artifactId>netty-tcnative-boringssl-static</artifactId>
+            <artifactId>netty-tcnative-classes</artifactId>
             <scope>test</scope>
         </dependency>
         <dependency>

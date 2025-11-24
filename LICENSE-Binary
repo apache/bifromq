@@ -222,6 +222,7 @@ Apache License, Version 2.0
 - com.google.j2objc:j2objc-annotations:2.8
 - com.google.j2objc:j2objc-annotations:3.0.0
 - commons-cli:commons-cli:1.5.0
+- org.apache.commons:commons-collections4:4.4
 - io.grpc:grpc-api:1.77.0
 - io.grpc:grpc-context:1.77.0
 - io.grpc:grpc-core:1.77.0
@@ -273,11 +274,11 @@ Apache License, Version 2.0
 - io.prometheus:simpleclient_tracer_otel:0.16.0
 - io.prometheus:simpleclient_tracer_otel_agent:0.16.0
 - io.reactivex.rxjava3:rxjava:3.1.12
-- io.swagger.core.v3:swagger-annotations-jakarta:2.2.30
-- io.swagger.core.v3:swagger-core-jakarta:2.2.30
-- io.swagger.core.v3:swagger-integration-jakarta:2.2.30
-- io.swagger.core.v3:swagger-jaxrs2-jakarta:2.2.30
-- io.swagger.core.v3:swagger-models-jakarta:2.2.30
+- io.swagger.core.v3:swagger-annotations-jakarta:2.2.40
+- io.swagger.core.v3:swagger-core-jakarta:2.2.40
+- io.swagger.core.v3:swagger-integration-jakarta:2.2.40
+- io.swagger.core.v3:swagger-jaxrs2-jakarta:2.2.40
+- io.swagger.core.v3:swagger-models-jakarta:2.2.40
 - jakarta.inject:jakarta.inject-api:2.0.1
 - jakarta.validation:jakarta.validation-api:3.0.2
 - net.bytebuddy:byte-buddy:1.14.15
@@ -309,6 +310,7 @@ MIT License (see: licenses/mit.txt)
 - org.pcollections:pcollections:4.0.2
 - org.checkerframework:checker-qual:3.42.0
 - org.codehaus.mojo:animal-sniffer-annotations:1.24
+- org.slf4j:slf4j-api:2.0.17
 
 MIT-0 (see: licenses/mit-0.txt)
 - org.reactivestreams:reactive-streams:1.0.4

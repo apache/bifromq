@@ -153,7 +153,7 @@ mvn test
 #### How Users Can Build the Docker Image
 ##### Prepare the build context
 ```shell
-bash release/release.sh release-v4.0.x-incubating --gpg-passphrase ${GPG_PASSPHRASE}
+curl -fsSL https://raw.githubusercontent.com/apache/bifromq/main/release/release.sh | bash -s -- "$RELEASE_VERSION" --gpg-passphrase "$GPG_PASSPHRASE"
 ```
 Then you will get the files in `release/output`
 `apache-bifromq-<version>.tar.gz`

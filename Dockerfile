@@ -15,7 +15,7 @@
 # specific language governing permissions and limitations
 # under the License.
 
-ARG BASE_IMAGE=debian:bookworm-slim
+ARG BASE_IMAGE=debian@sha256:b4aa902587c2e61ce789849cb54c332b0400fe27b1ee33af4669e1f7e7c3e22f
 
 FROM ${BASE_IMAGE} AS verifier
 

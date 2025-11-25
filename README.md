@@ -29,7 +29,7 @@ GitHub [repository](https://github.com/apache/bifromq-sites).
 ### Docker
 
 ```
-docker run -d -m <MEM_LIMIT> -e MEM_LIMIT='<MEM_LIMIT_IN_BYTES>' --name bifromq -p 1883:1883 bifromq/bifromq:latest
+docker run -d -m <MEM_LIMIT> -e MEM_LIMIT='<MEM_LIMIT_IN_BYTES>' --name bifromq -p 1883:1883 apache/bifromq:${TAG}
 ```
 
 Substitute `<MEM_LIMIT>` and `<MEM_LIMIT_IN_BYTES>` with the actual memory allocation for the Docker process, for
@@ -58,7 +58,7 @@ The `docker-compose.yml` file defines the services for the three nodes:
 ```yml
 services:
   bifromq-node1:
-    image: bifromq/bifromq:latest
+    image: apache/bifromq:${TAG}
     container_name: bifromq-node1
     volumes:
       - ./node1/standalone.yml:/home/bifromq/conf/standalone.yml
@@ -70,7 +70,7 @@ services:
       - bifromq-net
 
   bifromq-node2:
-    image: bifromq/bifromq:latest
+    image: apache/bifromq:${TAG}
     container_name: bifromq-node2
     volumes:
       - ./node2/standalone.yml:/home/bifromq/conf/standalone.yml
@@ -82,7 +82,7 @@ services:
       - bifromq-net
 
   bifromq-node3:
-    image: bifromq/bifromq:latest
+    image: apache/bifromq:${TAG}
     container_name: bifromq-node3
     volumes:
       - ./node3/standalone.yml:/home/bifromq/conf/standalone.yml
@@ -109,7 +109,7 @@ docker compose up -d
 * Maven 3.5.0+
 * (Optional for native TLS) OpenSSL available on the host; if absent, TLS falls back to JDK implementation.
 
-#### Get source & Build
+#### Get Source & Build
 
 Clone the repository to your local workspace:
 
@@ -149,6 +149,28 @@ Note: The tests may take some time to finish
 ```
 mvn test
 ```
+
+#### How Users Can Build the Docker Image
+##### Prepare the build context
+```shell
+bash release/release.sh release-v4.0.x-incubating --gpg-passphrase ${GPG_PASSPHRASE}
+```
+Then you will get the files in `release/output`
+`apache-bifromq-<version>.tar.gz`
+`apache-bifromq-<version>.tar.gz.asc`
+`apache-bifromq-<version>.tar.gz.sha512`
+
+Place the outputs and [KEYS](https://dist.apache.org/repos/dist/dev/incubator/bifromq/KEYS) in the project root dir.
+
+##### Build the Docker image
+```shell
+docker build \
+  --build-arg BIFROMQ_VERSION=${BIFROMQ_VERSION} \
+  --build-arg TARGETARCH=${TARGETARCH} \
+  -t apache-bifromq:local .
+
+```
+Change the `TARGETARCH` based on your platform, e.g., amd64, arm64.
 
 ### Quick Start
 
@@ -212,7 +234,7 @@ The standard cluster deployment mode is suitable for small to medium-sized produ
 reliability and scalability. It comprises several fully functional standalone nodes working together as a logical MQTT
 broker
 instance, ensuring high availability. You can also scale up the concurrent mqtt connection workload by adding more
-nodes, while some types of messaging related workload are not horizontal scalable in this mode.
+nodes, while some types of messaging related workload are not horizontally scalable in this mode.
 
 #### Independent Workload Cluster
 

@@ -122,7 +122,7 @@ verify_gpg_access "$GPG_PASSPHRASE"
 
 echo "Cloning repository to temp dir..."
 cd "$TMPDIR"
-git clone https://github.com/popduke/${PROJECT_NAME}.git repo
+git clone https://github.com/apache/${PROJECT_NAME}.git repo
 cd repo
 git checkout "$BRANCH"
 

@@ -17,7 +17,7 @@
 
 ARG BASE_IMAGE=debian:bookworm-slim
 
-FROM --platform=$TARGETPLATFORM ${BASE_IMAGE} AS verifier
+FROM ${BASE_IMAGE} AS verifier
 
 ARG TARGETARCH
 ARG BIFROMQ_VERSION
@@ -27,30 +27,29 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 
 COPY KEYS /tmp/release/KEYS
-COPY apache-bifromq-${BIFROMQ_VERSION}-standalone.tar.gz /tmp/release/
-COPY apache-bifromq-${BIFROMQ_VERSION}-standalone.tar.gz.asc /tmp/release/
-COPY apache-bifromq-${BIFROMQ_VERSION}-standalone.tar.gz.sha512 /tmp/release/
+COPY apache-bifromq-${BIFROMQ_VERSION}.tar.gz /tmp/release/
+COPY apache-bifromq-${BIFROMQ_VERSION}.tar.gz.asc /tmp/release/
+COPY apache-bifromq-${BIFROMQ_VERSION}.tar.gz.sha512 /tmp/release/
 
 RUN cd /tmp/release \
-    && sha512sum -c apache-bifromq-*-standalone.tar.gz.sha512 \
+    && echo "$(awk '{print $1}' apache-bifromq-*.tar.gz.sha512)  apache-bifromq-${BIFROMQ_VERSION}.tar.gz" | sha512sum -c - \
     && gpg --import KEYS \
-    && gpg --batch --verify apache-bifromq-*-standalone.tar.gz.asc apache-bifromq-*-standalone.tar.gz \
+    && gpg --batch --verify apache-bifromq-*.tar.gz.asc apache-bifromq-*.tar.gz \
     && mkdir /bifromq \
-    && tar -zxvf apache-bifromq-*-standalone.tar.gz --strip-components 1 -C /bifromq
+    && tar -zxvf apache-bifromq-*.tar.gz --strip-components 1 -C /bifromq
 
-FROM --platform=$TARGETPLATFORM ${BASE_IMAGE}
+FROM ${BASE_IMAGE}
 
 ARG TARGETARCH
 
 RUN groupadd -r -g 1000 bifromq \
     && useradd -r -m -u 1000 -g bifromq bifromq \
     && apt-get update \
-    && apt-get install -y --no-install-recommends ca-certificates net-tools lsof netcat procps less openjdk-17-jre-headless \
-    && rm -rf /var/lib/apt/lists/* \
-COPY DISCLAIMER /home/bifromq/
+    && apt-get install -y --no-install-recommends ca-certificates net-tools lsof netcat-openbsd procps less openjdk-17-jre-headless \
+    && rm -rf /var/lib/apt/lists/*
 
-ENV JAVA_HOME /usr/lib/jvm/java-17-openjdk-$TARGETARCH
-ENV PATH $JAVA_HOME/bin:$PATH
+ENV JAVA_HOME=/usr/lib/jvm/java-17-openjdk-$TARGETARCH
+ENV PATH=$JAVA_HOME/bin:$PATH
 
 COPY --chown=bifromq:bifromq --from=verifier /bifromq /home/bifromq/
 

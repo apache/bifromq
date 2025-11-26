@@ -271,7 +271,7 @@
                         <artifactId>maven-antrun-plugin</artifactId>
                         <executions>
                             <execution>
-                                <id>sign-release-artifacts</id>
+                                <id>checksum-release-artifacts</id>
                                 <phase>verify</phase>
                                 <goals>
                                     <goal>run</goal>
@@ -279,9 +279,8 @@
                                 <configuration>
                                     <target>
                                         <exec executable="bash" failonerror="true">
-                                            <arg value="${maven.multiModuleProjectDirectory}/release/sign-artifacts.sh"/>
+                                            <arg value="${maven.multiModuleProjectDirectory}/release/checksum-artifacts.sh"/>
                                             <arg value="${build.output.dir}"/>
-                                            <arg value="${gpg.passphrase}"/>
                                         </exec>
                                     </target>
                                 </configuration>

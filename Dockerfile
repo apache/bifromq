@@ -15,30 +15,24 @@
 # specific language governing permissions and limitations
 # under the License.
 
-ARG BASE_IMAGE=debian@sha256:b4aa902587c2e61ce789849cb54c332b0400fe27b1ee33af4669e1f7e7c3e22f
-
-FROM ${BASE_IMAGE} AS verifier
+FROM debian@sha256:b4aa902587c2e61ce789849cb54c332b0400fe27b1ee33af4669e1f7e7c3e22f AS verifier
 
 ARG TARGETARCH
 ARG BIFROMQ_VERSION
 
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends ca-certificates gnupg dirmngr tar \
+    && apt-get install -y --no-install-recommends ca-certificates tar \
     && rm -rf /var/lib/apt/lists/*
 
-COPY KEYS /tmp/release/KEYS
 COPY apache-bifromq-${BIFROMQ_VERSION}.tar.gz /tmp/release/
-COPY apache-bifromq-${BIFROMQ_VERSION}.tar.gz.asc /tmp/release/
 COPY apache-bifromq-${BIFROMQ_VERSION}.tar.gz.sha512 /tmp/release/
 
 RUN cd /tmp/release \
     && echo "$(awk '{print $1}' apache-bifromq-*.tar.gz.sha512)  apache-bifromq-${BIFROMQ_VERSION}.tar.gz" | sha512sum -c - \
-    && gpg --import KEYS \
-    && gpg --batch --verify apache-bifromq-*.tar.gz.asc apache-bifromq-*.tar.gz \
     && mkdir /bifromq \
     && tar -zxvf apache-bifromq-*.tar.gz --strip-components 1 -C /bifromq
 
-FROM ${BASE_IMAGE}
+FROM debian@sha256:b4aa902587c2e61ce789849cb54c332b0400fe27b1ee33af4669e1f7e7c3e22f
 
 ARG TARGETARCH
 
@@ -56,9 +50,6 @@ COPY --chown=bifromq:bifromq --from=verifier /bifromq /home/bifromq/
 WORKDIR /home/bifromq
 
 USER bifromq
-
-# Set common command aliases
-RUN echo "alias ll='ls -al'" >> ~/.bashrc
 
 EXPOSE 1883 1884 80 443
 

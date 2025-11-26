@@ -123,22 +123,24 @@ Navigate to the project root folder and execute the following commands to build 
 ```
 cd bifromq
 mvn wrapper:wrapper
-./mvnw -U clean package -DskipTests
+./mvnw -U clean verify -DskipTests -Pbuild-release
 ```
 
-The build output consists of several archive files located under `/target/output`
+The build output consists of several archive files with `sha512` checksum located under `/target/output`
 
+* `apache-bifromq-<VERSION>-src.tar.gz` 
 * `apache-bifromq-<VERSION>.tar.gz`
 * `apache-bifromq-<VERSION>-windows.zip`
 
 #### Native TLS options
 
 * Default binary bundles `netty-tcnative-classes` only; if system OpenSSL is unavailable, TLS falls back to JDK TLS automatically.
-* To build with system OpenSSL (no static libs shipped): `mvn -Pwith-tcnative -Dtcnative.classifier=<your_platform_classifier> clean package`
-  * Example classifiers: `linux-x86_64`, `linux-aarch_64`, `osx-aarch_64`, `osx-x86_64`, `windows-x86_64`.
-  * Requires OpenSSL installed on the host.
-* To build a user-only BoringSSL static bundle (not an ASF release): `mvn -Pwith-boringssl-static -Dtcnative.classifier=<your_platform_classifier> clean package`
-  * Includes the BoringSSL static native library; ensure you accept the OpenSSL/SSLeay terms.
+* To build with system OpenSSL (requires OpenSSL installed on the host):
+  * `mvn -Pbuild-release -Pwith-tcnative -Dtcnative.classifier=<your_platform_classifier> clean verify -DskipTests`
+    * Example classifiers: `linux-x86_64`, `linux-aarch_64`, `osx-aarch_64`, `osx-x86_64`, `windows-x86_64`.
+* To build with BoringSSL static bundle
+  * `mvn -Pbuild-release -Pwith-boringssl-static -Dtcnative.classifier=<your_platform_classifier> clean verify -DskipTests`
+    * Example classifiers: `linux-x86_64`, `linux-aarch_64`, `osx-aarch_64`, `osx-x86_64`, `windows-x86_64`.
 
 #### Running the tests
 
@@ -150,27 +152,16 @@ Note: The tests may take some time to finish
 mvn test
 ```
 
-#### How Users Can Build the Docker Image
-##### Prepare the build context
+#### Build the Docker Image
+With the binary `apache-bifromq-<version>.tar.gz` and its `.sha512` under `target/output`, build the Docker image using the helper script:
 ```shell
-curl -fsSL https://raw.githubusercontent.com/apache/bifromq/main/release/release.sh | bash -s -- "$RELEASE_VERSION" --gpg-passphrase "$GPG_PASSPHRASE"
+./release/docker-build.sh target/output/apache-bifromq-<version>.tar.gz
 ```
-Then you will get the files in `release/output`
-`apache-bifromq-<version>.tar.gz`
-`apache-bifromq-<version>.tar.gz.asc`
-`apache-bifromq-<version>.tar.gz.sha512`
-
-Place the outputs and [KEYS](https://dist.apache.org/repos/dist/dev/incubator/bifromq/KEYS) in the project root dir.
-
-##### Build the Docker image
+Optional: override the tag or target architecture:
 ```shell
-docker build \
-  --build-arg BIFROMQ_VERSION=${BIFROMQ_VERSION} \
-  --build-arg TARGETARCH=${TARGETARCH} \
-  -t apache-bifromq:local .
-
+./release/docker-build.sh -t apache-bifromq:<version> target/output/apache-bifromq-<version>.tar.gz
+./release/docker-build.sh -a arm64 target/output/apache-bifromq-<version>.tar.gz
 ```
-Change the `TARGETARCH` based on your platform, e.g., amd64, arm64.
 
 ### Quick Start
 

@@ -1160,23 +1160,7 @@
                         <artifactId>maven-antrun-plugin</artifactId>
                         <executions>
                             <execution>
-                                <id>validate-release-tag</id>
-                                <inherited>false</inherited>
-                                <phase>validate</phase>
-                                <goals>
-                                    <goal>run</goal>
-                                </goals>
-                                <configuration>
-                                    <target>
-                                        <exec executable="bash" failonerror="true">
-                                            <arg value="${project.basedir}/release/validate-release.sh"/>
-                                            <arg value="${revision}"/>
-                                        </exec>
-                                    </target>
-                                </configuration>
-                            </execution>
-                            <execution>
-                                <id>sign-release-artifacts</id>
+                                <id>checksum-release-artifacts</id>
                                 <inherited>false</inherited>
                                 <phase>verify</phase>
                                 <goals>
@@ -1185,9 +1169,8 @@
                                 <configuration>
                                     <target>
                                         <exec executable="bash" failonerror="true">
-                                            <arg value="${maven.multiModuleProjectDirectory}/release/sign-artifacts.sh"/>
+                                            <arg value="${maven.multiModuleProjectDirectory}/release/checksum-artifacts.sh"/>
                                             <arg value="${build.output.dir}"/>
-                                            <arg value="${gpg.passphrase}"/>
                                         </exec>
                                     </target>
                                 </configuration>

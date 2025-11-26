@@ -7,9 +7,9 @@
 # to you under the Apache License, Version 2.0 (the
 # "License"); you may not use this file except in compliance
 # with the License.  You may obtain a copy of the License at
-#
+# 
 #   http://www.apache.org/licenses/LICENSE-2.0
-#
+# 
 # Unless required by applicable law or agreed to in writing,
 # software distributed under the License is distributed on an
 # "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
@@ -20,17 +20,17 @@
 
 set -euo pipefail
 
-# Usage: validate-release.sh <expected-tag>
+out_dir="${1:?output dir required}"
 
-expected="v${1:?expected revision without leading v}"
-tag=$(git describe --tags --exact-match HEAD 2>/dev/null || true)
+shopt -s nullglob
+files=("${out_dir}"/*.tar.gz "${out_dir}"/*.zip)
+shopt -u nullglob
 
-if [[ -z "${tag}" ]]; then
-  echo "Release build must be on tag ${expected}"
+if [[ ${#files[@]} -eq 0 ]]; then
+  echo "No release artifacts found in ${out_dir}"
   exit 1
 fi
 
-if [[ "${tag}" != "${expected}" ]]; then
-  echo "Release tag mismatch: ${tag} vs ${expected}"
-  exit 1
-fi
+for f in "${files[@]}"; do
+  shasum -a 512 "$f" > "${f}.sha512"
+done

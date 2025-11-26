@@ -139,6 +139,11 @@ if ! git rev-parse -q --verify "refs/tags/${TAG}" >/dev/null; then
   exit 1
 fi
 
+if ! git merge-base --is-ancestor "${TAG}" "${BRANCH}"; then
+  echo "ERROR: Tag ${TAG} is not reachable from branch ${BRANCH}"
+  exit 1
+fi
+
 echo "Checking out tag ${TAG}..."
 git checkout "${TAG}"
 
@@ -163,6 +168,9 @@ for f in target/output/*; do
     cp "$f" "$WORKDIR"
   fi
 done
+
+echo "Signing artifacts..."
+bash "${SCRIPT_DIR}/sign-artifacts.sh" "$WORKDIR" "$GPG_PASSPHRASE"
 
 if [ "$UPLOAD" = true ]; then
   SVN_TMP=$(mktemp -d)

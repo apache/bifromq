@@ -31,6 +31,8 @@
     <packaging>maven-archetype</packaging>
 
     <artifactId>bifromq-plugin-archetype</artifactId>
+    <name>Apache BifroMQ Plugin Archetype</name>
+    <description>Archetype for scaffolding Apache BifroMQ plugins.</description>
 
     <build>
         <extensions>

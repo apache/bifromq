@@ -22,23 +22,30 @@
          xmlns="http://maven.apache.org/POM/4.0.0"
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
     <modelVersion>4.0.0</modelVersion>
+
     <parent>
         <groupId>org.apache.bifromq</groupId>
         <artifactId>bifromq-plugin</artifactId>
         <version>${revision}</version>
     </parent>
 
-    <artifactId>bifromq-plugin-resource-throttler</artifactId>
-    <name>Apache BifroMQ Plugin Resource Throttler</name>
-    <description>Resource throttling plugin API for Apache BifroMQ.</description>
-    <dependencies>
-        <dependency>
-            <groupId>org.apache.bifromq</groupId>
-            <artifactId>bifromq-plugin-context</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>org.pf4j</groupId>
-            <artifactId>pf4j</artifactId>
-        </dependency>
-    </dependencies>
+    <artifactId>plugin-release</artifactId>
+    <packaging>pom</packaging>
+    <name>Apache BifroMQ Plugin Release Aggregator</name>
+    <description>Aggregator for publishing Apache BifroMQ plugin artifacts to Maven Central.</description>
+    <properties>
+        <maven.deploy.skip>true</maven.deploy.skip>
+    </properties>
+
+    <modules>
+        <module>../bifromq-plugin-archetype</module>
+        <module>../bifromq-plugin-auth-provider</module>
+        <module>../bifromq-plugin-client-balancer</module>
+        <module>../bifromq-plugin-event-collector</module>
+        <module>../bifromq-plugin-resource-throttler</module>
+        <module>../bifromq-plugin-setting-provider</module>
+        <module>../bifromq-plugin-context</module>
+        <module>../bifromq-plugin-main</module>
+        <module>../bifromq-plugin-bom</module>
+    </modules>
 </project>

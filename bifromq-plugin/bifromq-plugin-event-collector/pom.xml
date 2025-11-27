@@ -29,6 +29,8 @@
     <modelVersion>4.0.0</modelVersion>
 
     <artifactId>bifromq-plugin-event-collector</artifactId>
+    <name>Apache BifroMQ Plugin Event Collector</name>
+    <description>Event collector plugin API for Apache BifroMQ.</description>
     <dependencies>
         <dependency>
             <groupId>org.apache.bifromq</groupId>

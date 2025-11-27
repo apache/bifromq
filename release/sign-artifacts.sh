@@ -20,10 +20,9 @@
 
 set -euo pipefail
 
-# Usage: sign-artifacts.sh <output-dir> [<gpg-passphrase>]
+# Usage: sign-artifacts.sh <output-dir>
 
 out_dir="${1:?output dir required}"
-gpg_passphrase="${2:-}"
 
 shopt -s nullglob
 files=("${out_dir}"/*.tar.gz "${out_dir}"/*.zip)
@@ -35,10 +34,6 @@ if [[ ${#files[@]} -eq 0 ]]; then
 fi
 
 for f in "${files[@]}"; do
-  if [[ -n "${gpg_passphrase}" ]]; then
-    gpg --batch --yes --pinentry-mode loopback --passphrase "${gpg_passphrase}" --armor --detach-sign "$f"
-  else
-    gpg --batch --yes --pinentry-mode loopback --armor --detach-sign "$f"
-  fi
+  gpg --armor --detach-sign "$f"
   shasum -a 512 "$f" > "${f}.sha512"
 done

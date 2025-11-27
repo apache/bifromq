@@ -48,5 +48,6 @@
         <module>bifromq-plugin-main</module>
         <module>bifromq-plugin-archetype</module>
         <module>bifromq-plugin-context</module>
+        <module>bifromq-plugin-bom</module>
     </modules>
 </project>

@@ -23,10 +23,9 @@
 # Print usage information
 usage() {
   cat <<EOF
-Usage: $(basename "$0") <release-branch> [--upload] [--gpg-passphrase <pass>] [<svn-username> <svn-password>]
+Usage: $(basename "$0") <release-branch> [--upload] [<svn-username> <svn-password>]
   <release-branch>   Release branch in format release-v<major>.<minor>.x (e.g. release-v4.0.x)
   --upload           (Optional) Upload artifacts to Apache dist/dev SVN
-  --gpg-passphrase   (Optional) GPG passphrase used for signing
   <svn-username>      (Optional) SVN username for committing to Apache Dev repo
   <svn-password>      (Optional) SVN password for committing to Apache Dev repo
 
@@ -54,22 +53,13 @@ BRANCH="$1"
 UPLOAD=false
 USERNAME=""
 PASSWORD=""
-GPG_PASSPHRASE=""
 SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
 
 verify_gpg_access() {
-  local pass="$1"
-  local sign_cmd=(gpg --armor --batch --yes --pinentry-mode loopback --sign)
-  if [[ -n "$pass" ]]; then
-    if ! echo test | "${sign_cmd[@]}" --passphrase "$pass" >/dev/null 2>&1; then
-      echo "ERROR: Provided GPG passphrase is invalid or key is not accessible."
-      exit 1
-    fi
-  else
-    if ! echo test | "${sign_cmd[@]}" >/dev/null 2>&1; then
-      echo "ERROR: GPG passphrase required. Provide it via --gpg-passphrase or ensure gpg-agent has it cached."
-      exit 1
-    fi
+  local sign_cmd=(gpg --armor --sign)
+  if ! echo test | "${sign_cmd[@]}" >/dev/null 2>&1; then
+    echo "ERROR: GPG signing failed. Ensure gpg-agent is running and passphrase is cached."
+    exit 1
   fi
 }
 
@@ -78,16 +68,6 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --upload)
       UPLOAD=true
-      shift
-      ;;
-    --gpg-passphrase)
-      shift
-      if [[ -z "${1:-}" ]]; then
-        echo "ERROR: --gpg-passphrase requires a value"
-        usage
-        exit 1
-      fi
-      GPG_PASSPHRASE="$1"
       shift
       ;;
     *)
@@ -118,7 +98,7 @@ trap 'rm -rf "$TMPDIR"' EXIT
 command -v gpg >/dev/null || { echo "GPG is required but not installed."; exit 1; }
 export GPG_TTY=${GPG_TTY:-$(tty)}
 gpg --list-secret-keys --with-colons | grep -q '^sec' || { echo "ERROR: No GPG secret key found for signing."; exit 1; }
-verify_gpg_access "$GPG_PASSPHRASE"
+verify_gpg_access
 
 echo "Cloning repository to temp dir..."
 cd "$TMPDIR"
@@ -154,10 +134,7 @@ done
 
 echo "Running Maven build (build-release profile)..."
 echo "You may be prompted for GPG passphrase by gpg-agent/pinentry."
-MVN_ARGS=(-Pbuild-release -DskipTests)
-if [[ -n "$GPG_PASSPHRASE" ]]; then
-  MVN_ARGS+=("-Dgpg.passphrase=${GPG_PASSPHRASE}")
-fi
+MVN_ARGS=(-Pbuild-release -DskipTests -Dgpg.useagent=true)
 mvn "${MVN_ARGS[@]}" clean verify
 
 cd "$TMPDIR/repo"
@@ -170,7 +147,7 @@ for f in target/output/*; do
 done
 
 echo "Signing artifacts..."
-bash "${SCRIPT_DIR}/sign-artifacts.sh" "$WORKDIR" "$GPG_PASSPHRASE"
+bash "${SCRIPT_DIR}/sign-artifacts.sh" "$WORKDIR"
 
 if [ "$UPLOAD" = true ]; then
   SVN_TMP=$(mktemp -d)

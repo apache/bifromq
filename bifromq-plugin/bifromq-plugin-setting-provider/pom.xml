@@ -29,6 +29,8 @@
     </parent>
 
     <artifactId>bifromq-plugin-setting-provider</artifactId>
+    <name>Apache BifroMQ Plugin Setting Provider</name>
+    <description>Setting provider plugin API for Apache BifroMQ.</description>
     <dependencies>
         <dependency>
             <groupId>org.apache.bifromq</groupId>

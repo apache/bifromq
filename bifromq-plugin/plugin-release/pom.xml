@@ -38,6 +38,7 @@
     </properties>
 
     <modules>
+        <module>../../bifromq-common-type</module>
         <module>../bifromq-plugin-archetype</module>
         <module>../bifromq-plugin-auth-provider</module>
         <module>../bifromq-plugin-client-balancer</module>

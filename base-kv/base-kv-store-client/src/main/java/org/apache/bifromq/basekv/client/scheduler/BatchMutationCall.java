@@ -42,7 +42,7 @@ import org.apache.bifromq.basescheduler.ICallTask;
 public abstract class BatchMutationCall<ReqT, RespT> implements IBatchCall<ReqT, RespT, MutationCallBatcherKey> {
     protected final MutationCallBatcherKey batcherKey;
     private final IMutationPipeline storePipeline;
-    private Deque<MutationCallTaskBatch<ReqT, RespT>> batchCallTasks = new ArrayDeque<>();
+    private Deque<ICallTask<ReqT, RespT, MutationCallBatcherKey>> pendingCallTasks = new ArrayDeque<>();
 
     protected BatchMutationCall(IMutationPipeline storePipeline, MutationCallBatcherKey batcherKey) {
         this.batcherKey = batcherKey;
@@ -51,20 +51,7 @@ public abstract class BatchMutationCall<ReqT, RespT> implements IBatchCall<ReqT,
 
     @Override
     public final void add(ICallTask<ReqT, RespT, MutationCallBatcherKey> callTask) {
-        MutationCallTaskBatch<ReqT, RespT> lastBatchCallTask;
-        MutationCallBatcherKey batcherKey = callTask.batcherKey();
-        assert callTask.batcherKey().id.equals(batcherKey.id);
-        if ((lastBatchCallTask = batchCallTasks.peekLast()) != null) {
-            if (!lastBatchCallTask.isBatchable(callTask)) {
-                lastBatchCallTask = newBatch(batcherKey.ver);
-                batchCallTasks.add(lastBatchCallTask);
-            }
-            lastBatchCallTask.add(callTask);
-        } else {
-            lastBatchCallTask = newBatch(batcherKey.ver);
-            lastBatchCallTask.add(callTask);
-            batchCallTasks.add(lastBatchCallTask);
-        }
+        pendingCallTasks.add(callTask);
     }
 
     protected MutationCallTaskBatch<ReqT, RespT> newBatch(long ver) {
@@ -81,23 +68,54 @@ public abstract class BatchMutationCall<ReqT, RespT> implements IBatchCall<ReqT,
     @Override
     public void reset(boolean abort) {
         if (abort) {
-            batchCallTasks = new ArrayDeque<>();
+            pendingCallTasks = new ArrayDeque<>();
         }
     }
 
     @Override
     public CompletableFuture<Void> execute() {
-        return execute(batchCallTasks);
+        return executeBatches();
     }
 
-    private CompletableFuture<Void> execute(Deque<MutationCallTaskBatch<ReqT, RespT>> batchCallTasks) {
+    private CompletableFuture<Void> executeBatches() {
         CompletableFuture<Void> chained = CompletableFuture.completedFuture(null);
         MutationCallTaskBatch<ReqT, RespT> batchCallTask;
-        while ((batchCallTask = batchCallTasks.poll()) != null) {
+        while ((batchCallTask = buildNextBatch()) != null) {
             MutationCallTaskBatch<ReqT, RespT> current = batchCallTask;
             chained = chained.thenCompose(v -> fireSingleBatch(current));
         }
         return chained;
+    }
+
+    private MutationCallTaskBatch<ReqT, RespT> buildNextBatch() {
+        if (pendingCallTasks.isEmpty()) {
+            return null;
+        }
+        MutationCallTaskBatch<ReqT, RespT> batchCallTask = null;
+        long batchVer = -1;
+        int size = pendingCallTasks.size();
+        for (int i = 0; i < size; i++) {
+            ICallTask<ReqT, RespT, MutationCallBatcherKey> task = pendingCallTasks.pollFirst();
+            if (task == null) {
+                break;
+            }
+            if (batchCallTask == null) {
+                batchVer = task.batcherKey().ver;
+                batchCallTask = newBatch(batchVer);
+                batchCallTask.add(task);
+                continue;
+            }
+            if (task.batcherKey().ver != batchVer) {
+                pendingCallTasks.addLast(task);
+                continue;
+            }
+            if (batchCallTask.isBatchable(task)) {
+                batchCallTask.add(task);
+            } else {
+                pendingCallTasks.addLast(task);
+            }
+        }
+        return batchCallTask;
     }
 
     private CompletableFuture<Void> fireSingleBatch(MutationCallTaskBatch<ReqT, RespT> batchCallTask) {

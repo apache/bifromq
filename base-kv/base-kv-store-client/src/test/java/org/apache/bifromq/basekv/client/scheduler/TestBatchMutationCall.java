@@ -19,16 +19,16 @@
 
 package org.apache.bifromq.basekv.client.scheduler;
 
-import org.apache.bifromq.basekv.client.IMutationPipeline;
-import org.apache.bifromq.basekv.store.proto.RWCoProcInput;
-import org.apache.bifromq.basekv.store.proto.RWCoProcOutput;
-import org.apache.bifromq.basescheduler.ICallTask;
 import com.google.common.collect.Iterables;
 import com.google.protobuf.ByteString;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.Queue;
 import java.util.Set;
+import org.apache.bifromq.basekv.client.IMutationPipeline;
+import org.apache.bifromq.basekv.store.proto.RWCoProcInput;
+import org.apache.bifromq.basekv.store.proto.RWCoProcOutput;
+import org.apache.bifromq.basescheduler.ICallTask;
 
 public class TestBatchMutationCall extends BatchMutationCall<ByteString, ByteString> {
     protected TestBatchMutationCall(IMutationPipeline pipeline, MutationCallBatcherKey batcherKey) {
@@ -83,6 +83,30 @@ public class TestBatchMutationCall extends BatchMutationCall<ByteString, ByteStr
 
         @Override
         protected boolean isBatchable(ICallTask<ByteString, ByteString, MutationCallBatcherKey> callTask) {
+            return !keys.contains(callTask.call());
+        }
+    }
+
+    static class NonBatchableFirstBatch extends MutationCallTaskBatch<ByteString, ByteString> {
+        private final Set<ByteString> keys = new HashSet<>();
+        private boolean sawNonBatchable;
+
+        protected NonBatchableFirstBatch(long ver) {
+            super(ver);
+        }
+
+        @Override
+        protected void add(ICallTask<ByteString, ByteString, MutationCallBatcherKey> callTask) {
+            super.add(callTask);
+            keys.add(callTask.call());
+        }
+
+        @Override
+        protected boolean isBatchable(ICallTask<ByteString, ByteString, MutationCallBatcherKey> callTask) {
+            if (!sawNonBatchable && callTask.call().toStringUtf8().contains("dup")) {
+                sawNonBatchable = true;
+                return false;
+            }
             return !keys.contains(callTask.call());
         }
     }

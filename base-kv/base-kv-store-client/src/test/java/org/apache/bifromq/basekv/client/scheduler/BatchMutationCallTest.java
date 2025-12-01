@@ -30,6 +30,7 @@ import static org.testng.Assert.assertEquals;
 import com.google.protobuf.ByteString;
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.TreeMap;
 import java.util.concurrent.CompletableFuture;
@@ -77,9 +78,11 @@ public class BatchMutationCallTest {
 
     @Test
     public void addToSameBatch() {
-        when(storeClient.latestEffectiveRouter()).thenReturn(new TreeMap<>(BoundaryUtil::compare) {{
-            put(FULL_BOUNDARY, setting(id, "V1", 0));
-        }});
+        when(storeClient.latestEffectiveRouter()).thenReturn(new TreeMap<>(BoundaryUtil::compare) {
+            {
+                put(FULL_BOUNDARY, setting(id, "V1", 0));
+            }
+        });
 
         when(storeClient.createMutationPipeline("V1")).thenReturn(mutationPipeline1);
         when(mutationPipeline1.execute(any()))
@@ -103,7 +106,8 @@ public class BatchMutationCallTest {
             String[] keys = request.getRwCoProc().getRaw().toStringUtf8().split("_");
             assertEquals(keys.length, Sets.newSet(keys).size());
         }
-        // the resp order preserved
+        Collections.sort(reqList);
+        Collections.sort(respList);
         assertEquals(reqList, respList);
     }
 
@@ -124,19 +128,24 @@ public class BatchMutationCallTest {
             int req = ThreadLocalRandom.current().nextInt(1, 1001);
             reqList.add(req);
             if (req < 500) {
-                when(storeClient.latestEffectiveRouter()).thenReturn(new TreeMap<>(BoundaryUtil::compare) {{
-                    put(FULL_BOUNDARY, setting(id, "V1", 0));
-                }});
+                when(storeClient.latestEffectiveRouter()).thenReturn(new TreeMap<>(BoundaryUtil::compare) {
+                    {
+                        put(FULL_BOUNDARY, setting(id, "V1", 0));
+                    }
+                });
             } else {
-                when(storeClient.latestEffectiveRouter()).thenReturn(new TreeMap<>(BoundaryUtil::compare) {{
-                    put(FULL_BOUNDARY, setting(id, "V2", 0));
-                }});
+                when(storeClient.latestEffectiveRouter()).thenReturn(new TreeMap<>(BoundaryUtil::compare) {
+                    {
+                        put(FULL_BOUNDARY, setting(id, "V2", 0));
+                    }
+                });
             }
             futures.add(scheduler.schedule(ByteString.copyFromUtf8(Integer.toString(req)))
                 .thenAccept((v) -> respList.add(Integer.parseInt(v.toStringUtf8()))));
         }
         CompletableFuture.allOf(futures.toArray(CompletableFuture[]::new)).join();
-        // the resp order preserved
+        Collections.sort(reqList);
+        Collections.sort(respList);
         assertEquals(reqList, respList);
     }
 
@@ -165,5 +174,83 @@ public class BatchMutationCallTest {
         }
         CompletableFuture.allOf(futures.toArray(CompletableFuture[]::new)).join();
         assertEquals(execCount.get(), n);
+    }
+
+    @Test
+    public void reScanWhenHitNonBatchable() {
+        when(storeClient.latestEffectiveRouter()).thenReturn(new TreeMap<>(BoundaryUtil::compare) {
+            {
+                put(FULL_BOUNDARY, setting(id, "V1", 0));
+            }
+        });
+        when(storeClient.createMutationPipeline("V1")).thenReturn(mutationPipeline1);
+        when(mutationPipeline1.execute(any()))
+            .thenReturn(CompletableFuture.supplyAsync(() -> KVRangeRWReply.newBuilder().build()));
+
+        MutationCallScheduler<ByteString, ByteString, TestBatchMutationCall> scheduler =
+            new MutationCallScheduler<>(NonBatchableBatchCall::new, Duration.ofMillis(1000).toNanos(), storeClient) {
+                @Override
+                protected ByteString rangeKey(ByteString call) {
+                    return call;
+                }
+            };
+        List<CompletableFuture<Void>> futures = new ArrayList<>();
+        List<ByteString> reqs = List.of(
+            ByteString.copyFromUtf8("k1"),
+            ByteString.copyFromUtf8("k_dup"), // will mark non-batchable in first batch
+            ByteString.copyFromUtf8("k2"));
+        List<ByteString> resps = new CopyOnWriteArrayList<>();
+        reqs.forEach(req -> futures.add(scheduler.schedule(req).thenAccept(resps::add)));
+        CompletableFuture.allOf(futures.toArray(CompletableFuture[]::new)).join();
+        List<String> reqSorted = reqs.stream().map(ByteString::toStringUtf8).sorted().toList();
+        List<String> respSorted = resps.stream().map(ByteString::toStringUtf8).sorted().toList();
+        assertEquals(reqSorted, respSorted);
+    }
+
+    @Test
+    public void mixDifferentVersions() {
+        when(storeClient.createMutationPipeline("V1")).thenReturn(mutationPipeline1);
+        when(storeClient.createMutationPipeline("V2")).thenReturn(mutationPipeline2);
+        when(mutationPipeline1.execute(any()))
+            .thenReturn(CompletableFuture.supplyAsync(() -> KVRangeRWReply.newBuilder().build()));
+        when(mutationPipeline2.execute(any()))
+            .thenReturn(CompletableFuture.supplyAsync(() -> KVRangeRWReply.newBuilder().build()));
+        TestMutationCallScheduler scheduler = new TestMutationCallScheduler(storeClient, Duration.ofMillis(1000));
+        List<CompletableFuture<Void>> futures = new ArrayList<>();
+        List<ByteString> reqs = new ArrayList<>();
+        List<ByteString> resps = new CopyOnWriteArrayList<>();
+        for (int i = 0; i < 20; i++) {
+            ByteString req = ByteString.copyFromUtf8("k" + i);
+            reqs.add(req);
+            if (i % 2 == 0) {
+                when(storeClient.latestEffectiveRouter()).thenReturn(new TreeMap<>(BoundaryUtil::compare) {
+                    {
+                        put(FULL_BOUNDARY, setting(id, "V1", 0));
+                    }
+                });
+            } else {
+                when(storeClient.latestEffectiveRouter()).thenReturn(new TreeMap<>(BoundaryUtil::compare) {
+                    {
+                        put(FULL_BOUNDARY, setting(id, "V2", 1));
+                    }
+                });
+            }
+            futures.add(scheduler.schedule(req).thenAccept(resps::add));
+        }
+        CompletableFuture.allOf(futures.toArray(CompletableFuture[]::new)).join();
+        List<String> reqSorted = reqs.stream().map(ByteString::toStringUtf8).sorted().toList();
+        List<String> respSorted = resps.stream().map(ByteString::toStringUtf8).sorted().toList();
+        assertEquals(reqSorted, respSorted);
+    }
+
+    private static class NonBatchableBatchCall extends TestBatchMutationCall {
+        protected NonBatchableBatchCall(IMutationPipeline pipeline, MutationCallBatcherKey batcherKey) {
+            super(pipeline, batcherKey);
+        }
+
+        @Override
+        protected NonBatchableFirstBatch newBatch(long ver) {
+            return new NonBatchableFirstBatch(ver);
+        }
     }
 }

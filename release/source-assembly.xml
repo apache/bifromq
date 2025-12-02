@@ -30,7 +30,6 @@
             <outputDirectory>/</outputDirectory>
             <useDefaultExcludes>true</useDefaultExcludes>
             <excludes>
-                <exclude>.mvn/**</exclude>
                 <exclude>.git/**</exclude>
                 <exclude>.github/**</exclude>
                 <exclude>output/**</exclude>

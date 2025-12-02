@@ -122,7 +122,7 @@ Navigate to the project root folder and execute the following commands to build 
 
 ```
 cd bifromq
-mvn wrapper:wrapper
+./mvnw -v
 ./mvnw -U clean verify -DskipTests -Pbuild-release
 ```
 

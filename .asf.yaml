@@ -40,6 +40,7 @@ github:
         dismiss_stale_reviews: false
         required_approving_review_count: 1
       required_linear_history: true
+    release-v4.1: {}
   features:
     issues: true
     projects: true

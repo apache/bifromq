@@ -32,7 +32,7 @@
     <artifactId>bifromq-plugin-bom</artifactId>
     <packaging>pom</packaging>
     <name>Apache BifroMQ Plugin BOM</name>
-    <description>Bill of materials for Apache BifroMQ plugin APIs.</description>
+    <description>Bill of materials for Apache BifroMQ (Incubating) plugin APIs.</description>
 
     <dependencyManagement>
         <dependencies>

@@ -30,7 +30,7 @@
 
     <artifactId>bifromq-plugin-client-balancer</artifactId>
     <name>Apache BifroMQ Plugin Client Balancer</name>
-    <description>Client balancer plugin API for Apache BifroMQ.</description>
+    <description>Client balancer plugin API for Apache BifroMQ (Incubating).</description>
     <dependencies>
         <dependency>
             <groupId>org.apache.bifromq</groupId>

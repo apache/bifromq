@@ -31,7 +31,7 @@
 
     <artifactId>bifromq-plugin-auth-provider</artifactId>
     <name>Apache BifroMQ Plugin Auth Provider</name>
-    <description>Authentication provider plugin API for Apache BifroMQ.</description>
+    <description>Authentication provider plugin API for Apache BifroMQ (Incubating).</description>
 
     <dependencies>
         <dependency>

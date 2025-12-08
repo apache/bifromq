@@ -30,7 +30,7 @@
 
     <artifactId>bifromq-plugin-event-collector</artifactId>
     <name>Apache BifroMQ Plugin Event Collector</name>
-    <description>Event collector plugin API for Apache BifroMQ.</description>
+    <description>Event collector plugin API for Apache BifroMQ (Incubating).</description>
     <dependencies>
         <dependency>
             <groupId>org.apache.bifromq</groupId>

@@ -30,7 +30,7 @@
 
     <artifactId>bifromq-plugin-main</artifactId>
     <name>Apache BifroMQ Plugin Main</name>
-    <description>Bootstrap entrypoint for Apache BifroMQ plugin runtime.</description>
+    <description>Bootstrap entrypoint for Apache BifroMQ (Incubating) plugin runtime.</description>
     <dependencies>
         <dependency>
             <groupId>org.apache.bifromq</groupId>

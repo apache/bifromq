@@ -87,14 +87,22 @@ mvn -N -f "${ROOT_DIR}/pom.xml" \
   ${SKIP_REMOTE_STAGING_OPT[@]+"${SKIP_REMOTE_STAGING_OPT[@]}"} \
   ${ALT_DEPLOY_OPT[@]+"${ALT_DEPLOY_OPT[@]}"} \
   ${GPG_OPT[@]+"${GPG_OPT[@]}"} \
-  deploy
+  flatten:flatten gpg:sign deploy
+
+mvn -N -f "${ROOT_DIR}/pom.xml" \
+  -DskipTests \
+  flatten:clean
 
 mvn -N -f "${ROOT_DIR}/bifromq-plugin/pom.xml" \
   -DskipTests \
   ${SKIP_REMOTE_STAGING_OPT[@]+"${SKIP_REMOTE_STAGING_OPT[@]}"} \
   ${ALT_DEPLOY_OPT[@]+"${ALT_DEPLOY_OPT[@]}"} \
   ${GPG_OPT[@]+"${GPG_OPT[@]}"} \
-  deploy
+  flatten:flatten gpg:sign deploy
+
+mvn -N -f "${ROOT_DIR}/bifromq-plugin/pom.xml" \
+  -DskipTests \
+  flatten:clean
 
 mvn -f "${ROOT_DIR}/bifromq-plugin/plugin-release/pom.xml" \
   -Papache-release \

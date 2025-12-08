@@ -23,14 +23,15 @@
 # Print usage information
 usage() {
   cat <<EOF
-Usage: $(basename "$0") <release-branch> [--upload] [<svn-username> <svn-password>]
+Usage: $(basename "$0") <release-branch> [--upload] [-rc <number>] [<svn-username> <svn-password>]
   <release-branch>   Release branch in format release-v<major>.<minor>.x (e.g. release-v4.0.x)
   --upload           (Optional) Upload artifacts to Apache dist/dev SVN
+  -rc <number>       (Optional) Append -RC<number> suffix to tag when provided
   <svn-username>      (Optional) SVN username for committing to Apache Dev repo
   <svn-password>      (Optional) SVN password for committing to Apache Dev repo
 
 Example:
-  $(basename "$0") release-v1.0.x-incubating --upload my_user my_password
+  $(basename "$0") release-v4.0.x --upload -rc 1 my_user my_password
 EOF
 }
 
@@ -53,6 +54,7 @@ BRANCH="$1"
 UPLOAD=false
 USERNAME=""
 PASSWORD=""
+RC_NUMBER=""
 SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
 
 verify_gpg_access() {
@@ -69,6 +71,20 @@ while [[ $# -gt 0 ]]; do
     --upload)
       UPLOAD=true
       shift
+      ;;
+    -rc)
+      if [[ -z "$2" ]]; then
+        echo "ERROR: -rc requires a number argument"
+        usage
+        exit 1
+      fi
+      if [[ ! "$2" =~ ^[1-9][0-9]*$ ]]; then
+        echo "ERROR: -rc number must be a positive integer"
+        usage
+        exit 1
+      fi
+      RC_NUMBER="$2"
+      shift 2
       ;;
     *)
       if [[ -z "$USERNAME" ]]; then
@@ -114,6 +130,9 @@ if [[ -z "$REVISION" ]]; then
 fi
 
 TAG="v${REVISION}"
+if [[ -n "$RC_NUMBER" ]]; then
+  TAG="${TAG}-RC${RC_NUMBER}"
+fi
 if ! git rev-parse -q --verify "refs/tags/${TAG}" >/dev/null; then
   echo "ERROR: Tag ${TAG} not found"
   exit 1
@@ -150,19 +169,27 @@ echo "Signing artifacts..."
 bash "${SCRIPT_DIR}/sign-artifacts.sh" "$WORKDIR"
 
 if [ "$UPLOAD" = true ]; then
+  UPLOAD_DIR="${REVISION}"
+  if [[ -n "$RC_NUMBER" ]]; then
+    UPLOAD_DIR="${REVISION}-RC${RC_NUMBER}"
+  fi
   SVN_TMP=$(mktemp -d)
   svn checkout "$ASF_SVN_DEV_URL" "$SVN_TMP"
-  mkdir -p "$SVN_TMP/${REVISION}"
-  cp target/output/* "$SVN_TMP/${REVISION}/"
+  mkdir -p "$SVN_TMP/${UPLOAD_DIR}"
+  for f in "$WORKDIR"/*; do
+    if [[ -f "$f" ]]; then
+      cp "$f" "$SVN_TMP/${UPLOAD_DIR}/"
+    fi
+  done
   cd "$SVN_TMP"
-  svn add --force "${REVISION}"
+  svn add --force "${UPLOAD_DIR}"
   svn status
   if [ "$USERNAME" = "" ]; then
-    svn commit -m "Add release ${REVISION}" || exit
+    svn commit -m "Add release ${UPLOAD_DIR}" || exit
   else
-    svn commit -m "Add release ${REVISION}" --username "${USERNAME}" --password "${PASSWORD}" || exit
+    svn commit -m "Add release ${UPLOAD_DIR}" --username "${USERNAME}" --password "${PASSWORD}" || exit
   fi
-  echo "Artifacts uploaded to SVN dev: ${REVISION}"
+  echo "Artifacts uploaded to SVN dev: ${UPLOAD_DIR}"
 else
   echo "Artifacts generated under target/output and copied to $WORKDIR. Use --upload to push to SVN."
 fi

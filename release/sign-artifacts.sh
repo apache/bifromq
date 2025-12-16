@@ -24,8 +24,10 @@ set -euo pipefail
 
 out_dir="${1:?output dir required}"
 
+cd "$out_dir"
+
 shopt -s nullglob
-files=("${out_dir}"/*.tar.gz "${out_dir}"/*.zip)
+files=(*.tar.gz *.zip)
 shopt -u nullglob
 
 if [[ ${#files[@]} -eq 0 ]]; then
@@ -35,5 +37,4 @@ fi
 
 for f in "${files[@]}"; do
   gpg --armor --detach-sign "$f"
-  shasum -a 512 "$f" > "${f}.sha512"
 done

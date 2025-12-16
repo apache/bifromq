@@ -28,6 +28,16 @@
             <source>../build-plugin-demo/target/pluginDir/demo-plugin-${project.parent.version}.jar</source>
             <outputDirectory>plugins</outputDirectory>
         </file>
+        <file>
+            <source>${project.basedir}/../../LICENSE-Binary</source>
+            <outputDirectory>/</outputDirectory>
+            <destName>LICENSE</destName>
+        </file>
+        <file>
+            <source>${project.basedir}/../../NOTICE-Binary</source>
+            <outputDirectory>/</outputDirectory>
+            <destName>NOTICE</destName>
+        </file>
     </files>
     <fileSets>
         <fileSet>
@@ -49,10 +59,6 @@
             <directory>${project.basedir}/../../</directory>
             <includes>
                 <include>licenses/**</include>
-                <include>LICENSE</include>
-                <include>LICENSE-Binary</include>
-                <include>NOTICE</include>
-                <include>NOTICE-Binary</include>
                 <include>DISCLAIMER</include>
             </includes>
             <outputDirectory>/</outputDirectory>

@@ -297,8 +297,10 @@ public class KVRangeDumpSessionTest extends MockableTest {
         dumpSession.tick();
         verify(messenger, timeout(100).times(2)).send(any());
         assertTrue(dumpSession.awaitDone().toCompletableFuture().isDone());
-        verify(checkpointItr).close();
-        verify(checkpointReader).close();
+        await().untilAsserted(() -> {
+            verify(checkpointItr).close();
+            verify(checkpointReader).close();
+        });
     }
 
     @Test

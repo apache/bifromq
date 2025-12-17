@@ -205,15 +205,11 @@ This project's binary output bundles third-party dependencies and their licenses
 
 Apache License, Version 2.0
 - aopalliance:aopalliance:1.0
-- com.beust:jcommander:1.82
+- com.google.android:annotations:4.1.1.4
 - com.fasterxml.jackson.core:jackson-annotations:2.18.1
 - com.fasterxml.jackson.core:jackson-core:2.18.1
 - com.fasterxml.jackson.core:jackson-databind:2.18.1
 - com.fasterxml.jackson.dataformat:jackson-dataformat-yaml:2.18.1
-- com.fasterxml.jackson.datatype:jackson-datatype-jsr310:2.18.1
-- com.fasterxml.jackson.jakarta.rs:jackson-jakarta-rs-base:2.18.1
-- com.fasterxml.jackson.jakarta.rs:jackson-jakarta-rs-json-provider:2.18.1
-- com.fasterxml.jackson.module:jackson-module-jakarta-xmlbind-annotations:2.18.1
 - com.github.ben-manes.caffeine:caffeine:3.2.3
 - com.google.guava:failureaccess:1.0.2
 - com.google.guava:guava:33.2.1-jre
@@ -221,8 +217,11 @@ Apache License, Version 2.0
 - com.google.inject:guice:7.0.0
 - com.google.j2objc:j2objc-annotations:2.8
 - com.google.j2objc:j2objc-annotations:3.0.0
+- com.google.errorprone:error_prone_annotations:2.26.1
+- com.google.code.gson:gson:2.8.9
+- com.google.code.findbugs:jsr305:3.0.2
+- com.google.api.grpc:proto-google-common-protos:2.59.2
 - commons-cli:commons-cli:1.5.0
-- org.apache.commons:commons-collections4:4.4
 - io.grpc:grpc-api:1.77.0
 - io.grpc:grpc-context:1.77.0
 - io.grpc:grpc-core:1.77.0
@@ -268,32 +267,24 @@ Apache License, Version 2.0
 - io.netty:netty-transport-rxtx:4.1.127.Final
 - io.netty:netty-transport-sctp:4.1.127.Final
 - io.netty:netty-transport-udt:4.1.127.Final
+- io.netty:netty-tcnative-classes:2.0.73.Final
 - io.prometheus:simpleclient:0.16.0
 - io.prometheus:simpleclient_common:0.16.0
 - io.prometheus:simpleclient_tracer_common:0.16.0
 - io.prometheus:simpleclient_tracer_otel:0.16.0
 - io.prometheus:simpleclient_tracer_otel_agent:0.16.0
 - io.reactivex.rxjava3:rxjava:3.1.12
-- io.swagger.core.v3:swagger-annotations-jakarta:2.2.40
-- io.swagger.core.v3:swagger-core-jakarta:2.2.40
-- io.swagger.core.v3:swagger-integration-jakarta:2.2.40
-- io.swagger.core.v3:swagger-jaxrs2-jakarta:2.2.40
-- io.swagger.core.v3:swagger-models-jakarta:2.2.40
 - jakarta.inject:jakarta.inject-api:2.0.1
-- jakarta.validation:jakarta.validation-api:3.0.2
-- net.bytebuddy:byte-buddy:1.14.15
-- net.bytebuddy:byte-buddy-agent:1.14.15
-- org.apache.commons:commons-lang3:3.17.0
 - org.apache.logging.log4j:log4j-api:2.24.3
 - org.apache.logging.log4j:log4j-core:2.24.3
 - org.apache.logging.log4j:log4j-slf4j2-impl:2.24.3
 - org.javassist:javassist:3.28.0-GA (Apache License 2.0 / LGPL 2.1 / MPL 1.1)
 - org.jspecify:jspecify:1.0.0
-- org.objenesis:objenesis:3.3
 - org.pf4j:pf4j:3.13.0
 - org.reflections:reflections:0.10.2 (Apache License 2.0 / WTFPL)
 - org.rocksdb:rocksdbjni:9.7.3 (Apache License 2.0 / GPLv2)
 - org.yaml:snakeyaml:2.3
+- io.perfmark:perfmark-api:0.27.0
 
 BSD-3-Clause (see: licenses/bsd-3-clause.txt)
 - com.google.protobuf:protobuf-java:4.30.2
@@ -311,6 +302,7 @@ MIT License (see: licenses/mit.txt)
 - org.checkerframework:checker-qual:3.42.0
 - org.codehaus.mojo:animal-sniffer-annotations:1.24
 - org.slf4j:slf4j-api:2.0.17
+- com.github.zafarkhaja:java-semver:0.10.2
 
 MIT-0 (see: licenses/mit-0.txt)
 - org.reactivestreams:reactive-streams:1.0.4
@@ -322,6 +314,3 @@ Bouncy Castle Licence (see: licenses/bouncy-castle.txt)
 
 EPL-2.0 / GPL-2.0-with-classpath-exception (see: licenses/epl-2.0.txt)
 - jakarta.ws.rs:jakarta.ws.rs-api:4.0.0
-
-Eclipse Distribution License - v 1.0 (see: licenses/edl-1.0.txt)
-- jakarta.xml.bind:jakarta.xml.bind-api:3.0.1

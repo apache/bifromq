@@ -57,6 +57,15 @@
                 <exclude>.DS_Store</exclude>
                 <exclude>**/.DS_Store</exclude>
                 <exclude>Thumbs.db</exclude>
+
+                <exclude>.mvn/wrapper/maven-wrapper.jar</exclude>
+                <exclude>release/plugin-release.sh</exclude>
+                <exclude>release/sign-artifacts.sh</exclude>
+                <exclude>release/release.sh</exclude>
+                <exclude>.asf.yaml</exclude>
+                <exclude>.gitattributes</exclude>
+                <exclude>.gitignore</exclude>
+                <exclude>.licenserc.yaml</exclude>
             </excludes>
         </fileSet>
     </fileSets>

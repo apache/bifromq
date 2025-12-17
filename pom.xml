@@ -742,10 +742,9 @@
             </dependency>
             <dependency>
                 <groupId>org.mockito</groupId>
-                <artifactId>mockito-bom</artifactId>
-                <type>pom</type>
+                <artifactId>mockito-core</artifactId>
                 <version>${mockito.version}</version>
-                <scope>import</scope>
+                <scope>test</scope>
             </dependency>
             <dependency>
                 <groupId>org.testng</groupId>
@@ -939,6 +938,11 @@
                         <excludes>
                             <exclude>**/benchmark/**</exclude>
                         </excludes>
+                        <suiteXmlFiles>
+                            <suiteXmlFile>
+                                ${maven.multiModuleProjectDirectory}/testsuites/UnitTests.xml
+                            </suiteXmlFile>
+                        </suiteXmlFiles>
                         <additionalClasspathDependencies>
                             <dependency>
                                 <groupId>org.apache.bifromq</groupId>
@@ -1069,6 +1073,48 @@
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-checkstyle-plugin</artifactId>
             </plugin>
+            <plugin>
+                <groupId>org.apache.rat</groupId>
+                <artifactId>apache-rat-plugin</artifactId>
+                <configuration>
+                    <excludes>
+                        <exclude>.github/**</exclude>
+                        <exclude>.gitignore</exclude>
+                        <exclude>.gitattributes</exclude>
+                        <exclude>**/target/**</exclude>
+                        <exclude>**/.idea/**</exclude>
+                        <exclude>**/*.iml</exclude>
+                        <exclude>**/.run/**</exclude>
+                        <exclude>**/.mvn/**</exclude>
+                        <exclude>**/.tmp/**</exclude>
+                        <exclude>**/.git/**</exclude>
+                        <exclude>**/.DS_Store</exclude>
+                        <exclude>lombok.config</exclude>
+                        <exclude>META-INF/services/**</exclude>
+                        <exclude>**/META-INF/services/**</exclude>
+                        <exclude>**/*.crt</exclude>
+                        <exclude>**/*.pem</exclude>
+                        <exclude>**/MANIFEST.MF</exclude>
+                        <exclude>licenses/*.txt</exclude>
+                        <exclude>DISCLAIMER</exclude>
+                        <exclude>LICENSE</exclude>
+                        <exclude>LICENSE-Binary</exclude>
+                        <exclude>NOTICE</exclude>
+                        <exclude>NOTICE-Binary</exclude>
+                    </excludes>
+                    <excludeSubProjects>false</excludeSubProjects>
+                </configuration>
+                <executions>
+                    <execution>
+                        <id>rat-check</id>
+                        <inherited>false</inherited>
+                        <phase>verify</phase>
+                        <goals>
+                            <goal>check</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
         </plugins>
     </build>
 
@@ -1187,45 +1233,6 @@
                     <plugin>
                         <groupId>org.apache.rat</groupId>
                         <artifactId>apache-rat-plugin</artifactId>
-                        <executions>
-                            <execution>
-                                <id>rat-check</id>
-                                <inherited>false</inherited>
-                                <phase>verify</phase>
-                                <goals>
-                                    <goal>check</goal>
-                                </goals>
-                                <configuration>
-                                    <excludes>
-                                        <exclude>.github/**</exclude>
-                                        <exclude>.gitignore</exclude>
-                                        <exclude>.gitattributes</exclude>
-                                        <exclude>**/target/**</exclude>
-                                        <exclude>**/.idea/**</exclude>
-                                        <exclude>**/*.iml</exclude>
-                                        <exclude>**/.run/**</exclude>
-                                        <exclude>**/.mvn/**</exclude>
-                                        <exclude>**/.tmp/**</exclude>
-                                        <exclude>**/.git/**</exclude>
-                                        <exclude>**/.DS_Store</exclude>
-                                        <exclude>lombok.config</exclude>
-                                        <exclude>META-INF/**</exclude>
-                                        <exclude>**/META-INF/**</exclude>
-                                        <exclude>**/resources/META-INF/**</exclude>
-                                        <exclude>**/*.crt</exclude>
-                                        <exclude>**/*.pem</exclude>
-                                        <exclude>**/MANIFEST.MF</exclude>
-                                        <exclude>**/*.md</exclude>
-                                        <exclude>licenses/*.txt</exclude>
-                                        <exclude>DISCLAIMER</exclude>
-                                        <exclude>LICENSE</exclude>
-                                        <exclude>LICENSE-Binary</exclude>
-                                        <exclude>NOTICE</exclude>
-                                        <exclude>NOTICE-Binary</exclude>
-                                    </excludes>
-                                </configuration>
-                            </execution>
-                        </executions>
                     </plugin>
                 </plugins>
             </build>

@@ -1090,9 +1090,8 @@
                         <exclude>**/.git/**</exclude>
                         <exclude>**/.DS_Store</exclude>
                         <exclude>lombok.config</exclude>
-                        <exclude>META-INF/**</exclude>
-                        <exclude>**/META-INF/**</exclude>
-                        <exclude>**/resources/META-INF/**</exclude>
+                        <exclude>META-INF/services/**</exclude>
+                        <exclude>**/META-INF/services/**</exclude>
                         <exclude>**/*.crt</exclude>
                         <exclude>**/*.pem</exclude>
                         <exclude>**/MANIFEST.MF</exclude>
@@ -1103,6 +1102,7 @@
                         <exclude>NOTICE</exclude>
                         <exclude>NOTICE-Binary</exclude>
                     </excludes>
+                    <excludeSubProjects>false</excludeSubProjects>
                 </configuration>
                 <executions>
                     <execution>

@@ -24,11 +24,11 @@ import static org.apache.bifromq.basekv.client.KVRangeRouterUtil.findByBoundary;
 import static org.apache.bifromq.basekv.utils.BoundaryUtil.toBoundary;
 import static org.apache.bifromq.basekv.utils.BoundaryUtil.upperBound;
 import static org.apache.bifromq.inbox.store.schema.KVSchemaUtil.tenantBeginKeyPrefix;
-import static org.reflections.Reflections.log;
 
 import com.google.protobuf.ByteString;
 import java.util.Collection;
 import java.util.concurrent.CompletableFuture;
+import lombok.extern.slf4j.Slf4j;
 import org.apache.bifromq.basekv.client.IBaseKVStoreClient;
 import org.apache.bifromq.basekv.client.KVRangeSetting;
 import org.apache.bifromq.basekv.client.exception.BadRequestException;
@@ -44,6 +44,7 @@ import org.apache.bifromq.inbox.storage.proto.ExpireTenantReply;
 import org.apache.bifromq.inbox.storage.proto.ExpireTenantRequest;
 import org.apache.bifromq.inbox.storage.proto.InboxServiceROCoProcInput;
 
+@Slf4j
 public class TenantGCRunner implements ITenantGCRunner {
     private final IBaseKVStoreClient storeClient;
 

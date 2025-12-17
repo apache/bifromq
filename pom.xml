@@ -938,6 +938,11 @@
                         <excludes>
                             <exclude>**/benchmark/**</exclude>
                         </excludes>
+                        <suiteXmlFiles>
+                            <suiteXmlFile>
+                                ${maven.multiModuleProjectDirectory}/testsuites/UnitTests.xml
+                            </suiteXmlFile>
+                        </suiteXmlFiles>
                         <additionalClasspathDependencies>
                             <dependency>
                                 <groupId>org.apache.bifromq</groupId>

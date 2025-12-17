@@ -164,13 +164,17 @@ The build output consists of several archive files with `sha512` checksum locate
     * Example classifiers: `linux-x86_64`, `linux-aarch_64`, `osx-aarch_64`, `osx-x86_64`, `windows-x86_64`.
 
 #### Running the tests
-
-Execute the following command in the project root folder to run all test cases, including unit tests and integration
-tests.
-Note: The tests may take some time to finish
-
+Prepare the test environment (compile and download dependencies without running tests):
 ```
-mvn test
+./mvnw clean install -DskipTests
+```
+Run unit tests only:
+```
+./mvnw test
+```
+Generate coverage (includes unit tests and integration tests, takes longer):
+```
+./mvnw test -Pbuild-coverage
 ```
 
 #### Build the Docker Image

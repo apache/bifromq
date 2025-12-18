@@ -168,25 +168,31 @@ done
 echo "Signing artifacts..."
 bash "${SCRIPT_DIR}/sign-artifacts.sh" "$WORKDIR"
 
-if [ "$UPLOAD" = true ]; then
-  UPLOAD_DIR="${REVISION}"
-  if [[ -n "$RC_NUMBER" ]]; then
-    UPLOAD_DIR="${REVISION}-RC${RC_NUMBER}"
-  fi
-  SVN_TMP=$(mktemp -d)
-  svn checkout "$ASF_SVN_DEV_URL" "$SVN_TMP"
-  mkdir -p "$SVN_TMP/${UPLOAD_DIR}"
-  for f in "$WORKDIR"/*; do
-    if [[ -f "$f" ]]; then
-      cp "$f" "$SVN_TMP/${UPLOAD_DIR}/"
+  if [ "$UPLOAD" = true ]; then
+    UPLOAD_DIR="${REVISION}"
+    if [[ -n "$RC_NUMBER" ]]; then
+      UPLOAD_DIR="${REVISION}-RC${RC_NUMBER}"
     fi
-  done
-  cd "$SVN_TMP"
-  svn add --force "${UPLOAD_DIR}"
-  svn status
-  if [ "$USERNAME" = "" ]; then
-    svn commit -m "Add release ${UPLOAD_DIR}" || exit
-  else
+    SVN_TMP=$(mktemp -d)
+    cd "$SVN_TMP"
+    svn checkout --depth empty "$ASF_SVN_DEV_URL" "$SVN_TMP"
+    if svn ls "${ASF_SVN_DEV_URL}/${UPLOAD_DIR}" >/dev/null 2>&1; then
+      svn update --set-depth infinity "${UPLOAD_DIR}"
+      svn rm --force "${UPLOAD_DIR}"
+    else
+      svn mkdir "${UPLOAD_DIR}"
+    fi
+    mkdir -p "${UPLOAD_DIR}"
+    for f in "$WORKDIR"/*; do
+      if [[ -f "$f" ]]; then
+        cp "$f" "${UPLOAD_DIR}/"
+      fi
+    done
+    svn add --force "${UPLOAD_DIR}"
+    svn status
+    if [ "$USERNAME" = "" ]; then
+      svn commit -m "Add release ${UPLOAD_DIR}" || exit
+    else
     svn commit -m "Add release ${UPLOAD_DIR}" --username "${USERNAME}" --password "${PASSWORD}" || exit
   fi
   echo "Artifacts uploaded to SVN dev: ${UPLOAD_DIR}"

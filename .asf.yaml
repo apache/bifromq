@@ -40,6 +40,7 @@ github:
         dismiss_stale_reviews: false
         required_approving_review_count: 1
       required_linear_history: true
+      required_conversation_resolution: true
     release-v4.0: {} # release branch for 4.0.x-incubating
   features:
     issues: true

@@ -118,6 +118,29 @@ message ProposeReply {
 message TimeoutNow {
 }
 
+message RequestChangeClusterConfig {
+  uint32 id = 1;
+  string correlateId = 2;
+  repeated string voters = 3;
+  repeated string learners = 4;
+}
+
+message RequestChangeClusterConfigReply {
+  enum Code {
+    Success = 0;
+    ConcurrentChange = 1;
+    EmptyVoters = 2;
+    LearnersOverlap = 3;
+    SlowLearner = 4;
+    LeaderStepDown = 5;
+    NoLeader = 6;
+    ForwardTimeout = 7;
+    Cancelled = 8;
+  }
+  uint32 id = 1;
+  Code code = 2;
+}
+
 message RaftMessage {
   uint64 term = 1; // sender's term
   oneof MessageType {
@@ -134,5 +157,7 @@ message RaftMessage {
     Propose propose = 12;
     ProposeReply proposeReply = 13;
     TimeoutNow timeoutNow = 14;
+    RequestChangeClusterConfig requestChangeClusterConfig = 15;
+    RequestChangeClusterConfigReply requestChangeClusterConfigReply = 16;
   };
 }

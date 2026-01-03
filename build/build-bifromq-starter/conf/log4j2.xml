@@ -57,8 +57,14 @@
             <PatternLayout pattern="${pluginLogPattern}"/>
             <Policies>
                 <TimeBasedTriggeringPolicy interval="1" modulate="true"/>
+                <OnStartupTriggeringPolicy/>
             </Policies>
-            <DefaultRolloverStrategy max="72"/>
+            <DefaultRolloverStrategy>
+                <Delete basePath="${logDir}" maxDepth="1">
+                    <IfFileName glob="plugin.*.log"/>
+                    <IfLastModified age="72h"/>
+                </Delete>
+            </DefaultRolloverStrategy>
         </RollingFile>
 
         <RollingFile name="eventLogFile"
@@ -67,8 +73,14 @@
             <PatternLayout pattern="${eventPattern}"/>
             <Policies>
                 <TimeBasedTriggeringPolicy interval="1" modulate="true"/>
+                <OnStartupTriggeringPolicy/>
             </Policies>
-            <DefaultRolloverStrategy max="72"/>
+            <DefaultRolloverStrategy>
+                <Delete basePath="${logDir}" maxDepth="1">
+                    <IfFileName glob="event.*.log"/>
+                    <IfLastModified age="72h"/>
+                </Delete>
+            </DefaultRolloverStrategy>
         </RollingFile>
 
         <Routing name="crdtLogFile">
@@ -80,8 +92,14 @@
                         <PatternLayout pattern="${crdtLogPattern}"/>
                         <Policies>
                             <TimeBasedTriggeringPolicy interval="1" modulate="true"/>
+                            <OnStartupTriggeringPolicy/>
                         </Policies>
-                        <DefaultRolloverStrategy max="7"/>
+                        <DefaultRolloverStrategy>
+                            <Delete basePath="${logDir}/crdt" maxDepth="1">
+                                <IfFileName glob="${ctx:store}-${ctx:replica:-store}.*.log"/>
+                                <IfLastModified age="7h"/>
+                            </Delete>
+                        </DefaultRolloverStrategy>
                     </RollingFile>
                 </Route>
             </Routes>
@@ -96,8 +114,14 @@
                         <PatternLayout pattern="${raftLogPattern}"/>
                         <Policies>
                             <TimeBasedTriggeringPolicy interval="1" modulate="true"/>
+                            <OnStartupTriggeringPolicy/>
                         </Policies>
-                        <DefaultRolloverStrategy max="7"/>
+                        <DefaultRolloverStrategy>
+                            <Delete basePath="${logDir}/basekv" maxDepth="1">
+                                <IfFileName glob="${ctx:clusterId}-${ctx:storeId}-${ctx:rangeId}-raft.*.log"/>
+                                <IfLastModified age="7h"/>
+                            </Delete>
+                        </DefaultRolloverStrategy>
                     </RollingFile>
                 </Route>
             </Routes>
@@ -112,8 +136,14 @@
                         <PatternLayout pattern="${balancerLogPattern}"/>
                         <Policies>
                             <TimeBasedTriggeringPolicy interval="1" modulate="true"/>
+                            <OnStartupTriggeringPolicy/>
                         </Policies>
-                        <DefaultRolloverStrategy max="7"/>
+                        <DefaultRolloverStrategy>
+                            <Delete basePath="${logDir}/basekv" maxDepth="1">
+                                <IfFileName glob="${ctx:clusterId}-${ctx:storeId}-balancer.*.log"/>
+                                <IfLastModified age="7h"/>
+                            </Delete>
+                        </DefaultRolloverStrategy>
                     </RollingFile>
                 </Route>
             </Routes>
@@ -128,8 +158,14 @@
                         <PatternLayout pattern="${logPattern}"/>
                         <Policies>
                             <TimeBasedTriggeringPolicy interval="1" modulate="true"/>
+                            <OnStartupTriggeringPolicy/>
                         </Policies>
-                        <DefaultRolloverStrategy max="7"/>
+                        <DefaultRolloverStrategy>
+                            <Delete basePath="${logDir}/basekv" maxDepth="1">
+                                <IfFileName glob="${ctx:clusterId}-client.*.log"/>
+                                <IfLastModified age="7h"/>
+                            </Delete>
+                        </DefaultRolloverStrategy>
                     </RollingFile>
                 </Route>
             </Routes>
@@ -144,8 +180,14 @@
                         <PatternLayout pattern="${logPattern}"/>
                         <Policies>
                             <TimeBasedTriggeringPolicy interval="1" modulate="true"/>
+                            <OnStartupTriggeringPolicy/>
                         </Policies>
-                        <DefaultRolloverStrategy max="7"/>
+                        <DefaultRolloverStrategy>
+                            <Delete basePath="${logDir}/basekv" maxDepth="1">
+                                <IfFileName glob="${ctx:clusterId}-${ctx:storeId}-${ctx:rangeId:-store}.*.log"/>
+                                <IfLastModified age="7h"/>
+                            </Delete>
+                        </DefaultRolloverStrategy>
                     </RollingFile>
                 </Route>
             </Routes>
@@ -157,8 +199,14 @@
             <PatternLayout pattern="${logPattern}"/>
             <Policies>
                 <TimeBasedTriggeringPolicy interval="1" modulate="true"/>
+                <OnStartupTriggeringPolicy/>
             </Policies>
-            <DefaultRolloverStrategy max="7"/>
+            <DefaultRolloverStrategy>
+                <Delete basePath="${logDir}" maxDepth="1">
+                    <IfFileName glob="trace.*.log"/>
+                    <IfLastModified age="7h"/>
+                </Delete>
+            </DefaultRolloverStrategy>
             <Filters>
                 <LevelMatchFilter level="TRACE" onMatch="ACCEPT" onMismatch="DENY"/>
             </Filters>
@@ -170,8 +218,14 @@
             <PatternLayout pattern="${logPattern}"/>
             <Policies>
                 <TimeBasedTriggeringPolicy interval="1" modulate="true"/>
+                <OnStartupTriggeringPolicy/>
             </Policies>
-            <DefaultRolloverStrategy max="7"/>
+            <DefaultRolloverStrategy>
+                <Delete basePath="${logDir}" maxDepth="1">
+                    <IfFileName glob="debug.*.log"/>
+                    <IfLastModified age="7h"/>
+                </Delete>
+            </DefaultRolloverStrategy>
             <Filters>
                 <LevelMatchFilter level="DEBUG" onMatch="ACCEPT" onMismatch="DENY"/>
             </Filters>
@@ -183,8 +237,14 @@
             <PatternLayout pattern="${logPattern}"/>
             <Policies>
                 <TimeBasedTriggeringPolicy interval="1" modulate="true"/>
+                <OnStartupTriggeringPolicy/>
             </Policies>
-            <DefaultRolloverStrategy max="7"/>
+            <DefaultRolloverStrategy>
+                <Delete basePath="${logDir}" maxDepth="1">
+                    <IfFileName glob="info.*.log"/>
+                    <IfLastModified age="7h"/>
+                </Delete>
+            </DefaultRolloverStrategy>
             <Filters>
                 <LevelMatchFilter level="INFO" onMatch="ACCEPT" onMismatch="DENY"/>
             </Filters>
@@ -196,8 +256,14 @@
             <PatternLayout pattern="${logPattern}"/>
             <Policies>
                 <TimeBasedTriggeringPolicy interval="1" modulate="true"/>
+                <OnStartupTriggeringPolicy/>
             </Policies>
-            <DefaultRolloverStrategy max="7"/>
+            <DefaultRolloverStrategy>
+                <Delete basePath="${logDir}" maxDepth="1">
+                    <IfFileName glob="warn.*.log"/>
+                    <IfLastModified age="7h"/>
+                </Delete>
+            </DefaultRolloverStrategy>
             <Filters>
                 <LevelMatchFilter level="WARN" onMatch="ACCEPT" onMismatch="DENY"/>
             </Filters>
@@ -209,8 +275,14 @@
             <PatternLayout pattern="${logPattern}"/>
             <Policies>
                 <TimeBasedTriggeringPolicy interval="1" modulate="true"/>
+                <OnStartupTriggeringPolicy/>
             </Policies>
-            <DefaultRolloverStrategy max="7"/>
+            <DefaultRolloverStrategy>
+                <Delete basePath="${logDir}" maxDepth="1">
+                    <IfFileName glob="error.*.log"/>
+                    <IfLastModified age="7h"/>
+                </Delete>
+            </DefaultRolloverStrategy>
             <Filters>
                 <LevelMatchFilter level="ERROR" onMatch="ACCEPT" onMismatch="DENY"/>
             </Filters>

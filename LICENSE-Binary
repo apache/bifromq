@@ -204,7 +204,6 @@
 This project's binary output bundles third-party dependencies and their licenses:
 
 Apache License, Version 2.0
-- aopalliance:aopalliance:1.0
 - com.google.android:annotations:4.1.1.4
 - com.fasterxml.jackson.core:jackson-annotations:2.18.1
 - com.fasterxml.jackson.core:jackson-core:2.18.1
@@ -278,39 +277,49 @@ Apache License, Version 2.0
 - org.apache.logging.log4j:log4j-api:2.24.3
 - org.apache.logging.log4j:log4j-core:2.24.3
 - org.apache.logging.log4j:log4j-slf4j2-impl:2.24.3
-- org.javassist:javassist:3.28.0-GA (Apache License 2.0 / LGPL 2.1 / MPL 1.1)
+- org.javassist:javassist:3.28.0-GA
 - org.jspecify:jspecify:1.0.0
 - org.pf4j:pf4j:3.13.0
-- org.reflections:reflections:0.10.2 (Apache License 2.0 / WTFPL)
-- org.rocksdb:rocksdbjni:9.7.3 (Apache License 2.0 / GPLv2)
+- org.reflections:reflections:0.10.2
+- org.rocksdb:rocksdbjni:9.7.3
 - org.yaml:snakeyaml:2.3
 - io.perfmark:perfmark-api:0.27.0
 
-BSD-3-Clause (see: licenses/bsd-3-clause.txt)
+BSD-3-Clause (see: licenses/protobuf-license.txt)
 - com.google.protobuf:protobuf-java:4.30.2
 - com.google.protobuf:protobuf-java-util:4.30.2
 
-BSD-2-Clause (Public Domain, see: licenses/bsd-3-clause.txt)
+BSD-2-Clause (Public Domain, see: licenses/hdrhistogram-license.txt)
 - org.hdrhistogram:HdrHistogram:2.1.12
 
-Public Domain
+Public Domain (see: licenses/latencyutils-license.txt)
 - org.latencyutils:LatencyUtils:2.0.3
+
+Public Domain (see: licenses/aopalliance-license.txt)
 - aopalliance:aopalliance:1.0
 
-MIT License (see: licenses/mit.txt)
+MIT License (see: licenses/pcollections-license.txt)
 - org.pcollections:pcollections:4.0.2
+
+MIT License (see: licenses/checker-qual-license.txt)
 - org.checkerframework:checker-qual:3.42.0
+
+MIT License (see: licenses/animal-sniffer-annotations-license.txt)
 - org.codehaus.mojo:animal-sniffer-annotations:1.24
+
+MIT License (see: licenses/slf4j-license.txt)
 - org.slf4j:slf4j-api:2.0.17
+
+MIT License (see: licenses/java-semver-license.txt)
 - com.github.zafarkhaja:java-semver:0.10.2
 
-MIT-0 (see: licenses/mit-0.txt)
+MIT No Attribution (see: licenses/reactivestreams-license.txt)
 - org.reactivestreams:reactive-streams:1.0.4
 
-Bouncy Castle Licence (see: licenses/bouncy-castle.txt)
+Bouncy Castle Licence (see: licenses/bouncy-castle-license.txt)
 - org.bouncycastle:bcpkix-jdk18on:1.79
 - org.bouncycastle:bcprov-jdk18on:1.79
 - org.bouncycastle:bcutil-jdk18on:1.79
 
-EPL-2.0 / GPL-2.0-with-classpath-exception (see: licenses/epl-2.0.txt)
+EPL-2.0 (see: licenses/epl-2.0.txt)
 - jakarta.ws.rs:jakarta.ws.rs-api:4.0.0

@@ -32,7 +32,7 @@
 
     <artifactId>bifromq-plugin-archetype</artifactId>
     <name>Apache BifroMQ Plugin Archetype</name>
-    <description>Archetype for scaffolding Apache BifroMQ plugins.</description>
+    <description>Archetype for scaffolding Apache BifroMQ (Incubating) plugins.</description>
 
     <build>
         <extensions>

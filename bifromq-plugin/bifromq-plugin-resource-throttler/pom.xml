@@ -30,7 +30,7 @@
 
     <artifactId>bifromq-plugin-resource-throttler</artifactId>
     <name>Apache BifroMQ Plugin Resource Throttler</name>
-    <description>Resource throttling plugin API for Apache BifroMQ.</description>
+    <description>Resource throttling plugin API for Apache BifroMQ (Incubating).</description>
     <dependencies>
         <dependency>
             <groupId>org.apache.bifromq</groupId>

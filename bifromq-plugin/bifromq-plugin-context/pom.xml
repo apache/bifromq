@@ -30,7 +30,7 @@
 
     <artifactId>bifromq-plugin-context</artifactId>
     <name>Apache BifroMQ Plugin Context</name>
-    <description>Shared plugin runtime context for Apache BifroMQ.</description>
+    <description>Shared plugin runtime context for Apache BifroMQ (Incubating).</description>
     <dependencies>
         <dependency>
             <groupId>org.pf4j</groupId>

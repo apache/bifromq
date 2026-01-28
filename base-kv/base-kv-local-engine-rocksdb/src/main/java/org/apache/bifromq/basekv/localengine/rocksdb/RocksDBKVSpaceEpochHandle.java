@@ -100,6 +100,11 @@ abstract class RocksDBKVSpaceEpochHandle implements IRocksDBKVSpaceEpochHandle {
             try (AutoCloseable guard = metrics.beginClose()) {
                 metrics.close();
                 log.debug("Clean up generation[{}] of kvspace[{}]", genId, id);
+                try {
+                    db.cancelAllBackgroundWork(true);
+                } catch (Throwable e) {
+                    log.warn("Failed to cancel background work of generation[{}] for kvspace[{}]", genId, id, e);
+                }
                 // Close checkpoint before DB resources
                 checkpoint.close();
                 try {

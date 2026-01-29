@@ -48,6 +48,13 @@
             </includes>
         </fileSet>
         <fileSet>
+            <lineEnding>windows</lineEnding>
+            <fileMode>0755</fileMode>
+            <includes>
+                <include>bin/*.bat</include>
+            </includes>
+        </fileSet>
+        <fileSet>
             <lineEnding>unix</lineEnding>
             <includes>
                 <include>conf/log4j2.xml</include>

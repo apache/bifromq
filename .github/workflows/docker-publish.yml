@@ -45,7 +45,3 @@ jobs:
           set -euo pipefail
           chmod +x release/docker-build.sh
           release/docker-build.sh -t "${IMAGE_REPO}:${{ inputs.version }}" "/tmp/apache-bifromq-${{ inputs.version }}.tar.gz"
-      - name: "Push image"
-        run: |
-          set -euo pipefail
-          docker push "${IMAGE_REPO}:${{ inputs.version }}"

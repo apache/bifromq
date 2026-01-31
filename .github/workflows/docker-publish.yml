@@ -40,8 +40,20 @@ jobs:
           curl -fSL "${ARTIFACT_URL}.sha512" -o /tmp/apache-bifromq-${{ inputs.version }}.tar.gz.sha512
           cd /tmp
           sha512sum --check "apache-bifromq-${{ inputs.version }}.tar.gz.sha512"
-      - name: "Build image"
+      - name: "Build and push multi-arch image"
         run: |
           set -euo pipefail
-          chmod +x release/docker-build.sh
-          release/docker-build.sh -t "${IMAGE_REPO}:${{ inputs.version }}" "/tmp/apache-bifromq-${{ inputs.version }}.tar.gz"
+          ctx_dir="/tmp/bifromq-docker-build-context"
+          rm -rf "$ctx_dir"
+          mkdir -p "$ctx_dir"
+
+          cp Dockerfile "$ctx_dir/Dockerfile"
+          cp "/tmp/apache-bifromq-${{ inputs.version }}.tar.gz" "$ctx_dir/"
+          cp "/tmp/apache-bifromq-${{ inputs.version }}.tar.gz.sha512" "$ctx_dir/"
+
+          docker buildx build \
+            --platform linux/amd64,linux/arm64 \
+            --build-arg BIFROMQ_VERSION="${{ inputs.version }}" \
+            -t "${IMAGE_REPO}:${{ inputs.version }}" \
+            --push \
+            "$ctx_dir"

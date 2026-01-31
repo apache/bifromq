@@ -7,9 +7,9 @@
 # to you under the Apache License, Version 2.0 (the
 # "License"); you may not use this file except in compliance
 # with the License.  You may obtain a copy of the License at
-# 
+#
 #   http://www.apache.org/licenses/LICENSE-2.0
-# 
+#
 # Unless required by applicable law or agreed to in writing,
 # software distributed under the License is distributed on an
 # "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
@@ -21,21 +21,17 @@
 set -euo pipefail
 
 usage() {
-  echo "Usage: $(basename "$0") [-t tag] [-P platforms] [-p] [-o output] <path-to-apache-bifromq-VERSION.tar.gz>" >&2
+  echo "Usage: $(basename "$0") [-t tag] <path-to-apache-bifromq-VERSION.tar.gz>" >&2
   exit 1
 }
 
 tag_override=""
-platforms="${PLATFORMS:-linux/amd64,linux/arm64}"
-push_image="${PUSH_IMAGE:-}"
-output_opt="${OUTPUT_OPT:-}"
+target_arch="${TARGETARCH:-}"
 
-while getopts ":t:P:o:ph" opt; do
+while getopts ":t:a:h" opt; do
   case "$opt" in
     t) tag_override="$OPTARG" ;;
-    P) platforms="$OPTARG" ;;
-    o) output_opt="$OPTARG" ;;
-    p) push_image="true" ;;
+    a) target_arch="$OPTARG" ;;
     h) usage ;;
     *) usage ;;
   esac
@@ -78,41 +74,17 @@ fi
 context_dir="$artifact_dir"
 tag="${tag_override:-apache-bifromq:${version}}"
 
-if [[ -z "$push_image" ]]; then
-  if [[ "${GITHUB_ACTIONS:-}" == "true" ]]; then
-    push_image="true"
-  else
-    push_image="false"
-  fi
+if [[ -z "$target_arch" ]]; then
+  machine=$(uname -m)
+  case "$machine" in
+    x86_64|amd64) target_arch="amd64" ;;
+    aarch64|arm64|arm64e) target_arch="arm64" ;;
+    *) echo "Error: unsupported machine architecture: ${machine}. Set TARGETARCH explicitly." >&2; exit 1 ;;
+  esac
 fi
 
-if [[ -n "$output_opt" && "$push_image" == "true" ]]; then
-  echo "Error: use either --output (-o) or --push (-p), not both." >&2
-  exit 1
-fi
-
-platform_count=1
-if [[ "$platforms" == *","* ]]; then
-  platform_count=2
-fi
-
-if [[ "$platform_count" -gt 1 && "$push_image" != "true" && -z "$output_opt" ]]; then
-  echo "Error: multi-arch build requires --push (-p) or --output (-o)." >&2
-  exit 1
-fi
-
-buildx_output_args=()
-if [[ -n "$output_opt" ]]; then
-  buildx_output_args+=(--output "$output_opt")
-elif [[ "$push_image" == "true" ]]; then
-  buildx_output_args+=(--push)
-else
-  buildx_output_args+=(--load)
-fi
-
-docker buildx build -f "$dockerfile" \
-  --platform "$platforms" \
+docker build -f "$dockerfile" \
   --build-arg BIFROMQ_VERSION="$version" \
+  --build-arg TARGETARCH="$target_arch" \
   -t "$tag" \
-  "${buildx_output_args[@]}" \
   "$context_dir"

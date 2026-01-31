@@ -29,7 +29,7 @@ jobs:
         with:
           username: ${{ secrets.DOCKERHUB_USER }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
-      - name: "Download and verify artifact"
+      - name: "Download and Verify Artifact"
         run: |
           set -euo pipefail
           ARTIFACT_URL="${{ inputs.artifact_url }}"
@@ -40,7 +40,7 @@ jobs:
           curl -fSL "${ARTIFACT_URL}.sha512" -o /tmp/apache-bifromq-${{ inputs.version }}.tar.gz.sha512
           cd /tmp
           sha512sum --check "apache-bifromq-${{ inputs.version }}.tar.gz.sha512"
-      - name: "Build and push multi-arch image"
+      - name: "Build and Push Multi-Arch Image"
         run: |
           set -euo pipefail
           ctx_dir="/tmp/bifromq-docker-build-context"

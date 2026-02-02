@@ -55,6 +55,8 @@ import org.apache.bifromq.basekv.raft.proto.ProposeReply;
 import org.apache.bifromq.basekv.raft.proto.RaftMessage;
 import org.apache.bifromq.basekv.raft.proto.RaftNodeStatus;
 import org.apache.bifromq.basekv.raft.proto.RaftNodeSyncState;
+import org.apache.bifromq.basekv.raft.proto.RequestChangeClusterConfig;
+import org.apache.bifromq.basekv.raft.proto.RequestChangeClusterConfigReply;
 import org.apache.bifromq.basekv.raft.proto.RequestReadIndex;
 import org.apache.bifromq.basekv.raft.proto.RequestReadIndexReply;
 import org.apache.bifromq.basekv.raft.proto.Snapshot;
@@ -369,6 +371,7 @@ class RaftNodeStateLeader extends RaftNodeState {
                 }
                 case REQUESTREADINDEX -> handleRequestReadIndex(fromPeer, message.getRequestReadIndex());
                 case PROPOSE -> handlePropose(fromPeer, message.getPropose());
+                case REQUESTCHANGECLUSTERCONFIG -> handleRequestChangeClusterConfig(fromPeer, message.getRequestChangeClusterConfig());
                 case REQUESTPREVOTE -> sendRequestPreVoteReply(fromPeer, currentTerm(), false);
                 default -> {
                     // ignore other messages
@@ -814,6 +817,50 @@ class RaftNodeStateLeader extends RaftNodeState {
             }
         }));
         propose(propose.getCommand(), onDone);
+    }
+
+    private void handleRequestChangeClusterConfig(String fromPeer, RequestChangeClusterConfig request) {
+        log.trace("Received forwarded ChangeClusterConfig request from peer[{}]", fromPeer);
+        CompletableFuture<Void> onDone = new CompletableFuture<>();
+        onDone.whenComplete((v, e) -> {
+            RequestChangeClusterConfigReply.Builder replyBuilder = 
+                RequestChangeClusterConfigReply.newBuilder().setId(request.getId());
+            
+            if (e != null) {
+                log.debug("Failed to finish forwarded ChangeClusterConfig request from peer[{}]", fromPeer, e);
+                assert e instanceof ClusterConfigChangeException;
+                
+                // Map exception type to Reply Code
+                if (e instanceof ClusterConfigChangeException.ConcurrentChangeException) {
+                    replyBuilder.setCode(RequestChangeClusterConfigReply.Code.ConcurrentChange);
+                } else if (e instanceof ClusterConfigChangeException.EmptyVotersException) {
+                    replyBuilder.setCode(RequestChangeClusterConfigReply.Code.EmptyVoters);
+                } else if (e instanceof ClusterConfigChangeException.LearnersOverlapException) {
+                    replyBuilder.setCode(RequestChangeClusterConfigReply.Code.LearnersOverlap);
+                } else if (e instanceof ClusterConfigChangeException.SlowLearnerException) {
+                    replyBuilder.setCode(RequestChangeClusterConfigReply.Code.SlowLearner);
+                } else if (e instanceof ClusterConfigChangeException.LeaderStepDownException) {
+                    replyBuilder.setCode(RequestChangeClusterConfigReply.Code.LeaderStepDown);
+                } else if (e instanceof ClusterConfigChangeException.NoLeaderException) {
+                    replyBuilder.setCode(RequestChangeClusterConfigReply.Code.NoLeader);
+                } else {
+                    replyBuilder.setCode(RequestChangeClusterConfigReply.Code.Cancelled);
+                }
+            } else {
+                replyBuilder.setCode(RequestChangeClusterConfigReply.Code.Success);
+            }
+            
+            submitRaftMessages(fromPeer, RaftMessage.newBuilder()
+                .setTerm(currentTerm())
+                .setRequestChangeClusterConfigReply(replyBuilder.build())
+                .build());
+        });
+        
+        // Call actual cluster config change logic
+        changeClusterConfig(request.getCorrelateId(), 
+            new HashSet<>(request.getVotersList()),
+            new HashSet<>(request.getLearnersList()), 
+            onDone);
     }
 
     private void sendTimeoutNow(String toPeer) {

@@ -105,6 +105,7 @@ public class LocalDistService implements ILocalDistService {
             Set<MatchInfo> ok = new HashSet<>();
             Set<MatchInfo> skip = new HashSet<>();
             Set<MatchInfo> noSub = new HashSet<>();
+            Set<MatchInfo> noReceiver = new HashSet<>();
             long totalFanOutBytes = 0L;
             for (DeliveryPack writePack : packageEntry.getValue().getPackList()) {
                 TopicMessagePack topicMsgPack = writePack.getMessagePack();
@@ -124,14 +125,13 @@ public class LocalDistService implements ILocalDistService {
                                         matchInfo);
                             }
                         } else {
-                            // no session found for shared subscription
-                            noSub.add(matchInfo);
+                            noReceiver.add(matchInfo);
                         }
                     } else {
                         Optional<CompletableFuture<? extends ILocalTopicRouter.ILocalRoutes>> routesFutureOpt =
                             localTopicRouter.getTopicRoutes(tenantId, matchInfo);
                         if (routesFutureOpt.isEmpty()) {
-                            noSub.add(matchInfo);
+                            noReceiver.add(matchInfo);
                             continue;
                         }
                         CompletableFuture<? extends ILocalTopicRouter.ILocalRoutes> routesFuture =
@@ -143,15 +143,21 @@ public class LocalDistService implements ILocalDistService {
                         }
                         ILocalTopicRouter.ILocalRoutes localRoutes = routesFuture.join();
                         if (!localRoutes.localReceiverId().equals(matchInfo.getReceiverId())) {
-                            noSub.add(matchInfo);
+                            noReceiver.add(matchInfo);
                             continue;
                         }
+                        if (localRoutes.routesInfo().isEmpty()) {
+                            noReceiver.add(matchInfo);
+                            continue;
+                        }
+                        boolean hasUsableSession = false;
                         for (Map.Entry<String, Long> route : localRoutes.routesInfo().entrySet()) {
                             String sessionId = route.getKey();
                             long incarnation = route.getValue();
                             // at least one session should publish the message
                             IMQTTSession session = sessionRegistry.get(sessionId);
                             if (session instanceof IMQTTTransientSession) {
+                                hasUsableSession = true;
                                 if (isFanOutThrottled && !matchedSessions.isEmpty()) {
                                     skip.add(matchInfo);
                                 } else {
@@ -160,6 +166,9 @@ public class LocalDistService implements ILocalDistService {
                                         matchInfo.getMatcher().getMqttTopicFilter(), incarnation), matchInfo);
                                 }
                             }
+                        }
+                        if (!hasUsableSession) {
+                            noReceiver.add(matchInfo);
                         }
                     }
                 }
@@ -185,10 +194,13 @@ public class LocalDistService implements ILocalDistService {
             tenantMeter.recordSummary(MqttTransientFanOutBytes, totalFanOutBytes);
             // don't include duplicated matchInfo in the result
             // treat skip as ok
-            Sets.difference(Sets.union(ok, skip), noSub).forEach(matchInfo -> resultsBuilder.addResult(
-                DeliveryResult.newBuilder().setMatchInfo(matchInfo).setCode(DeliveryResult.Code.OK).build()));
+            Sets.difference(Sets.union(ok, skip), Sets.union(noSub, noReceiver)).forEach(matchInfo ->
+                resultsBuilder.addResult(
+                    DeliveryResult.newBuilder().setMatchInfo(matchInfo).setCode(DeliveryResult.Code.OK).build()));
             noSub.forEach(matchInfo -> resultsBuilder.addResult(
                 DeliveryResult.newBuilder().setMatchInfo(matchInfo).setCode(DeliveryResult.Code.NO_SUB).build()));
+            noReceiver.forEach(matchInfo -> resultsBuilder.addResult(
+                DeliveryResult.newBuilder().setMatchInfo(matchInfo).setCode(DeliveryResult.Code.NO_RECEIVER).build()));
             replyBuilder.putResult(tenantId, resultsBuilder.build());
         }
         return CompletableFuture.completedFuture(replyBuilder.build());
@@ -205,8 +217,7 @@ public class LocalDistService implements ILocalDistService {
                 return transientSession.hasSubscribed(matchInfo.getMatcher().getMqttTopicFilter())
                     ? CheckReply.Code.OK : CheckReply.Code.NO_SUB;
             } else {
-                // should not be here
-                return CheckReply.Code.ERROR;
+                return CheckReply.Code.NO_RECEIVER;
             }
         } else {
             Optional<CompletableFuture<? extends ILocalTopicRouter.ILocalRoutes>> routesFutureOpt =

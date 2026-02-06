@@ -38,6 +38,7 @@ import static org.testng.Assert.assertNotNull;
 import static org.testng.Assert.assertTrue;
 
 import org.apache.bifromq.mqtt.MockableTest;
+import org.apache.bifromq.mqtt.session.IMQTTSession;
 import org.apache.bifromq.mqtt.session.IMQTTTransientSession;
 import org.apache.bifromq.plugin.subbroker.CheckReply;
 import org.apache.bifromq.plugin.subbroker.DeliveryPack;
@@ -158,6 +159,7 @@ public class LocalDistServiceTest extends MockableTest {
         assertEquals(code, CheckReply.Code.NO_RECEIVER);
 
         when(localRoutes.routesInfo()).thenReturn(Map.of(channelId, 1L));
+        when(localSessionRegistry.get(channelId)).thenReturn(session);
         code = localDistService.checkMatchInfo(tenantId, MatchInfo.newBuilder()
             .setMatcher(TopicUtil.from(topicFilter))
             .setReceiverId(ILocalDistService.localize(channelId))
@@ -364,7 +366,7 @@ public class LocalDistServiceTest extends MockableTest {
 
         DeliveryResults results = reply.getResultMap().get(tenantId);
         DeliveryResult result = results.getResult(0);
-        assertEquals(DeliveryResult.Code.NO_SUB, result.getCode());
+        assertEquals(result.getCode(), DeliveryResult.Code.NO_RECEIVER);
     }
 
     @Test
@@ -398,7 +400,111 @@ public class LocalDistServiceTest extends MockableTest {
 
         DeliveryResults results = reply.getResultMap().get(tenantId);
         DeliveryResult result = results.getResult(0);
-        assertEquals(DeliveryResult.Code.NO_SUB, result.getCode());
+        assertEquals(result.getCode(), DeliveryResult.Code.NO_RECEIVER);
+    }
+
+    @Test
+    public void deliverToEmptyLocalRoutes() {
+        String tenantId = "tenant1";
+        String topic = "testTopic";
+        String topicFilter = "testTopic/#";
+        String channelId = "channel0";
+        MatchInfo matchInfo = MatchInfo.newBuilder()
+            .setMatcher(TopicUtil.from(topicFilter))
+            .setReceiverId("receiverId")
+            .build();
+        TopicMessagePack topicMessagePack = TopicMessagePack.newBuilder().setTopic(topic).build();
+        DeliveryPackage deliveryPack = DeliveryPackage.newBuilder()
+            .addPack(DeliveryPack.newBuilder().setMessagePack(topicMessagePack).addMatchInfo(matchInfo).build())
+            .build();
+        DeliveryRequest request = DeliveryRequest.newBuilder().putPackage(tenantId, deliveryPack).build();
+
+        ILocalTopicRouter.ILocalRoutes localRoutes = mock(ILocalTopicRouter.ILocalRoutes.class);
+        when(localRoutes.localReceiverId()).thenReturn("receiverId");
+        when(localRoutes.routesInfo()).thenReturn(Map.of());
+        when(localTopicRouter.getTopicRoutes(anyString(), any())).thenReturn(
+            Optional.of(CompletableFuture.completedFuture(localRoutes)));
+
+        LocalDistService localDistService =
+            new LocalDistService(serverId, localSessionRegistry, localTopicRouter, distClient, resourceThrottler);
+
+        CompletableFuture<DeliveryReply> future = localDistService.dist(request);
+        DeliveryReply reply = future.join();
+
+        DeliveryResults results = reply.getResultMap().get(tenantId);
+        DeliveryResult result = results.getResult(0);
+        assertEquals(result.getCode(), DeliveryResult.Code.NO_RECEIVER);
+    }
+
+    @Test
+    public void deliverToNoLocalSession() {
+        String tenantId = "tenant1";
+        String topic = "testTopic";
+        String topicFilter = "testTopic/#";
+        String channelId = "channel0";
+        MatchInfo matchInfo = MatchInfo.newBuilder()
+            .setMatcher(TopicUtil.from(topicFilter))
+            .setReceiverId("receiverId")
+            .build();
+        TopicMessagePack topicMessagePack = TopicMessagePack.newBuilder().setTopic(topic).build();
+        DeliveryPackage deliveryPack = DeliveryPackage.newBuilder()
+            .addPack(DeliveryPack.newBuilder().setMessagePack(topicMessagePack).addMatchInfo(matchInfo).build())
+            .build();
+        DeliveryRequest request = DeliveryRequest.newBuilder().putPackage(tenantId, deliveryPack).build();
+
+        ILocalTopicRouter.ILocalRoutes localRoutes = mock(ILocalTopicRouter.ILocalRoutes.class);
+        when(localRoutes.localReceiverId()).thenReturn("receiverId");
+        when(localRoutes.routesInfo()).thenReturn(Map.of(channelId, 1L));
+        when(localTopicRouter.getTopicRoutes(anyString(), any())).thenReturn(
+            Optional.of(CompletableFuture.completedFuture(localRoutes)));
+
+        when(localSessionRegistry.get(channelId)).thenReturn(null);
+
+        LocalDistService localDistService =
+            new LocalDistService(serverId, localSessionRegistry, localTopicRouter, distClient, resourceThrottler);
+
+        CompletableFuture<DeliveryReply> future = localDistService.dist(request);
+        DeliveryReply reply = future.join();
+
+        DeliveryResults results = reply.getResultMap().get(tenantId);
+        DeliveryResult result = results.getResult(0);
+        assertEquals(result.getCode(), DeliveryResult.Code.NO_RECEIVER);
+    }
+
+    @Test
+    public void deliverToNonTransientSession() {
+        String tenantId = "tenant1";
+        String topic = "testTopic";
+        String topicFilter = "testTopic/#";
+        String channelId = "channel0";
+        MatchInfo matchInfo = MatchInfo.newBuilder()
+            .setMatcher(TopicUtil.from(topicFilter))
+            .setReceiverId("receiverId")
+            .build();
+        TopicMessagePack topicMessagePack = TopicMessagePack.newBuilder().setTopic(topic).build();
+        DeliveryPackage deliveryPack = DeliveryPackage.newBuilder()
+            .addPack(DeliveryPack.newBuilder().setMessagePack(topicMessagePack).addMatchInfo(matchInfo).build())
+            .build();
+        DeliveryRequest request = DeliveryRequest.newBuilder().putPackage(tenantId, deliveryPack).build();
+
+        ILocalTopicRouter.ILocalRoutes localRoutes = mock(ILocalTopicRouter.ILocalRoutes.class);
+        when(localRoutes.localReceiverId()).thenReturn("receiverId");
+        when(localRoutes.routesInfo()).thenReturn(Map.of(channelId, 1L));
+        when(localTopicRouter.getTopicRoutes(anyString(), any())).thenReturn(
+            Optional.of(CompletableFuture.completedFuture(localRoutes)));
+
+        IMQTTSession nonTransientSession = mock(IMQTTSession.class);
+        when(localSessionRegistry.get(channelId)).thenReturn(nonTransientSession);
+
+        LocalDistService localDistService =
+            new LocalDistService(serverId, localSessionRegistry, localTopicRouter, distClient, resourceThrottler);
+
+        CompletableFuture<DeliveryReply> future = localDistService.dist(request);
+        DeliveryReply reply = future.join();
+
+        DeliveryResults results = reply.getResultMap().get(tenantId);
+        DeliveryResult result = results.getResult(0);
+        assertEquals(result.getCode(), DeliveryResult.Code.NO_RECEIVER);
     }
 
     @Test
@@ -432,7 +538,7 @@ public class LocalDistServiceTest extends MockableTest {
 
         DeliveryResults results = reply.getResultMap().get(tenantId);
         DeliveryResult result = results.getResult(0);
-        assertEquals(DeliveryResult.Code.OK, result.getCode());
+        assertEquals(result.getCode(), DeliveryResult.Code.OK);
     }
 
     @Test
@@ -467,7 +573,7 @@ public class LocalDistServiceTest extends MockableTest {
 
         DeliveryResults results = reply.getResultMap().get(tenantId);
         DeliveryResult result = results.getResult(0);
-        assertEquals(DeliveryResult.Code.OK, result.getCode());
+        assertEquals(result.getCode(), DeliveryResult.Code.OK);
     }
 
     @Test

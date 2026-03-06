@@ -25,20 +25,27 @@ import static org.awaitility.Awaitility.await;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doAnswer;
 import static org.testng.Assert.assertEquals;
+import static org.testng.Assert.assertFalse;
 import static org.testng.Assert.assertNotNull;
+import static org.testng.Assert.assertNull;
 import static org.testng.Assert.assertTrue;
 
 import io.grpc.Context;
 import io.grpc.stub.ServerCallStreamObserver;
 import io.micrometer.core.instrument.Timer;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import java.lang.reflect.Field;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 import lombok.SneakyThrows;
 import org.apache.bifromq.baserpc.RPCContext;
 import org.apache.bifromq.baserpc.metrics.IRPCMeter;
@@ -205,10 +212,94 @@ public class InboxFetchPipelineMappingTest {
         pipeline.close();
     }
 
+    @Test
+    public void shouldCleanStaleSessionIdWhenFetchStateMissing() throws Exception {
+        InboxFetcherRegistry registry = new InboxFetcherRegistry();
+        InboxFetchPipeline pipeline = new InboxFetchPipeline(responseObserver, noopFetcher(), registry);
+
+        long sessionId = 4004L;
+        pipeline.onNext(hint(sessionId, 1));
+
+        Map<Long, ?> fetchSessions = fetchSessions(pipeline);
+        fetchSessions.remove(sessionId);
+
+        Map<?, Set<Long>> sessionMap = inboxSessionMap(pipeline);
+        Set<Long> sessionIds = sessionMap.values().iterator().next();
+        assertTrue(sessionIds.contains(sessionId));
+
+        boolean signalled = pipeline.signalFetch(INBOX, INCARNATION, System.nanoTime());
+
+        assertFalse(signalled);
+        assertTrue(sessionMap.isEmpty());
+    }
+
+    @Test
+    public void shouldNotThrowWhenSignalFetchConcurrentWithSessionRemoval() throws Exception {
+        InboxFetcherRegistry registry = new InboxFetcherRegistry();
+        CountingFetcher fetcher = new CountingFetcher();
+        InboxFetchPipeline pipeline = new InboxFetchPipeline(responseObserver, fetcher, registry);
+
+        long sessionA = 5005L;
+        long sessionB = 6006L;
+
+        pipeline.onNext(hint(sessionA, 5));
+        pipeline.onNext(hint(sessionB, 5));
+
+        CountDownLatch latch = new CountDownLatch(1);
+        AtomicReference<Throwable> error = new AtomicReference<>();
+
+        Thread signalThread = new Thread(() -> {
+            try {
+                latch.await();
+                for (int i = 0; i < 500; i++) {
+                    pipeline.signalFetch(INBOX, INCARNATION, System.nanoTime());
+                }
+            } catch (Throwable t) {
+                error.compareAndSet(null, t);
+            }
+        });
+
+        Thread removeThread = new Thread(() -> {
+            try {
+                latch.await();
+                for (int i = 0; i < 500; i++) {
+                    pipeline.onNext(hint(sessionB, -1));
+                    pipeline.onNext(hint(sessionB, 5));
+                }
+            } catch (Throwable t) {
+                error.compareAndSet(null, t);
+            }
+        });
+
+        signalThread.start();
+        removeThread.start();
+        latch.countDown();
+        signalThread.join();
+        removeThread.join();
+
+        assertNull(error.get());
+        await().until(() -> fetcher.fetchCount.get() > 0);
+        pipeline.close();
+    }
+
     private InboxFetched lastReceived() {
         synchronized (received) {
             return received.get(received.size() - 1);
         }
+    }
+
+    @SuppressWarnings("unchecked")
+    private Map<Long, ?> fetchSessions(InboxFetchPipeline pipeline) throws Exception {
+        Field field = InboxFetchPipeline.class.getDeclaredField("inboxFetchSessions");
+        field.setAccessible(true);
+        return (Map<Long, ?>) field.get(pipeline);
+    }
+
+    @SuppressWarnings("unchecked")
+    private Map<?, Set<Long>> inboxSessionMap(InboxFetchPipeline pipeline) throws Exception {
+        Field field = InboxFetchPipeline.class.getDeclaredField("inboxSessionMap");
+        field.setAccessible(true);
+        return (Map<?, Set<Long>>) field.get(pipeline);
     }
 
     private static class TestFetcher implements InboxFetchPipeline.Fetcher {
@@ -235,6 +326,18 @@ public class InboxFetchPipelineMappingTest {
             CompletableFuture<Fetched> future = responses.poll();
             assertNotNull(future);
             future.complete(fetched);
+        }
+    }
+
+    private static class CountingFetcher implements InboxFetchPipeline.Fetcher {
+        private final AtomicInteger fetchCount = new AtomicInteger();
+
+        @Override
+        public CompletableFuture<Fetched> fetch(FetchRequest request) {
+            fetchCount.incrementAndGet();
+            return CompletableFuture.completedFuture(Fetched.newBuilder()
+                .setResult(Fetched.Result.OK)
+                .build());
         }
     }
 }

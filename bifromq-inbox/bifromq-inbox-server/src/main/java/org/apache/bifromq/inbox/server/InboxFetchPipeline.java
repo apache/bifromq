@@ -25,8 +25,7 @@ import static org.apache.bifromq.inbox.util.PipelineUtil.PIPELINE_ATTR_KEY_ID;
 
 import io.grpc.stub.StreamObserver;
 import io.reactivex.rxjava3.disposables.Disposable;
-import java.util.Collections;
-import java.util.HashSet;
+import java.util.Iterator;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
@@ -90,7 +89,7 @@ final class InboxFetchPipeline extends AckStream<InboxFetchHint, InboxFetched> i
                                 fetchHint.getSessionId());
                             inboxSessionMap.computeIfAbsent(
                                 new InboxId(fetchHint.getInboxId(), fetchHint.getIncarnation()),
-                                k1 -> new HashSet<>()).add(fetchHint.getSessionId());
+                                k1 -> ConcurrentHashMap.newKeySet()).add(fetchHint.getSessionId());
                         }
                         v.lastFetchQoS0Seq.set(
                             Math.max(fetchHint.getLastFetchQoS0Seq(), v.lastFetchQoS0Seq.get()));
@@ -131,16 +130,31 @@ final class InboxFetchPipeline extends AckStream<InboxFetchHint, InboxFetched> i
     public boolean signalFetch(String inboxId, long incarnation, long now) {
         log.trace("Signal fetch: tenantId={}, inboxId={}", tenantId, inboxId);
         // signal fetch won't refresh expiry
-        Set<Long> sessionIds = inboxSessionMap.getOrDefault(new InboxId(inboxId, incarnation), Collections.emptySet());
-        for (Long sessionId : sessionIds) {
+        InboxId inboxKey = new InboxId(inboxId, incarnation);
+        Set<Long> sessionIds = inboxSessionMap.get(inboxKey);
+        if (sessionIds == null || sessionIds.isEmpty()) {
+            return false;
+        }
+        boolean triggered = false;
+        Iterator<Long> itr = sessionIds.iterator();
+        while (itr.hasNext()) {
+            Long sessionId = itr.next();
             FetchState fetchState = inboxFetchSessions.get(sessionId);
-            if (fetchState != null && fetchState.signalFetchTS.get() < now) {
+            if (fetchState == null) {
+                itr.remove();
+                continue;
+            }
+            triggered = true;
+            if (fetchState.signalFetchTS.get() < now) {
                 fetchState.hasMore.set(true);
                 fetchState.signalFetchTS.set(now);
                 fetch(fetchState);
             }
         }
-        return !sessionIds.isEmpty();
+        if (sessionIds.isEmpty()) {
+            inboxSessionMap.remove(inboxKey, sessionIds);
+        }
+        return triggered;
     }
 
     @Override

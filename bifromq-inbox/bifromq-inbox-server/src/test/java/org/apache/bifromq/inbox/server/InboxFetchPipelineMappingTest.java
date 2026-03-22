@@ -213,6 +213,40 @@ public class InboxFetchPipelineMappingTest {
     }
 
     @Test
+    public void shouldRetryAfterTryLaterOnHint() {
+        InboxFetcherRegistry registry = new InboxFetcherRegistry();
+        TestFetcher fetcher = new TestFetcher();
+        InboxFetchPipeline pipeline = new InboxFetchPipeline(responseObserver, fetcher, registry);
+
+        long sessionId = 3503L;
+        pipeline.onNext(hint(sessionId, 2));
+
+        FetchRequest firstRequest = fetcher.awaitRequest();
+        assertNotNull(firstRequest);
+
+        fetcher.completeNext(Fetched.newBuilder()
+            .setResult(Fetched.Result.TRY_LATER)
+            .build());
+
+        await().until(() -> {
+            synchronized (received) {
+                return !received.isEmpty();
+            }
+        });
+
+        pipeline.onNext(hint(sessionId, 2));
+
+        FetchRequest retryRequest = fetcher.awaitRequest();
+        assertNotNull(retryRequest);
+
+        fetcher.completeNext(Fetched.newBuilder()
+            .setResult(Fetched.Result.OK)
+            .build());
+
+        pipeline.close();
+    }
+
+    @Test
     public void shouldCleanStaleSessionIdWhenFetchStateMissing() throws Exception {
         InboxFetcherRegistry registry = new InboxFetcherRegistry();
         InboxFetchPipeline pipeline = new InboxFetchPipeline(responseObserver, noopFetcher(), registry);

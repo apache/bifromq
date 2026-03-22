@@ -240,26 +240,36 @@ final class InboxFetchPipeline extends AckStream<InboxFetchHint, InboxFetched> i
                             .setInboxId(inboxId)
                             .setIncarnation(incarnation)
                             .setFetched(fetched).build());
-                        if (fetched.getQos0MsgCount() > 0 || fetched.getSendBufferMsgCount() > 0) {
-                            if (fetched.getQos0MsgCount() > 0) {
-                                fetchState.lastFetchQoS0Seq.set(
-                                    fetched.getQos0Msg(fetched.getQos0MsgCount() - 1).getSeq());
+                        Fetched.Result result = fetched.getResult();
+                        switch (result) {
+                            case OK -> {
+                                if (fetched.getQos0MsgCount() > 0 || fetched.getSendBufferMsgCount() > 0) {
+                                    if (fetched.getQos0MsgCount() > 0) {
+                                        fetchState.lastFetchQoS0Seq.set(
+                                            fetched.getQos0Msg(fetched.getQos0MsgCount() - 1).getSeq());
+                                    }
+                                    int fetchedCount = 0;
+                                    if (fetched.getSendBufferMsgCount() > 0) {
+                                        fetchedCount += fetched.getSendBufferMsgCount();
+                                        fetchState.downStreamCapacity.accumulateAndGet(
+                                            fetched.getSendBufferMsgCount(),
+                                            (a, b) -> a == NOT_KNOWN_CAPACITY ? a : Math.max(a - b, 0));
+                                        fetchState.lastFetchSendBufferSeq.set(
+                                            fetched.getSendBufferMsg(fetched.getSendBufferMsgCount() - 1).getSeq());
+                                    }
+                                    fetchState.hasMore.set(fetchedCount >= request.params().getMaxFetch()
+                                        || fetchState.signalFetchTS.get() > fetchTS);
+                                } else {
+                                    fetchState.hasMore.set(fetchState.signalFetchTS.get() > fetchTS);
+                                }
                             }
-                            int fetchedCount = 0;
-                            if (fetched.getSendBufferMsgCount() > 0) {
-                                fetchedCount += fetched.getSendBufferMsgCount();
-                                fetchState.downStreamCapacity.accumulateAndGet(fetched.getSendBufferMsgCount(),
-                                    (a, b) -> a == NOT_KNOWN_CAPACITY ? a : Math.max(a - b, 0));
-                                fetchState.lastFetchSendBufferSeq.set(
-                                    fetched.getSendBufferMsg(fetched.getSendBufferMsgCount() - 1).getSeq());
-                            }
-                            fetchState.hasMore.set(fetchedCount >= request.params().getMaxFetch()
-                                || fetchState.signalFetchTS.get() > fetchTS);
-                        } else {
-                            fetchState.hasMore.set(fetchState.signalFetchTS.get() > fetchTS);
+                            case BACK_PRESSURE_REJECTED, TRY_LATER -> fetchState.hasMore.set(true);
+                            default -> fetchState.hasMore.set(false);
                         }
                         fetchState.fetching.set(false);
-                        if (fetchState.downStreamCapacity.get() > 0 && fetchState.hasMore.get()) {
+                        if (result == Fetched.Result.OK
+                            && fetchState.downStreamCapacity.get() > 0
+                            && fetchState.hasMore.get()) {
                             fetch(sessionId);
                         }
                     } catch (Throwable t) {

@@ -20,6 +20,7 @@
 package org.apache.bifromq.plugin.settingprovider;
 
 import java.util.Map;
+import java.util.TreeMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Collectors;
 import lombok.extern.slf4j.Slf4j;
@@ -35,18 +36,28 @@ public class SettingProviderManager implements ISettingProvider, AutoCloseable {
 
     public SettingProviderManager(String settingProviderFQN, PluginManager pluginMgr) {
         Map<String, ISettingProvider> availSettingProviders = pluginMgr.getExtensions(ISettingProvider.class).stream()
-            .collect(Collectors.toMap(e -> e.getClass().getName(), e -> e));
+            .collect(Collectors.toMap(e -> e.getClass().getName(), e -> e,
+                    (k,v) -> v, TreeMap::new));
         if (availSettingProviders.isEmpty()) {
             pluginLog.warn("No setting provider plugin available, use DEV ONLY one instead");
+
+
             provider = new MonitoredSettingProvider(new DevOnlySettingProvider());
         } else {
             if (settingProviderFQN == null) {
-                pluginLog.warn("Setting provider plugin type not specified, use DEV ONLY one instead");
-                provider = new MonitoredSettingProvider(new DevOnlySettingProvider());
+                if (availSettingProviders.size() > 1) {
+                    pluginLog.info("Setting provider plugin type not specified, use the first found");
+                }
+                String firstSettingProviderFQN = availSettingProviders.keySet().iterator().next();
+                pluginLog.info("Setting provider plugin loaded: {}", firstSettingProviderFQN);
+                provider = new CacheableSettingProvider(
+                        new MonitoredSettingProvider(availSettingProviders.get(firstSettingProviderFQN)),
+                        CacheOptions.DEFAULT);
             } else if (!availSettingProviders.containsKey(settingProviderFQN)) {
-                pluginLog.warn("Setting provider plugin type '{}' not found, use DEV ONLY one instead",
+                pluginLog.warn("Setting provider plugin type '{}' not found, so the system will shut down.",
                     settingProviderFQN);
-                provider = new MonitoredSettingProvider(new DevOnlySettingProvider());
+                throw new SettingProviderException("Setting provider plugin type '%s' not found, so the system will shut down.",
+                        settingProviderFQN);
             } else {
                 pluginLog.info("Setting provider plugin type: {}", settingProviderFQN);
                 provider = new CacheableSettingProvider(

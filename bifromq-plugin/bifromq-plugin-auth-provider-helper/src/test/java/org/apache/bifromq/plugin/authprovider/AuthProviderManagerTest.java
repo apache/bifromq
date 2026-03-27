@@ -41,6 +41,7 @@ import org.apache.bifromq.plugin.authprovider.type.MQTT5AuthResult;
 import org.apache.bifromq.plugin.authprovider.type.MQTT5ExtendedAuthData;
 import org.apache.bifromq.plugin.authprovider.type.MQTT5ExtendedAuthResult;
 import org.apache.bifromq.plugin.authprovider.type.MQTTAction;
+import org.apache.bifromq.plugin.authprovider.type.Ok;
 import org.apache.bifromq.plugin.authprovider.type.PubAction;
 import org.apache.bifromq.plugin.authprovider.type.Reject;
 import org.apache.bifromq.plugin.authprovider.type.SubAction;
@@ -52,6 +53,8 @@ import org.apache.bifromq.type.ClientInfo;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Metrics;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.concurrent.CompletableFuture;
 import lombok.extern.slf4j.Slf4j;
@@ -133,18 +136,52 @@ public class AuthProviderManagerTest {
     }
 
     @Test
+    public void pluginNotSpecifiedWithSingleProvider() {
+        manager = new AuthProviderManager(null, pluginManager, settingProvider, eventCollector);
+        when(mockProvider.auth(mockAuth3Data)).thenReturn(
+            CompletableFuture.completedFuture(MQTT3AuthResult.newBuilder()
+                .setReject(Reject.newBuilder().setCode(Reject.Code.BadPass).build()).build()));
+        MQTT3AuthResult result = manager.auth(mockAuth3Data).join();
+        assertEquals(result.getTypeCase(), MQTT3AuthResult.TypeCase.REJECT);
+        assertEquals(result.getReject().getCode(), Reject.Code.BadPass);
+        manager.close();
+    }
+
+    @Test
+    public void pluginNotSpecifiedWithMultipleProviders() {
+        IAuthProvider provider1 = new FirstTestAuthProvider();
+        IAuthProvider provider2 = new SecondTestAuthProvider();
+
+        when(pluginManager.getExtensions(IAuthProvider.class)).thenReturn(
+            Arrays.asList(provider1, provider2));
+        manager = new AuthProviderManager(null, pluginManager, settingProvider, eventCollector);
+
+        MQTT3AuthResult result = manager.auth(mockAuth3Data).join();
+        // Should use one of the providers (order depends on HashMap keySet iteration)
+        assertEquals(result.getOk().getTenantId(), "FirstProvider");
+        manager.close();
+    }
+
+    @Test
+    public void pluginNotSpecifiedWithMultipleSortByKeyProviders() {
+        IAuthProvider provider1 = new FirstTestAuthProvider();
+        IAuthProvider provider2 = new SecondTestAuthProvider();
+
+        when(pluginManager.getExtensions(IAuthProvider.class)).thenReturn(
+                Arrays.asList(provider2, provider1));
+        manager = new AuthProviderManager(null, pluginManager, settingProvider, eventCollector);
+
+        MQTT3AuthResult result = manager.auth(mockAuth3Data).join();
+        // Should use one of the providers (order depends on HashMap keySet iteration)
+        assertEquals(result.getOk().getTenantId(), "FirstProvider");
+        manager.close();
+    }
+
+
+    @Test(expectedExceptions = AuthProviderPluginException.class)
     public void pluginNotFound() {
         manager = new AuthProviderManager("Fake", pluginManager, settingProvider, eventCollector);
-        MQTT3AuthResult result = manager.auth(mockAuth3Data).join();
-        assertEquals(result.getTypeCase(), MQTT3AuthResult.TypeCase.OK);
-        assertEquals(result.getOk().getTenantId(), "DevOnly");
 
-        boolean allow = manager.check(ClientInfo.getDefaultInstance(), MQTTAction.newBuilder()
-            .setSub(SubAction.getDefaultInstance()).build()).join();
-        assertTrue(allow);
-        allow = manager.check(ClientInfo.getDefaultInstance(), MQTTAction.newBuilder()
-            .setSub(SubAction.getDefaultInstance()).build()).join();
-        assertTrue(allow);
         manager.close();
     }
 
@@ -403,5 +440,32 @@ public class AuthProviderManagerTest {
             1);
         assertEquals(meterRegistry.find(CALL_FAIL_COUNTER).tag(TAG_METHOD, "AuthProvider/check").counter().count(),
             0);
+    }
+
+    static class FirstTestAuthProvider implements IAuthProvider {
+        @Override
+        public CompletableFuture<MQTT3AuthResult> auth(MQTT3AuthData authData) {
+            return CompletableFuture.completedFuture(MQTT3AuthResult.newBuilder()
+                .setOk(Ok.newBuilder().setTenantId("FirstProvider").build()).build());
+        }
+
+        @Override
+        public CompletableFuture<Boolean> check(ClientInfo client, MQTTAction action) {
+            return CompletableFuture.completedFuture(true);
+        }
+    }
+
+    static class SecondTestAuthProvider implements IAuthProvider {
+        @Override
+        public CompletableFuture<MQTT3AuthResult> auth(MQTT3AuthData authData) {
+            return CompletableFuture.completedFuture(MQTT3AuthResult.newBuilder()
+                .setOk(Ok.newBuilder().setTenantId("SecondProvider").build()).build());
+        }
+
+        @Override
+        public CompletableFuture<Boolean> check(ClientInfo client, MQTTAction action) {
+            return CompletableFuture.completedFuture(true);
+        }
+
     }
 }

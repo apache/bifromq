@@ -65,13 +65,10 @@ public class TenantResourceThrottlerManagerTest {
         manager.close();
     }
 
-    @Test
+    @Test(expectedExceptions = ResourceThrottlerException.class)
     public void pluginNotFound() {
         ResourceThrottlerManager devOnlyManager = new ResourceThrottlerManager(null, pluginManager);
         manager = new ResourceThrottlerManager("Fake", pluginManager);
-        for (TenantResourceType type : TenantResourceType.values()) {
-            assertEquals(devOnlyManager.hasResource(tenantId, type), manager.hasResource(tenantId, type));
-        }
         devOnlyManager.close();
     }
 

@@ -44,6 +44,8 @@ import org.apache.bifromq.basekv.raft.proto.Propose;
 import org.apache.bifromq.basekv.raft.proto.ProposeReply;
 import org.apache.bifromq.basekv.raft.proto.RaftMessage;
 import org.apache.bifromq.basekv.raft.proto.RaftNodeStatus;
+import org.apache.bifromq.basekv.raft.proto.RequestChangeClusterConfig;
+import org.apache.bifromq.basekv.raft.proto.RequestChangeClusterConfigReply;
 import org.apache.bifromq.basekv.raft.proto.RequestReadIndex;
 import org.apache.bifromq.basekv.raft.proto.RequestReadIndexReply;
 import org.apache.bifromq.basekv.raft.proto.RequestVote;
@@ -56,6 +58,8 @@ class RaftNodeStateFollower extends RaftNodeState {
     private final Map<Integer, CompletableFuture<Long>> idToReadRequestMap;
     private final LinkedHashMap<Long, Set<Integer>> tickToForwardedProposesMap;
     private final Map<Integer, CompletableFuture<Long>> idToForwardedProposeMap;
+    private final LinkedHashMap<Long, Set<Integer>> tickToForwardedConfigChangesMap;
+    private final Map<Integer, CompletableFuture<Void>> idToForwardedConfigChangeMap;
     private int randomElectionTimeoutTick;
     private long currentTick;
     private int electionElapsedTick;
@@ -113,6 +117,8 @@ class RaftNodeStateFollower extends RaftNodeState {
         idToReadRequestMap = new HashMap<>();
         tickToForwardedProposesMap = new LinkedHashMap<>();
         idToForwardedProposeMap = new HashMap<>();
+        tickToForwardedConfigChangesMap = new LinkedHashMap<>();
+        idToForwardedConfigChangeMap = new HashMap<>();
     }
 
     @Override
@@ -169,6 +175,22 @@ class RaftNodeStateFollower extends RaftNodeState {
                         // if not finished by proposeReply then abort it
                         log.debug("Aborted forwarded timed-out Propose request[{}]", pendingProposalId);
                         pendingOnDone.completeExceptionally(DropProposalException.forwardTimeout());
+                    }
+                });
+            } else {
+                break;
+            }
+        }
+        for (Iterator<Map.Entry<Long, Set<Integer>>> it = tickToForwardedConfigChangesMap.entrySet().iterator();
+             it.hasNext(); ) {
+            Map.Entry<Long, Set<Integer>> entry = it.next();
+            if (entry.getKey() + 2L * config.getHeartbeatTimeoutTick() < currentTick) {
+                it.remove();
+                entry.getValue().forEach(pendingConfigChangeId -> {
+                    CompletableFuture<Void> pendingOnDone = idToForwardedConfigChangeMap.remove(pendingConfigChangeId);
+                    if (pendingOnDone != null && !pendingOnDone.isDone()) {
+                        log.debug("Aborted forwarded timed-out ChangeClusterConfig request[{}]", pendingConfigChangeId);
+                        pendingOnDone.completeExceptionally(ClusterConfigChangeException.forwardTimeout());
                     }
                 });
             } else {
@@ -359,6 +381,9 @@ class RaftNodeStateFollower extends RaftNodeState {
             case PROPOSEREPLY:
                 handleProposeReply(message.getProposeReply());
                 break;
+            case REQUESTCHANGECLUSTERCONFIGREPLY:
+                handleRequestChangeClusterConfigReply(message.getRequestChangeClusterConfigReply());
+                break;
             case TIMEOUTNOW:
                 nextState = handleTimeoutNow(fromPeer);
                 break;
@@ -379,8 +404,41 @@ class RaftNodeStateFollower extends RaftNodeState {
                              Set<String> newVoters,
                              Set<String> newLearners,
                              CompletableFuture<Void> onDone) {
-        // TODO: support leader forward
-        onDone.completeExceptionally(ClusterConfigChangeException.notLeader());
+        // Check if forward is disabled
+        if (config.isDisableForwardClusterConfigChange()) {
+            log.debug("Forward cluster config change to leader is disabled");
+            onDone.completeExceptionally(ClusterConfigChangeException.forwardDisabled());
+            return;
+        }
+        
+        // Check if we know the leader
+        if (currentLeader == null) {
+            log.debug("Dropped cluster config change due to no leader elected in current term");
+            onDone.completeExceptionally(ClusterConfigChangeException.noLeader());
+            return;
+        }
+        
+        // Generate forward request ID and track
+        int forwardConfigChangeId = nextForwardReqId();
+        tickToForwardedConfigChangesMap.compute(currentTick, (k, v) -> {
+            if (v == null) {
+                v = new HashSet<>();
+            }
+            v.add(forwardConfigChangeId);
+            return v;
+        });
+        idToForwardedConfigChangeMap.put(forwardConfigChangeId, onDone);
+        
+        // Send forward request to leader
+        submitRaftMessages(currentLeader, RaftMessage.newBuilder()
+            .setTerm(currentTerm())
+            .setRequestChangeClusterConfig(RequestChangeClusterConfig.newBuilder()
+                .setId(forwardConfigChangeId)
+                .setCorrelateId(correlateId)
+                .addAllVoters(newVoters)
+                .addAllLearners(newLearners)
+                .build())
+            .build());
     }
 
     @Override
@@ -462,6 +520,32 @@ class RaftNodeStateFollower extends RaftNodeState {
         super.stop();
         abortPendingReadIndexRequests(ReadIndexException.cancelled());
         abortPendingProposeRequests(DropProposalException.cancelled());
+        abortPendingConfigChangeRequests(ClusterConfigChangeException.cancelled());
+    }
+
+    private void handleRequestChangeClusterConfigReply(RequestChangeClusterConfigReply reply) {
+        CompletableFuture<Void> pendingOnDone = idToForwardedConfigChangeMap.get(reply.getId());
+        if (pendingOnDone != null) {
+            switch (reply.getCode()) {
+                case Success -> pendingOnDone.complete(null);
+                case ConcurrentChange -> pendingOnDone.completeExceptionally(
+                    ClusterConfigChangeException.concurrentChange());
+                case EmptyVoters -> pendingOnDone.completeExceptionally(
+                    ClusterConfigChangeException.emptyVoters());
+                case LearnersOverlap -> pendingOnDone.completeExceptionally(
+                    ClusterConfigChangeException.learnersOverlap());
+                case SlowLearner -> pendingOnDone.completeExceptionally(
+                    ClusterConfigChangeException.slowLearner());
+                case LeaderStepDown -> pendingOnDone.completeExceptionally(
+                    ClusterConfigChangeException.leaderStepDown());
+                case NoLeader -> pendingOnDone.completeExceptionally(
+                    ClusterConfigChangeException.noLeader());
+                case ForwardTimeout -> pendingOnDone.completeExceptionally(
+                    ClusterConfigChangeException.forwardTimeout());
+                default -> pendingOnDone.completeExceptionally(
+                    ClusterConfigChangeException.cancelled());
+            }
+        }
     }
 
     private void handleAppendEntries(String fromLeader, AppendEntries appendEntries) {
@@ -733,6 +817,20 @@ class RaftNodeStateFollower extends RaftNodeState {
                 CompletableFuture<Long> pendingOnDone = idToForwardedProposeMap.remove(pendingProposalId);
                 if (pendingOnDone != null && !pendingOnDone.isDone()) {
                     // if not finished by requestReadIndexReply then abort it
+                    pendingOnDone.completeExceptionally(e);
+                }
+            });
+        }
+    }
+
+    private void abortPendingConfigChangeRequests(ClusterConfigChangeException e) {
+        for (Iterator<Map.Entry<Long, Set<Integer>>> it = tickToForwardedConfigChangesMap.entrySet().iterator();
+             it.hasNext(); ) {
+            Map.Entry<Long, Set<Integer>> entry = it.next();
+            it.remove();
+            entry.getValue().forEach(pendingConfigChangeId -> {
+                CompletableFuture<Void> pendingOnDone = idToForwardedConfigChangeMap.remove(pendingConfigChangeId);
+                if (pendingOnDone != null && !pendingOnDone.isDone()) {
                     pendingOnDone.completeExceptionally(e);
                 }
             });

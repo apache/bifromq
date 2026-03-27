@@ -40,6 +40,7 @@ import org.apache.bifromq.plugin.settingprovider.ISettingProvider;
 import org.apache.bifromq.type.ClientInfo;
 import io.micrometer.core.instrument.Timer;
 import java.util.Map;
+import java.util.TreeMap;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Collectors;
@@ -64,17 +65,22 @@ public class AuthProviderManager implements IAuthProvider, AutoCloseable {
         this.settingProvider = settingProvider;
         this.eventCollector = eventCollector;
         Map<String, IAuthProvider> availAuthProviders = pluginMgr.getExtensions(IAuthProvider.class)
-            .stream().collect(Collectors.toMap(e -> e.getClass().getName(), e -> e));
+            .stream().collect(Collectors.toMap(e -> e.getClass().getName(), e -> e,
+                        (k,v) -> v, TreeMap::new));
         if (availAuthProviders.isEmpty()) {
             pluginLog.warn("No auth provider plugin available, use DEV ONLY one instead");
             delegate = new DevOnlyAuthProvider();
         } else {
             if (authProviderFQN == null) {
-                pluginLog.warn("Auth provider plugin type not specified, use DEV ONLY one instead");
-                delegate = new DevOnlyAuthProvider();
+                if (availAuthProviders.size() > 1) {
+                    pluginLog.info("Auth provider plugin type not specified, use the first found");
+                }
+                String firstAuthProviderFQN = availAuthProviders.keySet().iterator().next();
+                pluginLog.info("Auth provider plugin loaded: {}", firstAuthProviderFQN);
+                delegate = availAuthProviders.get(firstAuthProviderFQN);
             } else if (!availAuthProviders.containsKey(authProviderFQN)) {
-                pluginLog.warn("Auth provider plugin type '{}' not found, use DEV ONLY one instead", authProviderFQN);
-                delegate = new DevOnlyAuthProvider();
+                pluginLog.warn("Auth provider plugin type '{}' not found, so the system will shut down.", authProviderFQN);
+                throw new AuthProviderPluginException("Auth provider plugin type '%s' not found, so the system will shut down.", authProviderFQN);
             } else {
                 pluginLog.info("Auth provider plugin type: {}", authProviderFQN);
                 delegate = availAuthProviders.get(authProviderFQN);

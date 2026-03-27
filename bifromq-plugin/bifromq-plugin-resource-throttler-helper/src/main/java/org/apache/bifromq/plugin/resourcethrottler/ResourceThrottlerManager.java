@@ -23,6 +23,7 @@ import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.Metrics;
 import io.micrometer.core.instrument.Timer;
 import java.util.Map;
+import java.util.TreeMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Collectors;
 import lombok.extern.slf4j.Slf4j;
@@ -41,18 +42,24 @@ public class ResourceThrottlerManager implements IResourceThrottler, AutoCloseab
     public ResourceThrottlerManager(String resourceThrottlerFQN, PluginManager pluginMgr) {
         Map<String, IResourceThrottler> availResourceThrottlers =
             pluginMgr.getExtensions(IResourceThrottler.class).stream()
-                .collect(Collectors.toMap(e -> e.getClass().getName(), e -> e));
+                .collect(Collectors.toMap(e -> e.getClass().getName(), e -> e,
+                        (k,v) -> v, TreeMap::new));
         if (availResourceThrottlers.isEmpty()) {
             pluginLog.warn("No resource throttler plugin available, use DEV ONLY one instead");
             delegate = new DevOnlyResourceThrottler();
         } else {
             if (resourceThrottlerFQN == null) {
-                pluginLog.warn("Resource throttler type class not specified, use DEV ONLY one instead");
-                delegate = new DevOnlyResourceThrottler();
+                if (availResourceThrottlers.size() > 1) {
+                    pluginLog.info("Resource throttler plugin type not specified, use the first found");
+                }
+                String firstResourceThrottlerFQN = availResourceThrottlers.keySet().iterator().next();
+                pluginLog.info("Resource throttler plugin loaded: {}", firstResourceThrottlerFQN);
+                delegate = availResourceThrottlers.get(firstResourceThrottlerFQN);
             } else if (!availResourceThrottlers.containsKey(resourceThrottlerFQN)) {
-                pluginLog.warn("Resource throttler type '{}' not found, use DEV ONLY one instead",
+                pluginLog.warn("Resource throttler type '{}' not found, so the system will shut down.",
                     resourceThrottlerFQN);
-                delegate = new DevOnlyResourceThrottler();
+                throw new ResourceThrottlerException("Resource throttler type '%s' not found, so the system will shut down.",
+                        resourceThrottlerFQN);
             } else {
                 pluginLog.info("Resource throttler loaded: {}", resourceThrottlerFQN);
                 delegate = availResourceThrottlers.get(resourceThrottlerFQN);

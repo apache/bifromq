@@ -157,7 +157,7 @@ public class AuthProviderManagerTest {
         manager = new AuthProviderManager(null, pluginManager, settingProvider, eventCollector);
 
         MQTT3AuthResult result = manager.auth(mockAuth3Data).join();
-        // Should use one of the providers (order depends on HashMap keySet iteration)
+        // Deterministically selects the provider with lexicographically smallest class name
         assertEquals(result.getOk().getTenantId(), "FirstProvider");
         manager.close();
     }
@@ -172,7 +172,7 @@ public class AuthProviderManagerTest {
         manager = new AuthProviderManager(null, pluginManager, settingProvider, eventCollector);
 
         MQTT3AuthResult result = manager.auth(mockAuth3Data).join();
-        // Should use one of the providers (order depends on HashMap keySet iteration)
+        // Deterministically selects the provider with lexicographically smallest class name
         assertEquals(result.getOk().getTenantId(), "FirstProvider");
         manager.close();
     }

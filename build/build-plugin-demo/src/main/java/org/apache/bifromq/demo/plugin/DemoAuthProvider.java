@@ -26,7 +26,7 @@ import org.apache.bifromq.plugin.authprovider.IAuthProvider;
 import org.apache.bifromq.plugin.authprovider.type.MQTT3AuthData;
 import org.apache.bifromq.plugin.authprovider.type.MQTT3AuthResult;
 import org.apache.bifromq.plugin.authprovider.type.MQTTAction;
-import org.apache.bifromq.plugin.authprovider.type.Reject;
+import org.apache.bifromq.plugin.authprovider.type.Ok;
 import org.apache.bifromq.type.ClientInfo;
 import org.pf4j.Extension;
 
@@ -40,7 +40,7 @@ public class DemoAuthProvider implements IAuthProvider {
         IAuthProvider delegate1;
         String webhookUrl = System.getProperty(PLUGIN_AUTHPROVIDER_URL);
         if (webhookUrl == null) {
-            log.info("No webhook url specified, the fallback behavior will reject all auth/check requests.");
+            log.info("No webhook url specified, the fallback behavior will grant all auth/check requests.");
             delegate1 = new FallbackAuthProvider();
         } else {
             try {
@@ -67,17 +67,16 @@ public class DemoAuthProvider implements IAuthProvider {
     static class FallbackAuthProvider implements IAuthProvider {
         @Override
         public CompletableFuture<MQTT3AuthResult> auth(MQTT3AuthData authData) {
-            return CompletableFuture.completedFuture(
-                MQTT3AuthResult.newBuilder().setReject(Reject.newBuilder()
-                        .setCode(Reject.Code.Error)
-                        .setReason("No webhook url for auth provider configured")
-                        .build())
+            return CompletableFuture.completedFuture(MQTT3AuthResult.newBuilder()
+                    .setOk(Ok.newBuilder()
+                            .setTenantId("DevOnly")
+                            .setUserId("DevUser").build())
                     .build());
         }
 
         @Override
         public CompletableFuture<Boolean> check(ClientInfo client, MQTTAction action) {
-            return CompletableFuture.completedFuture(false);
+            return CompletableFuture.completedFuture(true);
         }
     }
 }

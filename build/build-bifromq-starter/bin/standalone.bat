@@ -19,7 +19,7 @@
 @echo off
 
 setlocal enabledelayedexpansion
-if [%1] EQU [] (b
+if [%1] EQU [] (
     call :usage %0
     exit /b 1
 )

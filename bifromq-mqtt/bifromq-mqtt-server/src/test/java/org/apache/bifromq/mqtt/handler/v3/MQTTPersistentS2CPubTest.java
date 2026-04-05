@@ -246,6 +246,30 @@ public class MQTTPersistentS2CPubTest extends BaseMQTTTest {
     }
 
     @Test
+    public void retryCommitAfterBackPressure() {
+        mockAuthCheck(true);
+        when(inboxClient.commit(any()))
+            .thenReturn(CompletableFuture.completedFuture(
+                CommitReply.newBuilder().setCode(CommitReply.Code.BACK_PRESSURE_REJECTED).build()))
+            .thenReturn(CompletableFuture.completedFuture(
+                CommitReply.newBuilder().setCode(CommitReply.Code.OK).build()));
+
+        inboxFetchConsumer.accept(fetch(1, 128, AT_LEAST_ONCE));
+        channel.runPendingTasks();
+
+        MqttPublishMessage message = channel.readOutbound();
+        assertEquals(message.fixedHeader().qosLevel().value(), QoS.AT_LEAST_ONCE_VALUE);
+        channel.writeInbound(MQTTMessageUtils.pubAckMessage(message.variableHeader().packetId()));
+        channel.runPendingTasks();
+
+        channel.advanceTimeBy(45, TimeUnit.SECONDS);
+        channel.runScheduledPendingTasks();
+        channel.runPendingTasks();
+
+        verify(inboxClient, times(2)).commit(argThat(CommitRequest::hasSendBufferUpToSeq));
+    }
+
+    @Test
     public void fetchTryLater() {
         inboxFetchConsumer.accept(Fetched.newBuilder().setResult(Result.TRY_LATER).build());
         channel.advanceTimeBy(disconnectDelay, TimeUnit.MILLISECONDS);

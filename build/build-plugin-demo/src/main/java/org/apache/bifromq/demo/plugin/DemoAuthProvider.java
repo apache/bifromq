@@ -23,10 +23,12 @@ import java.net.URI;
 import java.util.concurrent.CompletableFuture;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.bifromq.plugin.authprovider.IAuthProvider;
+import org.apache.bifromq.plugin.authprovider.type.CheckResult;
+import org.apache.bifromq.plugin.authprovider.type.Granted;
 import org.apache.bifromq.plugin.authprovider.type.MQTT3AuthData;
 import org.apache.bifromq.plugin.authprovider.type.MQTT3AuthResult;
 import org.apache.bifromq.plugin.authprovider.type.MQTTAction;
-import org.apache.bifromq.plugin.authprovider.type.Reject;
+import org.apache.bifromq.plugin.authprovider.type.Ok;
 import org.apache.bifromq.type.ClientInfo;
 import org.pf4j.Extension;
 
@@ -40,7 +42,7 @@ public class DemoAuthProvider implements IAuthProvider {
         IAuthProvider delegate1;
         String webhookUrl = System.getProperty(PLUGIN_AUTHPROVIDER_URL);
         if (webhookUrl == null) {
-            log.info("No webhook url specified, the fallback behavior will reject all auth/check requests.");
+            log.info("No webhook url specified, the fallback behavior will grant all auth/check requests.");
             delegate1 = new FallbackAuthProvider();
         } else {
             try {
@@ -64,20 +66,50 @@ public class DemoAuthProvider implements IAuthProvider {
         return delegate.check(client, action);
     }
 
+    @Override
+    public CompletableFuture<CheckResult> checkPermission(ClientInfo client, MQTTAction action) {
+        return delegate.checkPermission(client, action);
+    }
+
     static class FallbackAuthProvider implements IAuthProvider {
+        private static final CheckResult GRANTED = CheckResult.newBuilder().setGranted(
+                Granted.getDefaultInstance()).build();
         @Override
         public CompletableFuture<MQTT3AuthResult> auth(MQTT3AuthData authData) {
-            return CompletableFuture.completedFuture(
-                MQTT3AuthResult.newBuilder().setReject(Reject.newBuilder()
-                        .setCode(Reject.Code.Error)
-                        .setReason("No webhook url for auth provider configured")
-                        .build())
-                    .build());
+            if (!(authData.getUsername() == null || authData.getUsername().isEmpty())) {
+                String[] username = authData.getUsername().split("/");
+                if (username.length == 2) {
+                    return CompletableFuture.completedFuture(MQTT3AuthResult
+                            .newBuilder()
+                            .setOk(Ok.newBuilder()
+                                    .setTenantId(username[0])
+                                    .setUserId(username[1])
+                                    .build())
+                            .build());
+                } else {
+                    return CompletableFuture.completedFuture(MQTT3AuthResult.newBuilder()
+                            .setOk(Ok.newBuilder()
+                                    .setTenantId("DevOnly")
+                                    .setUserId(authData.getUsername()).build())
+                            .build());
+                }
+            } else {
+                return CompletableFuture.completedFuture(MQTT3AuthResult.newBuilder()
+                        .setOk(Ok.newBuilder()
+                                .setTenantId("DevOnly")
+                                .setUserId("DevUser").build())
+                        .build());
+            }
         }
 
         @Override
         public CompletableFuture<Boolean> check(ClientInfo client, MQTTAction action) {
-            return CompletableFuture.completedFuture(false);
+            return CompletableFuture.completedFuture(true);
+        }
+
+        @Override
+        public CompletableFuture<CheckResult> checkPermission(ClientInfo client, MQTTAction action) {
+            return CompletableFuture.completedFuture(GRANTED);
         }
     }
 }

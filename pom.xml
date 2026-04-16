@@ -114,7 +114,7 @@
         <revision>4.0.0-incubating</revision>
         <apache.commons.cli.version>1.5.0</apache.commons.cli.version>
         <apache.commons.collections.version>4.4</apache.commons.collections.version>
-        <bouncycastle.version>1.79</bouncycastle.version>
+        <bouncycastle.version>1.84</bouncycastle.version>
         <caffeine.version>3.2.3</caffeine.version>
         <guice.version>7.0.0</guice.version>
         <grpc.version>1.77.0</grpc.version>

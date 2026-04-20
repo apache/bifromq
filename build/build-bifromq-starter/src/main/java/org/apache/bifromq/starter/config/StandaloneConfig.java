@@ -33,6 +33,8 @@ import org.apache.bifromq.starter.config.model.inbox.InboxServiceConfig;
 import org.apache.bifromq.starter.config.model.mqtt.MQTTServiceConfig;
 import org.apache.bifromq.starter.config.model.retain.RetainServiceConfig;
 
+import java.util.Map;
+
 @Getter
 @Setter
 public class StandaloneConfig {
@@ -65,5 +67,8 @@ public class StandaloneConfig {
 
     @JsonSetter(nulls = Nulls.SKIP)
     private APIServerConfig apiServerConfig = new APIServerConfig();
+
+    @JsonSetter(nulls = Nulls.SKIP)
+    private Map<String, String> metricsTags;
 
 }

@@ -61,8 +61,9 @@ public class Messenger implements IMessenger {
     private final MessengerOptions opts;
     private final MetricManager metricManager;
     private State state = State.INIT;
+
     @Builder
-    private Messenger(ITransport transport, Scheduler scheduler, MessengerOptions opts) {
+    private Messenger(ITransport transport, Scheduler scheduler, MessengerOptions opts, String env) {
         this.transport = new MessengerTransport(transport);
         this.opts = opts.toBuilder().build();
         this.scheduler = scheduler;
@@ -71,7 +72,7 @@ public class Messenger implements IMessenger {
             opts.retransmitMultiplier(),
             opts.spreadPeriod(),
             this.scheduler);
-        this.metricManager = new MetricManager(localAddress);
+        this.metricManager = new MetricManager(localAddress, env);
     }
 
     @Override
@@ -250,11 +251,12 @@ public class Messenger implements IMessenger {
         final Map<ClusterMessage.ClusterMessageTypeCase, Counter> gossipHeardCounters = Maps.newHashMap();
         final Counter gossipSpreadCounter = Metrics.counter("cluster.gossip.count");
 
-        MetricManager(InetSocketAddress localAddress) {
+        MetricManager(InetSocketAddress localAddress, String env) {
             for (ClusterMessage.ClusterMessageTypeCase typeCase : ClusterMessage.ClusterMessageTypeCase.values()) {
                 if (typeCase != ClusterMessage.ClusterMessageTypeCase.CLUSTERMESSAGETYPE_NOT_SET) {
                     Tags tags = Tags
                         .of("local", localAddress.getAddress().getHostAddress() + ":" + localAddress.getPort())
+                        .and("clusterEnv", env)
                         .and("type", typeCase.name());
                     msgSendCounters.put(typeCase,
                         Metrics.counter("basecluster.send.count", tags));

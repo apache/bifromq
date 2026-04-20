@@ -40,6 +40,7 @@ public class MessengerTest {
             .transport(transport)
             .scheduler(Schedulers.io())
             .opts(new MessengerOptions())
+            .env("test")
             .build();
         localMessenger.start(new IRecipientSelector() {
             @Override
@@ -67,6 +68,7 @@ public class MessengerTest {
             .transport(transport)
             .scheduler(Schedulers.io())
             .opts(new MessengerOptions())
+            .env("test")
             .build();
         try {
             localMessenger.shutdown();

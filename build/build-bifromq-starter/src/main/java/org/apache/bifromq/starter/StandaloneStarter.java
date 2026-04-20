@@ -159,9 +159,10 @@ public class StandaloneStarter {
             StandaloneConfigConsolidator.consolidate(config);
             printConfigs(config);
 
-            if (!Strings.isNullOrEmpty(config.getClusterConfig().getEnv())) {
-                Metrics.globalRegistry.config().commonTags("env", config.getClusterConfig().getEnv());
+            if (config.getMetricsTags() != null) {
+                config.getMetricsTags().forEach(Metrics.globalRegistry.config()::commonTags);
             }
+
             Injector serviceInjector = Guice.createInjector(
                 new ConfigModule(config),
                 new RPCClientSSLContextModule(),

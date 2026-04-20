@@ -88,6 +88,7 @@ public class MessengerFuncTest {
             .transport(localTransport)
             .scheduler(scheduler)
             .opts(opts)
+            .env("test")
             .build();
         local = localMessenger.bindAddress();
 
@@ -95,6 +96,7 @@ public class MessengerFuncTest {
             .transport(remoteTransport)
             .scheduler(scheduler)
             .opts(opts)
+            .env("test")
             .build();
         remote = remoteMessenger.bindAddress();
         localRecipientSelector = new IRecipientSelector() {

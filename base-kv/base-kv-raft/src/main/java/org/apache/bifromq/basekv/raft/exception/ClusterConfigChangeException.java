@@ -56,6 +56,14 @@ public class ClusterConfigChangeException extends RuntimeException {
         return new CancelledException();
     }
 
+    public static ClusterConfigChangeException forwardTimeout() {
+        return new ForwardTimeoutException();
+    }
+
+    public static ClusterConfigChangeException forwardDisabled() {
+        return new ForwardDisabledException();
+    }
+
     public static class ConcurrentChangeException extends ClusterConfigChangeException {
         private ConcurrentChangeException() {
             super("Only one on-going change is allowed");
@@ -102,6 +110,18 @@ public class ClusterConfigChangeException extends RuntimeException {
     public static class CancelledException extends ClusterConfigChangeException {
         private CancelledException() {
             super("Cancelled");
+        }
+    }
+
+    public static class ForwardTimeoutException extends ClusterConfigChangeException {
+        private ForwardTimeoutException() {
+            super("Forward request timeout");
+        }
+    }
+
+    public static class ForwardDisabledException extends ClusterConfigChangeException {
+        private ForwardDisabledException() {
+            super("Forward cluster config change is disabled");
         }
     }
 }

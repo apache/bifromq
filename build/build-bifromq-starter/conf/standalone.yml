@@ -32,6 +32,10 @@
 # or experiment with the built-in setting provider which is a simple webhook based implementation.
 # settingProviderFQN: "org.apache.bifromq.demo.plugin.DemoSettingProvider"
 
+# Process-level metrics tags applied to all metrics in this process
+metricsTags:
+  env: Test
+
 mqttServiceConfig:
   server:
     tcpListener:

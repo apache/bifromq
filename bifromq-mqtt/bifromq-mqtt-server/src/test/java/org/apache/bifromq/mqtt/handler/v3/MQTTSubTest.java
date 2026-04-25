@@ -29,10 +29,13 @@ import static org.apache.bifromq.plugin.eventcollector.EventType.RETAIN_MSG_MATC
 import static org.apache.bifromq.plugin.eventcollector.EventType.SUB_ACKED;
 import static org.apache.bifromq.plugin.eventcollector.EventType.SUB_ACTION_DISALLOW;
 import static org.apache.bifromq.plugin.eventcollector.EventType.TOO_LARGE_SUBSCRIPTION;
+import static org.apache.bifromq.plugin.settingprovider.Setting.SharedSubscriptionEnabled;
+import static org.apache.bifromq.plugin.settingprovider.Setting.SubscriptionIdentifierEnabled;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.atLeast;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -326,6 +329,36 @@ public class MQTTSubTest extends BaseMQTTTest {
         mockAuthCheck(true);
         mockDistMatch(QoS.AT_MOST_ONCE, true);
         // shared subscription should not trigger retain match
+        MqttSubscribeMessage subMessage = MQTTMessageUtils.topicMqttSubMessages("$share/g/t1");
+        channel.writeInbound(subMessage);
+        MqttSubAckMessage subAckMessage = channel.readOutbound();
+        verifySubAck(subAckMessage, new int[] {0});
+        verifyEvent(MQTT_SESSION_START, CLIENT_CONNECTED, SUB_ACKED);
+        shouldCleanSubs = true;
+    }
+
+    @Test
+    public void sharedSubRejectedWhenSharedSubscriptionDisabled() {
+        when(settingProvider.provide(eq(SharedSubscriptionEnabled), anyString())).thenReturn(false);
+        when(settingProvider.provide(eq(SubscriptionIdentifierEnabled), anyString())).thenReturn(true);
+        setupTransientSession();
+
+        mockAuthCheck(true);
+        MqttSubscribeMessage subMessage = MQTTMessageUtils.topicMqttSubMessages("$share/g/t1");
+        channel.writeInbound(subMessage);
+        MqttSubAckMessage subAckMessage = channel.readOutbound();
+        verifySubAck(subAckMessage, new int[] {128});
+        verifyEvent(MQTT_SESSION_START, CLIENT_CONNECTED, SUB_ACKED);
+    }
+
+    @Test
+    public void sharedSubAcceptedWhenOnlySubscriptionIdentifierDisabled() {
+        when(settingProvider.provide(eq(SharedSubscriptionEnabled), anyString())).thenReturn(true);
+        when(settingProvider.provide(eq(SubscriptionIdentifierEnabled), anyString())).thenReturn(false);
+        setupTransientSession();
+
+        mockAuthCheck(true);
+        mockDistMatch(QoS.AT_MOST_ONCE, true);
         MqttSubscribeMessage subMessage = MQTTMessageUtils.topicMqttSubMessages("$share/g/t1");
         channel.writeInbound(subMessage);
         MqttSubAckMessage subAckMessage = channel.readOutbound();

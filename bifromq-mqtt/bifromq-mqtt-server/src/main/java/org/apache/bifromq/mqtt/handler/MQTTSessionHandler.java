@@ -592,7 +592,7 @@ public abstract class MQTTSessionHandler extends MQTTMessageHandler implements I
             return CompletableFuture.completedFuture(IMQTTProtocolHelper.SubResult.WILDCARD_NOT_SUPPORTED);
         }
 
-        if (isSharedSubscription(topicFilter) && !settings.subscriptionIdentifierEnabled) {
+        if (isSharedSubscription(topicFilter) && !settings.sharedSubscriptionEnabled) {
             return CompletableFuture.completedFuture(IMQTTProtocolHelper.SubResult.SHARED_SUBSCRIPTION_NOT_SUPPORTED);
         }
 

@@ -65,7 +65,8 @@ import org.apache.bifromq.starter.module.DistServiceModule;
 import org.apache.bifromq.starter.module.ExecutorsModule;
 import org.apache.bifromq.starter.module.InboxServiceModule;
 import org.apache.bifromq.starter.module.MQTTServiceModule;
-import org.apache.bifromq.starter.module.PluginModule;
+import org.apache.bifromq.starter.module.PluginExtensionModule;
+import org.apache.bifromq.starter.module.PluginRuntimeModule;
 import org.apache.bifromq.starter.module.RPCClientSSLContextModule;
 import org.apache.bifromq.starter.module.RPCServerBuilderModule;
 import org.apache.bifromq.starter.module.RetainServiceModule;
@@ -168,7 +169,8 @@ public class StandaloneStarter {
                 new RPCClientSSLContextModule(),
                 new CoreServiceModule(),
                 new RPCServerBuilderModule(),
-                new PluginModule(),
+                new PluginRuntimeModule(),
+                new PluginExtensionModule(),
                 new ExecutorsModule());
             Injector injector = Guice.createInjector(
                 new ConfigModule(config),

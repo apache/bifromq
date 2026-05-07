@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 
 package org.apache.bifromq.starter.module;
@@ -22,13 +22,11 @@ package org.apache.bifromq.starter.module;
 import com.google.inject.AbstractModule;
 import com.google.inject.Inject;
 import jakarta.inject.Singleton;
-import lombok.extern.slf4j.Slf4j;
 import org.apache.bifromq.inbox.client.IInboxClient;
 import org.apache.bifromq.mqtt.inbox.IMqttBrokerClient;
 import org.apache.bifromq.plugin.authprovider.AuthProviderManager;
 import org.apache.bifromq.plugin.clientbalancer.ClientBalancerManager;
 import org.apache.bifromq.plugin.eventcollector.EventCollectorManager;
-import org.apache.bifromq.plugin.manager.BifroMQPluginManager;
 import org.apache.bifromq.plugin.resourcethrottler.ResourceThrottlerManager;
 import org.apache.bifromq.plugin.settingprovider.SettingProviderManager;
 import org.apache.bifromq.plugin.subbroker.ISubBrokerManager;
@@ -36,34 +34,15 @@ import org.apache.bifromq.plugin.subbroker.SubBrokerManager;
 import org.apache.bifromq.starter.config.StandaloneConfig;
 import org.pf4j.PluginManager;
 
-@Slf4j
-public class PluginModule extends AbstractModule {
+public class PluginExtensionModule extends AbstractModule {
     @Override
     protected void configure() {
-        bind(PluginManager.class).toProvider(PluginManagerProvider.class).in(Singleton.class);
         bind(ISubBrokerManager.class).toProvider(SubBrokerManagerProvider.class).in(Singleton.class);
         bind(AuthProviderManager.class).toProvider(AuthProviderManagerProvider.class).in(Singleton.class);
         bind(EventCollectorManager.class).toProvider(EventCollectorManagerProvider.class).in(Singleton.class);
         bind(ResourceThrottlerManager.class).toProvider(ResourceThrottlerManagerProvider.class).in(Singleton.class);
         bind(SettingProviderManager.class).toProvider(SettingProviderManagerProvider.class).in(Singleton.class);
         bind(ClientBalancerManager.class).toProvider(ClientBalancerManagerProvider.class).in(Singleton.class);
-    }
-
-    private static class PluginManagerProvider extends SharedResourceProvider<BifroMQPluginManager> {
-
-        @Inject
-        private PluginManagerProvider(SharedResourcesHolder sharedResourcesHolder) {
-            super(sharedResourcesHolder);
-        }
-
-        @Override
-        public BifroMQPluginManager share() {
-            BifroMQPluginManager pluginMgr = new BifroMQPluginManager();
-            pluginMgr.getPlugins().forEach(
-                plugin -> log.info("Loaded plugin: {}@{}",
-                    plugin.getDescriptor().getPluginId(), plugin.getDescriptor().getVersion()));
-            return pluginMgr;
-        }
     }
 
     private static class AuthProviderManagerProvider extends SharedResourceProvider<AuthProviderManager> {
@@ -141,7 +120,6 @@ public class PluginModule extends AbstractModule {
             this.config = config;
             this.pluginManager = pluginManager;
         }
-
 
         @Override
         public SettingProviderManager share() {

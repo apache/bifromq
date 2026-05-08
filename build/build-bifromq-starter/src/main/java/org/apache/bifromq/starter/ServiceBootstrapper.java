@@ -75,7 +75,8 @@ class ServiceBootstrapper {
 
     public BootstrappedServices bootstrap() {
         // If any of the services is present, we need to start the RPC server
-        if (distServerOpt.isPresent()
+        if (mqttBrokerOpt.isPresent()
+            || distServerOpt.isPresent()
             || distWorkerOpt.isPresent()
             || inboxServerOpt.isPresent()
             || inboxStoreOpt.isPresent()

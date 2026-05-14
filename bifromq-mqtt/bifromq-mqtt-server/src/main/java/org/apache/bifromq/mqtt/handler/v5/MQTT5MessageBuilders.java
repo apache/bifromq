@@ -192,7 +192,7 @@ public class MQTT5MessageBuilders {
             }
             if (maximumQos != null) {
                 props.add(new MqttProperties.IntegerProperty(MqttProperties.MqttPropertyType.MAXIMUM_QOS.value(),
-                    receiveMaximum));
+                    maximumQos.intValue()));
             }
             if (maximumPacketSize != null) {
                 props.add(

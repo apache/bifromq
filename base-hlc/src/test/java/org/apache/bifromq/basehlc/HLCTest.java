@@ -47,4 +47,13 @@ public class HLCTest {
             t1 = t;
         }
     }
+
+    @Test
+    public void updateWithFutureTimestampPreservesCausality() {
+        long observed = ((System.currentTimeMillis() + 1000) << 16) | 5;
+
+        long updated = HLC.INST.update(observed);
+
+        assertTrue(updated > observed);
+    }
 }

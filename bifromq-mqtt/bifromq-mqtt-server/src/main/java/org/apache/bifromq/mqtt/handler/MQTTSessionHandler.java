@@ -77,6 +77,7 @@ import io.netty.handler.codec.mqtt.MqttSubscribeMessage;
 import io.netty.handler.codec.mqtt.MqttTopicSubscription;
 import io.netty.handler.codec.mqtt.MqttUnsubscribeMessage;
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
@@ -1286,6 +1287,7 @@ public abstract class MQTTSessionHandler extends MQTTMessageHandler implements I
     private void resend() {
         long now = sessionCtx.nanoTime();
         boolean flush = false;
+        List<ConfirmingMessage> toDrop = new ArrayList<>();
         for (ConfirmingMessage confirmingMsg : unconfirmedPacketIds.values()) {
             if (confirmingMsg.sentCount <= settings.maxResendTimes) {
                 if (ctx.channel().isWritable()) {
@@ -1306,13 +1308,17 @@ public abstract class MQTTSessionHandler extends MQTTMessageHandler implements I
                     break;
                 }
             } else {
-                reportDropConfirmableMsgEvent(confirmingMsg.message, DropReason.MaxRetried);
-                confirm(confirmingMsg, false);
-                receiveQuota.onErrorSignal(now);
+                toDrop.add(confirmingMsg);
             }
         }
         if (flush) {
             flush(true);
+        }
+        // drop after the iteration completes: confirm() structurally modifies unconfirmedPacketIds
+        for (ConfirmingMessage dropped : toDrop) {
+            reportDropConfirmableMsgEvent(dropped.message, DropReason.MaxRetried);
+            confirm(dropped, false);
+            receiveQuota.onErrorSignal(now);
         }
         if (!unconfirmedPacketIds.isEmpty()) {
             scheduleResend();

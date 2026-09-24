@@ -42,10 +42,12 @@ import static org.apache.bifromq.type.QoS.AT_LEAST_ONCE;
 import static org.apache.bifromq.type.QoS.EXACTLY_ONCE;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.argThat;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.testng.Assert.assertEquals;
+import static org.testng.Assert.assertNotNull;
 import static org.testng.Assert.assertNull;
 import static org.testng.Assert.assertTrue;
 
@@ -475,6 +477,35 @@ public class MQTT3PersistentSessionHandlerTest extends BaseSessionHandlerTest {
         }
         verifyEventUnordered(QOS1_PUSHED, QOS1_PUSHED, QOS1_PUSHED, QOS1_CONFIRMED, QOS1_CONFIRMED);
         verify(inboxClient, times(0)).commit(argThat(CommitRequest::hasSendBufferUpToSeq));
+    }
+
+    @Test
+    public void outOfOrderPubAckMustNotAdvanceInboxWatermark() {
+        // #286: PUBACK carries no ordering requirement — a client may acknowledge
+        // packetId 2 while packetId 1 is still in flight. Confirming the inbox
+        // watermark up to the second message's seq would delete the un-acked first
+        // message from the inbox (permanent loss on session resume).
+        mockCheckPermission(true);
+        mockInboxCommit(CommitReply.Code.OK);
+        inboxFetchConsumer.accept(fetch(2, 128, QoS.AT_LEAST_ONCE));
+        channel.runPendingTasks();
+        MqttPublishMessage first = channel.readOutbound();
+        MqttPublishMessage second = channel.readOutbound();
+        assertNotNull(first);
+        assertNotNull(second);
+        // PUBACK the SECOND message only — the head (first) is still un-acked
+        channel.writeInbound(MQTTMessageUtils.pubAckMessage(second.variableHeader().packetId()));
+        channel.runPendingTasks();
+        // nothing was contiguously confirmed -> the watermark must not advance
+        verify(inboxClient, never()).commit(argThat(CommitRequest::hasSendBufferUpToSeq));
+
+        // phase 2: PUBACK the first — the delayed contiguous confirmation must now
+        // drain both acked entries and advance the watermark past the second message
+        channel.writeInbound(MQTTMessageUtils.pubAckMessage(first.variableHeader().packetId()));
+        channel.runPendingTasks();
+        verify(inboxClient, times(1)).commit(argThat(req ->
+            req.hasSendBufferUpToSeq() && req.getSendBufferUpToSeq() >= 1));
+        assertTrue(channel.isOpen());
     }
 
     @Test

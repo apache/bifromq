@@ -634,6 +634,58 @@ public class DistWorkerCoProcTest {
     }
 
     @Test
+    public void testRemoveGroupRouteDuplicatedInOneBatchAllPositionsGetOk() {
+        long inc = 1L;
+        String tenantId = "tenantGR";
+        String topicFilter = "$share/group/rm/topic";
+
+        BatchUnmatchRequest.TenantBatch tenantBatch = BatchUnmatchRequest.TenantBatch.newBuilder()
+            .addRoute(MatchRoute.newBuilder()
+                .setMatcher(TopicUtil.from(topicFilter))
+                .setBrokerId(1)
+                .setReceiverId("inboxGR")
+                .setDelivererKey("delivererGR")
+                .setIncarnation(inc)
+                .build())
+            .addRoute(MatchRoute.newBuilder()
+                .setMatcher(TopicUtil.from(topicFilter))
+                .setBrokerId(1)
+                .setReceiverId("inboxGR")
+                .setDelivererKey("delivererGR")
+                .setIncarnation(inc)
+                .build())
+            .build();
+
+        RWCoProcInput rwCoProcInput = RWCoProcInput.newBuilder().setDistService(
+                DistServiceRWCoProcInput.newBuilder()
+                    .setBatchUnmatch(BatchUnmatchRequest.newBuilder()
+                        .setReqId(3006)
+                        .putRequests(tenantId, tenantBatch)
+                        .build())
+                    .build())
+            .build();
+
+        // route exists in KV as a RouteGroup protobuf (receiverUrl -> incarnation)
+        // receiverUrl format: subBrokerId + NUL + receiverId + NUL + delivererKey
+        String receiverUrl = 1 + "\u0000" + "inboxGR" + "\u0000" + "delivererGR";
+        org.apache.bifromq.dist.rpc.proto.RouteGroup group =
+            org.apache.bifromq.dist.rpc.proto.RouteGroup.newBuilder()
+                .putMembers(receiverUrl, inc)
+                .build();
+        when(reader.get(any(ByteString.class))).thenReturn(Optional.of(group.toByteString()));
+
+        Supplier<IKVRangeCoProc.MutationResult> resultSupplier = distWorkerCoProc.mutate(rwCoProcInput, reader, writer,
+            false);
+        IKVRangeCoProc.MutationResult result = resultSupplier.get();
+
+        // both positions must receive OK — the earlier index must not be silently null (NPE)
+        BatchUnmatchReply reply = result.output().getDistService().getBatchUnmatch();
+        assertEquals(reply.getReqId(), 3006);
+        assertEquals(reply.getResultsOrThrow(tenantId).getCode(0), BatchUnmatchReply.TenantBatch.Code.OK);
+        assertEquals(reply.getResultsOrThrow(tenantId).getCode(1), BatchUnmatchReply.TenantBatch.Code.OK);
+    }
+
+    @Test
     public void testAddNormalRouteUpgradeIncNoIncButRefreshCalled() {
         long oldInc = 1L;
         long newInc = 2L;

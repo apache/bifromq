@@ -39,6 +39,9 @@ public class UTF8Util {
         if (cl == '\u0000') {
             return false;
         }
+        if (Character.isLowSurrogate(cl)) {
+            return false;
+        }
         if (sanityCheck && isUnacceptableChar(cl)) {
             return false;
         }
@@ -47,7 +50,11 @@ public class UTF8Util {
             if (cr == '\u0000') {
                 return false;
             }
-            if (Character.isSurrogatePair(cl, cr)) {
+            if (Character.isHighSurrogate(cl)) {
+                if (!Character.isLowSurrogate(cr)) {
+                    return false;
+                }
+            } else if (Character.isLowSurrogate(cr)) {
                 return false;
             }
             if (sanityCheck && isUnacceptableChar(cr)) {
@@ -55,7 +62,7 @@ public class UTF8Util {
             }
             cl = cr;
         }
-        return true;
+        return !Character.isHighSurrogate(cl);
     }
 
     public static boolean isValidUTF8Payload(ByteBuffer payload) {

@@ -498,7 +498,13 @@ public class MQTT3PersistentSessionHandlerTest extends BaseSessionHandlerTest {
         channel.runPendingTasks();
         // nothing was contiguously confirmed -> the watermark must not advance
         verify(inboxClient, never()).commit(argThat(CommitRequest::hasSendBufferUpToSeq));
-        // the still-un-acked first message must survive in the session
+
+        // phase 2: PUBACK the first — the delayed contiguous confirmation must now
+        // drain both acked entries and advance the watermark past the second message
+        channel.writeInbound(MQTTMessageUtils.pubAckMessage(first.variableHeader().packetId()));
+        channel.runPendingTasks();
+        verify(inboxClient, times(1)).commit(argThat(req ->
+            req.hasSendBufferUpToSeq() && req.getSendBufferUpToSeq() >= 1));
         assertTrue(channel.isOpen());
     }
 

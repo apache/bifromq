@@ -62,9 +62,11 @@ import static org.apache.bifromq.plugin.eventcollector.EventType.RETAIN_MSG_MATC
 import static org.apache.bifromq.plugin.eventcollector.EventType.SUB_ACKED;
 import static org.apache.bifromq.plugin.eventcollector.EventType.UNSUB_ACKED;
 import static org.apache.bifromq.plugin.eventcollector.EventType.UNSUB_ACTION_DISALLOW;
+import static org.apache.bifromq.plugin.settingprovider.Setting.MaxResendTimes;
 import static org.apache.bifromq.plugin.settingprovider.Setting.MsgPubPerSec;
 import static org.apache.bifromq.plugin.settingprovider.Setting.ReceivingMaximum;
 import static org.apache.bifromq.plugin.settingprovider.Setting.RetainEnabled;
+import static org.apache.bifromq.plugin.settingprovider.Setting.ResendTimeoutSeconds;
 import static org.apache.bifromq.retain.rpc.proto.RetainReply.Result.CLEARED;
 import static org.apache.bifromq.retain.rpc.proto.RetainReply.Result.ERROR;
 import static org.apache.bifromq.retain.rpc.proto.RetainReply.Result.RETAINED;
@@ -82,6 +84,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.testng.Assert.assertEquals;
 import static org.testng.Assert.assertFalse;
+import static org.testng.Assert.assertNotNull;
 import static org.testng.Assert.assertNull;
 import static org.testng.Assert.assertTrue;
 
@@ -1075,6 +1078,76 @@ public class TransientSessionHandlerTest extends BaseSessionHandlerTest {
         }
         verifyEventUnordered(MQTT_SESSION_START, QOS1_PUSHED, QOS1_PUSHED, QOS1_PUSHED, QOS1_CONFIRMED,
             QOS1_CONFIRMED, QOS1_CONFIRMED);
+    }
+
+    @Test
+    public void qos1RedeliveryCarriesDupFlag() {
+        when(settingProvider.provide(eq(ResendTimeoutSeconds), anyString())).thenReturn(1);
+        when(settingProvider.provide(eq(MaxResendTimes), anyString())).thenReturn(5);
+
+        // rebuild the handler so TenantSettings picks up the stubbed settings
+        // (its fields are final and read once at construction)
+        MqttProperties mqttProperties = new MqttProperties();
+        mqttProperties.add(new MqttProperties.IntegerProperty(TOPIC_ALIAS_MAXIMUM.value(), 10));
+        channel.pipeline().removeLast();
+        channel.pipeline().addLast(new ChannelDuplexHandler() {
+            @Override
+            public void handlerAdded(ChannelHandlerContext ctx) throws Exception {
+                super.handlerAdded(ctx);
+                ctx.pipeline().addLast(MQTT5TransientSessionHandler.builder()
+                    .settings(new TenantSettings(tenantId, settingProvider))
+                    .tenantMeter(tenantMeter)
+                    .oomCondition(oomCondition)
+                    .connMsg(MqttMessageBuilders.connect()
+                        .protocolVersion(MqttVersion.MQTT_5)
+                        .properties(mqttProperties)
+                        .build())
+                    .userSessionId(userSessionId(clientInfo))
+                    .keepAliveTimeSeconds(120)
+                    .clientInfo(clientInfo)
+                    .willMessage(null).ctx(ctx)
+                    .build());
+                ctx.pipeline().remove(this);
+            }
+        });
+        transientSessionHandler = (MQTT5TransientSessionHandler) channel.pipeline().last();
+
+        mockCheckPermission(true);
+        mockDistMatch(true);
+        transientSessionHandler.subscribe(System.nanoTime(), topicFilter, QoS.AT_LEAST_ONCE);
+        channel.runPendingTasks();
+        ArgumentCaptor<Long> longCaptor = ArgumentCaptor.forClass(Long.class);
+        verify(localDistService).match(anyLong(), eq(topicFilter), longCaptor.capture(), any());
+
+        transientSessionHandler.publish(s2cMQTT5MessageList(topic, 1, QoS.AT_LEAST_ONCE),
+            Collections.singleton(new IMQTTTransientSession.MatchedTopicFilter(topicFilter, longCaptor.getValue())));
+        channel.runPendingTasks();
+
+        // first delivery: not a re-delivery, DUP must be 0
+        MqttPublishMessage first = channel.readOutbound();
+        assertNotNull(first);
+        assertFalse(first.fixedHeader().isDup());
+        int packetId = first.variableHeader().packetId();
+        // no PUBACK — keep the message in flight so the resend timer fires
+
+        testTicker.advanceTimeBy(2, TimeUnit.SECONDS);
+        channel.advanceTimeBy(2, TimeUnit.SECONDS);
+        channel.runScheduledPendingTasks();
+        channel.runPendingTasks();
+        channel.flushOutbound();
+
+        // re-delivery of the same packet id: DUP must be 1 per [MQTT-3.3.1-1]
+        MqttPublishMessage redelivered = channel.readOutbound();
+        assertNotNull(redelivered);
+        assertEquals(redelivered.variableHeader().packetId(), packetId);
+        assertTrue(redelivered.fixedHeader().isDup(),
+            "re-delivered PUBLISH must carry DUP=1 (MQTT-3.3.1-1)");
+        // redelivery goes through the topic-alias reuse builder path
+        assertEquals(redelivered.variableHeader().properties()
+            .getProperties(TOPIC_ALIAS.value()).get(0).value(), 1);
+
+        channel.writeInbound(MQTTMessageUtils.pubAckMessage(packetId));
+        channel.runPendingTasks();
     }
 
     @Test

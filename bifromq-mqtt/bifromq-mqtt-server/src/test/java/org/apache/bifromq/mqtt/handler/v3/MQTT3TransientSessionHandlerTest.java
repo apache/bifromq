@@ -1730,4 +1730,52 @@ public class MQTT3TransientSessionHandlerTest extends BaseSessionHandlerTest {
         verify(eventCollector, atLeast(1)).report(argThat(e ->
             e instanceof QoS1Confirmed c && !c.delivered()));
     }
+
+    @Test
+    public void resendDroppingHeadAbortsDropOfRemaining() {
+        when(settingProvider.provide(eq(ResendTimeoutSeconds), anyString())).thenReturn(1);
+        when(settingProvider.provide(eq(MaxResendTimes), anyString())).thenReturn(1);
+        when(settingProvider.provide(eq(ReceivingMaximum), anyString())).thenReturn(2);
+
+        channel.pipeline().removeLast();
+        channel.pipeline().addLast(new ChannelDuplexHandler() {
+            @Override
+            public void handlerAdded(ChannelHandlerContext ctx) throws Exception {
+                super.handlerAdded(ctx);
+                ctx.pipeline().addLast(
+                    MQTT3TransientSessionHandler.builder().settings(new TenantSettings(tenantId, settingProvider))
+                        .tenantMeter(tenantMeter).oomCondition(oomCondition).userSessionId(userSessionId(clientInfo))
+                        .keepAliveTimeSeconds(120).clientInfo(clientInfo).willMessage(null).ctx(ctx).build());
+                ctx.pipeline().remove(this);
+            }
+        });
+        transientSessionHandler = (MQTT3TransientSessionHandler) channel.pipeline().last();
+
+        mockCheckPermission(true);
+        mockDistMatch(true);
+        transientSessionHandler.subscribe(System.nanoTime(), topicFilter, QoS.AT_LEAST_ONCE);
+        channel.runPendingTasks();
+        ArgumentCaptor<Long> longCaptor = ArgumentCaptor.forClass(Long.class);
+        verify(localDistService).match(anyLong(), eq(topicFilter), longCaptor.capture(), any());
+
+        transientSessionHandler.publish(s2cMessageList(topic, 2, QoS.AT_LEAST_ONCE),
+            Collections.singleton(new IMQTTTransientSession.MatchedTopicFilter(topicFilter, longCaptor.getValue())));
+        channel.runPendingTasks();
+
+        assertNotNull(channel.readOutbound());
+        assertNotNull(channel.readOutbound());
+        // deliberately never ack: both stay in flight, so the head is dropped while another entry remains
+
+        for (int i = 0; i < 6; i++) {
+            testTicker.advanceTimeBy(2, TimeUnit.SECONDS);
+            channel.advanceTimeBy(2, TimeUnit.SECONDS);
+            channel.runScheduledPendingTasks();
+            channel.runPendingTasks();
+            channel.flushOutbound();
+        }
+
+        // both in-flight messages have exceeded maxResendTimes and must be dropped
+        verify(eventCollector, times(2)).report(argThat(e ->
+            e instanceof QoS1Dropped d && d.reason() == DropReason.MaxRetried));
+    }
 }

@@ -897,12 +897,14 @@ public abstract class MQTTSessionHandler extends MQTTMessageHandler implements I
         long now = sessionCtx.nanoTime();
         confirmingMsg.setAcked();
         Iterator<Integer> packetIdItr = unconfirmedPacketIds.keySet().iterator();
+        boolean anyConfirmed = false;
         while (packetIdItr.hasNext()) {
             int packetId = packetIdItr.next();
             ConfirmingMessage head = unconfirmedPacketIds.get(packetId);
             if (head.acked) {
                 packetIdItr.remove();
                 confirmingMsg = head;
+                anyConfirmed = true;
                 long lastSentTimestamp = head.resendTimestamp > 0 ? head.resendTimestamp : head.timestamp;
                 RoutedMessage confirmed = confirmingMsg.message;
                 switch (confirmed.qos()) {
@@ -958,8 +960,12 @@ public abstract class MQTTSessionHandler extends MQTTMessageHandler implements I
                 break;
             }
         }
-        // confirm up to the current seq
-        onConfirm(confirmingMsg.seq);
+        // confirm up to the last contiguously acknowledged seq; if the head of the
+        // window is still unacknowledged nothing is confirmed, so the watermark must
+        // not advance past it
+        if (anyConfirmed) {
+            onConfirm(confirmingMsg.seq);
+        }
     }
 
     protected abstract void onConfirm(long seq);

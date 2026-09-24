@@ -588,6 +588,52 @@ public class DistWorkerCoProcTest {
     }
 
     @Test
+    public void testAddGroupRouteDuplicatedInOneBatchAllPositionsGetOk() {
+        long inc = 1L;
+        String tenantId = "tenantGD";
+        String topicFilter = "$share/group/dup/topic";
+
+        BatchMatchRequest.TenantBatch tenantBatch = BatchMatchRequest.TenantBatch.newBuilder()
+            .setOption(TenantOption.newBuilder().setMaxReceiversPerSharedSubGroup(10).build())
+            .addRoute(MatchRoute.newBuilder()
+                .setMatcher(TopicUtil.from(topicFilter))
+                .setBrokerId(1)
+                .setReceiverId("inboxGD")
+                .setDelivererKey("delivererGD")
+                .setIncarnation(inc)
+                .build())
+            .addRoute(MatchRoute.newBuilder()
+                .setMatcher(TopicUtil.from(topicFilter))
+                .setBrokerId(1)
+                .setReceiverId("inboxGD")
+                .setDelivererKey("delivererGD")
+                .setIncarnation(inc)
+                .build())
+            .build();
+
+        RWCoProcInput rwCoProcInput = RWCoProcInput.newBuilder().setDistService(
+                DistServiceRWCoProcInput.newBuilder()
+                    .setBatchMatch(BatchMatchRequest.newBuilder()
+                        .setReqId(3005)
+                        .putRequests(tenantId, tenantBatch)
+                        .build())
+                    .build())
+            .build();
+
+        when(reader.get(any(ByteString.class))).thenReturn(Optional.empty());
+
+        Supplier<IKVRangeCoProc.MutationResult> resultSupplier = distWorkerCoProc.mutate(rwCoProcInput, reader, writer,
+            false);
+        IKVRangeCoProc.MutationResult result = resultSupplier.get();
+
+        // both positions must receive OK — the earlier index must not be silently null (NPE)
+        BatchMatchReply reply = result.output().getDistService().getBatchMatch();
+        assertEquals(reply.getReqId(), 3005);
+        assertEquals(reply.getResultsOrThrow(tenantId).getCode(0), BatchMatchReply.TenantBatch.Code.OK);
+        assertEquals(reply.getResultsOrThrow(tenantId).getCode(1), BatchMatchReply.TenantBatch.Code.OK);
+    }
+
+    @Test
     public void testAddNormalRouteUpgradeIncNoIncButRefreshCalled() {
         long oldInc = 1L;
         long newInc = 2L;

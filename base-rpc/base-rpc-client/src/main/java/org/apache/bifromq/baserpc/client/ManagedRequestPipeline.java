@@ -142,6 +142,10 @@ public class ManagedRequestPipeline<ReqT, RespT> extends ManagedBiDiStream<ReqT,
             super.close();
             meter.recordCount(RPCMetric.ReqPipelineCompleteCount);
             cancelPreflightTasks(new RequestAbortException("Pipeline has closed"));
+            // Also abort in-flight requests: super.close() disposes the stream, so their responses
+            // can never arrive and onStreamError() will not fire afterwards - leaving the futures pending
+            // hangs direct (non-batched) callers forever and leaks the inflight tasks.
+            cancelInflightTasks(new RequestAbortException("Pipeline has closed"));
         }
     }
 

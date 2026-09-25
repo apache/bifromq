@@ -219,6 +219,117 @@ public class SessionRegistryTest {
     }
 
     @Test
+    public void testKickCallbackReenteringRemoveKeepsNewSession() {
+        // The real register's kick() synchronously unregisters itself via regListener,
+        // which calls remove() back on the same thread — the compute block must not be
+        // re-entered, and the new session must survive in the dictionary.
+        ISessionRegister registerMock1 = Mockito.mock(ISessionRegister.class);
+        ISessionRegister registerMock2 = Mockito.mock(ISessionRegister.class);
+
+        ClientInfo sessionOwner1 = ClientInfo.newBuilder()
+            .setTenantId(tenantId1)
+            .putMetadata(MQTT_USER_ID_KEY, "user1")
+            .putMetadata(MQTT_CLIENT_ID_KEY, "client1")
+            .putMetadata(MQTT_CLIENT_SESSION_TYPE, MQTT_CLIENT_SESSION_TYPE_T_VALUE)
+            .putMetadata(MQTT_CHANNEL_ID_KEY, "channel1")
+            .build();
+
+        ClientInfo sessionOwner2 = ClientInfo.newBuilder()
+            .setTenantId(tenantId1)
+            .putMetadata(MQTT_USER_ID_KEY, "user1")
+            .putMetadata(MQTT_CLIENT_ID_KEY, "client1")
+            .putMetadata(MQTT_CLIENT_SESSION_TYPE, MQTT_CLIENT_SESSION_TYPE_T_VALUE)
+            .putMetadata(MQTT_CHANNEL_ID_KEY, "channel2")
+            .build();
+
+        Mockito.doAnswer(invocation -> {
+            sessionRegistry.remove(sessionOwner1, registerMock1);
+            return null;
+        }).when(registerMock1).kick(org.mockito.ArgumentMatchers.any(),
+            org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any(),
+            org.mockito.ArgumentMatchers.any());
+
+        sessionRegistry.add(sessionOwner1, registerMock1);
+        sessionRegistry.add(sessionOwner2, registerMock2);
+
+        Mockito.verify(registerMock1).kick(eq(tenantId1), eq(sessionOwner1), eq(sessionOwner2),
+            eq(ServerRedirection.newBuilder().setType(ServerRedirection.Type.NO_MOVE).build()));
+
+        Optional<ClientInfo> retrieved = sessionRegistry.get(tenantId1, "user1", "client1");
+        assertTrue(retrieved.isPresent());
+        assertEquals(sessionOwner2, retrieved.get());
+        assertGaugeValue(tenantId1, MqttConnectionGauge, 1.0);
+    }
+
+    @Test
+    public void testReAddSameOwnerWithReenteringKickKeepsNewSession() {
+        // Same owner re-registered with a different register: the nested remove() from the
+        // kick callback used to delete the mapping this add had just installed, silently
+        // losing the session from the dictionary (subsequent kill could not find it).
+        ISessionRegister registerMock1 = Mockito.mock(ISessionRegister.class);
+        ISessionRegister registerMock2 = Mockito.mock(ISessionRegister.class);
+
+        ClientInfo sessionOwner = ClientInfo.newBuilder()
+            .setTenantId(tenantId1)
+            .putMetadata(MQTT_USER_ID_KEY, "user1")
+            .putMetadata(MQTT_CLIENT_ID_KEY, "client1")
+            .putMetadata(MQTT_CLIENT_SESSION_TYPE, MQTT_CLIENT_SESSION_TYPE_T_VALUE)
+            .putMetadata(MQTT_CHANNEL_ID_KEY, "channel1")
+            .build();
+
+        Mockito.doAnswer(invocation -> {
+            sessionRegistry.remove(sessionOwner, registerMock1);
+            return null;
+        }).when(registerMock1).kick(org.mockito.ArgumentMatchers.any(),
+            org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any(),
+            org.mockito.ArgumentMatchers.any());
+
+        sessionRegistry.add(sessionOwner, registerMock1);
+        sessionRegistry.add(sessionOwner, registerMock2);
+
+        Mockito.verify(registerMock1).kick(eq(tenantId1), eq(sessionOwner), eq(sessionOwner),
+            eq(ServerRedirection.newBuilder().setType(ServerRedirection.Type.NO_MOVE).build()));
+
+        Optional<ClientInfo> retrieved = sessionRegistry.get(tenantId1, "user1", "client1");
+        assertTrue(retrieved.isPresent());
+        assertEquals(sessionOwner, retrieved.get());
+        assertGaugeValue(tenantId1, MqttConnectionGauge, 1.0);
+    }
+
+    @Test
+    public void testDelayedTeardownOfTakenOverRegisterKeepsNewSession() {
+        // Production sequence after a same-owner takeover: the old register's stream is closed
+        // by the client only after it receives the Quit, so the old register's teardown
+        // (remove) can land well after the new register has been added. The remove must not
+        // delete the dictionary entry installed by the new register, nor drift the counters.
+        ISessionRegister registerMock1 = Mockito.mock(ISessionRegister.class);
+        ISessionRegister registerMock2 = Mockito.mock(ISessionRegister.class);
+
+        ClientInfo sessionOwner = ClientInfo.newBuilder()
+            .setTenantId(tenantId1)
+            .putMetadata(MQTT_USER_ID_KEY, "user1")
+            .putMetadata(MQTT_CLIENT_ID_KEY, "client1")
+            .putMetadata(MQTT_CLIENT_SESSION_TYPE, MQTT_CLIENT_SESSION_TYPE_T_VALUE)
+            .putMetadata(MQTT_CHANNEL_ID_KEY, "channel1")
+            .build();
+
+        sessionRegistry.add(sessionOwner, registerMock1);
+        sessionRegistry.add(sessionOwner, registerMock2); // takeover, kicks registerMock1
+
+        // delayed teardown of the OLD register (what doFinally does when its stream closes)
+        sessionRegistry.remove(sessionOwner, registerMock1);
+
+        Optional<ClientInfo> retrieved = sessionRegistry.get(tenantId1, "user1", "client1");
+        assertTrue(retrieved.isPresent());
+        assertEquals(sessionOwner, retrieved.get());
+        assertGaugeValue(tenantId1, MqttConnectionGauge, 1.0);
+
+        // teardown of the LIVE register still removes the entry
+        sessionRegistry.remove(sessionOwner, registerMock2);
+        assertTrue(sessionRegistry.get(tenantId1, "user1", "client1").isEmpty());
+    }
+
+    @Test
     public void testRemoveSession() {
         ISessionRegister registerMock = Mockito.mock(ISessionRegister.class);
 

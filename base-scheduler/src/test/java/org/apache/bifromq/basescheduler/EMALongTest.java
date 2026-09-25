@@ -113,4 +113,26 @@ public class EMALongTest {
         // expected = 80
         assertEquals(ema.get(), 80);
     }
+
+    /**
+     * Regression: after an idle period a fresh sample must not resurrect the stale (decayed-away)
+     * congestion value. With the buggy base (undecayed prev.ema), update(0) after 60s idle would return
+     * 0.9 * 20s = 18s instead of ~32ms.
+     */
+    @Test
+    void updateAfterIdleUsesDecayedBase() {
+        EMALong ema = new EMALong(nowSupplier, 0.1, 0.9, 5_000_000_000L);
+        fakeTime.set(1L);
+        ema.update(20_000_000_000L); // congestion spike: ema = 20s
+        // idle for 60s beyond the decay delay: get() reports ≈ 20s * 0.9^60 ≈ 36ms
+        fakeTime.set(5_000_000_000L + 60_000_000_000L + 1L);
+        long decayedBefore = ema.get();
+        org.testng.Assert.assertTrue(decayedBefore < 1_000_000_000L,
+            "congestion should have decayed after 60s idle, but get()=" + decayedBefore);
+        // a fresh zero-latency sample must stay in the decayed range, not jump back to ~0.9 * 20s
+        ema.update(0L);
+        long after = ema.get();
+        org.testng.Assert.assertTrue(after < 1_000_000_000L,
+            "update() resurrected the stale value after idle: " + after);
+    }
 }

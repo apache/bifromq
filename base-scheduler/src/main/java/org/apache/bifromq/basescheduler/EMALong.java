@@ -46,7 +46,12 @@ class EMALong {
         long now = nowSupplier.get();
         while (true) {
             State prev = state.get();
-            long newEma = (prev.ema == 0L) ? newValue : (long) Math.ceil(prev.ema * (1 - alpha) + newValue * alpha);
+            // Base the new sample on the *decayed* value, so update() and get() agree on the current
+            // EMA. Using the raw prev.ema here resurrects a stale congestion value after an idle period
+            // (get() reported it had decayed away) and re-arms the decay delay, which can pin the scheduler
+            // in permanent back-pressure.
+            long prevEma = decay(prev, now);
+            long newEma = (prevEma == 0L) ? newValue : (long) Math.ceil(prevEma * (1 - alpha) + newValue * alpha);
             State next = new State(newEma, now);
             if (state.compareAndSet(prev, next)) {
                 return;
@@ -55,8 +60,10 @@ class EMALong {
     }
 
     public long get() {
-        long now = nowSupplier.get();
-        State s = state.get();
+        return decay(state.get(), nowSupplier.get());
+    }
+
+    private long decay(State s, long now) {
         if (s.ema == 0L || s.lastTs == 0L) {
             return s.ema;
         }

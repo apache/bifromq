@@ -21,14 +21,18 @@ package org.apache.bifromq.basekv.localengine.rocksdb;
 
 import static org.apache.bifromq.basekv.localengine.rocksdb.RocksDBDefaultConfigs.DB_CHECKPOINT_ROOT_DIR;
 import static org.apache.bifromq.basekv.localengine.rocksdb.RocksDBDefaultConfigs.DB_ROOT_DIR;
+import static org.testng.Assert.assertEquals;
 import static org.testng.Assert.assertFalse;
 import static org.testng.Assert.assertTrue;
 
 import com.google.protobuf.Struct;
 import com.google.protobuf.Value;
+import io.micrometer.core.instrument.Metrics;
 import io.reactivex.rxjava3.disposables.Disposable;
 import java.io.File;
+import java.lang.reflect.Field;
 import java.nio.file.Paths;
+import java.util.concurrent.ExecutorService;
 import lombok.SneakyThrows;
 import org.apache.bifromq.basekv.localengine.ICPableKVSpace;
 import org.apache.bifromq.basekv.localengine.IKVEngine;
@@ -70,5 +74,25 @@ public class RocksDBCPableKVEngineTest extends AbstractRocksDBCPableEngineTest {
         assertTrue(disposable.isDisposed());
         assertTrue(engine.spaces().isEmpty());
         assertFalse(engine.spaces().containsKey(rangeId));
+    }
+
+    @SneakyThrows
+    @Test
+    public void shutdownCompactionExecutorWhenSpaceClosed() {
+        String rangeId = "compaction_range";
+        IKVSpace range = engine.createIfMissing(rangeId);
+        Field executorField = RocksDBKVSpace.class.getDeclaredField("compactionExecutor");
+        executorField.setAccessible(true);
+        ExecutorService executor = (ExecutorService) executorField.get(range);
+
+        assertFalse(executor.isShutdown());
+        range.close();
+        assertTrue(executor.isShutdown());
+        assertEquals(
+            Metrics.globalRegistry.getMeters().stream()
+                .filter(meter -> meter.getId().getName().startsWith("kvspace.executor"))
+                .filter(meter -> rangeId.equals(meter.getId().getTag("spaceId")))
+                .count(),
+            0);
     }
 }

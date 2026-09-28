@@ -132,7 +132,7 @@ public class TopicUtilsTest {
         assertTrue(TopicUtil.isValidTopicFilter("$oshare", 10, 4, 100));
         assertTrue(TopicUtil.isValidTopicFilter("$shared/", 10, 4, 10));
         assertTrue(TopicUtil.isValidTopicFilter("$oshared/", 10, 4, 100));
-        assertTrue(TopicUtil.isValidTopicFilter("$share/g/", 10, 4, 100));
+        assertFalse(TopicUtil.isValidTopicFilter("$share/g/", 10, 4, 100));
         assertTrue(TopicUtil.isValidTopicFilter("$share/g//", 10, 4, 100));
         assertFalse(TopicUtil.isValidTopicFilter("$share/g/abcdef/", 5, 4, 10));
         assertFalse(TopicUtil.isValidTopicFilter("$share/g/1/2/3/4/5", 5, 4, 255));

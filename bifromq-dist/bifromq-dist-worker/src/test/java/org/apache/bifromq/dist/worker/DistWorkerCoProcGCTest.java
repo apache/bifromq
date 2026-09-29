@@ -103,6 +103,10 @@ public class DistWorkerCoProcGCTest {
     }
 
     private ROCoProcOutput gc(long reqId, Integer stepHint, Integer scanQuota) {
+        return gcFrom(reqId, stepHint, scanQuota, null);
+    }
+
+    private ROCoProcOutput gcFrom(long reqId, Integer stepHint, Integer scanQuota, ByteString startKey) {
         when(reader.iterator()).thenReturn(new FakeIterator(currentData));
         GCRequest.Builder req = GCRequest.newBuilder().setReqId(reqId);
         if (stepHint != null) {
@@ -110,6 +114,9 @@ public class DistWorkerCoProcGCTest {
         }
         if (scanQuota != null) {
             req.setScanQuota(scanQuota);
+        }
+        if (startKey != null) {
+            req.setStartKey(startKey);
         }
         ROCoProcInput in = ROCoProcInput.newBuilder()
             .setDistService(DistServiceROCoProcInput.newBuilder().setGc(req.build()).build()).build();
@@ -186,6 +193,39 @@ public class DistWorkerCoProcGCTest {
         ROCoProcOutput out = gc(1004L, 1, 3);
         GCReply r = out.getDistService().getGc();
         assertEquals(r.getInspectedCount(), 3);
+    }
+
+    /**
+     * Regression: under step&gt;1 the cleaner's cursor stays pinned at the same start key whenever a
+     * session wraps, so without phase rotation the same modulo class of the route table would be inspected
+     * in every session and the other half would never be scanned (measured: 50% stable gap at step 2).
+     * Consecutive sessions must rotate the sampling phase until every route has been inspected.
+     */
+    @Test
+    public void gcSessionsRotatePhaseSoAllKeysGetInspected() {
+        currentData.clear();
+        int total = 12;
+        for (int i = 0; i < total; i++) {
+            currentData.add(new KV(normalKey("t" + String.format("%02d", i), "p/" + i, "1\0i" + i + "\0d1"),
+                toByteString(1L)));
+        }
+        java.util.Set<String> inspectedTenants = new java.util.HashSet<>();
+        when(subscriptionChecker.sweep(any(Integer.class), any(CheckRequest.class)))
+            .thenAnswer(inv -> {
+                CheckRequest req = inv.getArgument(1);
+                inspectedTenants.add(req.getTenantId());
+                return CompletableFuture.completedFuture(new ISubscriptionCleaner.GCStats(req.getMatchInfoCount(), 0));
+            });
+
+        ByteString startKey = null;
+        long reqId = 3000L;
+        for (int session = 0; session < 8 && inspectedTenants.size() < total; session++) {
+            GCReply r = gcFrom(reqId++, 2, 100, startKey).getDistService().getGc();
+            startKey = r.hasNextStartKey() ? r.getNextStartKey() : null;
+        }
+
+        assertEquals(inspectedTenants.size(), total,
+            "every route must be inspected within a few sessions under step=2");
     }
 
     @Test

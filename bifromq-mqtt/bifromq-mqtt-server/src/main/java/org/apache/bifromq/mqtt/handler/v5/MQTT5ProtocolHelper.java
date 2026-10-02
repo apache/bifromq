@@ -25,6 +25,7 @@ import static org.apache.bifromq.mqtt.handler.record.ProtocolResponse.farewellNo
 import static org.apache.bifromq.mqtt.handler.record.ProtocolResponse.response;
 import static org.apache.bifromq.mqtt.handler.record.ProtocolResponse.responseNothing;
 import static org.apache.bifromq.mqtt.handler.v5.MQTT5MessageUtils.isUTF8Payload;
+import static org.apache.bifromq.mqtt.handler.v5.MQTT5MessageUtils.maximumPacketSize;
 import static org.apache.bifromq.mqtt.handler.v5.MQTT5MessageUtils.messageExpiryInterval;
 import static org.apache.bifromq.mqtt.handler.v5.MQTT5MessageUtils.receiveMaximum;
 import static org.apache.bifromq.mqtt.handler.v5.MQTT5MessageUtils.requestProblemInformation;
@@ -110,6 +111,7 @@ public class MQTT5ProtocolHelper implements IMQTTProtocolHelper {
     private final TenantSettings settings;
     private final ClientInfo clientInfo;
     private final int clientReceiveMaximum;
+    private final int maxPacketSize;
     private final boolean requestProblemInfo;
     private final ReceiverTopicAliasManager receiverTopicAliasManager;
     private final SenderTopicAliasManager senderTopicAliasManager;
@@ -128,6 +130,8 @@ public class MQTT5ProtocolHelper implements IMQTTProtocolHelper {
                 Duration.ofSeconds(60));
         this.clientReceiveMaximum = Math.max(settings.minSendPerSec,
             receiveMaximum(connMsg.variableHeader().properties()).orElse(65535));
+        this.maxPacketSize = Math.min(maximumPacketSize(connMsg.variableHeader().properties()).orElse(settings.maxPacketSize),
+            settings.maxPacketSize);
         this.requestProblemInfo = requestProblemInformation(connMsg.variableHeader().properties());
     }
 
@@ -451,6 +455,11 @@ public class MQTT5ProtocolHelper implements IMQTTProtocolHelper {
     @Override
     public int clientReceiveMaximum() {
         return clientReceiveMaximum;
+    }
+
+    @Override
+    public int maxPacketSize() {
+        return maxPacketSize;
     }
 
     @Override

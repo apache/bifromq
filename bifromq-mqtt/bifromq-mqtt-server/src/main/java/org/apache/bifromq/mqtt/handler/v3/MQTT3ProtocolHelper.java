@@ -295,6 +295,11 @@ public class MQTT3ProtocolHelper implements IMQTTProtocolHelper {
     }
 
     @Override
+    public int maxPacketSize() {
+        return settings.maxPacketSize;
+    }
+
+    @Override
     public ProtocolResponse onKick(ClientInfo killer) {
         return goAwayNow(getLocal(Kicked.class).kicker(killer).clientInfo(clientInfo));
     }

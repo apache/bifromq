@@ -58,9 +58,25 @@ public class ChannelAttrs {
         return ctx.channel().pipeline().get(ChannelTrafficShapingHandler.class);
     }
 
+    public static int maxRemainingLength(int maxPacketSize) {
+        if (maxPacketSize <= 2) {
+            return 0;
+        }
+        if (maxPacketSize <= 129) {
+            return maxPacketSize - 2;
+        }
+        if (maxPacketSize <= 16386) {
+            return maxPacketSize - 3;
+        }
+        if (maxPacketSize <= 2097155) {
+            return maxPacketSize - 4;
+        }
+        return maxPacketSize - 5;
+    }
+
     public static void setMaxPayload(int maxUserPayloadSize, ChannelHandlerContext ctx) {
         ctx.channel().pipeline().replace(ctx.pipeline().get(MqttDecoder.class.getName()), MqttDecoder.class.getName(),
-            new MqttDecoder(maxUserPayloadSize));
+            new MqttDecoder(maxRemainingLength(maxUserPayloadSize)));
         if (maxUserPayloadSize > ctx.channel().config().getWriteBufferHighWaterMark()) {
             ctx.channel().config().setWriteBufferHighWaterMark(maxUserPayloadSize + 1024);
             ctx.channel().config().setWriteBufferLowWaterMark(maxUserPayloadSize / 2);

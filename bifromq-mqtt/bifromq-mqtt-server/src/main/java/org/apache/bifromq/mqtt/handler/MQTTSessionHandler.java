@@ -110,6 +110,7 @@ import org.apache.bifromq.plugin.clientbalancer.Redirection;
 import org.apache.bifromq.plugin.eventcollector.Event;
 import org.apache.bifromq.plugin.eventcollector.IEventCollector;
 import org.apache.bifromq.plugin.eventcollector.OutOfTenantResource;
+import org.apache.bifromq.plugin.eventcollector.mqttbroker.OversizePacketDropped;
 import org.apache.bifromq.plugin.eventcollector.mqttbroker.PingReq;
 import org.apache.bifromq.plugin.eventcollector.mqttbroker.SubStalled;
 import org.apache.bifromq.plugin.eventcollector.mqttbroker.accessctrl.PubActionDisallow;
@@ -971,6 +972,20 @@ public abstract class MQTTSessionHandler extends MQTTMessageHandler implements I
         MqttPublishMessage pubMsg = helper().buildMqttPubMessage(0, msg, false);
         int msgSize = sizer.sizeOf(pubMsg).encodedBytes();
         assert ctx.executor().inEventLoop();
+        if (msgSize > helper().maxPacketSize()) {
+            eventCollector.report(getLocal(OversizePacketDropped.class)
+                .mqttPacketType(pubMsg.fixedHeader().messageType().value())
+                .clientInfo(clientInfo));
+            eventCollector.report(getLocal(QoS0Dropped.class)
+                .reason(DropReason.ResourceExhausted)
+                .isRetain(msg.isRetain())
+                .sender(publisher)
+                .topic(msg.topic())
+                .matchedFilter(topicFilter)
+                .size(msgSize)
+                .clientInfo(clientInfo()));
+            return;
+        }
         if (!msg.permissionGranted()) {
             eventCollector.report(getLocal(QoS0Dropped.class)
                 .reason(DropReason.NoSubPermission)
@@ -1109,6 +1124,14 @@ public abstract class MQTTSessionHandler extends MQTTMessageHandler implements I
         MqttPublishMessage pubMsg = helper().buildMqttPubMessage(packetId, msg, isDup);
         TopicFilterOption option = msg.option();
         int msgSize = sizer.sizeOf(pubMsg).encodedBytes();
+        if (msgSize > helper().maxPacketSize()) {
+            eventCollector.report(getLocal(OversizePacketDropped.class)
+                .mqttPacketType(pubMsg.fixedHeader().messageType().value())
+                .clientInfo(clientInfo));
+            reportDropConfirmableMsgEvent(msg, DropReason.ResourceExhausted);
+            ctx.executor().execute(() -> confirm(packetId, false));
+            return;
+        }
         if (!msg.permissionGranted()) {
             reportDropConfirmableMsgEvent(msg, DropReason.NoSubPermission);
             ctx.executor().execute(() -> confirm(packetId, false));

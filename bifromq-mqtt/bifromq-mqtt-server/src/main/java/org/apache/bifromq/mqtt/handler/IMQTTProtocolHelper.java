@@ -90,6 +90,8 @@ public interface IMQTTProtocolHelper {
 
     int clientReceiveMaximum();
 
+    int maxPacketSize();
+
     ProtocolResponse onKick(ClientInfo killer);
 
     ProtocolResponse onRedirect(boolean isPermanent, String serverReference);

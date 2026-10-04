@@ -59,6 +59,8 @@ public final class RaftConfig {
     private int readOnlyBatch = 10;
     @Builder.Default
     private boolean disableForwardProposal = false;
+    @Builder.Default
+    private boolean disableForwardClusterConfigChange = false;
     // if append log entries asynchronously which is an optimization described in $10.2.1 section of raft thesis
     @Builder.Default
     private boolean asyncAppend = true;

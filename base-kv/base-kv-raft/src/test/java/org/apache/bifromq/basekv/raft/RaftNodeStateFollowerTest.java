@@ -55,6 +55,8 @@ import org.apache.bifromq.basekv.raft.proto.Propose;
 import org.apache.bifromq.basekv.raft.proto.ProposeReply;
 import org.apache.bifromq.basekv.raft.proto.RaftMessage;
 import org.apache.bifromq.basekv.raft.proto.RaftNodeStatus;
+import org.apache.bifromq.basekv.raft.proto.RequestChangeClusterConfig;
+import org.apache.bifromq.basekv.raft.proto.RequestChangeClusterConfigReply;
 import org.apache.bifromq.basekv.raft.proto.RequestPreVote;
 import org.apache.bifromq.basekv.raft.proto.RequestPreVoteReply;
 import org.apache.bifromq.basekv.raft.proto.RequestReadIndex;
@@ -261,6 +263,101 @@ public class RaftNodeStateFollowerTest extends RaftNodeStateTest {
             stateStorage, msgSender, eventListener, snapshotInstaller, onSnapshotInstalled);
         CompletableFuture<Void> onDone = new CompletableFuture<>();
         follower.changeClusterConfig("cId", Collections.singleton("v3"), Collections.singleton("l4"), onDone);
+        assertTrue(onDone.isCompletedExceptionally());
+    }
+
+    @Test
+    public void testForwardChangeClusterConfig() {
+        AtomicInteger onMessageReadyIndex = new AtomicInteger();
+        CompletableFuture<Void> onDone = new CompletableFuture<>();
+        IRaftStateStore stateStorage = new InMemoryStateStore("testLocal", Snapshot.newBuilder()
+            .setClusterConfig(clusterConfig).build());
+
+        RaftNodeStateFollower follower = new RaftNodeStateFollower(1, 0, leader, defaultRaftConfig,
+            stateStorage, messages -> {
+                if (onMessageReadyIndex.get() == 0) {
+                    onMessageReadyIndex.incrementAndGet();
+                    assertEquals(messages, new HashMap<String, List<RaftMessage>>() {{
+                        put(leader, Collections.singletonList(RaftMessage.newBuilder()
+                            .setTerm(1)
+                            .setRequestChangeClusterConfig(RequestChangeClusterConfig.newBuilder()
+                                .setId(1)
+                                .setCorrelateId("cId")
+                                .addVoters("v3")
+                                .addLearners("l4")
+                                .build())
+                            .build()));
+                    }});
+                }
+            }, eventListener, snapshotInstaller, onSnapshotInstalled);
+
+        follower.changeClusterConfig("cId", Collections.singleton("v3"), Collections.singleton("l4"), onDone);
+        assertFalse(onDone.isDone());
+
+        Map<Integer, CompletableFuture<Void>> idToForwardedConfigChangeMap =
+            ReflectionUtils.getField(follower, "idToForwardedConfigChangeMap");
+        assertTrue(Objects.requireNonNull(idToForwardedConfigChangeMap).containsKey(1));
+
+        RaftMessage configChangeReply = RaftMessage.newBuilder()
+            .setTerm(1)
+            .setRequestChangeClusterConfigReply(RequestChangeClusterConfigReply.newBuilder()
+                .setId(1)
+                .setCode(RequestChangeClusterConfigReply.Code.Success)
+                .build())
+            .build();
+        follower.receive(leader, configChangeReply);
+        assertTrue(onDone.isDone());
+        assertFalse(onDone.isCompletedExceptionally());
+    }
+
+    @Test
+    public void testForwardChangeClusterConfigDisabled() {
+        RaftConfig config = new RaftConfig()
+            .setDisableForwardClusterConfigChange(true);
+        IRaftStateStore stateStorage = new InMemoryStateStore("testLocal", Snapshot.newBuilder()
+            .setClusterConfig(clusterConfig).build());
+
+        RaftNodeStateFollower follower = new RaftNodeStateFollower(1, 0, leader, config,
+            stateStorage, msgSender, eventListener, snapshotInstaller, onSnapshotInstalled);
+
+        CompletableFuture<Void> onDone = new CompletableFuture<>();
+        follower.changeClusterConfig("cId", Collections.singleton("v3"), Collections.singleton("l4"), onDone);
+        assertTrue(onDone.isCompletedExceptionally());
+    }
+
+    @Test
+    public void testForwardChangeClusterConfigNoLeader() {
+        IRaftStateStore stateStorage = new InMemoryStateStore("testLocal", Snapshot.newBuilder()
+            .setClusterConfig(clusterConfig).build());
+
+        RaftNodeStateFollower follower = new RaftNodeStateFollower(1, 0, null, defaultRaftConfig,
+            stateStorage, msgSender, eventListener, snapshotInstaller, onSnapshotInstalled);
+
+        CompletableFuture<Void> onDone = new CompletableFuture<>();
+        follower.changeClusterConfig("cId", Collections.singleton("v3"), Collections.singleton("l4"), onDone);
+        assertTrue(onDone.isCompletedExceptionally());
+    }
+
+    @Test
+    public void testForwardChangeClusterConfigException() {
+        IRaftStateStore stateStorage = new InMemoryStateStore("testLocal", Snapshot.newBuilder()
+            .setClusterConfig(clusterConfig).build());
+
+        RaftNodeStateFollower follower = new RaftNodeStateFollower(1, 0, leader, defaultRaftConfig,
+            stateStorage, msgSender, eventListener, snapshotInstaller, onSnapshotInstalled);
+
+        CompletableFuture<Void> onDone = new CompletableFuture<>();
+        follower.changeClusterConfig("cId", Collections.singleton("v3"), Collections.singleton("l4"), onDone);
+        assertFalse(onDone.isDone());
+
+        RaftMessage configChangeReply = RaftMessage.newBuilder()
+            .setTerm(1)
+            .setRequestChangeClusterConfigReply(RequestChangeClusterConfigReply.newBuilder()
+                .setId(1)
+                .setCode(RequestChangeClusterConfigReply.Code.ConcurrentChange)
+                .build())
+            .build();
+        follower.receive(leader, configChangeReply);
         assertTrue(onDone.isCompletedExceptionally());
     }
 

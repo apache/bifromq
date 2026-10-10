@@ -78,6 +78,7 @@ import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.atLeast;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.reset;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -125,6 +126,7 @@ import org.apache.bifromq.dist.client.PubResult;
 import org.apache.bifromq.metrics.TenantMetric;
 import org.apache.bifromq.mqtt.handler.BaseSessionHandlerTest;
 import org.apache.bifromq.mqtt.handler.ChannelAttrs;
+import org.apache.bifromq.mqtt.handler.MQTTPacketFilter;
 import org.apache.bifromq.mqtt.handler.TenantSettings;
 import org.apache.bifromq.mqtt.handler.v5.reason.MQTT5DisconnectReasonCode;
 import org.apache.bifromq.mqtt.handler.v5.reason.MQTT5PubAckReasonCode;
@@ -136,9 +138,13 @@ import org.apache.bifromq.plugin.authprovider.type.CheckResult;
 import org.apache.bifromq.plugin.authprovider.type.Granted;
 import org.apache.bifromq.plugin.authprovider.type.MQTTAction;
 import org.apache.bifromq.plugin.eventcollector.EventType;
+import org.apache.bifromq.plugin.eventcollector.mqttbroker.OversizePacketDropped;
 import org.apache.bifromq.plugin.eventcollector.mqttbroker.clientdisconnect.ExceedReceivingLimit;
 import org.apache.bifromq.plugin.eventcollector.mqttbroker.pushhandling.DropReason;
+import org.apache.bifromq.plugin.eventcollector.mqttbroker.pushhandling.QoS0Dropped;
+import org.apache.bifromq.plugin.eventcollector.mqttbroker.pushhandling.QoS1Confirmed;
 import org.apache.bifromq.plugin.eventcollector.mqttbroker.pushhandling.QoS1Dropped;
+import org.apache.bifromq.plugin.eventcollector.mqttbroker.pushhandling.QoS2Confirmed;
 import org.apache.bifromq.plugin.eventcollector.mqttbroker.pushhandling.QoS2Dropped;
 import org.apache.bifromq.type.ClientInfo;
 import org.apache.bifromq.type.MQTTClientInfoConstants;
@@ -148,6 +154,7 @@ import org.apache.bifromq.type.TopicMessagePack;
 import org.mockito.ArgumentCaptor;
 import org.testng.annotations.AfterMethod;
 import org.testng.annotations.BeforeMethod;
+import org.testng.annotations.DataProvider;
 import org.testng.annotations.Test;
 
 @Slf4j
@@ -1391,4 +1398,76 @@ public class TransientSessionHandlerTest extends BaseSessionHandlerTest {
         verify(eventCollector).report(
             argThat(e -> e.type() == QOS2_DROPPED && ((QoS2Dropped) e).reason() == DropReason.Expired));
     }
+
+    @DataProvider
+    public Object[][] outgoingQoS() {
+        return new Object[][] {{QoS.AT_MOST_ONCE}, {QoS.AT_LEAST_ONCE}, {QoS.EXACTLY_ONCE}};
+    }
+
+    @Test(dataProvider = "outgoingQoS")
+    public void oversizeDropDoesNotBlockNextMessage(QoS qos) {
+        mockCheckPermission(true);
+        mockDistMatch(true);
+        transientSessionHandler.subscribe(System.nanoTime(), topicFilter, qos);
+        channel.runPendingTasks();
+        ArgumentCaptor<Long> incarnation = ArgumentCaptor.forClass(Long.class);
+        verify(localDistService).match(anyLong(), eq(topicFilter), incarnation.capture(), any());
+        channel.pipeline().addBefore(channel.pipeline().lastContext().name(), "packetFilter",
+            new MQTTPacketFilter(70, new TenantSettings(tenantId, settingProvider), clientInfo, eventCollector));
+        transientSessionHandler.publish(s2cMQTT5MessageList(topic,
+                List.of(ByteBuffer.wrap(new byte[128])), qos),
+            Collections.singleton(new IMQTTTransientSession.MatchedTopicFilter(topicFilter, incarnation.getValue())));
+        channel.runPendingTasks();
+        assertNull(channel.readOutbound());
+        verify(eventCollector).report(argThat(e -> e instanceof OversizePacketDropped));
+        verify(eventCollector, never()).report(argThat(e ->
+            e instanceof QoS0Dropped || e instanceof QoS1Dropped || e instanceof QoS2Dropped));
+        if (qos == QoS.AT_LEAST_ONCE) {
+            verify(eventCollector).report(argThat(e -> e instanceof QoS1Confirmed c && !c.delivered()));
+        } else if (qos == QoS.EXACTLY_ONCE) {
+            verify(eventCollector).report(argThat(e -> e instanceof QoS2Confirmed c && !c.delivered()));
+        }
+        transientSessionHandler.publish(s2cMQTT5MessageList(topic, 1, qos),
+            Collections.singleton(new IMQTTTransientSession.MatchedTopicFilter(topicFilter, incarnation.getValue())));
+        channel.runPendingTasks();
+        MqttPublishMessage next = channel.readOutbound();
+        assertNotNull(next);
+        next.release();
+        testTicker.advanceTimeBy(11, TimeUnit.SECONDS);
+        channel.advanceTimeBy(11, TimeUnit.SECONDS);
+        channel.runScheduledPendingTasks();
+        channel.runPendingTasks();
+        verify(eventCollector).report(argThat(e -> e instanceof OversizePacketDropped));
+        assertTrue(channel.isActive());
+    }
+
+    @Test(dataProvider = "outgoingQoS")
+    public void oversizedMessageStillRemovesRevokedSubscription(QoS qos) {
+        mockCheckPermission(true);
+        mockDistMatch(true);
+        mockDistUnMatch(true);
+        transientSessionHandler.subscribe(System.nanoTime(), topicFilter, qos);
+        channel.runPendingTasks();
+        ArgumentCaptor<Long> incarnation = ArgumentCaptor.forClass(Long.class);
+        verify(localDistService).match(anyLong(), eq(topicFilter), incarnation.capture(), any());
+        channel.pipeline().addBefore(channel.pipeline().lastContext().name(), "packetFilter",
+            new MQTTPacketFilter(70, new TenantSettings(tenantId, settingProvider), clientInfo, eventCollector));
+        mockCheckPermission(false);
+        transientSessionHandler.publish(s2cMQTT5MessageList(topic, List.of(ByteBuffer.wrap(new byte[128])), qos),
+            Collections.singleton(new IMQTTTransientSession.MatchedTopicFilter(topicFilter, incarnation.getValue())));
+        channel.runPendingTasks();
+        assertNull(channel.readOutbound());
+        verify(localDistService).unmatch(anyLong(), eq(topicFilter), anyLong(), any());
+        verify(eventCollector, never()).report(argThat(e -> e instanceof OversizePacketDropped));
+        switch (qos) {
+            case AT_MOST_ONCE -> verify(eventCollector).report(argThat(e ->
+                e instanceof QoS0Dropped d && d.reason() == DropReason.NoSubPermission));
+            case AT_LEAST_ONCE -> verify(eventCollector).report(argThat(e ->
+                e instanceof QoS1Dropped d && d.reason() == DropReason.NoSubPermission));
+            case EXACTLY_ONCE -> verify(eventCollector).report(argThat(e ->
+                e instanceof QoS2Dropped d && d.reason() == DropReason.NoSubPermission));
+            default -> throw new AssertionError(qos);
+        }
+    }
+
 }

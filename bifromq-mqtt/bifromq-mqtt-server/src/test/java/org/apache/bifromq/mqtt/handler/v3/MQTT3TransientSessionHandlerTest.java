@@ -79,6 +79,7 @@ import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.atLeast;
 import static org.mockito.Mockito.reset;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -108,6 +109,7 @@ import io.netty.handler.codec.mqtt.MqttSubscribeMessage;
 import io.netty.handler.codec.mqtt.MqttUnsubAckMessage;
 import io.netty.handler.codec.mqtt.MqttUnsubscribeMessage;
 import io.netty.handler.traffic.ChannelTrafficShapingHandler;
+import io.netty.util.ReferenceCountUtil;
 import java.lang.reflect.Method;
 import java.net.InetSocketAddress;
 import java.nio.ByteBuffer;
@@ -118,6 +120,7 @@ import java.util.List;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import lombok.SneakyThrows;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.bifromq.basehlc.HLC;
@@ -125,6 +128,7 @@ import org.apache.bifromq.dist.client.PubResult;
 import org.apache.bifromq.metrics.TenantMetric;
 import org.apache.bifromq.mqtt.handler.BaseSessionHandlerTest;
 import org.apache.bifromq.mqtt.handler.ChannelAttrs;
+import org.apache.bifromq.mqtt.handler.MQTTPacketFilter;
 import org.apache.bifromq.mqtt.handler.TenantSettings;
 import org.apache.bifromq.mqtt.session.IMQTTTransientSession;
 import org.apache.bifromq.mqtt.utils.MQTTMessageUtils;
@@ -134,6 +138,7 @@ import org.apache.bifromq.plugin.authprovider.type.Granted;
 import org.apache.bifromq.plugin.authprovider.type.MQTTAction;
 import org.apache.bifromq.plugin.eventcollector.Event;
 import org.apache.bifromq.plugin.eventcollector.EventType;
+import org.apache.bifromq.plugin.eventcollector.mqttbroker.OversizePacketDropped;
 import org.apache.bifromq.plugin.eventcollector.mqttbroker.pushhandling.DropReason;
 import org.apache.bifromq.plugin.eventcollector.mqttbroker.pushhandling.QoS0Dropped;
 import org.apache.bifromq.plugin.eventcollector.mqttbroker.pushhandling.QoS1Confirmed;
@@ -149,6 +154,7 @@ import org.apache.bifromq.type.TopicMessagePack;
 import org.mockito.ArgumentCaptor;
 import org.testng.annotations.AfterMethod;
 import org.testng.annotations.BeforeMethod;
+import org.testng.annotations.DataProvider;
 import org.testng.annotations.Test;
 
 @Slf4j
@@ -1730,4 +1736,177 @@ public class MQTT3TransientSessionHandlerTest extends BaseSessionHandlerTest {
         verify(eventCollector, atLeast(1)).report(argThat(e ->
             e instanceof QoS1Confirmed c && !c.delivered()));
     }
+
+    @Test
+    public void resendDropsAllMessagesAtRetryLimit() {
+        when(settingProvider.provide(eq(ResendTimeoutSeconds), anyString())).thenReturn(1);
+        when(settingProvider.provide(eq(MaxResendTimes), anyString())).thenReturn(1);
+        when(settingProvider.provide(eq(ReceivingMaximum), anyString())).thenReturn(2);
+
+        channel.pipeline().removeLast();
+        channel.pipeline().addLast(new ChannelDuplexHandler() {
+            @Override
+            public void handlerAdded(ChannelHandlerContext ctx) throws Exception {
+                super.handlerAdded(ctx);
+                ctx.pipeline().addLast(
+                    MQTT3TransientSessionHandler.builder().settings(new TenantSettings(tenantId, settingProvider))
+                        .tenantMeter(tenantMeter).oomCondition(oomCondition).userSessionId(userSessionId(clientInfo))
+                        .keepAliveTimeSeconds(120).clientInfo(clientInfo).willMessage(null).ctx(ctx).build());
+                ctx.pipeline().remove(this);
+            }
+        });
+        transientSessionHandler = (MQTT3TransientSessionHandler) channel.pipeline().last();
+
+        mockCheckPermission(true);
+        mockDistMatch(true);
+        transientSessionHandler.subscribe(System.nanoTime(), topicFilter, QoS.AT_LEAST_ONCE);
+        channel.runPendingTasks();
+        ArgumentCaptor<Long> longCaptor = ArgumentCaptor.forClass(Long.class);
+        verify(localDistService).match(anyLong(), eq(topicFilter), longCaptor.capture(), any());
+
+        transientSessionHandler.publish(s2cMessageList(topic, 2, QoS.AT_LEAST_ONCE),
+            Collections.singleton(new IMQTTTransientSession.MatchedTopicFilter(topicFilter, longCaptor.getValue())));
+        channel.runPendingTasks();
+
+
+        MqttPublishMessage first = channel.readOutbound();
+        MqttPublishMessage second = channel.readOutbound();
+        assertNotNull(first);
+        assertNotNull(second);
+        first.release();
+        second.release();
+        for (int i = 0; i < 3; i++) {
+            testTicker.advanceTimeBy(2, TimeUnit.SECONDS);
+            channel.advanceTimeBy(2, TimeUnit.SECONDS);
+            channel.runScheduledPendingTasks();
+            channel.runPendingTasks();
+        }
+        verify(eventCollector, times(2)).report(argThat(e ->
+            e instanceof QoS1Dropped d && d.reason() == DropReason.MaxRetried));
+    }
+
+    @DataProvider
+    public Object[][] outgoingQoS() {
+        return new Object[][] {{QoS.AT_MOST_ONCE}, {QoS.AT_LEAST_ONCE}, {QoS.EXACTLY_ONCE}};
+    }
+
+    @Test(dataProvider = "outgoingQoS")
+    public void oversizeDropDoesNotBlockNextMessage(QoS qos) {
+        mockCheckPermission(true);
+        mockDistMatch(true);
+        transientSessionHandler.subscribe(System.nanoTime(), topicFilter, qos);
+        channel.runPendingTasks();
+        ArgumentCaptor<Long> incarnation = ArgumentCaptor.forClass(Long.class);
+        verify(localDistService).match(anyLong(), eq(topicFilter), incarnation.capture(), any());
+        channel.pipeline().addBefore(channel.pipeline().lastContext().name(), "packetFilter",
+            new MQTTPacketFilter(70, new TenantSettings(tenantId, settingProvider), clientInfo, eventCollector));
+        transientSessionHandler.publish(s2cMessageList(topic,
+                List.of(ByteBuffer.wrap(new byte[128])), qos),
+            Collections.singleton(new IMQTTTransientSession.MatchedTopicFilter(topicFilter, incarnation.getValue())));
+        channel.runPendingTasks();
+        assertNull(channel.readOutbound());
+        verify(eventCollector).report(argThat(e -> e instanceof OversizePacketDropped));
+        verify(eventCollector, never()).report(argThat(e ->
+            e instanceof QoS0Dropped || e instanceof QoS1Dropped || e instanceof QoS2Dropped));
+        if (qos == QoS.AT_LEAST_ONCE) {
+            verify(eventCollector).report(argThat(e -> e instanceof QoS1Confirmed c && !c.delivered()));
+        } else if (qos == QoS.EXACTLY_ONCE) {
+            verify(eventCollector).report(argThat(e -> e instanceof QoS2Confirmed c && !c.delivered()));
+        }
+        transientSessionHandler.publish(s2cMessageList(topic, 1, qos),
+            Collections.singleton(new IMQTTTransientSession.MatchedTopicFilter(topicFilter, incarnation.getValue())));
+        channel.runPendingTasks();
+        MqttPublishMessage next = channel.readOutbound();
+        assertNotNull(next);
+        next.release();
+        testTicker.advanceTimeBy(11, TimeUnit.SECONDS);
+        channel.advanceTimeBy(11, TimeUnit.SECONDS);
+        channel.runScheduledPendingTasks();
+        channel.runPendingTasks();
+        verify(eventCollector).report(argThat(e -> e instanceof OversizePacketDropped));
+        assertTrue(channel.isActive());
+    }
+
+    @Test(dataProvider = "outgoingQoS")
+    public void oversizedMessageStillRemovesRevokedSubscription(QoS qos) {
+        mockCheckPermission(true);
+        mockDistMatch(true);
+        mockDistUnMatch(true);
+        transientSessionHandler.subscribe(System.nanoTime(), topicFilter, qos);
+        channel.runPendingTasks();
+        ArgumentCaptor<Long> incarnation = ArgumentCaptor.forClass(Long.class);
+        verify(localDistService).match(anyLong(), eq(topicFilter), incarnation.capture(), any());
+        channel.pipeline().addBefore(channel.pipeline().lastContext().name(), "packetFilter",
+            new MQTTPacketFilter(70, new TenantSettings(tenantId, settingProvider), clientInfo, eventCollector));
+        mockCheckPermission(false);
+        transientSessionHandler.publish(s2cMessageList(topic, List.of(ByteBuffer.wrap(new byte[128])), qos),
+            Collections.singleton(new IMQTTTransientSession.MatchedTopicFilter(topicFilter, incarnation.getValue())));
+        channel.runPendingTasks();
+        assertNull(channel.readOutbound());
+        verify(localDistService).unmatch(anyLong(), eq(topicFilter), anyLong(), any());
+        verify(eventCollector, never()).report(argThat(e -> e instanceof OversizePacketDropped));
+        switch (qos) {
+            case AT_MOST_ONCE -> verify(eventCollector).report(argThat(e ->
+                e instanceof QoS0Dropped d && d.reason() == DropReason.NoSubPermission));
+            case AT_LEAST_ONCE -> verify(eventCollector).report(argThat(e ->
+                e instanceof QoS1Dropped d && d.reason() == DropReason.NoSubPermission));
+            case EXACTLY_ONCE -> verify(eventCollector).report(argThat(e ->
+                e instanceof QoS2Dropped d && d.reason() == DropReason.NoSubPermission));
+            default -> throw new AssertionError(qos);
+        }
+    }
+
+    @Test(dataProvider = "outgoingQoS")
+    public void ordinaryWriteFailureKeepsRetrySemantics(QoS qos) {
+        mockCheckPermission(true);
+        mockDistMatch(true);
+        transientSessionHandler.subscribe(System.nanoTime(), topicFilter, qos);
+        channel.runPendingTasks();
+        ArgumentCaptor<Long> incarnation = ArgumentCaptor.forClass(Long.class);
+        verify(localDistService).match(anyLong(), eq(topicFilter), incarnation.capture(), any());
+        AtomicInteger failedPacketId = new AtomicInteger(-1);
+        channel.pipeline().addBefore(channel.pipeline().lastContext().name(), "failFirstPublish",
+            new ChannelOutboundHandlerAdapter() {
+                @Override
+                public void write(ChannelHandlerContext ctx, Object msg, ChannelPromise promise) {
+                    if (msg instanceof MqttPublishMessage publish && failedPacketId.get() < 0) {
+                        failedPacketId.set(publish.variableHeader().packetId());
+                        ReferenceCountUtil.release(msg);
+                        promise.setFailure(new RuntimeException("write failed"));
+                    } else {
+                        ctx.write(msg, promise);
+                    }
+                }
+            });
+        transientSessionHandler.publish(s2cMessageList(topic, 1, qos),
+            Collections.singleton(new IMQTTTransientSession.MatchedTopicFilter(topicFilter, incarnation.getValue())));
+        channel.runPendingTasks();
+        assertNull(channel.readOutbound());
+        verify(eventCollector, never()).report(argThat(e ->
+            e instanceof QoS1Confirmed || e instanceof QoS2Confirmed || e instanceof OversizePacketDropped));
+        switch (qos) {
+            case AT_MOST_ONCE -> verify(eventCollector).report(argThat(e ->
+                e instanceof QoS0Dropped d && d.reason() == DropReason.ChannelError));
+            case AT_LEAST_ONCE -> verify(eventCollector).report(argThat(e ->
+                e instanceof QoS1PushError e1 && "write failed".equals(e1.detail())));
+            case EXACTLY_ONCE -> verify(eventCollector).report(argThat(e ->
+                e instanceof QoS2PushError e2 && "write failed".equals(e2.detail())));
+            default -> throw new AssertionError(qos);
+        }
+        testTicker.advanceTimeBy(11, TimeUnit.SECONDS);
+        channel.advanceTimeBy(11, TimeUnit.SECONDS);
+        channel.runScheduledPendingTasks();
+        channel.runPendingTasks();
+        if (qos == QoS.AT_MOST_ONCE) {
+            assertNull(channel.readOutbound());
+        } else {
+            MqttPublishMessage retry = channel.readOutbound();
+            assertNotNull(retry);
+            assertEquals(retry.variableHeader().packetId(), failedPacketId.get());
+            assertTrue(retry.fixedHeader().isDup());
+            retry.release();
+        }
+        assertTrue(channel.isActive());
+    }
+
 }

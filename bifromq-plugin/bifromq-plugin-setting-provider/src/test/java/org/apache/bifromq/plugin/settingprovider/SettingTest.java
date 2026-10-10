@@ -83,4 +83,15 @@ public class SettingTest {
         System.setProperty("MsgPubPerSec", "sdfa");
         assertEquals((int) Setting.MsgPubPerSec.resolve(200), 200);
     }
+
+    @Test
+    public void packetLimitMustFitDecoder() {
+        assertFalse(Setting.MaxUserPayloadBytes.isValid(0, tenantId));
+        assertFalse(Setting.MaxUserPayloadBytes.isValid(1, tenantId));
+        assertFalse(Setting.MaxUserPayloadBytes.isValid(2, tenantId));
+        assertTrue(Setting.MaxUserPayloadBytes.isValid(3, tenantId));
+        assertTrue(Setting.MaxUserPayloadBytes.isValid(256 * 1024 * 1024, tenantId));
+        assertFalse(Setting.MaxUserPayloadBytes.isValid(256 * 1024 * 1024 + 1, tenantId));
+    }
+
 }

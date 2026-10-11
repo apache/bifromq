@@ -138,6 +138,11 @@ class KVRangeRestorer {
             }
         } catch (Throwable t) {
             log.error("Unexpected error", t);
+            // A synchronous failure here (startRestore/send throwing) must complete the session
+            // future exceptionally. Leaving it pending hangs the caller forever (there is no timeout on
+            // this path) and, because the session stays cached and un-done, a retry with the same snapshot
+            // would reuse the same dead session - permanently stuck range.
+            onDone.completeExceptionally(new KVRangeStoreException("Snapshot restore failed to start", t));
         }
         return onDone;
     }

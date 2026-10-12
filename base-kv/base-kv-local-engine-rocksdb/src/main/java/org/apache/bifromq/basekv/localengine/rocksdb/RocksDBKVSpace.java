@@ -36,6 +36,7 @@ import com.google.common.collect.Maps;
 import com.google.protobuf.ByteString;
 import com.google.protobuf.Struct;
 import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.Meter;
 import io.micrometer.core.instrument.Metrics;
 import io.micrometer.core.instrument.Tags;
 import io.micrometer.core.instrument.Timer;
@@ -43,6 +44,7 @@ import io.micrometer.core.instrument.binder.jvm.ExecutorServiceMetrics;
 import java.io.File;
 import java.io.IOException;
 import java.util.Collections;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.LinkedBlockingQueue;
@@ -69,6 +71,7 @@ abstract class RocksDBKVSpace extends AbstractKVSpace<RocksDBKVSpaceEpochHandle>
     protected final IWriteStatsRecorder writeStats;
     private final File keySpaceDBDir;
     private final ExecutorService compactionExecutor;
+    private final List<Meter.Id> compactionMeterIds;
     private final AtomicBoolean compacting;
     private final ISyncContext.IRefresher metadataRefresher;
     private SpaceMetrics spaceMetrics;
@@ -89,10 +92,17 @@ abstract class RocksDBKVSpace extends AbstractKVSpace<RocksDBKVSpaceEpochHandle>
         syncContext = new SyncContext();
         metadataRefresher = syncContext.refresher();
         compacting = new AtomicBoolean(false);
+        Tags compactionMetricTags = this.tags;
         compactionExecutor = ExecutorServiceMetrics.monitor(Metrics.globalRegistry, new ThreadPoolExecutor(1, 1,
                 0L, TimeUnit.MILLISECONDS, new LinkedBlockingQueue<>(),
                 EnvProvider.INSTANCE.newThreadFactory("kvspace-compactor-" + id)),
-            "compactor", "kvspace", Tags.of(tags));
+            "compactor", "kvspace", compactionMetricTags);
+        compactionMeterIds = Metrics.globalRegistry.getMeters().stream()
+            .map(Meter::getId)
+            .filter(meterId -> meterId.getName().startsWith("kvspace.executor"))
+            .filter(meterId -> compactionMetricTags.stream()
+                .allMatch(tag -> tag.getValue().equals(meterId.getTag(tag.getKey()))))
+            .toList();
         if (boolVal(conf, MANUAL_COMPACTION)) {
             int minKeys = (int) numVal(conf, COMPACT_MIN_TOMBSTONE_KEYS);
             int minRanges = (int) numVal(conf, COMPACT_MIN_TOMBSTONE_RANGES);
@@ -130,6 +140,8 @@ abstract class RocksDBKVSpace extends AbstractKVSpace<RocksDBKVSpaceEpochHandle>
     @Override
     protected void doClose() {
         logger.debug("Close key range[{}]", id);
+        compactionExecutor.shutdownNow();
+        unregisterCompactionMetrics();
         if (spaceMetrics != null) {
             spaceMetrics.close();
         }
@@ -137,6 +149,8 @@ abstract class RocksDBKVSpace extends AbstractKVSpace<RocksDBKVSpaceEpochHandle>
 
     @Override
     protected void doDestroy() {
+        compactionExecutor.shutdownNow();
+        unregisterCompactionMetrics();
         // Destroy the whole space root directory, including pointer file and all generations.
         try {
             if (keySpaceDBDir.exists()) {
@@ -145,6 +159,10 @@ abstract class RocksDBKVSpace extends AbstractKVSpace<RocksDBKVSpaceEpochHandle>
         } catch (IOException e) {
             logger.error("Failed to delete space root dir: {}", keySpaceDBDir, e);
         }
+    }
+
+    private void unregisterCompactionMetrics() {
+        compactionMeterIds.forEach(Metrics.globalRegistry::remove);
     }
 
     protected File spaceRootDir() {

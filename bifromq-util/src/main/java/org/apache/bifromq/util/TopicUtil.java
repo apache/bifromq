@@ -110,6 +110,9 @@ public class TopicUtil {
             topicLevelLength = 0;
             // skip one separator to real topicFilter start pos
             i++;
+            if (i >= topicFilter.length()) {
+                return false;
+            }
         }
         int startIdx = i;
         int level = 1;

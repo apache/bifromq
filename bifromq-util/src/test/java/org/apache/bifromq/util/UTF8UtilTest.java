@@ -47,7 +47,10 @@ public class UTF8UtilTest {
     @Test
     public void mustNotChars() {
         assertFalse(UTF8Util.isWellFormed("hello\u0000world", false)); // null character U+0000
-        assertFalse(UTF8Util.isWellFormed("hello\uD83D\uDE0Aworld", false)); // surrogate pairs
+        assertTrue(UTF8Util.isWellFormed("hello\uD83D\uDE0Aworld", false)); // valid surrogate pair
+        assertFalse(UTF8Util.isWellFormed("hello\uD83Dworld", false)); // unpaired high surrogate
+        assertFalse(UTF8Util.isWellFormed("hello\uDE0Aworld", false)); // unpaired low surrogate
+        assertFalse(UTF8Util.isWellFormed("hello\uD83D", false)); // trailing high surrogate
     }
 
     @Test

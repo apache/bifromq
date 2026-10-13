@@ -37,9 +37,11 @@ import java.util.Optional;
 import java.util.TreeMap;
 import java.util.concurrent.ConcurrentSkipListMap;
 import java.util.concurrent.atomic.AtomicInteger;
+import lombok.extern.slf4j.Slf4j;
 import org.apache.bifromq.sessiondict.rpc.proto.ServerRedirection;
 import org.apache.bifromq.type.ClientInfo;
 
+@Slf4j
 class SessionRegistry implements ISessionRegistry {
     private static final ServerRedirection NO_MOVE =
         ServerRedirection.newBuilder().setType(ServerRedirection.Type.NO_MOVE).build();
@@ -56,6 +58,13 @@ class SessionRegistry implements ISessionRegistry {
     public void add(ClientInfo sessionOwner, ISessionRegister register) {
         String tenantId = sessionOwner.getTenantId();
         MqttClientKey clientKey = MqttClientKey.from(sessionOwner);
+        // The kick callback synchronously calls back into remove() on the same thread (the kicked
+        // register unregisters itself from its Quit path), and ConcurrentHashMap.compute must not
+        // be re-entered for the same key — the nested remove could delete the mapping this add
+        // has just installed, losing the new session from the dictionary. Collect the kick and
+        // perform it only after leaving the compute block.
+        ISessionRegister[] kickedRegister = new ISessionRegister[1];
+        ClientInfo[] kickedOwner = new ClientInfo[1];
         tenantSessions.compute(tenantId, (k, v) -> {
             if (v == null) {
                 v = new ConcurrentSkipListMap<>(ClientKeyComparator);
@@ -69,9 +78,10 @@ class SessionRegistry implements ISessionRegistry {
                 if (!prevSessionOwner.equals(sessionOwner)) {
                     ISessionRegister prevSessionRegister = clientRegisterMap.remove(prevSessionOwner);
                     clientRegisterMap.put(sessionOwner, register);
-                    // kick previous session owner
+                    // kick previous session owner after leaving the compute block
                     assert prevSessionRegister != null;
-                    prevSessionRegister.kick(tenantId, prevSessionOwner, sessionOwner, NO_MOVE);
+                    kickedRegister[0] = prevSessionRegister;
+                    kickedOwner[0] = prevSessionOwner;
                     if (isPersistent(sessionOwner) && !isPersistent(prevSessionOwner)) {
                         // kicked by a persistent session
                         SessionCounter sessionCounter = sessionCounters.get(tenantId);
@@ -83,7 +93,8 @@ class SessionRegistry implements ISessionRegistry {
                 } else {
                     ISessionRegister prevSessionRegister = clientRegisterMap.put(sessionOwner, register);
                     if (prevSessionRegister != null && prevSessionRegister != register) {
-                        prevSessionRegister.kick(tenantId, prevSessionOwner, sessionOwner, NO_MOVE);
+                        kickedRegister[0] = prevSessionRegister;
+                        kickedOwner[0] = prevSessionOwner;
                     }
                 }
                 // ignore duplicated add
@@ -98,6 +109,14 @@ class SessionRegistry implements ISessionRegistry {
             }
             return v;
         });
+        if (kickedRegister[0] != null) {
+            try {
+                kickedRegister[0].kick(tenantId, kickedOwner[0], sessionOwner, NO_MOVE);
+            } catch (RuntimeException e) {
+                // best-effort notification: the previous register's stream may already be closed
+                log.debug("Kicked session register ignored exception: {}", e.getMessage());
+            }
+        }
     }
 
     @Override
@@ -105,7 +124,11 @@ class SessionRegistry implements ISessionRegistry {
         String tenantId = sessionOwner.getTenantId();
         MqttClientKey clientKey = MqttClientKey.from(sessionOwner);
         tenantSessions.computeIfPresent(tenantId, (k, v) -> {
-            boolean s1 = v.remove(clientKey, sessionOwner);
+            // Only drop the dict entry if the register being removed is still the live one —
+            // after a same-owner takeover the old register's (possibly delayed) teardown must
+            // not delete the mapping installed by the new register, nor drift the counters.
+            boolean s1 = register == clientRegisterMap.get(sessionOwner)
+                && v.remove(clientKey, sessionOwner);
             boolean s2 = clientRegisterMap.remove(sessionOwner, register);
             if (s1) {
                 SessionCounter sessionCounter = sessionCounters.get(tenantId);

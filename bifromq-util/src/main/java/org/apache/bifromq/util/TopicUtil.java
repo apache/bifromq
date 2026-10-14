@@ -110,6 +110,11 @@ public class TopicUtil {
             topicLevelLength = 0;
             // skip one separator to real topicFilter start pos
             i++;
+            if (i >= topicFilter.length()) {
+                // empty topic filter, e.g. "$share/g/" has no filter part
+                // [MQTT-4.8.2-2]
+                return false;
+            }
         }
         int startIdx = i;
         int level = 1;

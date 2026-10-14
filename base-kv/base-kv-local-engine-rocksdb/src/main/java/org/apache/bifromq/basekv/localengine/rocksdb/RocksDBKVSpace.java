@@ -49,6 +49,7 @@ import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.stream.Collectors;
 import lombok.SneakyThrows;
 import org.apache.bifromq.baseenv.EnvProvider;
 import org.apache.bifromq.basekv.localengine.AbstractKVSpace;
@@ -69,6 +70,7 @@ abstract class RocksDBKVSpace extends AbstractKVSpace<RocksDBKVSpaceEpochHandle>
     protected final IWriteStatsRecorder writeStats;
     private final File keySpaceDBDir;
     private final ExecutorService compactionExecutor;
+    private final Tags compactionMetricTags;
     private final AtomicBoolean compacting;
     private final ISyncContext.IRefresher metadataRefresher;
     private SpaceMetrics spaceMetrics;
@@ -89,10 +91,11 @@ abstract class RocksDBKVSpace extends AbstractKVSpace<RocksDBKVSpaceEpochHandle>
         syncContext = new SyncContext();
         metadataRefresher = syncContext.refresher();
         compacting = new AtomicBoolean(false);
+        compactionMetricTags = Tags.of(tags);
         compactionExecutor = ExecutorServiceMetrics.monitor(Metrics.globalRegistry, new ThreadPoolExecutor(1, 1,
                 0L, TimeUnit.MILLISECONDS, new LinkedBlockingQueue<>(),
                 EnvProvider.INSTANCE.newThreadFactory("kvspace-compactor-" + id)),
-            "compactor", "kvspace", Tags.of(tags));
+            "compactor", "kvspace", compactionMetricTags);
         if (boolVal(conf, MANUAL_COMPACTION)) {
             int minKeys = (int) numVal(conf, COMPACT_MIN_TOMBSTONE_KEYS);
             int minRanges = (int) numVal(conf, COMPACT_MIN_TOMBSTONE_RANGES);
@@ -130,6 +133,8 @@ abstract class RocksDBKVSpace extends AbstractKVSpace<RocksDBKVSpaceEpochHandle>
     @Override
     protected void doClose() {
         logger.debug("Close key range[{}]", id);
+        compactionExecutor.shutdownNow();
+        unregisterCompactionMetrics();
         if (spaceMetrics != null) {
             spaceMetrics.close();
         }
@@ -137,6 +142,8 @@ abstract class RocksDBKVSpace extends AbstractKVSpace<RocksDBKVSpaceEpochHandle>
 
     @Override
     protected void doDestroy() {
+        compactionExecutor.shutdownNow();
+        unregisterCompactionMetrics();
         // Destroy the whole space root directory, including pointer file and all generations.
         try {
             if (keySpaceDBDir.exists()) {
@@ -145,6 +152,15 @@ abstract class RocksDBKVSpace extends AbstractKVSpace<RocksDBKVSpaceEpochHandle>
         } catch (IOException e) {
             logger.error("Failed to delete space root dir: {}", keySpaceDBDir, e);
         }
+    }
+
+    private void unregisterCompactionMetrics() {
+        Metrics.globalRegistry.getMeters().stream()
+            .filter(m -> m.getId().getName().startsWith("kvspace.executor"))
+            .filter(m -> compactionMetricTags.stream()
+                .allMatch(t -> t.getValue().equals(m.getId().getTag(t.getKey()))))
+            .collect(Collectors.toList())
+            .forEach(Metrics.globalRegistry::remove);
     }
 
     protected File spaceRootDir() {

@@ -102,7 +102,7 @@ public class MQTTPacketFilter extends ChannelOutboundHandlerAdapter {
                 .mqttPacketType(mqttMessage.fixedHeader().messageType().value())
                 .clientInfo(clientInfo));
         ReferenceCountUtil.release(msg);
-        promise.setSuccess();
+        promise.setFailure(OversizePacketException.INSTANCE);
     }
 
     private GenericFutureListener<? extends Future<? super Void>> logMetric(MqttMessage message, int size) {

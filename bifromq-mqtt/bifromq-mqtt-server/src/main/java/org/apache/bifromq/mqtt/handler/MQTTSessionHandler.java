@@ -863,7 +863,8 @@ public abstract class MQTTSessionHandler extends MQTTMessageHandler implements I
     }
 
     protected final boolean isConfirming(int packetId) {
-        return unconfirmedPacketIds.containsKey(packetId);
+        ConfirmingMessage confirmingMsg = unconfirmedPacketIds.get(packetId);
+        return confirmingMsg != null && confirmingMsg.completion == Completion.Pending;
     }
 
     private RoutedMessage getConfirming(int packetId) {
@@ -883,32 +884,30 @@ public abstract class MQTTSessionHandler extends MQTTMessageHandler implements I
         RoutedMessage msg = null;
         if (confirmingMsg != null) {
             msg = confirmingMsg.message;
-            confirm(confirmingMsg, delivered);
+            confirmingMsg.completion = delivered ? Completion.Delivered : Completion.Dropped;
+            drainAcked();
         } else {
             log.trace("No msg to confirm: sessionId={}, packetId={}", userSessionId, packetId);
-        }
-        if (unconfirmedPacketIds.isEmpty()) {
-            cancelStallTask();
         }
         return msg;
     }
 
-    private void confirm(ConfirmingMessage confirmingMsg, boolean delivered) {
+    private void drainAcked() {
         long now = sessionCtx.nanoTime();
-        confirmingMsg.setAcked();
+        long lastConfirmedSeq = -1;
         Iterator<Integer> packetIdItr = unconfirmedPacketIds.keySet().iterator();
         while (packetIdItr.hasNext()) {
             int packetId = packetIdItr.next();
             ConfirmingMessage head = unconfirmedPacketIds.get(packetId);
-            if (head.acked) {
+            if (head.completion != Completion.Pending) {
                 packetIdItr.remove();
-                confirmingMsg = head;
+                lastConfirmedSeq = head.seq;
                 long lastSentTimestamp = head.resendTimestamp > 0 ? head.resendTimestamp : head.timestamp;
-                RoutedMessage confirmed = confirmingMsg.message;
+                RoutedMessage confirmed = head.message;
                 switch (confirmed.qos()) {
                     case AT_LEAST_ONCE -> {
                         // record external latency only when the message was actually sent
-                        if (delivered && lastSentTimestamp > 0) {
+                        if (head.completion == Completion.Delivered && lastSentTimestamp > 0) {
                             // use inflight size before this ACK removal for proper AIMD increase
                             int inflightAtAck = unconfirmedPacketIds.size() + 1;
                             receiveQuota.onPacketAcked(now, lastSentTimestamp, inflightAtAck);
@@ -921,7 +920,7 @@ public abstract class MQTTSessionHandler extends MQTTMessageHandler implements I
                                 .messageId(packetId)
                                 .isRetain(confirmed.isRetain())
                                 .sender(confirmed.publisher())
-                                .delivered(delivered)
+                                .delivered(head.completion == Completion.Delivered)
                                 .topic(confirmed.topic())
                                 .matchedFilter(confirmed.topicFilter())
                                 .size(confirmed.message().getPayload().size())
@@ -930,13 +929,13 @@ public abstract class MQTTSessionHandler extends MQTTMessageHandler implements I
                     }
                     case EXACTLY_ONCE -> {
                         // record external latency only when the message was actually sent
-                        if (delivered && lastSentTimestamp > 0) {
+                        if (head.completion == Completion.Delivered && lastSentTimestamp > 0) {
                             int inflightAtAck = unconfirmedPacketIds.size() + 1;
                             receiveQuota.onPacketAcked(now, lastSentTimestamp, inflightAtAck);
                             tenantMeter.timer(MqttQoS2ExternalLatency)
                                 .record(now - lastSentTimestamp, TimeUnit.NANOSECONDS);
                         }
-                        if (!delivered && settings.debugMode) {
+                        if (head.completion != Completion.Delivered && settings.debugMode) {
                             eventCollector.report(getLocal(QoS2Confirmed.class)
                                 .reqId(confirmed.message().getMessageId())
                                 .messageId(packetId)
@@ -958,8 +957,12 @@ public abstract class MQTTSessionHandler extends MQTTMessageHandler implements I
                 break;
             }
         }
-        // confirm up to the current seq
-        onConfirm(confirmingMsg.seq);
+        if (lastConfirmedSeq >= 0) {
+            onConfirm(lastConfirmedSeq);
+        }
+        if (unconfirmedPacketIds.isEmpty()) {
+            cancelStallTask();
+        }
     }
 
     protected abstract void onConfirm(long seq);
@@ -1072,7 +1075,7 @@ public abstract class MQTTSessionHandler extends MQTTMessageHandler implements I
                         .size(msgSize)
                         .clientInfo(clientInfo));
                 }
-            } else {
+            } else if (!(f.cause() instanceof OversizePacketException)) {
                 eventCollector.report(getLocal(QoS0Dropped.class)
                     .reason(DropReason.ChannelError)
                     .detail(f.cause() == null ? "unknown" : f.cause().getMessage())
@@ -1211,6 +1214,9 @@ public abstract class MQTTSessionHandler extends MQTTMessageHandler implements I
                         }
                     }
                 }
+            } else if (f.cause() instanceof OversizePacketException) {
+                confirmingMsg.completion = Completion.Dropped;
+                ctx.executor().execute(this::drainAcked);
             } else {
                 receiveQuota.onErrorSignal(sessionCtx.nanoTime());
                 if (settings.debugMode) {
@@ -1286,7 +1292,11 @@ public abstract class MQTTSessionHandler extends MQTTMessageHandler implements I
     private void resend() {
         long now = sessionCtx.nanoTime();
         boolean flush = false;
+        boolean dropped = false;
         for (ConfirmingMessage confirmingMsg : unconfirmedPacketIds.values()) {
+            if (confirmingMsg.completion != Completion.Pending) {
+                continue;
+            }
             if (confirmingMsg.sentCount <= settings.maxResendTimes) {
                 if (ctx.channel().isWritable()) {
                     if (confirmingMsg.sentCount == 0) {
@@ -1307,12 +1317,16 @@ public abstract class MQTTSessionHandler extends MQTTMessageHandler implements I
                 }
             } else {
                 reportDropConfirmableMsgEvent(confirmingMsg.message, DropReason.MaxRetried);
-                confirm(confirmingMsg, false);
+                confirmingMsg.completion = Completion.Dropped;
+                dropped = true;
                 receiveQuota.onErrorSignal(now);
             }
         }
         if (flush) {
             flush(true);
+        }
+        if (dropped) {
+            drainAcked();
         }
         if (!unconfirmedPacketIds.isEmpty()) {
             scheduleResend();
@@ -1819,11 +1833,15 @@ public abstract class MQTTSessionHandler extends MQTTMessageHandler implements I
             }, ctx.executor());
     }
 
+    private enum Completion {
+        Pending, Delivered, Dropped
+    }
+
     private static class ConfirmingMessage {
         final long seq;
         final RoutedMessage message;
         int sentCount = 0;
-        boolean acked = false;
+        Completion completion = Completion.Pending;
         long timestamp = -1; // timestamp of sent
         long resendTimestamp = -1; // timestamp of resent
 
@@ -1834,10 +1852,6 @@ public abstract class MQTTSessionHandler extends MQTTMessageHandler implements I
 
         int packetId() {
             return MQTTSessionIdUtil.packetId(seq);
-        }
-
-        void setAcked() {
-            acked = true;
         }
     }
 }

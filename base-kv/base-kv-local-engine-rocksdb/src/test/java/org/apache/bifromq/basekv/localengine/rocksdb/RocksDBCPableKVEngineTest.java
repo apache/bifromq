@@ -32,7 +32,10 @@ import io.reactivex.rxjava3.disposables.Disposable;
 import java.io.File;
 import java.lang.reflect.Field;
 import java.nio.file.Paths;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 import lombok.SneakyThrows;
 import org.apache.bifromq.basekv.localengine.ICPableKVSpace;
 import org.apache.bifromq.basekv.localengine.IKVEngine;
@@ -84,15 +87,30 @@ public class RocksDBCPableKVEngineTest extends AbstractRocksDBCPableEngineTest {
         Field executorField = RocksDBKVSpace.class.getDeclaredField("compactionExecutor");
         executorField.setAccessible(true);
         ExecutorService executor = (ExecutorService) executorField.get(range);
+        CountDownLatch workerStarted = new CountDownLatch(1);
+        CountDownLatch releaseWorker = new CountDownLatch(1);
+        Future<?> worker = executor.submit(() -> {
+            workerStarted.countDown();
+            releaseWorker.await();
+            return null;
+        });
 
-        assertFalse(executor.isShutdown());
-        range.close();
-        assertTrue(executor.isShutdown());
-        assertEquals(
-            Metrics.globalRegistry.getMeters().stream()
-                .filter(meter -> meter.getId().getName().startsWith("kvspace.executor"))
-                .filter(meter -> rangeId.equals(meter.getId().getTag("spaceId")))
-                .count(),
-            0);
+        try {
+            assertTrue(workerStarted.await(5, TimeUnit.SECONDS));
+            assertFalse(worker.isDone());
+            range.close();
+            assertTrue(executor.isShutdown());
+            assertTrue(executor.awaitTermination(5, TimeUnit.SECONDS));
+            assertTrue(worker.isDone());
+            assertEquals(
+                Metrics.globalRegistry.getMeters().stream()
+                    .filter(meter -> meter.getId().getName().startsWith("kvspace.executor"))
+                    .filter(meter -> rangeId.equals(meter.getId().getTag("spaceId")))
+                    .count(),
+                0);
+        } finally {
+            releaseWorker.countDown();
+            executor.shutdownNow();
+        }
     }
 }

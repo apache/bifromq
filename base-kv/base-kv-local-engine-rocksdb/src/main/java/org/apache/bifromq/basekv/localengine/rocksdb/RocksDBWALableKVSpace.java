@@ -19,6 +19,7 @@
 
 package org.apache.bifromq.basekv.localengine.rocksdb;
 
+import static com.google.common.util.concurrent.Uninterruptibles.awaitTerminationUninterruptibly;
 import static org.apache.bifromq.basekv.localengine.StructUtil.boolVal;
 import static org.apache.bifromq.basekv.localengine.rocksdb.RocksDBDefaultConfigs.ASYNC_WAL_FLUSH;
 import static org.apache.bifromq.basekv.localengine.rocksdb.RocksDBDefaultConfigs.FSYNC_WAL;
@@ -27,15 +28,14 @@ import com.google.protobuf.Struct;
 import io.micrometer.core.instrument.Metrics;
 import io.micrometer.core.instrument.Tags;
 import io.micrometer.core.instrument.Timer;
-import io.micrometer.core.instrument.binder.jvm.ExecutorServiceMetrics;
 import java.nio.file.Files;
-import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
+import org.apache.bifromq.base.util.MonitoredExecutors;
 import org.apache.bifromq.baseenv.EnvProvider;
 import org.apache.bifromq.basekv.localengine.IKVSpaceRefreshableReader;
 import org.apache.bifromq.basekv.localengine.IKVSpaceWriter;
@@ -66,12 +66,11 @@ class RocksDBWALableKVSpace extends RocksDBKVSpace implements IWALableKVSpace {
         if (isSyncWALFlush()) {
             writeOptions.setSync(isFsyncWAL());
         }
-        flushExecutor = ExecutorServiceMetrics.monitor(Metrics.globalRegistry, new ThreadPoolExecutor(1, 1,
-                0L, TimeUnit.MILLISECONDS,
-                new LinkedBlockingQueue<>(),
-                EnvProvider.INSTANCE.newThreadFactory("kvspace-flusher-" + id)), "flusher", "kvspace",
-            Tags.of(tags));
         metricMgr = new MetricManager(tags);
+        flushExecutor = MonitoredExecutors.monitor(Metrics.globalRegistry, new ThreadPoolExecutor(1, 1,
+                0L, TimeUnit.MILLISECONDS, new LinkedBlockingQueue<>(),
+                EnvProvider.INSTANCE.newThreadFactory("kvspace-flusher-" + id)),
+            "flusher", "kvspace", this.tags);
     }
 
     @Override
@@ -82,6 +81,7 @@ class RocksDBWALableKVSpace extends RocksDBKVSpace implements IWALableKVSpace {
             handle = new RocksDBWALableKVSpaceEpochHandle(id, spaceRootDir(), this.conf, logger, tags);
             super.doOpen();
         } catch (Throwable e) {
+            close();
             throw new KVEngineException("Failed to open WALable KVSpace", e);
         }
     }
@@ -93,22 +93,15 @@ class RocksDBWALableKVSpace extends RocksDBKVSpace implements IWALableKVSpace {
 
     @Override
     protected void doClose() {
-        final CompletableFuture<Long> flushTaskFuture = Optional.ofNullable(flushFutureRef.get()).orElseGet(() -> {
-            CompletableFuture<Long> lastOne = new CompletableFuture<>();
-            flushExecutor.submit(() -> lastOne.complete(System.nanoTime()));
-            return lastOne;
-        });
+        super.doClose();
         flushExecutor.shutdown();
-        try {
-            flushTaskFuture.join();
-        } catch (Throwable e) {
-            logger.debug("Flush error during closing", e);
-        }
+        awaitTerminationUninterruptibly(flushExecutor);
         writeOptions.close();
         metricMgr.close();
         // close handle
-        handle.close();
-        super.doClose();
+        if (handle != null) {
+            handle.close();
+        }
     }
 
     @Override

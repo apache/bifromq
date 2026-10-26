@@ -89,13 +89,17 @@ class RocksDBCPableKVSpace extends RocksDBKVSpace implements ICPableKVSpace {
         this.engine = engine;
         cpRootDir = new File(strVal(conf, DB_CHECKPOINT_ROOT_DIR), id);
         checkpoints = Caffeine.newBuilder().weakValues().build();
+        try {
+            Files.createDirectories(cpRootDir.getAbsoluteFile().toPath());
+            Files.createDirectories(spaceRootDir().getAbsoluteFile().toPath());
+            initOrMigrateCurrentDBDir();
+        } catch (IOException e) {
+            // The parent has already registered the compactor meters.
+            super.doClose();
+            throw e;
+        }
         writeOptions = new WriteOptions().setDisableWAL(true);
-        Files.createDirectories(cpRootDir.getAbsoluteFile().toPath());
         metricMgr = new MetricManager(tags);
-        // Ensure space root exists and initialize current generation directory.
-        // The legacy layout migration is done at constructor time to keep open() path clean.
-        Files.createDirectories(spaceRootDir().getAbsoluteFile().toPath());
-        initOrMigrateCurrentDBDir();
     }
 
     @Override
@@ -144,20 +148,22 @@ class RocksDBCPableKVSpace extends RocksDBKVSpace implements ICPableKVSpace {
 
     @Override
     protected void doClose() {
-        logger.debug("Flush RocksDBCPableKVSpace[{}] before closing", id);
-        try (FlushOptions flushOptions = new FlushOptions().setWaitForFlush(true)) {
-            active.get().db.flush(flushOptions);
-        } catch (Throwable e) {
-            logger.error("Flush RocksDBCPableKVSpace[{}] error", id, e);
+        super.doClose();
+        RocksDBCPableKVSpaceEpochHandle h = active.get();
+        if (h != null) {
+            logger.debug("Flush RocksDBCPableKVSpace[{}] before closing", id);
+            try (FlushOptions flushOptions = new FlushOptions().setWaitForFlush(true)) {
+                h.db.flush(flushOptions);
+            } catch (Throwable e) {
+                logger.error("Flush RocksDBCPableKVSpace[{}] error", id, e);
+            }
         }
         metricMgr.close();
         checkpoints.asMap().forEach((cpId, cp) -> cp.close());
         writeOptions.close();
-        RocksDBCPableKVSpaceEpochHandle h = active.get();
         if (h != null) {
             h.close();
         }
-        super.doClose();
     }
 
     @Override
@@ -181,6 +187,7 @@ class RocksDBCPableKVSpace extends RocksDBKVSpace implements ICPableKVSpace {
             loadLatestCheckpoint();
             super.doOpen();
         } catch (Throwable e) {
+            close();
             throw new KVEngineException("Failed to open CPable KVSpace", e);
         }
     }

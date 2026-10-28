@@ -61,6 +61,16 @@ public class PubSubTest extends MQTTTest {
     }
 
     @Test(groups = "integration")
+    public void emptyLevelsAndUnicodeRoutes() {
+        pubSub("/a//x", 1, "/a//x", 1, true);
+        pubSub("a/", 1, "a/", 1, false);
+        pubSub("a//x", 1, "a/+/x", 1, true);
+        pubSub("/a//x", 1, "$share/g//a//x", 1, true);
+        pubSub("a//x", 1, "$oshare/g/a//x", 1, true);
+        pubSub("你好", 1, "你好", 1, true);
+    }
+
+    @Test(groups = "integration")
     public void pubQoS0SubQoS0Persistent() {
         pubSub("pubQoS0SubQoS0Persistent", 0, "pubQoS0SubQoS0Persistent", 0, false);
     }

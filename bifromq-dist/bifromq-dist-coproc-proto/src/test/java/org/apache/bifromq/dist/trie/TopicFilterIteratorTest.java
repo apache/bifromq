@@ -28,6 +28,7 @@ import static org.apache.bifromq.util.TopicUtil.parse;
 import static org.testng.Assert.assertEquals;
 import static org.testng.Assert.assertTrue;
 
+import com.google.protobuf.ByteString;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
@@ -36,6 +37,7 @@ import java.util.Set;
 import java.util.concurrent.ThreadLocalRandom;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.bifromq.dist.TestUtil;
+import org.apache.bifromq.dist.worker.schema.KVSchemaUtil;
 import org.apache.bifromq.util.TopicConst;
 import org.apache.bifromq.util.TopicUtil;
 import org.testng.annotations.Test;
@@ -54,6 +56,7 @@ public class TopicFilterIteratorTest {
             generated.add(fastJoin(NUL, itr.key()));
         }
         List<String> allFilters = TestUtil.expand(topic);
+        allFilters.sort(TopicFilterIteratorTest::compareStoredFilters);
         assertEquals(generated, allFilters);
     }
 
@@ -85,7 +88,7 @@ public class TopicFilterIteratorTest {
         for (itr.seek(parse(seekTopicFilter, true)); itr.isValid(); itr.next()) {
             String current = fastJoin(NUL, itr.key());
             generatedAfterSeek.add(current);
-            assertTrue(seekTopicFilter.compareTo(current) <= 0);
+            assertTrue(compareStoredFilters(seekTopicFilter, current) <= 0);
         }
         assertEquals(generated.subList(seekIdx, generated.size()), generatedAfterSeek);
     }
@@ -132,7 +135,7 @@ public class TopicFilterIteratorTest {
         for (itr.seek(parse(seekTopicFilter, true)); itr.isValid(); itr.prev()) {
             String current = fastJoin(NUL, itr.key());
             generatedAfterSeek.add(current);
-            assertTrue(seekTopicFilter.compareTo(current) >= 0);
+            assertTrue(compareStoredFilters(seekTopicFilter, current) >= 0);
         }
         for (int i = 0; i < generatedAfterSeek.size(); i++) {
             int j = generatedAfterSeek.size() - i - 1;
@@ -159,9 +162,9 @@ public class TopicFilterIteratorTest {
             String current = fastJoin(NUL, itr.key());
             generatedAfterSeek.add(current);
             if (k++ == 0) {
-                assertTrue(seekTopicFilter.compareTo(current) <= 0);
+                assertTrue(compareStoredFilters(seekTopicFilter, current) <= 0);
             } else {
-                assertTrue(seekTopicFilter.compareTo(current) > 0);
+                assertTrue(compareStoredFilters(seekTopicFilter, current) > 0);
             }
         }
         for (int i = 0; i < generatedAfterSeek.size(); i++) {
@@ -190,9 +193,9 @@ public class TopicFilterIteratorTest {
             String current = fastJoin(NUL, itr.key());
             generatedAfterSeek.add(current);
             if (i++ == 0) {
-                assertTrue(seekTopicFilter.compareTo(current) > 0);
+                assertTrue(compareStoredFilters(seekTopicFilter, current) > 0);
             } else {
-                assertTrue(seekTopicFilter.compareTo(current) <= 0);
+                assertTrue(compareStoredFilters(seekTopicFilter, current) <= 0);
             }
         }
         assertEquals(generated.subList(seekIdx - 1, generated.size()), generatedAfterSeek);
@@ -217,9 +220,9 @@ public class TopicFilterIteratorTest {
             String current = fastJoin(NUL, itr.key());
             generatedAfterSeek.add(current);
             if (k++ == 0) {
-                assertTrue(seekTopicFilter.compareTo(current) > 0);
+                assertTrue(compareStoredFilters(seekTopicFilter, current) > 0);
             } else {
-                assertTrue(seekTopicFilter.compareTo(current) <= 0);
+                assertTrue(compareStoredFilters(seekTopicFilter, current) <= 0);
             }
         }
         for (int i = 0; i < generatedAfterSeek.size(); i++) {
@@ -246,7 +249,7 @@ public class TopicFilterIteratorTest {
         for (itr.seekPrev(parse(seekTopicFilter, true)); itr.isValid(); itr.prev()) {
             String current = fastJoin(NUL, itr.key());
             generatedAfterSeek.add(current);
-            assertTrue(seekTopicFilter.compareTo(current) > 0);
+            assertTrue(compareStoredFilters(seekTopicFilter, current) > 0);
         }
         for (int i = 0; i < generatedAfterSeek.size(); i++) {
             int j = generatedAfterSeek.size() - i - 1;
@@ -271,7 +274,7 @@ public class TopicFilterIteratorTest {
         for (itr.seekPrev(parse(seekTopicFilter, true)); itr.isValid(); itr.prev()) {
             String current = fastJoin(NUL, itr.key());
             generatedAfterSeek.add(current);
-            assertTrue(seekTopicFilter.compareTo(current) > 0);
+            assertTrue(compareStoredFilters(seekTopicFilter, current) > 0);
         }
         for (int i = 0; i < generatedAfterSeek.size(); i++) {
             int j = generatedAfterSeek.size() - i - 1;
@@ -341,6 +344,12 @@ public class TopicFilterIteratorTest {
         assertEquals(itr.value().get(List.of("tenant", "c")), Set.of("v3"));
     }
 
+    private static int compareStoredFilters(String left, String right) {
+        return ByteString.unsignedLexicographicalComparator().compare(
+            KVSchemaUtil.tenantRouteStartKey("t", parse(left, true)),
+            KVSchemaUtil.tenantRouteStartKey("t", parse(right, true)));
+    }
+
     private void expandTopics(Map<String, List<String>> topicToFilters, boolean isGlobal) {
         TopicTrieNode.Builder<String> topicTrieBuilder = TopicTrieNode.builder(isGlobal);
         Set<String> allTopicFilters = new HashSet<>();
@@ -348,7 +357,8 @@ public class TopicFilterIteratorTest {
             topicTrieBuilder.addTopic(TopicUtil.parse(topic, false), topic);
             allTopicFilters.addAll(topicToFilters.get(topic));
         }
-        List<String> sortedTopicFilters = allTopicFilters.stream().map(TopicUtil::escape).sorted().toList();
+        List<String> sortedTopicFilters = allTopicFilters.stream().map(TopicUtil::escape)
+            .sorted(TopicFilterIteratorTest::compareStoredFilters).toList();
         TopicFilterIterator<String> iterator = new TopicFilterIterator<>();
         iterator.init(topicTrieBuilder.build());
         List<String> generated = new ArrayList<>();

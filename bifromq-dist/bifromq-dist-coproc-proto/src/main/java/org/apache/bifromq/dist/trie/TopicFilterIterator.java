@@ -19,6 +19,7 @@
 
 package org.apache.bifromq.dist.trie;
 
+import static org.apache.bifromq.dist.worker.schema.RouteKeyOrder.TOPIC_LEVEL_ORDER;
 import static org.apache.bifromq.util.TopicConst.NUL;
 
 import java.util.Collections;
@@ -69,7 +70,7 @@ public class TopicFilterIterator<V> implements ITopicFilterIterator<V> {
             i++;
             TopicFilterTrieNode<V> node = traverseStack.peek();
             String levelName = node.levelName();
-            int cmp = levelNameToSeek.compareTo(levelName);
+            int cmp = TOPIC_LEVEL_ORDER.compare(levelNameToSeek, levelName);
             if (cmp < 0) {
                 // levelNameToSeek < levelName
                 break;
@@ -132,7 +133,7 @@ public class TopicFilterIterator<V> implements ITopicFilterIterator<V> {
             i++;
             TopicFilterTrieNode<V> node = traverseStack.peek();
             String levelName = node.levelName();
-            int cmp = levelNameToSeek.compareTo(levelName);
+            int cmp = TOPIC_LEVEL_ORDER.compare(levelNameToSeek, levelName);
             if (cmp > 0) {
                 // levelNameToSeek > levelName
                 break;

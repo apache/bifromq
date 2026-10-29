@@ -24,7 +24,6 @@ import io.micrometer.core.instrument.Gauge;
 import io.micrometer.core.instrument.Metrics;
 import io.micrometer.core.instrument.Tags;
 import io.micrometer.core.instrument.Timer;
-import io.micrometer.core.instrument.binder.jvm.ExecutorServiceMetrics;
 import java.util.EnumMap;
 import java.util.HashMap;
 import java.util.List;
@@ -40,6 +39,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 import lombok.NonNull;
+import org.apache.bifromq.base.util.MonitoredExecutors;
 import org.apache.bifromq.basekv.raft.event.RaftEvent;
 import org.apache.bifromq.basekv.raft.event.RaftEventType;
 import org.apache.bifromq.basekv.raft.exception.InternalError;
@@ -73,7 +73,7 @@ public final class RaftNode implements IRaftNode {
         this.stateStorage = new MetricMonitoredStateStore(stateStore, Tags.of(tags));
         this.id = stateStorage.local();
         this.config = config.toBuilder().build();
-        this.raftExecutor = ExecutorServiceMetrics.monitor(Metrics.globalRegistry,
+        this.raftExecutor = MonitoredExecutors.monitor(Metrics.globalRegistry,
             new ThreadPoolExecutor(1, 1, 0L, TimeUnit.MILLISECONDS,
                 new LinkedTransferQueue<>(), threadFactory), id, "raft", Tags.of(tags));
         stateStore.addStableListener(this::onStabilized);

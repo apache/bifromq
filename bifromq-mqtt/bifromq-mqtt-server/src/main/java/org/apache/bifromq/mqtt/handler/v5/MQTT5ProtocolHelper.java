@@ -474,10 +474,10 @@ public class MQTT5ProtocolHelper implements IMQTTProtocolHelper {
             senderTopicAliasManager.tryAlias(message.topic());
         if (aliasCreationResult.isPresent()) {
             if (aliasCreationResult.get().isFirstTime()) {
-                return MQTT5MessageBuilders.pub().packetId(packetId).setupAlias(true)
+                return MQTT5MessageBuilders.pub().packetId(packetId).setupAlias(true).dup(isDup)
                     .topicAlias(aliasCreationResult.get().alias()).message(message).build();
             } else {
-                return MQTT5MessageBuilders.pub().packetId(packetId).topicAlias(aliasCreationResult.get().alias())
+                return MQTT5MessageBuilders.pub().packetId(packetId).dup(isDup).topicAlias(aliasCreationResult.get().alias())
                     .message(message).build();
             }
         }
@@ -491,6 +491,7 @@ public class MQTT5ProtocolHelper implements IMQTTProtocolHelper {
             message.hlc());
         return MQTT5MessageBuilders.pub()
             .packetId(packetId)
+            .dup(isDup)
             .message(message)
             .extraUserProps(extraUserProps)
             .build();

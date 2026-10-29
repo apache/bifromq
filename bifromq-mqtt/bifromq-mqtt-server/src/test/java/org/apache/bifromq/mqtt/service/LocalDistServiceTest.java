@@ -404,6 +404,52 @@ public class LocalDistServiceTest extends MockableTest {
     }
 
     @Test
+    public void noReceiverWinsNoSubAcrossDeliveryPacksRegardlessOfOrder() {
+        String noSubFirstTenantId = "noSubFirst";
+        String noReceiverFirstTenantId = "noReceiverFirst";
+        String topicFilter = "testTopic/#";
+        String channelId = "channel0";
+        MatchInfo matchInfo = MatchInfo.newBuilder()
+            .setMatcher(TopicUtil.from(topicFilter))
+            .setReceiverId("receiverId")
+            .build();
+        DeliveryPack deliveryPack = DeliveryPack.newBuilder()
+            .setMessagePack(TopicMessagePack.newBuilder().setTopic("testTopic").build())
+            .addMatchInfo(matchInfo)
+            .build();
+        DeliveryPackage deliveryPackage = DeliveryPackage.newBuilder()
+            .addPack(deliveryPack)
+            .addPack(deliveryPack)
+            .build();
+        DeliveryRequest request = DeliveryRequest.newBuilder()
+            .putPackage(noSubFirstTenantId, deliveryPackage)
+            .putPackage(noReceiverFirstTenantId, deliveryPackage)
+            .build();
+
+        IMQTTTransientSession session = mock(IMQTTTransientSession.class);
+        when(session.publish(any(), any())).thenAnswer(invocation -> invocation.getArgument(1));
+        when(localSessionRegistry.get(channelId)).thenReturn(session);
+        ILocalTopicRouter.ILocalRoutes localRoutes = mock(ILocalTopicRouter.ILocalRoutes.class);
+        when(localRoutes.localReceiverId()).thenReturn("receiverId");
+        when(localRoutes.routesInfo()).thenReturn(Map.of(channelId, 1L));
+        when(localTopicRouter.getTopicRoutes(noSubFirstTenantId, matchInfo))
+            .thenReturn(Optional.of(CompletableFuture.completedFuture(localRoutes)))
+            .thenReturn(Optional.empty());
+        when(localTopicRouter.getTopicRoutes(noReceiverFirstTenantId, matchInfo))
+            .thenReturn(Optional.empty())
+            .thenReturn(Optional.of(CompletableFuture.completedFuture(localRoutes)));
+
+        DeliveryReply reply = localDistService.dist(request).join();
+
+        DeliveryResults noSubFirstResults = reply.getResultMap().get(noSubFirstTenantId);
+        assertEquals(noSubFirstResults.getResultCount(), 1);
+        assertEquals(noSubFirstResults.getResult(0).getCode(), DeliveryResult.Code.NO_RECEIVER);
+        DeliveryResults noReceiverFirstResults = reply.getResultMap().get(noReceiverFirstTenantId);
+        assertEquals(noReceiverFirstResults.getResultCount(), 1);
+        assertEquals(noReceiverFirstResults.getResult(0).getCode(), DeliveryResult.Code.NO_RECEIVER);
+    }
+
+    @Test
     public void deliverToEmptyLocalRoutes() {
         String tenantId = "tenant1";
         String topic = "testTopic";

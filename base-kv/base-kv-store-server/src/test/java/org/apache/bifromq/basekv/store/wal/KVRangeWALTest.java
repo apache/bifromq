@@ -92,7 +92,12 @@ public class KVRangeWALTest extends MockableTest {
     public void testId() {
 
         KVRangeWAL wal = new KVRangeWAL("testcluster", replicaId, id, raftStateStorage, config, 1024);
-        assertEquals(wal.storeId(), replicaId);
+        try {
+            assertEquals(wal.storeId(), replicaId);
+        } finally {
+            wal.start();
+            wal.close().join();
+        }
     }
 
     @SneakyThrows

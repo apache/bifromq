@@ -158,6 +158,26 @@ public abstract class MQTTConnectHandler extends ChannelDuplexHandler {
                         LWT willMessage =
                             connMsg.variableHeader().isWillFlag() ? getWillMessage(connMsg, clientInfo) : null;
 
+                        CompletableFuture<AuthResult> willPermission = willMessage == null
+                            ? CompletableFuture.completedFuture(AuthResult.ok(okOrGoAway.successInfo))
+                            : checkWillPermission(connMsg, willMessage, okOrGoAway.successInfo);
+                        return willPermission.thenApply(
+                            permissionResult -> new SessionPreparation(permissionResult, settings, willMessage));
+                    }
+                }, ctx.executor())
+                .thenComposeAsync(sessionPreparation -> {
+                    if (sessionPreparation == null) {
+                        return CompletableFuture.completedFuture(null);
+                    }
+                    AuthResult okOrGoAway = sessionPreparation.permissionResult;
+                    if (okOrGoAway.goAway != null) {
+                        handleGoAway(okOrGoAway.goAway);
+                        return CompletableFuture.completedFuture(null);
+                    } else {
+                        ClientInfo clientInfo = okOrGoAway.successInfo.clientInfo;
+                        TenantSettings settings = sessionPreparation.settings;
+                        LWT willMessage = sessionPreparation.willMessage;
+
                         int keepAliveSeconds = keepAliveSeconds(connMsg.variableHeader().keepAliveTimeSeconds(),
                             settings);
                         String userSessionId = userSessionId(clientInfo);
@@ -449,6 +469,10 @@ public abstract class MQTTConnectHandler extends ChannelDuplexHandler {
     protected abstract CompletableFuture<AuthResult> checkConnectPermission(MqttConnectMessage message,
                                                                             SuccessInfo successInfo);
 
+    protected abstract CompletableFuture<AuthResult> checkWillPermission(MqttConnectMessage message,
+                                                                         LWT willMessage,
+                                                                         SuccessInfo successInfo);
+
     protected abstract void handleMqttMessage(MqttMessage message);
 
     protected abstract GoAway onNoEnoughResources(MqttConnectMessage message, TenantResourceType resourceType,
@@ -659,6 +683,11 @@ public abstract class MQTTConnectHandler extends ChannelDuplexHandler {
         OK,
         NOT_FOUND,
         ERROR
+    }
+
+    private record SessionPreparation(AuthResult permissionResult,
+                                      TenantSettings settings,
+                                      LWT willMessage) {
     }
 
     public record SuccessInfo(ClientInfo clientInfo,

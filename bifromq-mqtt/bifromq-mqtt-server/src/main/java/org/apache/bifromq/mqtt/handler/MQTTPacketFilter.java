@@ -40,6 +40,7 @@ import io.netty.channel.ChannelOutboundHandlerAdapter;
 import io.netty.channel.ChannelPromise;
 import io.netty.handler.codec.mqtt.MqttMessage;
 import io.netty.handler.codec.mqtt.MqttMessageType;
+import io.netty.util.ReferenceCountUtil;
 import io.netty.util.concurrent.Future;
 import io.netty.util.concurrent.GenericFutureListener;
 import java.util.Objects;
@@ -100,6 +101,8 @@ public class MQTTPacketFilter extends ChannelOutboundHandlerAdapter {
             getLocal(OversizePacketDropped.class)
                 .mqttPacketType(mqttMessage.fixedHeader().messageType().value())
                 .clientInfo(clientInfo));
+        ReferenceCountUtil.release(msg);
+        promise.setFailure(OversizePacketException.INSTANCE);
     }
 
     private GenericFutureListener<? extends Future<? super Void>> logMetric(MqttMessage message, int size) {

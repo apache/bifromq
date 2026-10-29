@@ -30,6 +30,7 @@ import static org.apache.bifromq.mqtt.handler.MQTTConnectHandler.AuthResult.ok;
 import static org.apache.bifromq.mqtt.handler.condition.ORCondition.or;
 import static org.apache.bifromq.mqtt.handler.v3.MQTT3MessageUtils.toWillMessage;
 import static org.apache.bifromq.mqtt.utils.AuthUtil.buildConnAction;
+import static org.apache.bifromq.mqtt.utils.AuthUtil.buildPubAction;
 import static org.apache.bifromq.plugin.eventcollector.ThreadLocalEventPool.getLocal;
 import static org.apache.bifromq.type.MQTTClientInfoConstants.MQTT_CHANNEL_ID_KEY;
 import static org.apache.bifromq.type.MQTTClientInfoConstants.MQTT_CLIENT_ADDRESS_KEY;
@@ -72,6 +73,7 @@ import org.apache.bifromq.plugin.authprovider.type.Reject;
 import org.apache.bifromq.plugin.clientbalancer.IClientBalancer;
 import org.apache.bifromq.plugin.clientbalancer.Redirection;
 import org.apache.bifromq.plugin.eventcollector.OutOfTenantResource;
+import org.apache.bifromq.plugin.eventcollector.mqttbroker.accessctrl.PubActionDisallow;
 import org.apache.bifromq.plugin.eventcollector.mqttbroker.channelclosed.AuthError;
 import org.apache.bifromq.plugin.eventcollector.mqttbroker.channelclosed.IdentifierRejected;
 import org.apache.bifromq.plugin.eventcollector.mqttbroker.channelclosed.MalformedClientIdentifier;
@@ -252,6 +254,49 @@ public class MQTT3ConnectHandler extends MQTTConnectHandler {
                                 .build(),
                             getLocal(AuthError.class)
                                 .cause("Failed to check connect permission")
+                                .peerAddress(ChannelAttrs.socketAddress(ctx.channel())));
+                    }
+                }
+            });
+    }
+
+    @Override
+    protected CompletableFuture<AuthResult> checkWillPermission(MqttConnectMessage message,
+                                                                LWT willMessage,
+                                                                SuccessInfo successInfo) {
+        ClientInfo clientInfo = successInfo.clientInfo();
+        return authProvider.checkPermission(clientInfo, buildPubAction(willMessage.getTopic(),
+                willMessage.getMessage().getPubQoS(), willMessage.getMessage().getIsRetain()))
+            .handle((checkResult, e) -> {
+                if (e != null) {
+                    return goAway(MqttMessageBuilders.connAck()
+                            .returnCode(CONNECTION_REFUSED_SERVER_UNAVAILABLE)
+                            .build(),
+                        getLocal(AuthError.class)
+                            .cause("Failed to check Will publish permission")
+                            .peerAddress(ChannelAttrs.socketAddress(ctx.channel())));
+                }
+                switch (checkResult.getTypeCase()) {
+                    case GRANTED -> {
+                        return AuthResult.ok(successInfo);
+                    }
+                    case DENIED -> {
+                        return goAway(MqttMessageBuilders.connAck()
+                                .returnCode(CONNECTION_REFUSED_NOT_AUTHORIZED)
+                                .build(),
+                            getLocal(PubActionDisallow.class)
+                                .isLastWill(true)
+                                .topic(willMessage.getTopic())
+                                .qos(willMessage.getMessage().getPubQoS())
+                                .isRetain(willMessage.getMessage().getIsRetain())
+                                .clientInfo(clientInfo));
+                    }
+                    default -> {
+                        return goAway(MqttMessageBuilders.connAck()
+                                .returnCode(CONNECTION_REFUSED_SERVER_UNAVAILABLE)
+                                .build(),
+                            getLocal(AuthError.class)
+                                .cause("Failed to check Will publish permission")
                                 .peerAddress(ChannelAttrs.socketAddress(ctx.channel())));
                     }
                 }

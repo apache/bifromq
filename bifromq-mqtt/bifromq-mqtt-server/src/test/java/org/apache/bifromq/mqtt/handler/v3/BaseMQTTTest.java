@@ -276,6 +276,10 @@ public abstract class BaseMQTTTest {
             .thenReturn(CompletableFuture.completedFuture(CheckResult.newBuilder()
                 .setGranted(Granted.getDefaultInstance())
                 .build()));
+        when(authProvider.checkPermission(any(ClientInfo.class), argThat(MQTTAction::hasPub)))
+            .thenReturn(CompletableFuture.completedFuture(CheckResult.newBuilder()
+                .setGranted(Granted.getDefaultInstance())
+                .build()));
     }
 
     protected void mockAuthReject(Reject.Code code, String reason) {

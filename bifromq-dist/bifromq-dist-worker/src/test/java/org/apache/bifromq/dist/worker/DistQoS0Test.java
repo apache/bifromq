@@ -25,6 +25,7 @@ import static org.awaitility.Awaitility.await;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.after;
 import static org.mockito.Mockito.clearInvocations;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.reset;
 import static org.mockito.Mockito.timeout;
 import static org.mockito.Mockito.verify;
@@ -36,7 +37,9 @@ import com.google.common.collect.Sets;
 import com.google.protobuf.ByteString;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.bifromq.dist.rpc.proto.BatchDistReply;
 import org.apache.bifromq.plugin.subbroker.DeliveryPack;
@@ -77,6 +80,43 @@ public class DistQoS0Test extends DistWorkerTest {
 
         BatchDistReply reply = dist(tenantA, AT_MOST_ONCE, topic, payload, "orderKey1");
         assertEquals(reply.getResultMap().get(tenantA).getFanoutMap().getOrDefault(topic, 0).intValue(), 0);
+    }
+
+    @Test(groups = "integration")
+    public void deliverWithEmptyLevelsAndUnicodeOrdering() {
+        when(mqttBroker.open("d")).thenReturn(writer1);
+        Map<String, Set<String>> received = new ConcurrentHashMap<>();
+        doAnswer(invocation -> {
+            DeliveryRequest request = invocation.getArgument(0);
+            request.getPackageMap().get(tenantA).getPackList().forEach(pack ->
+                pack.getMatchInfoList().forEach(info -> received
+                    .computeIfAbsent(pack.getMessagePack().getTopic(), key -> ConcurrentHashMap.newKeySet())
+                    .add(info.getReceiverId())));
+            return answer(DeliveryResult.Code.OK).answer(invocation);
+        }).when(writer1).deliver(any());
+        match(tenantA, "a", MqttBroker, "r1", "d");
+        match(tenantA, "a", MqttBroker, "r0", "d");
+        for (int i = 0; i < 21; i++) {
+            match(tenantA, "a//x", MqttBroker, "noise" + i, "d");
+        }
+        BatchDistReply reply = dist(tenantA, AT_MOST_ONCE, "a", copyFromUtf8("a"), "order");
+        assertEquals(reply.getResultMap().get(tenantA).getFanoutMap().get("a").intValue(), 2);
+        await().untilAsserted(() -> assertEquals(received.get("a"), Set.of("r0", "r1")));
+
+        match(tenantA, "\uFF41", MqttBroker, "wide", "d");
+        match(tenantA, "\uD83D\uDE00", MqttBroker, "emoji", "d");
+        reply = dist(tenantA, AT_MOST_ONCE, "\uD83D\uDE00", copyFromUtf8("unicode"), "order");
+        assertEquals(reply.getResultMap().get(tenantA).getFanoutMap().get("\uD83D\uDE00").intValue(), 1);
+        reply = dist(tenantA, AT_MOST_ONCE, "a//x", copyFromUtf8("empty"), "order");
+        assertEquals(reply.getResultMap().get(tenantA).getFanoutMap().get("a//x").intValue(), 21);
+        Set<String> emptyLevelReceivers = new HashSet<>();
+        for (int i = 0; i < 21; i++) {
+            emptyLevelReceivers.add("noise" + i);
+        }
+        await().untilAsserted(() -> {
+            assertEquals(received.get("\uD83D\uDE00"), Set.of("emoji"));
+            assertEquals(received.get("a//x"), emptyLevelReceivers);
+        });
     }
 
     @Test(groups = "integration")
@@ -501,7 +541,15 @@ public class DistQoS0Test extends DistWorkerTest {
             try {
                 verify(writer1, timeout(1000).times(1)).deliver(any());
                 verify(writer2, timeout(1000).times(1)).deliver(any());
-                verify(writer3, timeout(1000).times(2)).deliver(any());
+                ArgumentCaptor<DeliveryRequest> requests = ArgumentCaptor.forClass(DeliveryRequest.class);
+                verify(writer3, timeout(1000).atLeastOnce()).deliver(requests.capture());
+                List<DeliveryPack> packs = requests.getAllValues().stream()
+                    .flatMap(request -> request.getPackageOrThrow(tenantA).getPackList().stream()).toList();
+                packs.forEach(pack -> assertEquals(pack.getMessagePack().getTopic(), "/a/b/c"));
+                List<MatchInfo> matches = packs.stream().flatMap(pack -> pack.getMatchInfoList().stream()).toList();
+                assertEquals(matches.stream().map(MatchInfo::getReceiverId).toList(), List.of("inbox3", "inbox3"));
+                assertEquals(matches.stream().map(info -> info.getMatcher().getMqttTopicFilter()).sorted().toList(),
+                    List.of("$oshare/group/#", "$share/group/#"));
                 return true;
             } catch (Throwable e) {
                 return false;

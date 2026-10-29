@@ -55,6 +55,7 @@ import static org.apache.bifromq.mqtt.handler.v5.MQTT5MessageUtils.toUserPropert
 import static org.apache.bifromq.mqtt.handler.v5.MQTT5MessageUtils.toWillMessage;
 import static org.apache.bifromq.mqtt.handler.v5.MQTT5MessageUtils.topicAliasMaximum;
 import static org.apache.bifromq.mqtt.utils.AuthUtil.buildConnAction;
+import static org.apache.bifromq.mqtt.utils.AuthUtil.buildPubAction;
 import static org.apache.bifromq.mqtt.utils.MQTT5MessageSizer.MIN_CONTROL_PACKET_SIZE;
 import static org.apache.bifromq.plugin.eventcollector.ThreadLocalEventPool.getLocal;
 import static org.apache.bifromq.type.MQTTClientInfoConstants.MQTT_CHANNEL_ID_KEY;
@@ -103,6 +104,7 @@ import org.apache.bifromq.plugin.authprovider.type.Success;
 import org.apache.bifromq.plugin.clientbalancer.IClientBalancer;
 import org.apache.bifromq.plugin.clientbalancer.Redirection;
 import org.apache.bifromq.plugin.eventcollector.OutOfTenantResource;
+import org.apache.bifromq.plugin.eventcollector.mqttbroker.accessctrl.PubActionDisallow;
 import org.apache.bifromq.plugin.eventcollector.mqttbroker.channelclosed.AuthError;
 import org.apache.bifromq.plugin.eventcollector.mqttbroker.channelclosed.EnhancedAuthAbortByClient;
 import org.apache.bifromq.plugin.eventcollector.mqttbroker.channelclosed.MalformedClientIdentifier;
@@ -373,6 +375,59 @@ public class MQTT5ConnectHandler extends MQTTConnectHandler {
                                 .build(),
                             getLocal(AuthError.class)
                                 .cause("Failed to check connect permission")
+                                .peerAddress(ChannelAttrs.socketAddress(ctx.channel())));
+                    }
+                }
+            });
+    }
+
+    @Override
+    protected CompletableFuture<AuthResult> checkWillPermission(MqttConnectMessage message,
+                                                                LWT willMessage,
+                                                                SuccessInfo successInfo) {
+        ClientInfo clientInfo = successInfo.clientInfo();
+        return authProvider.checkPermission(clientInfo, buildPubAction(willMessage.getTopic(),
+                willMessage.getMessage().getPubQoS(), willMessage.getMessage().getIsRetain(),
+                toUserProperties(message.payload().willProperties())))
+            .handle((checkResult, e) -> {
+                if (e != null) {
+                    return goAway(MqttMessageBuilders.connAck()
+                            .properties(MQTT5MessageBuilders.connAckProperties()
+                                .reasonString("Failed to check Will publish permission")
+                                .build())
+                            .returnCode(CONNECTION_REFUSED_UNSPECIFIED_ERROR)
+                            .build(),
+                        getLocal(AuthError.class)
+                            .cause("Failed to check Will publish permission")
+                            .peerAddress(ChannelAttrs.socketAddress(ctx.channel())));
+                }
+                switch (checkResult.getTypeCase()) {
+                    case GRANTED -> {
+                        return AuthResult.ok(successInfo);
+                    }
+                    case DENIED -> {
+                        return goAway(MqttMessageBuilders.connAck()
+                                .properties(MQTT5MessageBuilders.connAckProperties()
+                                    .reasonString("Will publish not authorized")
+                                    .build())
+                                .returnCode(CONNECTION_REFUSED_NOT_AUTHORIZED_5)
+                                .build(),
+                            getLocal(PubActionDisallow.class)
+                                .isLastWill(true)
+                                .topic(willMessage.getTopic())
+                                .qos(willMessage.getMessage().getPubQoS())
+                                .isRetain(willMessage.getMessage().getIsRetain())
+                                .clientInfo(clientInfo));
+                    }
+                    default -> {
+                        return goAway(MqttMessageBuilders.connAck()
+                                .properties(MQTT5MessageBuilders.connAckProperties()
+                                    .reasonString("Failed to check Will publish permission")
+                                    .build())
+                                .returnCode(CONNECTION_REFUSED_UNSPECIFIED_ERROR)
+                                .build(),
+                            getLocal(AuthError.class)
+                                .cause("Failed to check Will publish permission")
                                 .peerAddress(ChannelAttrs.socketAddress(ctx.channel())));
                     }
                 }

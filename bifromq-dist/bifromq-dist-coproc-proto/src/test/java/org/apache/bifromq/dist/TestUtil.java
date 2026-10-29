@@ -203,15 +203,15 @@ public class TestUtil {
 
         private static final ThreadLocalRandom random = ThreadLocalRandom.current();
 
-        private static final char[] symbols = (upper + lower + digits + puncs).toCharArray();
+        private static final int[] symbols = (upper + lower + digits + puncs).codePoints().toArray();
 
         public static String nextString(int maxLength) {
             int strLen = random.nextInt(1, maxLength);
-            char[] buf = new char[strLen];
-            for (int idx = 0; idx < buf.length; ++idx) {
-                buf[idx] = symbols[random.nextInt(symbols.length)];
+            StringBuilder value = new StringBuilder(strLen);
+            for (int idx = 0; idx < strLen; ++idx) {
+                value.appendCodePoint(symbols[random.nextInt(symbols.length)]);
             }
-            return new String(buf);
+            return value.toString();
         }
 
         public static String nextString(int maxLength, boolean includeWildcard, boolean singleWildcardOnly) {

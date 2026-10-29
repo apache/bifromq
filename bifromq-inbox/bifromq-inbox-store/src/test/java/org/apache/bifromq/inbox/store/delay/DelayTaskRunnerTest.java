@@ -28,6 +28,7 @@ import static org.mockito.Mockito.verify;
 import static org.testng.Assert.assertFalse;
 import static org.testng.Assert.assertTrue;
 
+import io.micrometer.core.instrument.Metrics;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -36,10 +37,12 @@ import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.function.BiFunction;
 import java.util.function.Supplier;
+import org.testng.annotations.AfterMethod;
 import org.testng.annotations.BeforeMethod;
 import org.testng.annotations.Test;
 
 public class DelayTaskRunnerTest {
+    private final List<DelayTaskRunner<String>> runners = new ArrayList<>();
     private DelayTaskRunner<String> runner;
     private Supplier<Long> currentMillisSupplier;
     private BiFunction<String, IDelayTaskRunner<String>, CompletableFuture<Void>> taskFunction1;
@@ -48,9 +51,27 @@ public class DelayTaskRunnerTest {
     @BeforeMethod
     public void setUp() {
         currentMillisSupplier = System::currentTimeMillis;
-        runner = new DelayTaskRunner<>(String::compareTo, currentMillisSupplier, 1000);
+        runner = newRunner(1000, "default");
         taskFunction1 = mock(BiFunction.class);
         taskFunction2 = mock(BiFunction.class);
+    }
+
+    /**
+     * Closes the runners that each test creates.
+     */
+    @AfterMethod(alwaysRun = true)
+    public void tearDown() {
+        runners.forEach(DelayTaskRunner::shutdown);
+        runners.clear();
+        await().atMost(Duration.ofSeconds(5)).until(() -> Metrics.globalRegistry.getMeters().stream()
+            .noneMatch(meter -> "DelayTaskRunnerTest".equals(meter.getId().getTag("test"))));
+    }
+
+    private DelayTaskRunner<String> newRunner(int rateLimit, String id) {
+        DelayTaskRunner<String> created = new DelayTaskRunner<>(String::compareTo, currentMillisSupplier, rateLimit,
+            "test", "DelayTaskRunnerTest", "runner", id);
+        runners.add(created);
+        return created;
     }
 
     @Test
@@ -121,8 +142,7 @@ public class DelayTaskRunnerTest {
     @Test
     public void testRateLimiterBehavior() {
         int rateLimit = 2;
-        DelayTaskRunner<String> rateLimitedRunner = new DelayTaskRunner<>(String::compareTo, System::currentTimeMillis,
-            rateLimit);
+        DelayTaskRunner<String> rateLimitedRunner = newRunner(rateLimit, "rate-limited");
 
         List<Long> executionTimes = Collections.synchronizedList(new ArrayList<>());
 
@@ -146,6 +166,7 @@ public class DelayTaskRunnerTest {
         assertTrue(diff2 >= 1800);
 
         rateLimitedRunner.shutdown();
+        runners.remove(rateLimitedRunner);
 
         await().atMost(Duration.ofSeconds(5))
             .until(() -> !rateLimitedRunner.hasTask("task1") && !rateLimitedRunner.hasTask("task2") &&
@@ -178,6 +199,7 @@ public class DelayTaskRunnerTest {
         TestDelayedTask task = new TestDelayedTask(Duration.ofMillis(50), taskFunction1);
         runner.schedule("shutdownKey2", task);
         runner.shutdown();
+        runners.remove(runner);
         verify(taskFunction1, timeout(100).times(0)).apply("shutdownKey2", runner);
     }
 

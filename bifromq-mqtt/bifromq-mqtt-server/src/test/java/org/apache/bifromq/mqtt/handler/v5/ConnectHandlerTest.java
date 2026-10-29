@@ -21,13 +21,16 @@ package org.apache.bifromq.mqtt.handler.v5;
 
 import static io.netty.handler.codec.mqtt.MqttConnectReturnCode.CONNECTION_REFUSED_CLIENT_IDENTIFIER_NOT_VALID;
 import static io.netty.handler.codec.mqtt.MqttConnectReturnCode.CONNECTION_REFUSED_MALFORMED_PACKET;
+import static io.netty.handler.codec.mqtt.MqttConnectReturnCode.CONNECTION_REFUSED_NOT_AUTHORIZED_5;
 import static io.netty.handler.codec.mqtt.MqttConnectReturnCode.CONNECTION_REFUSED_PACKET_TOO_LARGE;
 import static io.netty.handler.codec.mqtt.MqttConnectReturnCode.CONNECTION_REFUSED_PROTOCOL_ERROR;
 import static io.netty.handler.codec.mqtt.MqttConnectReturnCode.CONNECTION_REFUSED_QUOTA_EXCEEDED;
 import static io.netty.handler.codec.mqtt.MqttConnectReturnCode.CONNECTION_REFUSED_SERVER_BUSY;
 import static io.netty.handler.codec.mqtt.MqttConnectReturnCode.CONNECTION_REFUSED_SERVER_MOVED;
+import static io.netty.handler.codec.mqtt.MqttConnectReturnCode.CONNECTION_REFUSED_UNSPECIFIED_ERROR;
 import static io.netty.handler.codec.mqtt.MqttConnectReturnCode.CONNECTION_REFUSED_USE_ANOTHER_SERVER;
 import static io.netty.handler.codec.mqtt.MqttProperties.MqttPropertyType.SERVER_REFERENCE;
+import static io.netty.handler.codec.mqtt.MqttProperties.MqttPropertyType.WILL_DELAY_INTERVAL;
 import static org.apache.bifromq.plugin.eventcollector.EventType.MALFORMED_CLIENT_IDENTIFIER;
 import static org.apache.bifromq.plugin.eventcollector.EventType.MALFORMED_USERNAME;
 import static org.apache.bifromq.plugin.eventcollector.EventType.MALFORMED_WILL_TOPIC;
@@ -40,6 +43,7 @@ import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 import static org.testng.Assert.assertEquals;
 import static org.testng.Assert.assertFalse;
@@ -54,6 +58,7 @@ import io.netty.channel.embedded.EmbeddedChannel;
 import io.netty.handler.codec.mqtt.MqttConnAckMessage;
 import io.netty.handler.codec.mqtt.MqttConnectMessage;
 import io.netty.handler.codec.mqtt.MqttMessageBuilders;
+import io.netty.handler.codec.mqtt.MqttProperties;
 import io.netty.handler.codec.mqtt.MqttVersion;
 import java.net.InetSocketAddress;
 import java.util.Collections;
@@ -70,6 +75,8 @@ import org.apache.bifromq.mqtt.session.MQTTSessionContext;
 import org.apache.bifromq.mqtt.spi.IUserPropsCustomizer;
 import org.apache.bifromq.plugin.authprovider.IAuthProvider;
 import org.apache.bifromq.plugin.authprovider.type.CheckResult;
+import org.apache.bifromq.plugin.authprovider.type.Denied;
+import org.apache.bifromq.plugin.authprovider.type.Error;
 import org.apache.bifromq.plugin.authprovider.type.Granted;
 import org.apache.bifromq.plugin.authprovider.type.MQTT5AuthData;
 import org.apache.bifromq.plugin.authprovider.type.MQTT5AuthResult;
@@ -88,9 +95,11 @@ import org.apache.bifromq.plugin.resourcethrottler.TenantResourceType;
 import org.apache.bifromq.plugin.settingprovider.ISettingProvider;
 import org.apache.bifromq.plugin.settingprovider.Setting;
 import org.apache.bifromq.type.ClientInfo;
+import org.apache.bifromq.type.QoS;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.testng.annotations.BeforeMethod;
+import org.testng.annotations.DataProvider;
 import org.testng.annotations.Test;
 
 public class ConnectHandlerTest extends MockableTest {
@@ -431,7 +440,62 @@ public class ConnectHandlerTest extends MockableTest {
         verify(eventCollector).report(argThat(e -> e.type() == EventType.SERVER_BUSY));
     }
 
-    
+    @DataProvider
+    public Object[][] willDelaySeconds() {
+        return new Object[][] {{0}, {7}};
+    }
+
+    @Test(dataProvider = "willDelaySeconds")
+    public void willPermissionDeniedBeforeInbox(int willDelaySeconds) {
+        mockAuthPass();
+        when(authProvider.checkPermission(any(ClientInfo.class), argThat(MQTTAction::hasPub)))
+            .thenReturn(CompletableFuture.completedFuture(CheckResult.newBuilder()
+                .setDenied(Denied.getDefaultInstance())
+                .build()));
+
+        channel.writeInbound(willConnect(willDelaySeconds));
+        channel.advanceTimeBy(6, TimeUnit.SECONDS);
+        channel.runScheduledPendingTasks();
+        channel.runPendingTasks();
+
+        MqttConnAckMessage connAck = channel.readOutbound();
+        assertEquals(connAck.variableHeader().connectReturnCode(), CONNECTION_REFUSED_NOT_AUTHORIZED_5);
+        verifyNoInteractions(inboxClient);
+        verify(authProvider).checkPermission(any(ClientInfo.class), argThat(action -> action.hasPub()
+            && action.getPub().getTopic().equals("will/topic")
+            && action.getPub().getQos() == QoS.AT_MOST_ONCE
+            && action.getPub().getIsRetained()
+            && action.getPub().getUserProps().getUserPropertiesCount() == 1
+            && action.getPub().getUserProps().getUserProperties(0).getKey().equals("key")
+            && action.getPub().getUserProps().getUserProperties(0).getValue().equals("value")));
+    }
+
+    @DataProvider
+    public Object[][] willPermissionErrors() {
+        return new Object[][] {
+            {CompletableFuture.failedFuture(new RuntimeException("auth unavailable"))},
+            {CompletableFuture.completedFuture(CheckResult.newBuilder()
+                .setError(Error.getDefaultInstance())
+                .build())},
+            {CompletableFuture.completedFuture(CheckResult.getDefaultInstance())}
+        };
+    }
+
+    @Test(dataProvider = "willPermissionErrors")
+    public void willPermissionErrorBeforeInbox(CompletableFuture<CheckResult> permissionResult) {
+        mockAuthPass();
+        when(authProvider.checkPermission(any(ClientInfo.class), argThat(MQTTAction::hasPub)))
+            .thenReturn(permissionResult);
+
+        channel.writeInbound(willConnect(0));
+        channel.advanceTimeBy(6, TimeUnit.SECONDS);
+        channel.runScheduledPendingTasks();
+        channel.runPendingTasks();
+
+        MqttConnAckMessage connAck = channel.readOutbound();
+        assertEquals(connAck.variableHeader().connectReturnCode(), CONNECTION_REFUSED_UNSPECIFIED_ERROR);
+        verifyNoInteractions(inboxClient);
+    }
 
     @Test
     public void receiveMaximumZeroIsProtocolError() {
@@ -488,6 +552,34 @@ public class ConnectHandlerTest extends MockableTest {
         assertEquals(connAckMessage.variableHeader().connectReturnCode(), CONNECTION_REFUSED_SERVER_BUSY);
         assertFalse(channel.isOpen());
         verify(eventCollector).report(argThat(e -> e.type() == EventType.SERVER_BUSY));
+    }
+
+    private void mockAuthPass() {
+        when(authProvider.auth(any(MQTT5AuthData.class))).thenReturn(CompletableFuture.completedFuture(
+            MQTT5AuthResult.newBuilder().setSuccess(Success.newBuilder().setTenantId("tenantId").build()).build()));
+        when(authProvider.checkPermission(any(ClientInfo.class), argThat(MQTTAction::hasConn))).thenReturn(
+            CompletableFuture.completedFuture(
+                CheckResult.newBuilder().setGranted(Granted.getDefaultInstance()).build()));
+        when(authProvider.checkPermission(any(ClientInfo.class), argThat(MQTTAction::hasPub))).thenReturn(
+            CompletableFuture.completedFuture(
+                CheckResult.newBuilder().setGranted(Granted.getDefaultInstance()).build()));
+    }
+
+    private MqttConnectMessage willConnect(int willDelaySeconds) {
+        MqttProperties willProperties = MQTT5MessageUtils.mqttProps()
+            .addUserProperty("key", "value")
+            .build();
+        willProperties.add(new MqttProperties.IntegerProperty(WILL_DELAY_INTERVAL.value(), willDelaySeconds));
+        return MqttMessageBuilders.connect()
+            .clientId("client")
+            .cleanSession(true)
+            .protocolVersion(MqttVersion.MQTT_5)
+            .willFlag(true)
+            .willTopic("will/topic")
+            .willRetain(true)
+            .willMessage("will")
+            .willProperties(willProperties)
+            .build();
     }
 
 }

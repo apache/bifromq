@@ -194,6 +194,7 @@ public class LocalDistService implements ILocalDistService {
             tenantMeter.recordSummary(MqttTransientFanOutBytes, totalFanOutBytes);
             // don't include duplicated matchInfo in the result
             // treat skip as ok
+            noSub.removeAll(noReceiver);
             Sets.difference(Sets.union(ok, skip), Sets.union(noSub, noReceiver)).forEach(matchInfo ->
                 resultsBuilder.addResult(
                     DeliveryResult.newBuilder().setMatchInfo(matchInfo).setCode(DeliveryResult.Code.OK).build()));

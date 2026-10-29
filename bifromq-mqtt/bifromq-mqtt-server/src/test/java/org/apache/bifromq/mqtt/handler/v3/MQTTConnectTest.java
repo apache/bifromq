@@ -29,8 +29,12 @@ import static org.apache.bifromq.plugin.eventcollector.EventType.INBOX_TRANSIENT
 import static org.apache.bifromq.plugin.eventcollector.EventType.MQTT_SESSION_START;
 import static org.apache.bifromq.plugin.eventcollector.EventType.PING_REQ;
 import static org.apache.bifromq.type.MQTTClientInfoConstants.MQTT_PROTOCOL_VER_KEY;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.when;
 import static org.testng.Assert.assertEquals;
 import static org.testng.Assert.assertNotEquals;
 import static org.testng.Assert.assertNull;
@@ -39,17 +43,24 @@ import static org.testng.Assert.assertTrue;
 import io.netty.handler.codec.mqtt.MqttConnAckMessage;
 import io.netty.handler.codec.mqtt.MqttConnectMessage;
 import io.netty.handler.codec.mqtt.MqttMessage;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.bifromq.inbox.rpc.proto.AttachReply;
 import org.apache.bifromq.inbox.rpc.proto.DetachReply;
 import org.apache.bifromq.mqtt.utils.MQTTMessageUtils;
+import org.apache.bifromq.plugin.authprovider.type.CheckResult;
+import org.apache.bifromq.plugin.authprovider.type.Denied;
+import org.apache.bifromq.plugin.authprovider.type.Error;
+import org.apache.bifromq.plugin.authprovider.type.MQTTAction;
 import org.apache.bifromq.plugin.authprovider.type.Reject;
 import org.apache.bifromq.plugin.eventcollector.Event;
 import org.apache.bifromq.plugin.eventcollector.EventType;
 import org.apache.bifromq.plugin.eventcollector.mqttbroker.clientconnected.ClientConnected;
+import org.apache.bifromq.type.ClientInfo;
 import org.mockito.ArgumentCaptor;
 import org.testng.Assert;
+import org.testng.annotations.DataProvider;
 import org.testng.annotations.Test;
 
 @Slf4j
@@ -253,10 +264,56 @@ public class MQTTConnectTest extends BaseMQTTTest {
         mockInboxDetach(DetachReply.Code.OK);
         MqttConnectMessage connectMessage = MQTTMessageUtils.qoSWillMqttConnectMessage(1, true);
         channel.writeInbound(connectMessage);
+        channel.runPendingTasks();
         MqttConnAckMessage ackMessage = channel.readOutbound();
         // verifications
         assertEquals(ackMessage.variableHeader().connectReturnCode(), CONNECTION_ACCEPTED);
         verifyEvent(MQTT_SESSION_START, CLIENT_CONNECTED);
+    }
+
+    @Test
+    public void willPermissionDeniedBeforeSessionCalls() {
+        mockAuthPass();
+        when(authProvider.checkPermission(any(ClientInfo.class), argThat(MQTTAction::hasPub)))
+            .thenReturn(CompletableFuture.completedFuture(CheckResult.newBuilder()
+                .setDenied(Denied.getDefaultInstance())
+                .build()));
+
+        channel.writeInbound(MQTTMessageUtils.qoSWillMqttConnectMessage(1, true));
+        channel.advanceTimeBy(disconnectDelay, TimeUnit.MILLISECONDS);
+        channel.runScheduledPendingTasks();
+        channel.runPendingTasks();
+
+        MqttConnAckMessage connAck = channel.readOutbound();
+        assertEquals(connAck.variableHeader().connectReturnCode(), CONNECTION_REFUSED_NOT_AUTHORIZED);
+        verifyNoInteractions(inboxClient, sessionDictClient);
+    }
+
+    @DataProvider
+    public Object[][] willPermissionErrors() {
+        return new Object[][] {
+            {CompletableFuture.failedFuture(new RuntimeException("auth unavailable"))},
+            {CompletableFuture.completedFuture(CheckResult.newBuilder()
+                .setError(Error.getDefaultInstance())
+                .build())},
+            {CompletableFuture.completedFuture(CheckResult.getDefaultInstance())}
+        };
+    }
+
+    @Test(dataProvider = "willPermissionErrors")
+    public void willPermissionErrorBeforeSessionCalls(CompletableFuture<CheckResult> permissionResult) {
+        mockAuthPass();
+        when(authProvider.checkPermission(any(ClientInfo.class), argThat(MQTTAction::hasPub)))
+            .thenReturn(permissionResult);
+
+        channel.writeInbound(MQTTMessageUtils.qoSWillMqttConnectMessage(1, true));
+        channel.advanceTimeBy(disconnectDelay, TimeUnit.MILLISECONDS);
+        channel.runScheduledPendingTasks();
+        channel.runPendingTasks();
+
+        MqttConnAckMessage connAck = channel.readOutbound();
+        assertEquals(connAck.variableHeader().connectReturnCode(), CONNECTION_REFUSED_SERVER_UNAVAILABLE);
+        verifyNoInteractions(inboxClient, sessionDictClient);
     }
 
     @Test
@@ -267,6 +324,7 @@ public class MQTTConnectTest extends BaseMQTTTest {
         mockInboxDetach(DetachReply.Code.OK);
         MqttConnectMessage connectMessage = MQTTMessageUtils.qoSWillMqttConnectMessage(1, true);
         channel.writeInbound(connectMessage);
+        channel.runPendingTasks();
         MqttConnAckMessage ackMessage = channel.readOutbound();
         // verifications
         assertEquals(ackMessage.variableHeader().connectReturnCode(), CONNECTION_ACCEPTED);

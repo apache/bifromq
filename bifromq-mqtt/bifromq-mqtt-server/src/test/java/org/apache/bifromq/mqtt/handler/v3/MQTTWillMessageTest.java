@@ -28,7 +28,6 @@ import static org.apache.bifromq.plugin.eventcollector.EventType.MQTT_SESSION_ST
 import static org.apache.bifromq.plugin.eventcollector.EventType.MQTT_SESSION_STOP;
 import static org.apache.bifromq.plugin.eventcollector.EventType.MSG_RETAINED;
 import static org.apache.bifromq.plugin.eventcollector.EventType.MSG_RETAINED_ERROR;
-import static org.apache.bifromq.plugin.eventcollector.EventType.PUB_ACTION_DISALLOW;
 import static org.apache.bifromq.plugin.eventcollector.EventType.RETAIN_MSG_CLEARED;
 import static org.apache.bifromq.plugin.eventcollector.EventType.WILL_DISTED;
 import static org.apache.bifromq.plugin.eventcollector.EventType.WILL_DIST_ERROR;
@@ -36,8 +35,7 @@ import static org.apache.bifromq.retain.rpc.proto.RetainReply.Result.CLEARED;
 import static org.apache.bifromq.retain.rpc.proto.RetainReply.Result.ERROR;
 import static org.apache.bifromq.retain.rpc.proto.RetainReply.Result.RETAINED;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyLong;
-import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.testng.Assert.assertEquals;
@@ -47,6 +45,7 @@ import io.netty.handler.codec.mqtt.MqttConnectMessage;
 import java.util.concurrent.TimeUnit;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.bifromq.mqtt.utils.MQTTMessageUtils;
+import org.apache.bifromq.plugin.authprovider.type.MQTTAction;
 import org.apache.bifromq.plugin.eventcollector.EventType;
 import org.apache.bifromq.sessiondict.rpc.proto.ServerRedirection;
 import org.apache.bifromq.type.ClientInfo;
@@ -109,15 +108,16 @@ public class MQTTWillMessageTest extends BaseMQTTTest {
     }
 
     @Test
-    public void willAuthCheckFailed() {
+    public void willPermissionNotRechecked() {
         setupTransientSessionWithLWT(false);
         mockAuthCheck(false);
+        mockDistDist(true);
         channel.advanceTimeBy(50, TimeUnit.SECONDS);
         testTicker.advanceTimeBy(50, TimeUnit.SECONDS);
         channel.runPendingTasks();
         Assert.assertFalse(channel.isActive());
-        verifyEvent(MQTT_SESSION_START, CLIENT_CONNECTED, IDLE, PUB_ACTION_DISALLOW, MQTT_SESSION_STOP);
-        verify(distClient, times(0)).pub(anyLong(), anyString(), any(), any(ClientInfo.class));
+        verifyEvent(MQTT_SESSION_START, CLIENT_CONNECTED, IDLE, MQTT_SESSION_STOP, WILL_DISTED);
+        verify(authProvider, times(1)).checkPermission(any(ClientInfo.class), argThat(MQTTAction::hasPub));
     }
 
     @Test

@@ -76,7 +76,8 @@ class DeliverExecutorGroup implements IDeliverExecutorGroup {
                          IResourceThrottler resourceThrottler,
                          ISettingProvider settingProvider,
                          int fanoutParallelism,
-                         int inlineFanOutThreshold) {
+                         int inlineFanOutThreshold,
+                         String... tags) {
         this.eventCollector = eventCollector;
         this.resourceThrottler = resourceThrottler;
         this.settingProvider = settingProvider;
@@ -96,7 +97,7 @@ class DeliverExecutorGroup implements IDeliverExecutorGroup {
                 .build());
         fanoutExecutors = new DeliverExecutor[fanoutParallelism];
         for (int i = 0; i < fanoutParallelism; i++) {
-            fanoutExecutors[i] = new DeliverExecutor(i, deliverer, eventCollector);
+            fanoutExecutors[i] = new DeliverExecutor(i, deliverer, eventCollector, tags);
         }
     }
 

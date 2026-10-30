@@ -66,8 +66,7 @@ public class RouteDetailCache {
 
             String tenantId = TENANTID_INTERNER.intern(
                 k.substring(tenantIdStartIdx, escapedTopicFilterStartIdx).toStringUtf8());
-            String escapedTopicFilter = k.substring(escapedTopicFilterStartIdx, separatorBytesIdx)
-                .toStringUtf8();
+            String escapedTopicFilter = decodeFilter(k, escapedTopicFilterStartIdx, separatorBytesIdx);
             switch (flag) {
                 case FLAG_NORMAL -> {
                     String mqttTopicFilter = unescape(escapedTopicFilter);
@@ -106,6 +105,23 @@ public class RouteDetailCache {
                 default -> throw new UnsupportedOperationException("Unknown route type: " + flag);
             }
         });
+    }
+
+    private static String decodeFilter(ByteString key, int start, int end) {
+        StringBuilder decoded = null;
+        for (int i = start; i < end; i++) {
+            if (key.byteAt(i) == (byte) 0xFF) {
+                if (decoded == null) {
+                    decoded = new StringBuilder(end - start);
+                }
+                decoded.append(key.substring(start, i).toStringUtf8());
+                start = i + 1;
+            }
+        }
+        if (decoded == null) {
+            return key.substring(start, end).toStringUtf8();
+        }
+        return decoded.append(key.substring(start, end).toStringUtf8()).toString();
     }
 
     public static short tenantIdLen(ByteString routeKey) {

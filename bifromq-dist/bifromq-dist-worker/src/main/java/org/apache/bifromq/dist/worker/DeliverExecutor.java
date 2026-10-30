@@ -22,7 +22,7 @@ package org.apache.bifromq.dist.worker;
 import static org.apache.bifromq.plugin.eventcollector.ThreadLocalEventPool.getLocal;
 
 import io.micrometer.core.instrument.Metrics;
-import io.micrometer.core.instrument.binder.jvm.ExecutorServiceMetrics;
+import io.micrometer.core.instrument.Tags;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.LinkedTransferQueue;
@@ -30,6 +30,7 @@ import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.bifromq.base.util.MonitoredExecutors;
 import org.apache.bifromq.baseenv.EnvProvider;
 import org.apache.bifromq.deliverer.DeliveryCall;
 import org.apache.bifromq.deliverer.IMessageDeliverer;
@@ -48,13 +49,14 @@ public class DeliverExecutor {
     private final ConcurrentLinkedQueue<SendTask> tasks = new ConcurrentLinkedQueue<>();
     private final AtomicBoolean sending = new AtomicBoolean();
 
-    public DeliverExecutor(int id, IMessageDeliverer deliverer, IEventCollector eventCollector) {
+    public DeliverExecutor(int id, IMessageDeliverer deliverer, IEventCollector eventCollector, String... tags) {
         this.eventCollector = eventCollector;
         this.deliverer = deliverer;
-        executor = ExecutorServiceMetrics.monitor(Metrics.globalRegistry,
+        executor = MonitoredExecutors.monitor(Metrics.globalRegistry,
             new ThreadPoolExecutor(1, 1, 0L, TimeUnit.MILLISECONDS,
                 new LinkedTransferQueue<>(),
-                EnvProvider.INSTANCE.newThreadFactory("deliver-executor-" + id)), Integer.toString(id), "deliver");
+                EnvProvider.INSTANCE.newThreadFactory("deliver-executor-" + id)),
+            Integer.toString(id), "deliver", Tags.of(tags));
     }
 
     public void submit(NormalMatching route, TopicMessagePackHolder msgPackHolder, boolean inline) {

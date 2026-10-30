@@ -113,4 +113,20 @@ public class EMALongTest {
         // expected = 80
         assertEquals(ema.get(), 80);
     }
+
+    @Test
+    void updateAfterIdleUsesDecayedBase() {
+        // alpha=0.1, decay=0.9, delay=5s: update after long idle must not revive stale value
+        EMALong ema = new EMALong(nowSupplier, 0.1, 0.9, 5_000_000_000L);
+        fakeTime.set(1_000_000_000L);
+        ema.update(20_000L);
+        fakeTime.set(61_000_000_000L);
+        // decayed well below threshold before update
+        long before = ema.get();
+        ema.update(0L);
+        long after = ema.get();
+        assertEquals(before, 61L);
+        // must stay near decayed value instead of reviving ~18s
+        org.testng.Assert.assertTrue(after < 1_000L, "after=" + after);
+    }
 }

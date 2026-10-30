@@ -118,7 +118,7 @@
         <caffeine.version>3.2.3</caffeine.version>
         <guice.version>7.0.0</guice.version>
         <grpc.version>1.77.0</grpc.version>
-        <guava.version>33.2.1-jre</guava.version>
+        <guava.version>33.7.1-jre</guava.version>
         <jackson.version>2.18.1</jackson.version>
         <jakarta.ws.rs-api.version>4.0.0</jakarta.ws.rs-api.version>
         <lombok.version>1.18.42</lombok.version>

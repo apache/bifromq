@@ -21,6 +21,7 @@ package org.apache.bifromq.dist.worker.schema;
 
 import static com.google.protobuf.ByteString.copyFromUtf8;
 import static com.google.protobuf.UnsafeByteOperations.unsafeWrap;
+import static org.apache.bifromq.dist.worker.schema.KVSchemaConstants.EMPTY_LEVEL_BYTE;
 import static org.apache.bifromq.dist.worker.schema.KVSchemaConstants.FLAG_NORMAL_VAL;
 import static org.apache.bifromq.dist.worker.schema.KVSchemaConstants.FLAG_ORDERED_VAL;
 import static org.apache.bifromq.dist.worker.schema.KVSchemaConstants.FLAG_UNORDERED_VAL;
@@ -96,7 +97,8 @@ public class KVSchemaUtil {
     public static ByteString tenantRouteStartKey(String tenantId, List<String> filterLevels) {
         ByteString key = tenantBeginKey(tenantId);
         for (String filterLevel : filterLevels) {
-            key = key.concat(copyFromUtf8(filterLevel)).concat(SEPARATOR_BYTE);
+            key = key.concat(filterLevel.isEmpty() ? EMPTY_LEVEL_BYTE : copyFromUtf8(filterLevel))
+                .concat(SEPARATOR_BYTE);
         }
         return key.concat(SEPARATOR_BYTE);
     }

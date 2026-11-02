@@ -115,6 +115,57 @@ public class TenantRangeLookupCacheTest {
     }
 
     @Test
+    public void emptyLevelFactRetainsMatchingRange() {
+        NavigableMap<Boundary, KVRangeSetting> router = new TreeMap<>(BoundaryUtil::compare);
+        Fact rangeFact = fact(first(TENANT, "a"), last(TENANT, "a", "", "x"));
+        KVRangeSetting range = setting(1, BoundaryUtil.FULL_BOUNDARY, rangeFact);
+        router.put(range.boundary(), range);
+        assertEquals(new ArrayList<>(cache.lookup("a//x", router)), List.of(range));
+        assertEquals(new ArrayList<>(cache.lookup("a", router)), List.of(range));
+        assertEquals(rangeFact.getFirstGlobalFilterLevels().getFilterLevel(0), TENANT);
+    }
+
+    @Test
+    public void equalUtf8LengthTenantNamesUseUtf8Order() {
+        NavigableMap<Boundary, KVRangeSetting> router = new TreeMap<>(BoundaryUtil::compare);
+        KVRangeSetting range = setting(1, BoundaryUtil.FULL_BOUNDARY,
+            fact(first("\uFF41a", "a"), last("\uD83D\uDE00", "a")));
+        router.put(range.boundary(), range);
+        TenantRangeLookupCache unicodeCache = new TenantRangeLookupCache("\uD83D\uDE00", Duration.ofMinutes(1), 10);
+        assertEquals(new ArrayList<>(unicodeCache.lookup("a", router)), List.of(range));
+    }
+
+    @Test
+    public void crossTenantFactStartUsesEncodedTenantOrder() {
+        NavigableMap<Boundary, KVRangeSetting> router = new TreeMap<>(BoundaryUtil::compare);
+        KVRangeSetting range = setting(1, BoundaryUtil.FULL_BOUNDARY,
+            fact(first("z", "sensor", "#"), last(TENANT, "sensor", "#")));
+        router.put(range.boundary(), range);
+
+        assertEquals(new ArrayList<>(cache.lookup("sensor/value", router)), List.of(range));
+    }
+
+    @Test
+    public void crossTenantFactEndUsesEncodedTenantOrder() {
+        NavigableMap<Boundary, KVRangeSetting> router = new TreeMap<>(BoundaryUtil::compare);
+        KVRangeSetting range = setting(1, BoundaryUtil.FULL_BOUNDARY,
+            fact(first("a", "sensor", "#"), last("aaaaaaaa", "sensor", "#")));
+        router.put(range.boundary(), range);
+
+        assertEquals(new ArrayList<>(cache.lookup("sensor/value", router)), List.of(range));
+    }
+
+    @Test
+    public void factEndUsesUtf8TopicOrder() {
+        NavigableMap<Boundary, KVRangeSetting> router = new TreeMap<>(BoundaryUtil::compare);
+        KVRangeSetting range = setting(1, BoundaryUtil.FULL_BOUNDARY,
+            fact(first(TENANT, "a"), last(TENANT, "\uD800\uDC00")));
+        router.put(range.boundary(), range);
+
+        assertEquals(new ArrayList<>(cache.lookup("\uE000", router)), List.of(range));
+    }
+
+    @Test
     public void singleCandidateFullFactCovers() {
         NavigableMap<Boundary, KVRangeSetting> router = new TreeMap<>(BoundaryUtil::compare);
         KVRangeSetting r1 = setting(1,

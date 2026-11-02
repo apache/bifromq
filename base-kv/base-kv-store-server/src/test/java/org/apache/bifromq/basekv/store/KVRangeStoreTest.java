@@ -39,6 +39,7 @@ import static org.testng.Assert.fail;
 import com.google.common.collect.Sets;
 import com.google.protobuf.ByteString;
 import com.google.protobuf.Struct;
+import io.micrometer.core.instrument.Metrics;
 import io.reactivex.rxjava3.core.Observable;
 import io.reactivex.rxjava3.subjects.PublishSubject;
 import java.io.File;
@@ -176,6 +177,22 @@ public class KVRangeStoreTest extends MockableTest {
             dbRootDir = null;
         }
         log.info("Shutdown read task executor");
+    }
+
+    @Test
+    public void rangeExecutorMetersFollowSplitAndClose() {
+        KVRangeDescriptor first = firstRangeDescriptor();
+        assertEquals(rangeExecutorMeters(), 18L);
+        rangeStore.split(first.getVer(), first.getId(), copyFromUtf8("split-key")).toCompletableFuture().join();
+        await().atMost(Duration.ofSeconds(5)).until(() -> rangeExecutorMeters() == 36L);
+        rangeStore.stop();
+        assertEquals(rangeExecutorMeters(), 0L);
+    }
+
+    private long rangeExecutorMeters() {
+        return Metrics.globalRegistry.getMeters().stream()
+            .filter(meter -> meter.getId().getName().startsWith("basekv.range.executor")
+                && rangeStore.id().equals(meter.getId().getTag("storeId"))).count();
     }
 
     @Test(groups = "integration")

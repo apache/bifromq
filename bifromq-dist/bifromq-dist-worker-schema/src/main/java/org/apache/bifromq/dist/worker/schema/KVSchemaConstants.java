@@ -28,6 +28,7 @@ public class KVSchemaConstants {
     public static final byte FLAG_UNORDERED = 0x02;
     public static final byte FLAG_ORDERED = 0x03;
     public static final ByteString SEPARATOR_BYTE = ByteString.copyFrom(new byte[] {0x00});
+    public static final ByteString EMPTY_LEVEL_BYTE = ByteString.copyFrom(new byte[] {(byte) 0xFF});
     public static final ByteString FLAG_NORMAL_VAL = ByteString.copyFrom(new byte[] {FLAG_NORMAL});
     public static final ByteString FLAG_UNORDERED_VAL = ByteString.copyFrom(new byte[] {FLAG_UNORDERED});
     public static final ByteString FLAG_ORDERED_VAL = ByteString.copyFrom(new byte[] {FLAG_ORDERED});

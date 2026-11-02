@@ -19,6 +19,7 @@
 
 package org.apache.bifromq.basekv.localengine.rocksdb;
 
+import static com.google.common.util.concurrent.Uninterruptibles.awaitTerminationUninterruptibly;
 import static org.apache.bifromq.basekv.localengine.StructUtil.boolVal;
 import static org.apache.bifromq.basekv.localengine.StructUtil.numVal;
 import static org.apache.bifromq.basekv.localengine.StructUtil.strVal;
@@ -39,7 +40,6 @@ import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.Metrics;
 import io.micrometer.core.instrument.Tags;
 import io.micrometer.core.instrument.Timer;
-import io.micrometer.core.instrument.binder.jvm.ExecutorServiceMetrics;
 import java.io.File;
 import java.io.IOException;
 import java.util.Collections;
@@ -50,6 +50,7 @@ import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import lombok.SneakyThrows;
+import org.apache.bifromq.base.util.MonitoredExecutors;
 import org.apache.bifromq.baseenv.EnvProvider;
 import org.apache.bifromq.basekv.localengine.AbstractKVSpace;
 import org.apache.bifromq.basekv.localengine.ISyncContext;
@@ -89,10 +90,6 @@ abstract class RocksDBKVSpace extends AbstractKVSpace<RocksDBKVSpaceEpochHandle>
         syncContext = new SyncContext();
         metadataRefresher = syncContext.refresher();
         compacting = new AtomicBoolean(false);
-        compactionExecutor = ExecutorServiceMetrics.monitor(Metrics.globalRegistry, new ThreadPoolExecutor(1, 1,
-                0L, TimeUnit.MILLISECONDS, new LinkedBlockingQueue<>(),
-                EnvProvider.INSTANCE.newThreadFactory("kvspace-compactor-" + id)),
-            "compactor", "kvspace", Tags.of(tags));
         if (boolVal(conf, MANUAL_COMPACTION)) {
             int minKeys = (int) numVal(conf, COMPACT_MIN_TOMBSTONE_KEYS);
             int minRanges = (int) numVal(conf, COMPACT_MIN_TOMBSTONE_RANGES);
@@ -103,6 +100,10 @@ abstract class RocksDBKVSpace extends AbstractKVSpace<RocksDBKVSpaceEpochHandle>
             this.writeStats = NoopWriteStatsRecorder.INSTANCE;
         }
         keySpaceDBDir = new File(strVal(conf, DB_ROOT_DIR), id);
+        compactionExecutor = MonitoredExecutors.monitor(Metrics.globalRegistry, new ThreadPoolExecutor(1, 1,
+                0L, TimeUnit.MILLISECONDS, new LinkedBlockingQueue<>(),
+                EnvProvider.INSTANCE.newThreadFactory("kvspace-compactor-" + id)),
+            "compactor", "kvspace", this.tags);
     }
 
     @Override
@@ -130,6 +131,8 @@ abstract class RocksDBKVSpace extends AbstractKVSpace<RocksDBKVSpaceEpochHandle>
     @Override
     protected void doClose() {
         logger.debug("Close key range[{}]", id);
+        compactionExecutor.shutdown();
+        awaitTerminationUninterruptibly(compactionExecutor);
         if (spaceMetrics != null) {
             spaceMetrics.close();
         }

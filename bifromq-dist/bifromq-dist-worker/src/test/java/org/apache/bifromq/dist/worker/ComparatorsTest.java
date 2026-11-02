@@ -19,6 +19,7 @@
 
 package org.apache.bifromq.dist.worker;
 
+import static org.apache.bifromq.dist.worker.schema.RouteKeyOrder.compareLevels;
 import static org.testng.AssertJUnit.assertEquals;
 import static org.testng.AssertJUnit.assertTrue;
 
@@ -31,7 +32,7 @@ public class ComparatorsTest {
     public void testFilterLevelsComparatorEqual() {
         Iterable<String> list1 = Arrays.asList("a", "b", "c");
         Iterable<String> list2 = Arrays.asList("a", "b", "c");
-        int cmp = Comparators.FilterLevelsComparator.compare(list1, list2);
+        int cmp = compareLevels(list1, list2);
         assertEquals(0, cmp);
     }
 
@@ -39,7 +40,7 @@ public class ComparatorsTest {
     public void testFilterLevelsComparatorDifferent() {
         Iterable<String> list1 = Arrays.asList("a", "b", "c");
         Iterable<String> list2 = Arrays.asList("a", "b", "d");
-        int cmp = Comparators.FilterLevelsComparator.compare(list1, list2);
+        int cmp = compareLevels(list1, list2);
         assertTrue(cmp < 0);
     }
 
@@ -47,10 +48,10 @@ public class ComparatorsTest {
     public void testFilterLevelsComparatorPrefix() {
         Iterable<String> list1 = Arrays.asList("a", "b");
         Iterable<String> list2 = Arrays.asList("a", "b", "c");
-        int cmp = Comparators.FilterLevelsComparator.compare(list1, list2);
+        int cmp = compareLevels(list1, list2);
         assertTrue(cmp < 0);
 
-        cmp = Comparators.FilterLevelsComparator.compare(list2, list1);
+        cmp = compareLevels(list2, list1);
         assertTrue(cmp > 0);
     }
 

@@ -28,6 +28,8 @@ import static org.testng.Assert.assertSame;
 import static org.testng.Assert.assertTrue;
 
 import com.google.protobuf.ByteString;
+import java.util.HexFormat;
+import java.util.List;
 import org.apache.bifromq.dist.rpc.proto.MatchRoute;
 import org.apache.bifromq.dist.rpc.proto.RouteGroup;
 import org.apache.bifromq.dist.worker.schema.cache.GroupMatching;
@@ -43,6 +45,37 @@ public class KVSchemaUtilTest {
     private static final int MqttBroker = 0;
     private static final int InboxService = 1;
     private static final int RuleEngine = 2;
+
+    @Test
+    public void nonemptyRouteKeysKeepExistingBytes() {
+        assertEquals(toNormalRouteKey("t", TopicUtil.from("a/b"), toReceiverUrl(0, "r1", "d")),
+            ByteString.copyFrom(HexFormat.of().parseHex("0000017461006200006e013000723100640006")));
+        assertEquals(toGroupRouteKey("t", TopicUtil.from("$share/g/a/b")),
+            ByteString.copyFrom(HexFormat.of().parseHex("0000017461006200006702670001")));
+        assertEquals(toGroupRouteKey("t", TopicUtil.from("$oshare/g/a/b")),
+            ByteString.copyFrom(HexFormat.of().parseHex("0000017461006200006703670001")));
+    }
+
+    @Test
+    public void emptyLevelEncodingRoundTripsAllRouteTypes() {
+        String receiver = toReceiverUrl(0, "r1", "d");
+        for (String filter : List.of("/", "//", "/a", "a/", "a//x", "+/", "/#", "a/\uFFFD", "a/ÿ")) {
+            var normal = TopicUtil.from(filter);
+            assertEquals(buildMatchRoute(toNormalRouteKey("t", normal, receiver), BSUtil.toByteString(1L)).matcher,
+                normal);
+            for (String prefix : List.of("$share/g/", "$oshare/g/")) {
+                var shared = TopicUtil.from(prefix + filter);
+                assertEquals(buildMatchRoute(toGroupRouteKey("t", shared),
+                    RouteGroup.newBuilder().putMembers(receiver, 1L).build().toByteString()).matcher, shared);
+            }
+        }
+        assertEquals(KVSchemaUtil.tenantRouteStartKey("t", List.of("a", "", "x")),
+            ByteString.copyFrom(HexFormat.of().parseHex("000001746100ff00780000")));
+        assertEquals(KVSchemaUtil.tenantRouteStartKey("t", List.of("", "a")),
+            ByteString.copyFrom(HexFormat.of().parseHex("00000174ff00610000")));
+        assertEquals(KVSchemaUtil.tenantRouteStartKey("t", List.of("a", "")),
+            ByteString.copyFrom(HexFormat.of().parseHex("000001746100ff0000")));
+    }
 
     @Test
     public void testNormalMatchingIntern() {

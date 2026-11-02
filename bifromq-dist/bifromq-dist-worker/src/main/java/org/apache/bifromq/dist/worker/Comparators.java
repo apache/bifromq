@@ -19,30 +19,15 @@
 
 package org.apache.bifromq.dist.worker;
 
-import org.apache.bifromq.type.RouteMatcher;
+import static org.apache.bifromq.dist.worker.schema.RouteKeyOrder.compareLevels;
+
 import java.util.Comparator;
-import java.util.Iterator;
+import org.apache.bifromq.type.RouteMatcher;
 
 /**
  * Comparators for RouteMatcher.
  */
 public class Comparators {
-    public static final Comparator<Iterable<String>> FilterLevelsComparator = (l1, l2) -> {
-        Iterator<String> it1 = l1.iterator();
-        Iterator<String> it2 = l2.iterator();
-        while (it1.hasNext() && it2.hasNext()) {
-            int cmp = it1.next().compareTo(it2.next());
-            if (cmp != 0) {
-                return cmp;
-            }
-        }
-        if (it1.hasNext()) {
-            return 1;
-        } else if (it2.hasNext()) {
-            return -1;
-        }
-        return 0;
-    };
     public static final Comparator<RouteMatcher> RouteMatcherComparator =
-        (tf1, tf2) -> FilterLevelsComparator.compare(tf1.getFilterLevelList(), tf2.getFilterLevelList());
+        (tf1, tf2) -> compareLevels(tf1.getFilterLevelList(), tf2.getFilterLevelList());
 }

@@ -58,7 +58,6 @@ import com.google.protobuf.Any;
 import com.google.protobuf.ByteString;
 import io.micrometer.core.instrument.Metrics;
 import io.micrometer.core.instrument.Tags;
-import io.micrometer.core.instrument.binder.jvm.ExecutorServiceMetrics;
 import io.reactivex.rxjava3.core.Observable;
 import io.reactivex.rxjava3.core.ObservableSource;
 import io.reactivex.rxjava3.disposables.CompositeDisposable;
@@ -92,6 +91,7 @@ import java.util.function.Supplier;
 import java.util.stream.Collectors;
 import org.apache.bifromq.base.util.AsyncRetry;
 import org.apache.bifromq.base.util.AsyncRunner;
+import org.apache.bifromq.base.util.MonitoredExecutors;
 import org.apache.bifromq.baseenv.EnvProvider;
 import org.apache.bifromq.baseenv.ZeroCopyParser;
 import org.apache.bifromq.basehlc.HLC;
@@ -241,12 +241,12 @@ public class KVRangeFSM implements IKVRangeFSM {
         this.metricManager = new KVRangeMetricManager(clusterId, hostStoreId, id);
         this.wal = new KVRangeWAL(clusterId, hostStoreId, id,
             walStore, opts.getWalRaftConfig(), opts.getMaxWALFatchBatchSize());
-        this.fsmExecutor = ExecutorServiceMetrics.monitor(Metrics.globalRegistry,
+        this.fsmExecutor = MonitoredExecutors.monitor(Metrics.globalRegistry,
             new ThreadPoolExecutor(1, 1,
                 0L, TimeUnit.MILLISECONDS, new LinkedTransferQueue<>(),
                 EnvProvider.INSTANCE.newThreadFactory("basekv-range-mutator")),
             "mutator", "basekv.range", Tags.of(tags));
-        this.mgmtExecutor = ExecutorServiceMetrics.monitor(Metrics.globalRegistry,
+        this.mgmtExecutor = MonitoredExecutors.monitor(Metrics.globalRegistry,
             new ThreadPoolExecutor(1, 1,
                 0L, TimeUnit.MILLISECONDS, new LinkedTransferQueue<>(),
                 EnvProvider.INSTANCE.newThreadFactory("basekv-range-manager")),
@@ -497,13 +497,13 @@ public class KVRangeFSM implements IKVRangeFSM {
                     }
                     return CompletableFuture.completedFuture(null);
                 }, mgmtExecutor)
+                .thenCompose(v -> awaitShutdown(mgmtExecutor))
                 .whenComplete((v, e) -> {
                     if (lifecycle.compareAndSet(Destroying, Destroyed)) {
                         log.info("Range destroyed");
                         destroyedSignal.complete(null);
                     }
-                })
-                .thenCompose(v -> awaitShutdown(mgmtExecutor));
+                });
         }
         return destroyedSignal;
     }

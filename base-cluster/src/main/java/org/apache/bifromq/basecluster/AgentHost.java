@@ -26,7 +26,6 @@ import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.protobuf.ByteString;
 import io.micrometer.core.instrument.Metrics;
-import io.micrometer.core.instrument.binder.jvm.ExecutorServiceMetrics;
 import io.reactivex.rxjava3.core.Observable;
 import io.reactivex.rxjava3.core.Scheduler;
 import io.reactivex.rxjava3.disposables.CompositeDisposable;
@@ -36,9 +35,11 @@ import java.time.Duration;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.atomic.AtomicReference;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.bifromq.base.util.MonitoredExecutors;
 import org.apache.bifromq.basecluster.agent.proto.AgentEndpoint;
 import org.apache.bifromq.basecluster.fd.FailureDetector;
 import org.apache.bifromq.basecluster.fd.IFailureDetector;
@@ -69,6 +70,7 @@ final class AgentHost implements IAgentHost {
     private final ITransport transport;
     private final IMessenger messenger;
     private final IHostMemberList memberList;
+    private final ScheduledExecutorService hostExecutor;
     private final Scheduler hostScheduler;
     private final MemberSelector memberSelector;
     private final AutoHealer healer;
@@ -89,9 +91,11 @@ final class AgentHost implements IAgentHost {
             .maxHealthScore(options.awarenessMaxMultiplier())
             .retransmitMultiplier(options.retransmitMultiplier())
             .spreadPeriod(options.gossipPeriod());
-        hostScheduler = Schedulers.from(ExecutorServiceMetrics.monitor(Metrics.globalRegistry,
+        hostExecutor = MonitoredExecutors.monitor(Metrics.globalRegistry,
             new ScheduledThreadPoolExecutor(1, EnvProvider.INSTANCE.newThreadFactory("agent-host-scheduler", true)),
-            "agent-host-scheduler"));
+            "agent-host-scheduler[" + options.env() + "@" + options.addr() + ":"
+                + transport.bindAddress().getPort() + "]");
+        hostScheduler = Schedulers.from(hostExecutor);
         this.store = ICRDTStore.newInstance(options.crdtStoreOptions());
         this.messenger = Messenger.builder()
             .transport(transport)
@@ -197,6 +201,7 @@ final class AgentHost implements IAgentHost {
                     memberSelector.stop();
                     disposables.dispose();
                     hostScheduler.shutdown();
+                    hostExecutor.shutdown();
                     state.set(State.SHUTDOWN);
                 }).join();
             log.debug("AgentHost stopped");

@@ -516,6 +516,24 @@ public class TransientSessionHandlerTest extends BaseSessionHandlerTest {
     }
 
     @Test
+    public void c2sPubWithZeroTopicAlias() {
+        mockCheckPermission(true);
+        mockDistDist(true);
+        assertTrue(channel.isOpen());
+        channel.writeInbound(MQTTMessageUtils.publishMQTT5QoS1Message(topic, 123, 0));
+        channel.advanceTimeBy(6, TimeUnit.SECONDS);
+        channel.runPendingTasks();
+        channel.flushOutbound();
+        MqttMessage disconnMessage = channel.readOutbound();
+        assertEquals(disconnMessage.fixedHeader().messageType(), DISCONNECT);
+        assertEquals(((MqttReasonCodeAndPropertiesVariableHeader) disconnMessage.variableHeader()).reasonCode(),
+            MQTT5DisconnectReasonCode.TopicAliasInvalid.value());
+        assertFalse(channel.isActive());
+        verify(distClient, never()).pub(anyLong(), anyString(), any(Message.class), any(ClientInfo.class));
+        verifyEvent(MQTT_SESSION_START, PROTOCOL_VIOLATION, MQTT_SESSION_STOP);
+    }
+
+    @Test
     public void handleQoS0Pub() {
         mockCheckPermission(true);
         mockDistDist(true);

@@ -94,7 +94,8 @@ public class DistWorkerCoProcFactory implements IKVRangeCoProcFactory {
             "clusterId", clusterId, "storeId", storeId, "rangeId", KVRangeIdUtil.toString(id));
 
         IDeliverExecutorGroup deliverExecutorGroup = new DeliverExecutorGroup(
-            deliverer, eventCollector, resourceThrottler, settingProvider, fanoutParallelism, inlineFanOutThreshold);
+            deliverer, eventCollector, resourceThrottler, settingProvider, fanoutParallelism, inlineFanOutThreshold,
+            "clusterId", clusterId, "storeId", storeId, "rangeId", KVRangeIdUtil.toString(id));
         return new DistWorkerCoProc(
             id, rangeReaderProvider, routeCache, tenantsState, deliverExecutorGroup, subscriptionChecker);
     }

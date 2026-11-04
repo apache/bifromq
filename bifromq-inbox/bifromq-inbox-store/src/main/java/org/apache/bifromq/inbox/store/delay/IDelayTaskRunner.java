@@ -53,7 +53,7 @@ public interface IDelayTaskRunner<KeyT> {
     void cancelAll(Set<KeyT> keys);
 
     /**
-     * Shutdown the DelayTaskRunner.
+     * Shut down the runner and wait for its executor to terminate.
      */
     void shutdown();
 }

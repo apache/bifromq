@@ -23,8 +23,9 @@ import static org.apache.bifromq.basekv.client.KVRangeRouterUtil.findByBoundary;
 import static org.apache.bifromq.basekv.utils.BoundaryUtil.toBoundary;
 import static org.apache.bifromq.basekv.utils.BoundaryUtil.upperBound;
 import static org.apache.bifromq.dist.worker.schema.KVSchemaUtil.tenantBeginKey;
-import static org.apache.bifromq.util.TopicConst.NUL;
-import static org.apache.bifromq.util.TopicUtil.fastJoin;
+import static org.apache.bifromq.dist.worker.schema.RouteKeyOrder.compareLevels;
+import static org.apache.bifromq.dist.worker.schema.RouteKeyOrder.orderedGlobalFilterLevels;
+import static org.apache.bifromq.dist.worker.schema.RouteKeyOrder.tenantIdOrderKey;
 
 import com.github.benmanes.caffeine.cache.Caffeine;
 import com.github.benmanes.caffeine.cache.LoadingCache;
@@ -69,7 +70,7 @@ class TenantRangeLookupCache {
 
     private Collection<KVRangeSetting> lookup(CacheKey key) {
         TopicTrieNode.Builder<String> topicTrieBuilder = TopicTrieNode.builder(true);
-        topicTrieBuilder.addTopic(TopicUtil.parse(tenantId, key.topic, false), key.topic);
+        topicTrieBuilder.addTopic(TopicUtil.parse(tenantIdOrderKey(tenantId), key.topic, false), key.topic);
         try (ITopicFilterIterator<String> topicFilterIterator =
                  ThreadLocalTopicFilterIterator.get(topicTrieBuilder.build())) {
             topicFilterIterator.init(topicTrieBuilder.build());
@@ -85,13 +86,15 @@ class TenantRangeLookupCache {
                     // range is empty
                     continue;
                 }
-                List<String> firstFilterLevels = fact.getFirstGlobalFilterLevels().getFilterLevelList();
-                List<String> lastFilterLevels = fact.getLastGlobalFilterLevels().getFilterLevelList();
+                List<String> firstFilterLevels =
+                    orderedGlobalFilterLevels(fact.getFirstGlobalFilterLevels().getFilterLevelList());
                 topicFilterIterator.seek(firstFilterLevels);
                 if (topicFilterIterator.isValid()) {
-                    // firstTopicFilter <= nextTopicFilter
-                    if (topicFilterIterator.key().equals(firstFilterLevels)
-                        || fastJoin(NUL, topicFilterIterator.key()).compareTo(fastJoin(NUL, lastFilterLevels)) <= 0) {
+                    // The iterator is at the first matching filter at or after the range start.
+                    List<String> next = topicFilterIterator.key();
+                    if (next.equals(firstFilterLevels)
+                        || compareLevels(next,
+                        orderedGlobalFilterLevels(fact.getLastGlobalFilterLevels().getFilterLevelList())) <= 0) {
                         // if firstTopicFilter == nextTopicFilter || nextFilterLevels <= lastFilterLevels
                         // add to finalCandidates
                         finalCandidates.add(candidate);

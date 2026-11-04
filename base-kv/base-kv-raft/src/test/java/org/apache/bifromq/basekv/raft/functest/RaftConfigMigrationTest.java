@@ -45,29 +45,33 @@ public class RaftConfigMigrationTest extends RaftGroupTestTemplate {
             put("V3", raftConfigWithoutPreVote);
         }};
         RaftNodeGroup group = new RaftNodeGroup(clusterConfig(), raftConfigs);
-        // enough ticks for leader election
-        group.run(10, TimeUnit.MILLISECONDS);
-        await().until(() -> group.currentLeader().isPresent());
-        String leader = group.currentLeader().get();
-        assertTrue(group.awaitIndexCommitted(leader, 1));
-        log.info("Leader {} elected", leader);
+        try {
+            // Start the ticker and wait for leader election.
+            group.run(10, TimeUnit.MILLISECONDS);
+            await().until(() -> group.currentLeader().isPresent());
+            String leader = group.currentLeader().get();
+            assertTrue(group.awaitIndexCommitted(leader, 1));
+            log.info("Leader {} elected", leader);
 
-        String blockedFollower = group.currentFollowers().get(0);
-        log.info("Follower {} isolating", blockedFollower);
-        group.isolate(blockedFollower);
-        group.propose(leader, ByteString.copyFromUtf8("appCommand1"));
-        group.propose(leader, ByteString.copyFromUtf8("appCommand2"));
-        assertTrue(group.awaitIndexCommitted(leader, 3));
-        assertTrue(group.awaitIndexCommitted(group.currentFollowers().get(1), 3));
+            String blockedFollower = group.currentFollowers().get(0);
+            log.info("Follower {} isolating", blockedFollower);
+            group.isolate(blockedFollower);
+            group.propose(leader, ByteString.copyFromUtf8("appCommand1"));
+            group.propose(leader, ByteString.copyFromUtf8("appCommand2"));
+            assertTrue(group.awaitIndexCommitted(leader, 3));
+            assertTrue(group.awaitIndexCommitted(group.currentFollowers().get(1), 3));
 
-        // isolate leader, V3 and another follower will campaign, but V3 will not elected since that it has less logs
-        group.recoverNetwork();
-        log.info("Unblock {} and isolating Leader {}", blockedFollower, leader);
-        group.isolate(leader);
-        await().until(() -> group.currentLeader().isPresent() && !leader.equals(group.currentLeader().get()));
-        String newLeader = group.currentLeader().get();
-        log.info("New leader {} elected", newLeader);
-        assertNotEquals(newLeader, leader);
-        assertNotEquals(newLeader, blockedFollower);
+            // Restore the network, then isolate the leader to trigger another election.
+            group.recoverNetwork();
+            log.info("Unblock {} and isolating Leader {}", blockedFollower, leader);
+            group.isolate(leader);
+            await().until(() -> group.currentLeader().isPresent() && !leader.equals(group.currentLeader().get()));
+            String newLeader = group.currentLeader().get();
+            log.info("New leader {} elected", newLeader);
+            assertNotEquals(newLeader, leader);
+            assertNotEquals(newLeader, blockedFollower);
+        } finally {
+            group.shutdown();
+        }
     }
 }

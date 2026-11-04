@@ -100,7 +100,7 @@ class KVRangeDumpSession {
             new ThreadPoolExecutor(1, 1,
                 0L, TimeUnit.MILLISECONDS, new LinkedTransferQueue<>(),
                 EnvProvider.INSTANCE.newThreadFactory("basekv-snapshot-dumper")),
-            "mutator", "basekv.range", Tags.of(tags));
+            "snapshot-dumper", "basekv.range", Tags.of(tags));
         this.runner = new AsyncRunner("basekv.runner.sessiondump", executor);
         this.maxIdleDuration = maxIdleDuration;
         this.recorder = recorder;

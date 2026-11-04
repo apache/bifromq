@@ -237,6 +237,52 @@ public class TenantRouteMatcherTest {
     }
 
     @Test
+    public void emptyLevelRoutesDoNotHideLaterReceivers() {
+        for (int noiseCount : List.of(0, 20, 21, 64)) {
+            NavigableMap<ByteString, ByteString> data = newTreeMap();
+            NormalMatching first = normalMatching("t", "a", 0, "r1", "d", 1);
+            NormalMatching last = normalMatching("t", "a", 0, "r0", "d", 1);
+            for (NormalMatching route : List.of(first, last)) {
+                data.put(toNormalRouteKey("t", route.matcher, route.receiverUrl()), BSUtil.toByteString(1L));
+            }
+            for (int i = 0; i < noiseCount; i++) {
+                NormalMatching route = normalMatching("t", "a//x", 0, "noise" + i, "d", 1);
+                data.put(toNormalRouteKey("t", route.matcher, route.receiverUrl()), BSUtil.toByteString(1L));
+            }
+            TenantRouteMatcher matcher = new TenantRouteMatcher("t", () -> new TreeMapKVReader(data),
+                eventCollector, matchTimer);
+            assertEquals(matcher.matchAll(Set.of("a"), 1000, 1000).get("a").routes(), Set.of(first, last));
+        }
+    }
+
+    @Test(timeOut = 5000)
+    public void emptyTopicLevelsDoNotSeekBackIntoShorterFilters() {
+        NavigableMap<ByteString, ByteString> data = newTreeMap();
+        for (int i = 0; i < 64; i++) {
+            NormalMatching route = normalMatching(TENANT_ID, "a", 0, "noise" + i, "d", 1);
+            data.put(toNormalRouteKey(TENANT_ID, route.matcher, route.receiverUrl()), BSUtil.toByteString(1L));
+        }
+        NormalMatching target = normalMatching(TENANT_ID, "a/+/x", 0, "target", "d", 1);
+        data.put(toNormalRouteKey(TENANT_ID, target.matcher, target.receiverUrl()), BSUtil.toByteString(1L));
+        TenantRouteMatcher matcher = new TenantRouteMatcher(TENANT_ID, () -> new TreeMapKVReader(data),
+            eventCollector, matchTimer);
+        assertEquals(matcher.matchAll(Set.of("a//x"), 1000, 1000).get("a//x").routes(), Set.of(target));
+    }
+
+    @Test
+    public void unicodeOrderDoesNotStopBeforeMatchingRoute() {
+        NavigableMap<ByteString, ByteString> data = newTreeMap();
+        NormalMatching first = normalMatching(TENANT_ID, "\uFF41", 0, "r1", "d", 1);
+        NormalMatching target = normalMatching(TENANT_ID, "\uD83D\uDE00", 0, "r0", "d", 1);
+        for (NormalMatching route : List.of(first, target)) {
+            data.put(toNormalRouteKey(TENANT_ID, route.matcher, route.receiverUrl()), BSUtil.toByteString(1L));
+        }
+        TenantRouteMatcher matcher = new TenantRouteMatcher(TENANT_ID, () -> new TreeMapKVReader(data),
+            eventCollector, matchTimer);
+        assertEquals(matcher.matchAll(Set.of("\uD83D\uDE00"), 1000, 1000).get("\uD83D\uDE00").routes(), Set.of(target));
+    }
+
+    @Test
     public void isolateRoutesByTenant() {
         NavigableMap<ByteString, ByteString> kvData = newTreeMap();
 

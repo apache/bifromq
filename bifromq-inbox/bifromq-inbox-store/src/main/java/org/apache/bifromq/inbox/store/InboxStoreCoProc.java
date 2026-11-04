@@ -202,7 +202,7 @@ final class InboxStoreCoProc implements IKVRangeCoProc {
         this.tenantStats = new TenantsStats(rangeReaderProvider, "clusterId", clusterId,
             "storeId", storeId, "rangeId", KVRangeIdUtil.toString(id));
         this.delayTaskRunner = new DelayTaskRunner<>(TenantInboxInstance::compareTo, HLC.INST::getPhysical,
-            expireRateLimit);
+            expireRateLimit, "clusterId", clusterId, "storeId", storeId, "rangeId", KVRangeIdUtil.toString(id));
         this.detachTimeout = detachTimeout;
     }
 

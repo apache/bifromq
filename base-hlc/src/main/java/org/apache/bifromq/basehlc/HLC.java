@@ -118,7 +118,7 @@ public class HLC {
                 c = Math.max(c, otherC) + 1;
             } else if (updateL == l) {
                 c++;
-            } else if (otherL == l) {
+            } else if (updateL == otherL) {
                 c = otherC + 1;
             } else {
                 c = 0;

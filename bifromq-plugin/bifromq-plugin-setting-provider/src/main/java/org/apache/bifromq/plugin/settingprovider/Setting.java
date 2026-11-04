@@ -52,7 +52,8 @@ public enum Setting {
     InBoundBandWidth(Long.class, val -> (long) val >= 0, 512 * 1024L),
     OutBoundBandWidth(Long.class, val -> (long) val >= 0, 512 * 1024L),
     MaxLastWillBytes(Integer.class, val -> (int) val > 0 && (int) val <= 250 * 1024 * 1024, 128),
-    MaxUserPayloadBytes(Integer.class, val -> (int) val > 0 && (int) val <= 256 * 1024 * 1024, 256 * 1024),
+    // In MQTT sessions: maximum MQTT Control Packet size, in bytes.
+    MaxUserPayloadBytes(Integer.class, val -> (int) val >= 3 && (int) val <= 256 * 1024 * 1024, 256 * 1024),
     MinSendPerSec(Integer.class, val -> (int) val > 0, 8),
     MaxResendTimes(Integer.class, val -> (int) val >= 0, 3),
     ResendTimeoutSeconds(Integer.class, val -> (int) val > 0, 10),

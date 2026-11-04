@@ -19,6 +19,7 @@
 
 package org.apache.bifromq.dist.trie;
 
+import static org.apache.bifromq.dist.worker.schema.RouteKeyOrder.TOPIC_LEVEL_ORDER;
 import static org.apache.bifromq.util.TopicConst.MULTI_WILDCARD;
 import static org.apache.bifromq.util.TopicConst.SINGLE_WILDCARD;
 
@@ -60,7 +61,7 @@ final class NTopicFilterTrieNode<V> extends TopicFilterTrieNode<V> {
         })
         .build();
 
-    private final NavigableSet<String> subLevelNames = new TreeSet<>();
+    private final NavigableSet<String> subLevelNames = new TreeSet<>(TOPIC_LEVEL_ORDER);
     private final NavigableMap<String, Set<TopicTrieNode<V>>> subTopicTrieNodes = new TreeMap<>();
     private final Set<TopicTrieNode<V>> subWildcardMatchableTopicTrieNodes = new HashSet<>();
     private final Set<TopicTrieNode<V>> backingTopics = new HashSet<>();
@@ -148,7 +149,7 @@ final class NTopicFilterTrieNode<V> extends TopicFilterTrieNode<V> {
             subLevelNames.add(MULTI_WILDCARD);
             subLevelNames.add(SINGLE_WILDCARD);
         }
-        seekChild("");
+        seekToFirstChild();
         return this;
     }
 

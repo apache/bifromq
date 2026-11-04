@@ -19,23 +19,27 @@
 
 package org.apache.bifromq.inbox.store.delay;
 
-import org.apache.bifromq.baseenv.EnvProvider;
+import static com.google.common.util.concurrent.Uninterruptibles.awaitTerminationUninterruptibly;
+
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.util.concurrent.RateLimiter;
 import io.micrometer.core.instrument.Metrics;
-import io.micrometer.core.instrument.binder.jvm.ExecutorServiceMetrics;
+import io.micrometer.core.instrument.Tags;
 import java.time.Duration;
 import java.util.Comparator;
 import java.util.Map;
 import java.util.NavigableMap;
 import java.util.Set;
 import java.util.TreeMap;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Supplier;
+import org.apache.bifromq.base.util.MonitoredExecutors;
+import org.apache.bifromq.baseenv.EnvProvider;
 
 /**
  * DelayTaskRunner is a utility class to schedule tasks to be executed after a specified delay.
@@ -60,17 +64,19 @@ public class DelayTaskRunner<KeyT extends Comparable<KeyT>> implements IDelayTas
      * @param comparator            the comparator to be used for sorting the keys
      * @param currentMillisSupplier a supplier to get the current time in milliseconds
      * @param rateLimit             the rate limit for triggering the scheduled tasks
+     * @param tags                  the range metric tags
      */
     public DelayTaskRunner(Comparator<KeyT> comparator,
                            Supplier<Long> currentMillisSupplier,
-                           int rateLimit) {
+                           int rateLimit,
+                           String... tags) {
         this.currentMillisSupplier = currentMillisSupplier;
         this.sortedDeadlines = new TreeMap<>(
             Comparator.comparingLong((SortKey<KeyT> sk) -> sk.deadlineTS).thenComparing(sk -> sk.key, comparator));
         this.rateLimiter = RateLimiter.create(rateLimit);
-        executor = ExecutorServiceMetrics.monitor(Metrics.globalRegistry,
+        executor = MonitoredExecutors.monitor(Metrics.globalRegistry,
             new ScheduledThreadPoolExecutor(1, EnvProvider.INSTANCE.newThreadFactory("delay-task-runner")),
-            "delay-task-runner");
+            "delay-task-runner", "inbox.delay", Tags.of(tags));
     }
 
     @VisibleForTesting
@@ -184,10 +190,14 @@ public class DelayTaskRunner<KeyT extends Comparable<KeyT>> implements IDelayTas
 
     @Override
     public void shutdown() {
-        executor.submit(() -> {
+        CompletableFuture.runAsync(() -> {
             isShutdown = true;
+            if (triggerTask != null) {
+                triggerTask.cancel(false);
+            }
             executor.shutdown();
-        });
+        }, executor).join();
+        awaitTerminationUninterruptibly(executor);
     }
 
     private void trigger() {

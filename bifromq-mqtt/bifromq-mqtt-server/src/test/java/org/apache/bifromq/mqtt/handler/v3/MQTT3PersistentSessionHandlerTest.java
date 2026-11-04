@@ -42,10 +42,13 @@ import static org.apache.bifromq.type.QoS.AT_LEAST_ONCE;
 import static org.apache.bifromq.type.QoS.EXACTLY_ONCE;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.argThat;
+import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.testng.Assert.assertEquals;
+import static org.testng.Assert.assertNotNull;
 import static org.testng.Assert.assertNull;
 import static org.testng.Assert.assertTrue;
 
@@ -66,6 +69,8 @@ import io.netty.handler.codec.mqtt.MqttUnsubAckMessage;
 import io.netty.handler.traffic.ChannelTrafficShapingHandler;
 import java.lang.reflect.Method;
 import java.net.InetSocketAddress;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 import lombok.SneakyThrows;
@@ -74,18 +79,23 @@ import org.apache.bifromq.basehlc.HLC;
 import org.apache.bifromq.inbox.rpc.proto.CommitReply;
 import org.apache.bifromq.inbox.rpc.proto.CommitRequest;
 import org.apache.bifromq.inbox.rpc.proto.UnsubReply;
-import org.apache.bifromq.inbox.storage.proto.Fetched;
 import org.apache.bifromq.inbox.storage.proto.Fetched.Result;
+import org.apache.bifromq.inbox.storage.proto.Fetched;
 import org.apache.bifromq.inbox.storage.proto.InboxMessage;
 import org.apache.bifromq.inbox.storage.proto.InboxVersion;
 import org.apache.bifromq.mqtt.handler.BaseSessionHandlerTest;
 import org.apache.bifromq.mqtt.handler.ChannelAttrs;
+import org.apache.bifromq.mqtt.handler.MQTTPacketFilter;
 import org.apache.bifromq.mqtt.handler.TenantSettings;
 import org.apache.bifromq.mqtt.utils.MQTTMessageUtils;
 import org.apache.bifromq.plugin.authprovider.type.CheckResult;
 import org.apache.bifromq.plugin.authprovider.type.Denied;
+import org.apache.bifromq.plugin.eventcollector.Event;
+import org.apache.bifromq.plugin.eventcollector.mqttbroker.OversizePacketDropped;
 import org.apache.bifromq.plugin.eventcollector.mqttbroker.pushhandling.QoS1Confirmed;
+import org.apache.bifromq.plugin.eventcollector.mqttbroker.pushhandling.QoS1Dropped;
 import org.apache.bifromq.plugin.eventcollector.mqttbroker.pushhandling.QoS2Confirmed;
+import org.apache.bifromq.plugin.eventcollector.mqttbroker.pushhandling.QoS2Dropped;
 import org.apache.bifromq.type.ClientInfo;
 import org.apache.bifromq.type.Message;
 import org.apache.bifromq.type.QoS;
@@ -94,6 +104,7 @@ import org.apache.bifromq.type.TopicMessage;
 import org.testng.Assert;
 import org.testng.annotations.AfterMethod;
 import org.testng.annotations.BeforeMethod;
+import org.testng.annotations.DataProvider;
 import org.testng.annotations.Test;
 
 @Slf4j
@@ -580,4 +591,95 @@ public class MQTT3PersistentSessionHandlerTest extends BaseSessionHandlerTest {
         channel.runPendingTasks();
         verifyEvent(INBOX_TRANSIENT_ERROR);
     }
+
+    @DataProvider
+    public Object[][] confirmingQoS() {
+        return new Object[][] {{AT_LEAST_ONCE}, {EXACTLY_ONCE}};
+    }
+
+    @Test(dataProvider = "confirmingQoS")
+    public void outOfOrderAckKeepsEarlierInboxMessage(QoS qos) {
+        mockCheckPermission(true);
+        mockInboxCommit(CommitReply.Code.OK);
+        inboxFetchConsumer.accept(fetch(2, 16, qos));
+        channel.runPendingTasks();
+        MqttPublishMessage first = channel.readOutbound();
+        MqttPublishMessage second = channel.readOutbound();
+        assertNotNull(first);
+        assertNotNull(second);
+        acknowledge(second.variableHeader().packetId(), qos);
+        channel.runPendingTasks();
+        verify(inboxClient, never()).commit(argThat(CommitRequest::hasSendBufferUpToSeq));
+        acknowledge(first.variableHeader().packetId(), qos);
+        channel.runPendingTasks();
+        verify(inboxClient).commit(argThat(req -> req.hasSendBufferUpToSeq() && req.getSendBufferUpToSeq() == 1));
+        first.release();
+        second.release();
+    }
+
+    @Test(dataProvider = "confirmingQoS")
+    public void oversizeMiddleWaitsForEarlierInboxMessage(QoS qos) {
+        List<Event<?>> reported = new ArrayList<>();
+        doAnswer(invocation -> {
+            reported.add((Event<?>) ((Event<?>) invocation.getArgument(0)).clone());
+            return null;
+        }).when(eventCollector).report(any());
+        mockCheckPermission(true);
+        mockInboxCommit(CommitReply.Code.OK);
+        channel.pipeline().addBefore(channel.pipeline().lastContext().name(), "packetFilter",
+            new MQTTPacketFilter(70, new TenantSettings(tenantId, settingProvider), clientInfo, eventCollector));
+        Fetched.Builder fetched = fetch(2, 16, qos).toBuilder();
+        InboxMessage middle = fetched.getSendBufferMsg(1);
+        fetched.setSendBufferMsg(1, middle.toBuilder().setMsg(middle.getMsg().toBuilder()
+            .setMessage(middle.getMsg().getMessage().toBuilder().setPayload(ByteString.copyFrom(new byte[128])))));
+        inboxFetchConsumer.accept(fetched.build());
+        channel.runPendingTasks();
+        inboxFetchConsumer.accept(Fetched.newBuilder()
+            .addSendBufferMsg(fetch(1, 16, qos).getSendBufferMsg(0).toBuilder().setSeq(2)).build());
+        channel.runPendingTasks();
+        MqttPublishMessage first = channel.readOutbound();
+        MqttPublishMessage last = channel.readOutbound();
+        assertNotNull(first);
+        assertNotNull(last);
+        assertEquals(last.variableHeader().packetId(), first.variableHeader().packetId() + 2);
+        assertNull(channel.readOutbound());
+        verify(inboxClient, never()).commit(argThat(CommitRequest::hasSendBufferUpToSeq));
+        testTicker.advanceTimeBy(11, TimeUnit.SECONDS);
+        channel.advanceTimeBy(11, TimeUnit.SECONDS);
+        channel.runScheduledPendingTasks();
+        channel.runPendingTasks();
+        verify(eventCollector).report(argThat(e -> e instanceof OversizePacketDropped));
+        verify(eventCollector, never()).report(argThat(e ->
+            e instanceof QoS1Dropped || e instanceof QoS2Dropped));
+        acknowledge(first.variableHeader().packetId(), qos);
+        channel.runPendingTasks();
+        verify(inboxClient).commit(argThat(req -> req.hasSendBufferUpToSeq() && req.getSendBufferUpToSeq() == 1));
+        verify(inboxClient, never()).commit(argThat(req -> req.hasSendBufferUpToSeq() && req.getSendBufferUpToSeq() > 1));
+        if (qos == AT_LEAST_ONCE) {
+            assertEquals(reported.stream().filter(e -> e instanceof QoS1Confirmed c
+                && c.messageId() == first.variableHeader().packetId() + 1 && !c.delivered()).count(), 1L);
+        } else {
+            assertEquals(reported.stream().filter(e -> e instanceof QoS2Confirmed c
+                && c.messageId() == first.variableHeader().packetId() + 1 && !c.delivered()).count(), 1L);
+        }
+        acknowledge(last.variableHeader().packetId(), qos);
+        channel.runPendingTasks();
+        verify(inboxClient).commit(argThat(req -> req.hasSendBufferUpToSeq() && req.getSendBufferUpToSeq() == 2));
+        assertEquals(reported.stream().filter(e ->
+            (e instanceof QoS1Confirmed c && c.messageId() == first.variableHeader().packetId() + 1 && c.delivered())
+                || (e instanceof QoS2Confirmed c2 && c2.messageId() == first.variableHeader().packetId() + 1
+                && c2.delivered())).count(), 0L);
+        first.release();
+        last.release();
+    }
+
+    private void acknowledge(int packetId, QoS qos) {
+        if (qos == AT_LEAST_ONCE) {
+            channel.writeInbound(MQTTMessageUtils.pubAckMessage(packetId));
+        } else {
+            channel.writeInbound(MQTTMessageUtils.publishRecMessage(packetId));
+            channel.writeInbound(MQTTMessageUtils.publishCompMessage(packetId));
+        }
+    }
+
 }

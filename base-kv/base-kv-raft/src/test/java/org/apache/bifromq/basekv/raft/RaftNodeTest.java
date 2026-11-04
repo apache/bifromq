@@ -24,14 +24,16 @@ import static org.testng.Assert.assertEquals;
 import static org.testng.Assert.assertFalse;
 import static org.testng.Assert.assertTrue;
 
-import org.apache.bifromq.basekv.raft.proto.ClusterConfig;
-import org.apache.bifromq.basekv.raft.proto.Snapshot;
 import com.google.protobuf.ByteString;
+import io.micrometer.core.instrument.Metrics;
 import java.util.Collections;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 import java.util.function.Supplier;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.bifromq.basekv.raft.proto.ClusterConfig;
+import org.apache.bifromq.basekv.raft.proto.Snapshot;
 import org.mockito.Mock;
 import org.mockito.MockitoAnnotations;
 import org.testng.annotations.AfterMethod;
@@ -62,9 +64,29 @@ public class RaftNodeTest {
         testNode = new RaftNode(new RaftConfig(), stateStorage, Executors.defaultThreadFactory());
     }
 
-    @AfterMethod
+    @AfterMethod(alwaysRun = true)
     public void releaseMocks() throws Exception {
+        testNode.start(messageSender, eventListener, snapshotInstaller);
+        CompletableFuture<Void> stopped = testNode.stop();
+        if (!stopped.isCancelled()) {
+            stopped.get(5, TimeUnit.SECONDS);
+        }
+        await().until(() -> executorMeters() == 0);
         closeable.close();
+    }
+
+    @Test
+    public void stopRemovesExecutorMeters() throws Exception {
+        assertEquals(executorMeters(), 9L);
+        testNode.start(messageSender, eventListener, snapshotInstaller);
+        testNode.stop().get(5, TimeUnit.SECONDS);
+        assertEquals(executorMeters(), 0L);
+    }
+
+    private long executorMeters() {
+        return Metrics.globalRegistry.getMeters().stream()
+            .filter(meter -> meter.getId().getName().startsWith("raft.executor")
+                && "V1".equals(meter.getId().getTag("name"))).count();
     }
 
     @Test

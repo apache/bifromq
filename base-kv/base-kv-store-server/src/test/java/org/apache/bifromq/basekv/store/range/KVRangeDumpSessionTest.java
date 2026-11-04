@@ -32,11 +32,22 @@ import static org.testng.Assert.assertFalse;
 import static org.testng.Assert.assertTrue;
 
 import com.google.protobuf.ByteString;
+import io.micrometer.core.instrument.Metrics;
+import io.micrometer.core.instrument.Tags;
+import io.micrometer.core.instrument.Timer;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import io.reactivex.rxjava3.subjects.PublishSubject;
 import java.time.Duration;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.LinkedTransferQueue;
+import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import lombok.SneakyThrows;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.bifromq.base.util.MonitoredExecutors;
 import org.apache.bifromq.basekv.MockableTest;
 import org.apache.bifromq.basekv.proto.KVRangeId;
 import org.apache.bifromq.basekv.proto.KVRangeMessage;
@@ -64,6 +75,73 @@ public class KVRangeDumpSessionTest extends MockableTest {
 
     @Mock
     private KVRangeDumpSession.DumpBytesRecorder dumpBytesRecorder;
+
+    @Test
+    public void parallelDumpsKeepTheirMetricsSeparateFromRangeExecutor() throws Exception {
+        SimpleMeterRegistry registry = new SimpleMeterRegistry();
+        Metrics.addRegistry(registry);
+        KVRangeId rangeId = KVRangeIdUtil.generate();
+        String[] tags = {"clusterId", "dump-test", "storeId", "store", "rangeId", KVRangeIdUtil.toString(rangeId)};
+        ExecutorService rangeExecutor = MonitoredExecutors.monitor(Metrics.globalRegistry,
+            new ThreadPoolExecutor(1, 1, 0, TimeUnit.SECONDS, new LinkedTransferQueue<>()),
+            "mutator", "basekv.range", Tags.of(tags));
+        KVRangeSnapshot snapshot = KVRangeSnapshot.newBuilder().setId(rangeId).setCheckpointId("checkpoint").build();
+        when(rangeAccessor.hasCheckpoint(snapshot)).thenReturn(true);
+        when(rangeAccessor.open(snapshot)).thenReturn(checkpointReader);
+        when(checkpointReader.iterator()).thenReturn(checkpointItr);
+        when(checkpointItr.isValid()).thenReturn(false);
+        when(messenger.receive()).thenReturn(PublishSubject.create());
+        Set<Thread> workers = ConcurrentHashMap.newKeySet();
+        doAnswer(invocation -> {
+            KVRangeMessage message = invocation.getArgument(0);
+            if (message.getSaveSnapshotDataRequest().getFlag() == SaveSnapshotDataRequest.Flag.End) {
+                workers.add(Thread.currentThread());
+            }
+            return null;
+        }).when(messenger).send(any());
+        KVRangeDumpSession first = new KVRangeDumpSession("first", snapshot, rangeId, "peer", rangeAccessor,
+            messenger, Duration.ofSeconds(5), 1024, new SnapshotBandwidthGovernor(0), dumpBytesRecorder, tags);
+        KVRangeDumpSession second = new KVRangeDumpSession("second", snapshot, rangeId, "peer", rangeAccessor,
+            messenger, Duration.ofSeconds(5), 1024, new SnapshotBandwidthGovernor(0), dumpBytesRecorder, tags);
+        try {
+            verify(messenger, timeout(5000).times(2)).send(any());
+            assertEquals(workers.size(), 2);
+            Timer dumpTimer = registry.get("basekv.range.executor").tags(tags)
+                .tag("name", "snapshot-dumper").timer();
+            await().until(() -> dumpTimer.count() > 0);
+            assertEquals(registry.getMeters().stream()
+                .filter(meter -> "snapshot-dumper".equals(meter.getId().getTag("name"))
+                    && KVRangeIdUtil.toString(rangeId).equals(meter.getId().getTag("rangeId"))).count(), 9L);
+            first.cancel();
+            first.awaitDone().get(5, TimeUnit.SECONDS);
+            assertEquals(registry.get("basekv.range.executor").tags(tags)
+                .tag("name", "snapshot-dumper").timer(), dumpTimer);
+            final long dumpCount = dumpTimer.count();
+            second.cancel();
+            second.awaitDone().get(5, TimeUnit.SECONDS);
+            for (Thread worker : workers) {
+                worker.join(5000);
+                assertFalse(worker.isAlive());
+            }
+            assertTrue(dumpTimer.count() > dumpCount);
+            Timer rangeTimer = registry.get("basekv.range.executor").tags(tags).tag("name", "mutator").timer();
+            assertEquals(rangeTimer.count(), 0L);
+            rangeExecutor.submit(() -> 1).get(5, TimeUnit.SECONDS);
+            assertEquals(rangeTimer.count(), 1L);
+        } finally {
+            first.cancel();
+            second.cancel();
+            first.awaitDone().get(5, TimeUnit.SECONDS);
+            second.awaitDone().get(5, TimeUnit.SECONDS);
+            rangeExecutor.shutdownNow();
+            assertTrue(rangeExecutor.awaitTermination(5, TimeUnit.SECONDS));
+            Metrics.globalRegistry.getMeters().stream()
+                .filter(meter -> KVRangeIdUtil.toString(rangeId).equals(meter.getId().getTag("rangeId")))
+                .toList().forEach(Metrics.globalRegistry::remove);
+            Metrics.removeRegistry(registry);
+            registry.close();
+        }
+    }
 
     @Test
     public void dumpEmptySnapshot() {
@@ -296,7 +374,7 @@ public class KVRangeDumpSessionTest extends MockableTest {
         Thread.sleep(20);
         dumpSession.tick();
         verify(messenger, timeout(100).times(2)).send(any());
-        assertTrue(dumpSession.awaitDone().toCompletableFuture().isDone());
+        assertEquals(dumpSession.awaitDone().get(5, TimeUnit.SECONDS), KVRangeDumpSession.Result.Canceled);
         await().untilAsserted(() -> {
             verify(checkpointItr).close();
             verify(checkpointReader).close();

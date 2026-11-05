@@ -662,6 +662,11 @@ public class MQTT5ProtocolHelper implements IMQTTProtocolHelper {
                 MQTT5MessageBuilders.disconnect().reasonCode(MQTT5DisconnectReasonCode.TopicAliasInvalid).build(),
                 getLocal(ProtocolViolation.class).statement("MQTT5-3.2.2-17").clientInfo(clientInfo));
         }
+        if (topicAlias.isPresent() && topicAlias.get() == 0) {
+            return farewell(
+                MQTT5MessageBuilders.disconnect().reasonCode(MQTT5DisconnectReasonCode.TopicAliasInvalid).build(),
+                getLocal(ProtocolViolation.class).statement("MQTT5-3.3.2-8").clientInfo(clientInfo));
+        }
         // create or update alias
         if (topic.isEmpty()) {
             if (topicAlias.isPresent()) {

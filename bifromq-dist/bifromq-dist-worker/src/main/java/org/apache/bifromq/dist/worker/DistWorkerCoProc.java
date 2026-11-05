@@ -324,7 +324,7 @@ class DistWorkerCoProc implements IKVRangeCoProc {
         replyBuilder.setReqId(request.getReqId());
         Map<String, AtomicInteger> normalRoutesAdded = new HashMap<>();
         Map<String, AtomicInteger> sharedRoutesAdded = new HashMap<>();
-        Map<GlobalTopicFilter, Map<MatchRoute, Integer>> groupMatchRecords = new HashMap<>();
+        Map<GlobalTopicFilter, Map<MatchRoute, List<Integer>>> groupMatchRecords = new HashMap<>();
         Map<String, BatchMatchReply.TenantBatch.Code[]> resultMap = new HashMap<>();
         request.getRequestsMap().forEach((tenantId, tenantMatchRequest) -> {
             String tenantOrderKey = null;
@@ -368,7 +368,7 @@ class DistWorkerCoProc implements IKVRangeCoProc {
                     ByteString groupRouteKey = toGroupRouteKey(tenantId, requestMatcher);
                     RouteDetail routeDetail = RouteDetailCache.get(groupRouteKey);
                     groupMatchRecords.computeIfAbsent(new GlobalTopicFilter(tenantId, routeDetail.matcher()),
-                        k -> new HashMap<>()).put(route, i);
+                        k -> new HashMap<>()).computeIfAbsent(route, key -> new ArrayList<>()).add(i);
                 }
             }
         });
@@ -384,23 +384,28 @@ class DistWorkerCoProc implements IKVRangeCoProc {
                 });
             boolean updated = false;
             int maxMembers = request.getRequestsMap().get(tenantId).getOption().getMaxReceiversPerSharedSubGroup();
-            for (MatchRoute route : newGroupMembers.keySet()) {
-                int resultIdx = newGroupMembers.get(route);
+            for (Map.Entry<MatchRoute, List<Integer>> entry : newGroupMembers.entrySet()) {
+                MatchRoute route = entry.getKey();
                 String receiverUrl = toReceiverUrl(route);
+                BatchMatchReply.TenantBatch.Code code;
                 if (!matchGroup.containsMembers(receiverUrl)) {
                     if (matchGroup.getMembersCount() < maxMembers) {
                         matchGroup.putMembers(receiverUrl, route.getIncarnation());
-                        resultMap.get(tenantId)[resultIdx] = BatchMatchReply.TenantBatch.Code.OK;
                         updated = true;
+                        code = BatchMatchReply.TenantBatch.Code.OK;
                     } else {
-                        resultMap.get(tenantId)[resultIdx] = BatchMatchReply.TenantBatch.Code.EXCEED_LIMIT;
+                        code = BatchMatchReply.TenantBatch.Code.EXCEED_LIMIT;
                     }
                 } else {
                     if (matchGroup.getMembersMap().get(receiverUrl) < route.getIncarnation()) {
                         matchGroup.putMembers(receiverUrl, route.getIncarnation());
                         updated = true;
                     }
-                    resultMap.get(tenantId)[resultIdx] = BatchMatchReply.TenantBatch.Code.OK;
+                    code = BatchMatchReply.TenantBatch.Code.OK;
+                }
+                // a route repeated in the same batch shares one result across all its positions
+                for (int resultIdx : entry.getValue()) {
+                    resultMap.get(tenantId)[resultIdx] = code;
                 }
             }
             if (updated) {
@@ -438,7 +443,7 @@ class DistWorkerCoProc implements IKVRangeCoProc {
         replyBuilder.setReqId(request.getReqId());
         Map<String, AtomicInteger> normalRoutesRemoved = new HashMap<>();
         Map<String, AtomicInteger> sharedRoutesRemoved = new HashMap<>();
-        Map<GlobalTopicFilter, Map<MatchRoute, Integer>> delGroupMatchRecords = new HashMap<>();
+        Map<GlobalTopicFilter, Map<MatchRoute, List<Integer>>> delGroupMatchRecords = new HashMap<>();
         Map<String, BatchUnmatchReply.TenantBatch.Code[]> resultMap = new HashMap<>();
         request.getRequestsMap().forEach((tenantId, tenantUnmatchRequest) -> {
             String tenantOrderKey = null;
@@ -474,7 +479,7 @@ class DistWorkerCoProc implements IKVRangeCoProc {
                     ByteString groupRouteKey = toGroupRouteKey(tenantId, requestMatcher);
                     RouteDetail routeDetail = RouteDetailCache.get(groupRouteKey);
                     delGroupMatchRecords.computeIfAbsent(new GlobalTopicFilter(tenantId, routeDetail.matcher()),
-                        k -> new HashMap<>()).put(route, i);
+                        k -> new HashMap<>()).computeIfAbsent(route, key -> new ArrayList<>()).add(i);
                 }
             }
         });
@@ -488,13 +493,17 @@ class DistWorkerCoProc implements IKVRangeCoProc {
                 assert matching instanceof GroupMatching;
                 GroupMatching groupMatching = (GroupMatching) matching;
                 Map<String, Long> existing = Maps.newHashMap(groupMatching.receivers());
-                delGroupMembers.forEach((route, resultIdx) -> {
+                delGroupMembers.forEach((route, resultIdxs) -> {
                     String receiverUrl = toReceiverUrl(route);
+                    BatchUnmatchReply.TenantBatch.Code code;
                     if (existing.containsKey(receiverUrl) && existing.get(receiverUrl) <= route.getIncarnation()) {
                         existing.remove(receiverUrl);
-                        resultMap.get(tenantId)[resultIdx] = BatchUnmatchReply.TenantBatch.Code.OK;
+                        code = BatchUnmatchReply.TenantBatch.Code.OK;
                     } else {
-                        resultMap.get(tenantId)[resultIdx] = BatchUnmatchReply.TenantBatch.Code.NOT_EXISTED;
+                        code = BatchUnmatchReply.TenantBatch.Code.NOT_EXISTED;
+                    }
+                    for (int resultIdx : resultIdxs) {
+                        resultMap.get(tenantId)[resultIdx] = code;
                     }
                 });
                 if (existing.size() != groupMatching.receivers().size()) {
@@ -514,8 +523,8 @@ class DistWorkerCoProc implements IKVRangeCoProc {
                         .add(newGroupMatching);
                 }
             } else {
-                delGroupMembers.forEach((detail, resultIdx) -> resultMap.get(tenantId)[resultIdx] =
-                    BatchUnmatchReply.TenantBatch.Code.NOT_EXISTED);
+                delGroupMembers.forEach((detail, resultIdxs) -> resultIdxs.forEach(resultIdx ->
+                    resultMap.get(tenantId)[resultIdx] = BatchUnmatchReply.TenantBatch.Code.NOT_EXISTED));
             }
         });
         resultMap.forEach((tenantId, codes) -> {

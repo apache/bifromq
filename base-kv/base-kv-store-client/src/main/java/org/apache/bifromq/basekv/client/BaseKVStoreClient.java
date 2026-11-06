@@ -564,9 +564,26 @@ final class BaseKVStoreClient implements IBaseKVStoreClient {
             }
         }
         mutPplns = nextMutPplns;
-        // clear mut pipelines targeting non-exist storeId;
-        for (String storeId : Sets.difference(currentMutPplns.keySet(), nextMutPplns.keySet())) {
-            currentMutPplns.get(storeId).values().forEach(IMutationPipeline::close);
+        closeDroppedMutationPipelines(currentMutPplns, nextMutPplns);
+    }
+
+    /**
+     * Close every mutation pipeline that this refresh drops - either because its range is no longer
+     * led by that store (leadership transfer/merge) or because the whole store disappeared. Assigning
+     * mutPplns without closing the dropped pipelines leaked each of them (RX subscription + a dedicated
+     * gRPC bidi stream + a server-side MutatePipeline) on every leadership transfer, and they are
+     * unreachable from {@link #close()} once dropped.
+     */
+    static void closeDroppedMutationPipelines(Map<String, Map<KVRangeId, IMutationPipeline>> current,
+                                              Map<String, Map<KVRangeId, IMutationPipeline>> next) {
+        Map<String, Map<KVRangeId, IMutationPipeline>> safeNext = next == null ? emptyMap() : next;
+        for (Map.Entry<String, Map<KVRangeId, IMutationPipeline>> byStore : current.entrySet()) {
+            Map<KVRangeId, IMutationPipeline> nextRanges = safeNext.getOrDefault(byStore.getKey(), emptyMap());
+            for (Map.Entry<KVRangeId, IMutationPipeline> byRange : byStore.getValue().entrySet()) {
+                if (nextRanges.get(byRange.getKey()) != byRange.getValue()) {
+                    byRange.getValue().close();
+                }
+            }
         }
     }
 

@@ -564,9 +564,13 @@ final class BaseKVStoreClient implements IBaseKVStoreClient {
             }
         }
         mutPplns = nextMutPplns;
-        // clear mut pipelines targeting non-exist storeId;
-        for (String storeId : Sets.difference(currentMutPplns.keySet(), nextMutPplns.keySet())) {
-            currentMutPplns.get(storeId).values().forEach(IMutationPipeline::close);
+        for (Map.Entry<String, Map<KVRangeId, IMutationPipeline>> byStore : currentMutPplns.entrySet()) {
+            Map<KVRangeId, IMutationPipeline> nextRanges = nextMutPplns.getOrDefault(byStore.getKey(), emptyMap());
+            for (Map.Entry<KVRangeId, IMutationPipeline> byRange : byStore.getValue().entrySet()) {
+                if (nextRanges.get(byRange.getKey()) != byRange.getValue()) {
+                    byRange.getValue().close();
+                }
+            }
         }
     }
 

@@ -237,6 +237,35 @@ public class SessionRegistryTest {
     }
 
     @Test
+    public void staleRegisterRemovalKeepsLiveRegistrationAndCounters() {
+        ISessionRegister previousRegister = Mockito.mock(ISessionRegister.class);
+        ISessionRegister currentRegister = Mockito.mock(ISessionRegister.class);
+        ClientInfo sessionOwner = ClientInfo.newBuilder()
+            .setTenantId(tenantId1)
+            .putMetadata(MQTT_USER_ID_KEY, "user1")
+            .putMetadata(MQTT_CLIENT_ID_KEY, "client1")
+            .putMetadata(MQTT_CHANNEL_ID_KEY, "channel1")
+            .putMetadata(MQTT_CLIENT_SESSION_TYPE, MQTT_CLIENT_SESSION_TYPE_P_VALUE)
+            .build();
+
+        sessionRegistry.add(sessionOwner, previousRegister);
+        sessionRegistry.add(sessionOwner, currentRegister);
+        sessionRegistry.remove(sessionOwner, previousRegister);
+
+        assertEquals(sessionRegistry.get(tenantId1, "user1", "client1").orElseThrow(), sessionOwner);
+        assertEquals(sessionRegistry.findRegistration(tenantId1, "user1", "client1")
+            .orElseThrow().register(), currentRegister);
+        assertGaugeValue(tenantId1, MqttConnectionGauge, 1.0);
+        assertGaugeValue(tenantId1, MqttLivePersistentSessionGauge, 1.0);
+
+        sessionRegistry.remove(sessionOwner, currentRegister);
+
+        assertTrue(sessionRegistry.get(tenantId1, "user1", "client1").isEmpty());
+        assertNoGauge(tenantId1, MqttConnectionGauge);
+        assertNoGauge(tenantId1, MqttLivePersistentSessionGauge);
+    }
+
+    @Test
     public void testRemoveNonExistingSession() {
         ISessionRegister registerMock = Mockito.mock(ISessionRegister.class);
 

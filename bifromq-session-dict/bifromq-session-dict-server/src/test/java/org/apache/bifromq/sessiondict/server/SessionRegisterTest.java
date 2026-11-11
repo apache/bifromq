@@ -159,6 +159,52 @@ public class SessionRegisterTest {
         });
     }
 
+    @Test
+    public void sameOwnerOnNewRegisterKeepsLiveRegistration() {
+        verifyRegisterReplacement(owner);
+    }
+
+    @Test
+    public void newChannelOnNewRegisterKeepsLiveRegistration() {
+        verifyRegisterReplacement(owner.toBuilder()
+            .putMetadata(MQTT_CHANNEL_ID_KEY, "new-channel")
+            .build());
+    }
+
+    private void verifyRegisterReplacement(ClientInfo replacement) {
+        test(() -> {
+            SessionRegistry registry = new SessionRegistry();
+            ISessionRegister.IRegistrationListener registryListener = (sessionOwner, keep, register) -> {
+                if (keep) {
+                    registry.add(sessionOwner, register);
+                } else {
+                    registry.remove(sessionOwner, register);
+                }
+            };
+            SessionRegister first = new SessionRegister(registryListener, responseObserver);
+            SessionRegister second = new SessionRegister(registryListener, responseObserver);
+            try {
+                first.onNext(Session.newBuilder().setOwner(owner).setKeep(true).build());
+                second.onNext(Session.newBuilder().setOwner(replacement).setKeep(true).build());
+
+                assertEquals(registry.get(tenantId, userId, clientId).orElseThrow(), replacement);
+                assertEquals(registry.findRegistration(tenantId, userId, clientId).orElseThrow().register(), second);
+                verify(responseObserver).onNext(argThat(quit -> quit.getOwner().equals(owner)
+                    && quit.getKiller().equals(replacement)));
+
+                first.close();
+                assertEquals(registry.get(tenantId, userId, clientId).orElseThrow(), replacement);
+
+                second.close();
+                assertTrue(registry.get(tenantId, userId, clientId).isEmpty());
+            } finally {
+                first.close();
+                second.close();
+                registry.close();
+            }
+        });
+    }
+
 
     private void test(Runnable runnable) {
         Context ctx = Context.ROOT

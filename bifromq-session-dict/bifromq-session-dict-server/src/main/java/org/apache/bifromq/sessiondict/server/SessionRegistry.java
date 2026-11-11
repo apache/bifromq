@@ -37,6 +37,7 @@ import java.util.Optional;
 import java.util.TreeMap;
 import java.util.concurrent.ConcurrentSkipListMap;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 import org.apache.bifromq.sessiondict.rpc.proto.ServerRedirection;
 import org.apache.bifromq.type.ClientInfo;
 
@@ -56,6 +57,7 @@ class SessionRegistry implements ISessionRegistry {
     public void add(ClientInfo sessionOwner, ISessionRegister register) {
         String tenantId = sessionOwner.getTenantId();
         MqttClientKey clientKey = MqttClientKey.from(sessionOwner);
+        AtomicReference<SessionRegistration> previous = new AtomicReference<>();
         tenantSessions.compute(tenantId, (k, v) -> {
             if (v == null) {
                 v = new ConcurrentSkipListMap<>(ClientKeyComparator);
@@ -69,9 +71,8 @@ class SessionRegistry implements ISessionRegistry {
                 if (!prevSessionOwner.equals(sessionOwner)) {
                     ISessionRegister prevSessionRegister = clientRegisterMap.remove(prevSessionOwner);
                     clientRegisterMap.put(sessionOwner, register);
-                    // kick previous session owner
                     assert prevSessionRegister != null;
-                    prevSessionRegister.kick(tenantId, prevSessionOwner, sessionOwner, NO_MOVE);
+                    previous.set(new SessionRegistration(prevSessionOwner, prevSessionRegister));
                     if (isPersistent(sessionOwner) && !isPersistent(prevSessionOwner)) {
                         // kicked by a persistent session
                         SessionCounter sessionCounter = sessionCounters.get(tenantId);
@@ -83,7 +84,7 @@ class SessionRegistry implements ISessionRegistry {
                 } else {
                     ISessionRegister prevSessionRegister = clientRegisterMap.put(sessionOwner, register);
                     if (prevSessionRegister != null && prevSessionRegister != register) {
-                        prevSessionRegister.kick(tenantId, prevSessionOwner, sessionOwner, NO_MOVE);
+                        previous.set(new SessionRegistration(prevSessionOwner, prevSessionRegister));
                     }
                 }
                 // ignore duplicated add
@@ -98,6 +99,11 @@ class SessionRegistry implements ISessionRegistry {
             }
             return v;
         });
+        // kick synchronously calls remove, so notify only after compute has finished.
+        SessionRegistration previousRegistration = previous.get();
+        if (previousRegistration != null) {
+            previousRegistration.stop(sessionOwner, NO_MOVE);
+        }
     }
 
     @Override
@@ -105,9 +111,10 @@ class SessionRegistry implements ISessionRegistry {
         String tenantId = sessionOwner.getTenantId();
         MqttClientKey clientKey = MqttClientKey.from(sessionOwner);
         tenantSessions.computeIfPresent(tenantId, (k, v) -> {
-            boolean s1 = v.remove(clientKey, sessionOwner);
-            boolean s2 = clientRegisterMap.remove(sessionOwner, register);
-            if (s1) {
+            // A replaced register must not remove the current registration for the same owner.
+            boolean removed = clientRegisterMap.remove(sessionOwner, register)
+                && v.remove(clientKey, sessionOwner);
+            if (removed) {
                 SessionCounter sessionCounter = sessionCounters.get(tenantId);
                 sessionCounter.total.decrementAndGet();
                 if (isPersistent(sessionOwner)) {

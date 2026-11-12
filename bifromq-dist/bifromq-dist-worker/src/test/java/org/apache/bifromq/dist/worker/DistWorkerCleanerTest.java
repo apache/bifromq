@@ -23,35 +23,40 @@ import static org.apache.bifromq.basekv.utils.BoundaryUtil.FULL_BOUNDARY;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.clearInvocations;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
-import static org.testng.AssertJUnit.assertEquals;
-import static org.testng.AssertJUnit.assertNull;
+import static org.testng.Assert.assertEquals;
+import static org.testng.Assert.assertFalse;
+import static org.testng.Assert.assertNotEquals;
+import static org.testng.Assert.assertNull;
+import static org.testng.Assert.assertThrows;
+import static org.testng.Assert.assertTrue;
 
-import io.micrometer.core.instrument.Gauge;
+import com.google.protobuf.ByteString;
 import io.micrometer.core.instrument.Metrics;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
-import java.time.Clock;
 import java.time.Duration;
-import java.time.Instant;
-import java.time.ZoneId;
-import java.time.ZoneOffset;
-import java.util.HashMap;
+import java.util.ArrayDeque;
+import java.util.Deque;
+import java.util.Map;
 import java.util.NavigableMap;
 import java.util.TreeMap;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicInteger;
 import org.apache.bifromq.basekv.client.IBaseKVStoreClient;
 import org.apache.bifromq.basekv.client.KVRangeSetting;
 import org.apache.bifromq.basekv.proto.Boundary;
 import org.apache.bifromq.basekv.proto.KVRangeDescriptor;
+import org.apache.bifromq.basekv.proto.KVRangeId;
 import org.apache.bifromq.basekv.store.proto.KVRangeROReply;
 import org.apache.bifromq.basekv.store.proto.KVRangeRORequest;
 import org.apache.bifromq.basekv.store.proto.ROCoProcOutput;
@@ -61,427 +66,341 @@ import org.apache.bifromq.basekv.utils.KVRangeIdUtil;
 import org.apache.bifromq.dist.rpc.proto.DistServiceROCoProcOutput;
 import org.apache.bifromq.dist.rpc.proto.GCReply;
 import org.mockito.ArgumentCaptor;
-import org.mockito.Mock;
-import org.mockito.MockitoAnnotations;
 import org.testng.annotations.AfterMethod;
 import org.testng.annotations.BeforeMethod;
+import org.testng.annotations.DataProvider;
 import org.testng.annotations.Test;
 
 public class DistWorkerCleanerTest {
-    @Mock
-    private IBaseKVStoreClient distWorkerClient;
-    @Mock
-    private ScheduledExecutorService jobScheduler;
+    private static final String STORE = "gc-test-store";
+    private IBaseKVStoreClient client;
+    private ScheduledExecutorService scheduler;
     private DistWorkerCleaner cleaner;
-    private AutoCloseable openMocks;
-    private ManualClock manualClock;
-    private SimpleMeterRegistry meterRegistry;
+    private SimpleMeterRegistry registry;
+    private Deque<Wakeup> wakeups;
+    private NavigableMap<Boundary, KVRangeSetting> routes;
+    private KVRangeId rangeId;
 
     @BeforeMethod
     public void setup() {
-        openMocks = MockitoAnnotations.openMocks(this);
-        manualClock = new ManualClock(java.time.Instant.EPOCH);
-        cleaner = new DistWorkerCleaner(distWorkerClient, Duration.ofMillis(100), Duration.ofMillis(200), jobScheduler,
-            manualClock);
-        doAnswer(invocation -> {
-            Runnable task = invocation.getArgument(0);
-            task.run();
+        client = mock(IBaseKVStoreClient.class);
+        scheduler = mock(ScheduledExecutorService.class);
+        registry = new SimpleMeterRegistry();
+        Metrics.globalRegistry.add(registry);
+        wakeups = new ArrayDeque<>();
+        routes = new TreeMap<>(BoundaryUtil::compare);
+        rangeId = KVRangeIdUtil.generate();
+        routes.put(FULL_BOUNDARY, setting(rangeId, 1, FULL_BOUNDARY, STORE));
+        when(client.latestEffectiveRouter()).thenAnswer(inv -> routes);
+        when(client.query(eq(STORE), any(KVRangeRORequest.class)))
+            .thenReturn(CompletableFuture.completedFuture(reply(512, 0, false, null)));
+        doAnswer(inv -> {
+            inv.getArgument(0, Runnable.class).run();
             return null;
-        }).when(jobScheduler).execute(any(Runnable.class));
-        meterRegistry = new SimpleMeterRegistry();
-        Metrics.globalRegistry.add(meterRegistry);
+        }).when(scheduler).execute(any(Runnable.class));
+        when(scheduler.schedule(any(Runnable.class), anyLong(), any(TimeUnit.class))).thenAnswer(inv -> {
+            ScheduledFuture<?> future = mock(ScheduledFuture.class);
+            wakeups.add(new Wakeup(inv.getArgument(0),
+                inv.getArgument(2, TimeUnit.class).toNanos(inv.getArgument(1)), future));
+            return future;
+        });
+        cleaner = new DistWorkerCleaner(client, Duration.ZERO, Duration.ofSeconds(32), scheduler);
     }
 
     @AfterMethod
-    public void tearDown() throws Exception {
-        Metrics.globalRegistry.getMeters().forEach(Metrics.globalRegistry::remove);
-        Metrics.globalRegistry.remove(meterRegistry);
-        openMocks.close();
-    }
-
-    @Test
-    public void testStartSchedulesRecurringTask() {
-        ScheduledFuture mockFuture = mock(ScheduledFuture.class);
-        when(jobScheduler.schedule(any(Runnable.class), anyLong(), any(TimeUnit.class))).thenReturn(mockFuture);
-
-        cleaner.start("store1");
-
-        ArgumentCaptor<Runnable> taskCaptor = ArgumentCaptor.forClass(Runnable.class);
-        verify(jobScheduler).schedule(taskCaptor.capture(), anyLong(), eq(TimeUnit.MILLISECONDS));
-    }
-
-    @Test
-    public void testGCOperationExecuted() {
-        ScheduledFuture mockFuture = mock(ScheduledFuture.class);
-        when(jobScheduler.schedule(any(Runnable.class), anyLong(), any(TimeUnit.class))).thenReturn(mockFuture);
-
-        KVRangeSetting leaderRange = new KVRangeSetting("dist.worker", "store1", new HashMap<>() {
-            {
-                put("store1", KVRangeDescriptor.newBuilder()
-                    .setId(KVRangeIdUtil.generate())
-                    .setVer(1)
-                    .build());
-            }
-        });
-        NavigableMap<Boundary, KVRangeSetting> router = new TreeMap<>(BoundaryUtil::compare);
-        router.put(FULL_BOUNDARY, leaderRange);
-        when(distWorkerClient.latestEffectiveRouter()).thenReturn(router);
-
-        when(distWorkerClient.query(eq("store1"), any(KVRangeRORequest.class)))
-            .thenReturn(CompletableFuture.completedFuture(KVRangeROReply.newBuilder().build()));
-
-        cleaner.start("store1");
-        ArgumentCaptor<Runnable> taskCaptor = ArgumentCaptor.forClass(Runnable.class);
-        verify(jobScheduler).schedule(taskCaptor.capture(), anyLong(), any(TimeUnit.class));
-
-        taskCaptor.getValue().run();
-
-        verify(distWorkerClient).query(eq("store1"), any(KVRangeRORequest.class));
-
-        verify(jobScheduler, times(2)).schedule(any(Runnable.class), anyLong(), eq(TimeUnit.MILLISECONDS));
-    }
-
-    @Test
-    public void testStopPreventsFurtherExecution() {
-        ScheduledFuture mockFuture = mock(ScheduledFuture.class);
-        when(jobScheduler.schedule(any(Runnable.class), anyLong(), any(TimeUnit.class)))
-            .thenReturn(mockFuture);
-
-        cleaner.start("store1");
+    public void teardown() {
         cleaner.stop().join();
-
-        verify(mockFuture).cancel(true);
-
-        verify(jobScheduler, times(1)).schedule(any(Runnable.class), anyLong(), any());
+        Metrics.globalRegistry.remove(registry);
+        registry.close();
     }
 
     @Test
-    public void testHandleGCFailure() {
-        ScheduledFuture mockFuture = mock(ScheduledFuture.class);
-        when(jobScheduler.schedule(any(Runnable.class), anyLong(), any(TimeUnit.class)))
-            .thenReturn(mockFuture);
+    public void startsOnceWithoutFirstSweepSprint() {
+        cleaner.start(STORE);
+        cleaner.start(STORE);
+        assertEquals(wakeups.size(), 1);
+        assertEquals(wakeups.peek().delayNanos, TimeUnit.SECONDS.toNanos(32));
+        runNext();
+        KVRangeRORequest request = requests(1).getValue();
+        assertEquals(request.getRoCoProc().getDistService().getGc().getStepHint(), 1);
+        assertEquals(request.getRoCoProc().getDistService().getGc().getScanQuota(), 2048);
+        assertFalse(request.getRoCoProc().getDistService().getGc().hasStartKey());
+        assertEquals(wakeups.peek().delayNanos, TimeUnit.SECONDS.toNanos(8));
+    }
 
-        KVRangeSetting leaderRange = new KVRangeSetting("dist.worker", "store1", new HashMap<>() {
-            {
-                put("store1", KVRangeDescriptor.newBuilder()
-                    .setId(KVRangeIdUtil.generate())
-                    .setVer(1)
-                    .build());
-            }
-        });
+    @DataProvider
+    public Object[][] resultsAndWaits() {
+        return new Object[][] {
+            {512, 0, 8_000_000_000L}, {512, 1, 8_000_000_000L},
+            {512, 8, 8_000_000_000L}, {512, 16, 5_333_333_334L},
+            {1024, 0, 16_000_000_000L},
+            {2048, 8, 32_000_000_000L}, {2048, 64, 21_333_333_334L},
+            {1, 16, 5_333_333_334L}, {0, 0, 32_000_000_000L}
+        };
+    }
 
-        NavigableMap<Boundary, KVRangeSetting> router = new TreeMap<>(BoundaryUtil::compare);
-        router.put(FULL_BOUNDARY, leaderRange);
-        when(distWorkerClient.latestEffectiveRouter()).thenReturn(router);
-
-        when(distWorkerClient.query(eq("store1"), any(KVRangeRORequest.class)))
-            .thenReturn(CompletableFuture.failedFuture(new RuntimeException("Failed")));
-
-        cleaner.start("store1");
-        ArgumentCaptor<Runnable> taskCaptor = ArgumentCaptor.forClass(Runnable.class);
-        verify(jobScheduler).schedule(taskCaptor.capture(), anyLong(), any(TimeUnit.class));
-        taskCaptor.getValue().run();
-
-        verify(jobScheduler, times(2)).schedule(any(Runnable.class), anyLong(), any());
+    @Test(dataProvider = "resultsAndWaits")
+    public void waitsForActualWorkAndDeletionYield(int inspected, int removed, long expectedWait) {
+        when(client.query(eq(STORE), any(KVRangeRORequest.class)))
+            .thenReturn(CompletableFuture.completedFuture(reply(inspected, removed, false, null)));
+        cleaner.start(STORE);
+        runNext();
+        assertEquals(wakeups.peek().delayNanos, expectedWait);
     }
 
     @Test
-    public void testNoGcForNonLeaderRanges() {
-        KVRangeSetting nonLeaderRange = new KVRangeSetting("dist.worker", "store2", new HashMap<>() {
-            {
-                put("store2", KVRangeDescriptor.newBuilder()
-                    .setId(KVRangeIdUtil.generate())
-                    .setVer(1)
-                    .build());
-            }
-        });
-
-        NavigableMap<Boundary, KVRangeSetting> router = new TreeMap<>(BoundaryUtil::compare);
-        router.put(FULL_BOUNDARY, nonLeaderRange);
-        when(distWorkerClient.latestEffectiveRouter()).thenReturn(router);
-
-        ScheduledFuture mockFuture = mock(ScheduledFuture.class);
-        when(jobScheduler.schedule(any(Runnable.class), anyLong(), any(TimeUnit.class)))
-            .thenReturn(mockFuture);
-        cleaner.start("store1");
-        ArgumentCaptor<Runnable> taskCaptor = ArgumentCaptor.forClass(Runnable.class);
-        verify(jobScheduler).schedule(taskCaptor.capture(), anyLong(), any(TimeUnit.class));
-        taskCaptor.getValue().run();
-
-        verify(distWorkerClient, never()).query(any(), any());
+    public void highYieldDoesNotPermanentlyRaiseTheRate() {
+        when(client.query(eq(STORE), any(KVRangeRORequest.class)))
+            .thenReturn(CompletableFuture.completedFuture(reply(512, 32, false, null)))
+            .thenReturn(CompletableFuture.completedFuture(reply(512, 8, false, null)))
+            .thenReturn(CompletableFuture.completedFuture(reply(512, 1, false, null)));
+        cleaner.start(STORE);
+        runNext();
+        assertEquals(wakeups.peek().delayNanos, 5_333_333_334L);
+        runNext();
+        assertEquals(wakeups.peek().delayNanos, 5_333_333_334L);
+        runNext();
+        assertEquals(wakeups.peek().delayNanos, 8_000_000_000L);
     }
 
     @Test
-    public void testIdempotentStart() {
-        ScheduledFuture mockFuture = mock(ScheduledFuture.class);
-        when(jobScheduler.schedule(any(Runnable.class), anyLong(), any(TimeUnit.class))).thenReturn(mockFuture);
-
-        cleaner.start("store1");
-        cleaner.start("store1"); // Duplicate call
-
-        verify(jobScheduler, times(1)).schedule(any(Runnable.class), anyLong(), any());
-    }
-
-    @Test
-    public void testFirstSweepQuotaAndStepHint() {
-        ScheduledFuture mockFuture = mock(ScheduledFuture.class);
-        when(jobScheduler.schedule(any(Runnable.class), anyLong(), any(TimeUnit.class))).thenReturn(mockFuture);
-
-        KVRangeSetting leaderRange = new KVRangeSetting("dist.worker", "store1", new HashMap<>() {
-            {
-                put("store1", KVRangeDescriptor.newBuilder()
-                    .setId(KVRangeIdUtil.generate())
-                    .setVer(1)
-                    .build());
-            }
-        });
-        NavigableMap<Boundary, KVRangeSetting> router = new TreeMap<>(BoundaryUtil::compare);
-        router.put(FULL_BOUNDARY, leaderRange);
-        when(distWorkerClient.latestEffectiveRouter()).thenReturn(router);
-
-        when(distWorkerClient.query(eq("store1"), any(KVRangeRORequest.class)))
-            .thenReturn(CompletableFuture.completedFuture(
-                KVRangeROReply.newBuilder()
-                    .setCode(ReplyCode.Ok)
-                    .setRoCoProcResult(ROCoProcOutput.newBuilder()
-                        .setDistService(DistServiceROCoProcOutput.newBuilder()
-                            .setGc(GCReply.newBuilder().setInspectedCount(10).setRemoveSuccess(0).setWrapped(false).build())
-                            .build())
-                        .build())
-                    .build()));
-
-        cleaner.start("store1");
-        ArgumentCaptor<Runnable> taskCaptor = ArgumentCaptor.forClass(Runnable.class);
-        verify(jobScheduler).schedule(taskCaptor.capture(), anyLong(), any(TimeUnit.class));
-        taskCaptor.getValue().run();
-
-        ArgumentCaptor<KVRangeRORequest> reqCaptor = ArgumentCaptor.forClass(KVRangeRORequest.class);
-        verify(distWorkerClient).query(eq("store1"), reqCaptor.capture());
-        int stepHint = reqCaptor.getValue().getRoCoProc().getDistService().getGc().getStepHint();
-        int quota = reqCaptor.getValue().getRoCoProc().getDistService().getGc().getScanQuota();
-        assertEquals(1, stepHint);
-        assertEquals(50_000, quota);
-    }
-
-    @Test
-    public void testSwitchToAdaptiveAfterFirstWrap() {
-        ScheduledFuture mockFuture = mock(ScheduledFuture.class);
-        when(jobScheduler.schedule(any(Runnable.class), anyLong(), any(TimeUnit.class))).thenReturn(mockFuture);
-
-        KVRangeSetting leaderRange = new KVRangeSetting("dist.worker", "store1", new HashMap<>() {
-            {
-                put("store1", KVRangeDescriptor.newBuilder()
-                    .setId(KVRangeIdUtil.generate())
-                    .setVer(1)
-                    .build());
-            }
-        });
-        NavigableMap<Boundary, KVRangeSetting> router = new TreeMap<>(BoundaryUtil::compare);
-        router.put(FULL_BOUNDARY, leaderRange);
-        when(distWorkerClient.latestEffectiveRouter()).thenReturn(router);
-
-        AtomicInteger call = new AtomicInteger();
-        when(distWorkerClient.query(eq("store1"), any(KVRangeRORequest.class)))
-            .thenAnswer(inv -> {
-                GCReply reply = call.getAndIncrement() == 0
-                    ? GCReply.newBuilder().setInspectedCount(10).setRemoveSuccess(0).setWrapped(true).build()
-                    : GCReply.getDefaultInstance();
-                return CompletableFuture.completedFuture(
-                    KVRangeROReply.newBuilder()
-                        .setCode(ReplyCode.Ok)
-                        .setRoCoProcResult(ROCoProcOutput.newBuilder()
-                            .setDistService(DistServiceROCoProcOutput.newBuilder().setGc(reply).build())
-                            .build())
-                        .build());
-            });
-
-        cleaner.start("store1");
-        ArgumentCaptor<Runnable> taskCaptor = ArgumentCaptor.forClass(Runnable.class);
-        verify(jobScheduler).schedule(taskCaptor.capture(), anyLong(), any(TimeUnit.class));
-        taskCaptor.getValue().run();
-        verify(jobScheduler, times(2)).schedule(taskCaptor.capture(), anyLong(), any(TimeUnit.class));
-        manualClock.advance(Duration.ofMinutes(10));
-        taskCaptor.getAllValues().get(1).run();
-
-        ArgumentCaptor<KVRangeRORequest> reqCaptor = ArgumentCaptor.forClass(KVRangeRORequest.class);
-        verify(distWorkerClient, times(2)).query(eq("store1"), reqCaptor.capture());
-        KVRangeRORequest secondReq = reqCaptor.getAllValues().get(1);
-        int stepHint2 = secondReq.getRoCoProc().getDistService().getGc().getStepHint();
-        int quota2 = secondReq.getRoCoProc().getDistService().getGc().getScanQuota();
-        assertEquals(1, stepHint2);
-        assertEquals(512, quota2);
-    }
-
-    @Test
-    public void testFirstSweepFailureKeepsSprint() {
-        ScheduledFuture mockFuture = mock(ScheduledFuture.class);
-        when(jobScheduler.schedule(any(Runnable.class), anyLong(), any(TimeUnit.class))).thenReturn(mockFuture);
-
-        KVRangeSetting leaderRange = new KVRangeSetting("dist.worker", "store1", new HashMap<>() {
-            {
-                put("store1", KVRangeDescriptor.newBuilder()
-                    .setId(KVRangeIdUtil.generate())
-                    .setVer(1)
-                    .build());
-            }
-        });
-        NavigableMap<Boundary, KVRangeSetting> router = new TreeMap<>(BoundaryUtil::compare);
-        router.put(FULL_BOUNDARY, leaderRange);
-        when(distWorkerClient.latestEffectiveRouter()).thenReturn(router);
-
-        AtomicInteger call = new AtomicInteger();
-        when(distWorkerClient.query(eq("store1"), any(KVRangeRORequest.class)))
-            .thenAnswer(inv -> {
-                if (call.getAndIncrement() == 0) {
-                    return CompletableFuture.failedFuture(new RuntimeException("network"));
-                }
-                return CompletableFuture.completedFuture(
-                    KVRangeROReply.newBuilder()
-                        .setCode(ReplyCode.Ok)
-                        .setRoCoProcResult(ROCoProcOutput.newBuilder()
-                            .setDistService(DistServiceROCoProcOutput.newBuilder()
-                                .setGc(GCReply.newBuilder().setWrapped(false).build())
-                                .build())
-                            .build())
-                        .build());
-            });
-
-        cleaner.start("store1");
-        ArgumentCaptor<Runnable> taskCaptor = ArgumentCaptor.forClass(Runnable.class);
-        verify(jobScheduler).schedule(taskCaptor.capture(), anyLong(), any(TimeUnit.class));
-        taskCaptor.getValue().run();
-        verify(jobScheduler, times(2)).schedule(taskCaptor.capture(), anyLong(), any(TimeUnit.class));
-        manualClock.advance(Duration.ofSeconds(5));
-        taskCaptor.getAllValues().get(1).run();
-
-        ArgumentCaptor<KVRangeRORequest> reqCaptor = ArgumentCaptor.forClass(KVRangeRORequest.class);
-        verify(distWorkerClient, times(2)).query(eq("store1"), reqCaptor.capture());
-        int stepHint = reqCaptor.getAllValues().get(1).getRoCoProc().getDistService().getGc().getStepHint();
-        int quota = reqCaptor.getAllValues().get(1).getRoCoProc().getDistService().getGc().getScanQuota();
-        assertEquals(1, stepHint);
-        assertEquals(50_000, quota);
-    }
-
-    @Test
-    public void testMetricsRegisteredAndUpdated() {
-        ScheduledFuture mockFuture = mock(ScheduledFuture.class);
-        when(jobScheduler.schedule(any(Runnable.class), anyLong(), any(TimeUnit.class))).thenReturn(mockFuture);
-
-        KVRangeSetting leaderRange = new KVRangeSetting("dist.worker", "store1", new HashMap<>() {
-            {
-                put("store1", KVRangeDescriptor.newBuilder()
-                    .setId(KVRangeIdUtil.generate())
-                    .setVer(1)
-                    .build());
-            }
-        });
-        NavigableMap<Boundary, KVRangeSetting> router = new TreeMap<>(BoundaryUtil::compare);
-        router.put(FULL_BOUNDARY, leaderRange);
-        when(distWorkerClient.latestEffectiveRouter()).thenReturn(router);
-
-        when(distWorkerClient.query(eq("store1"), any(KVRangeRORequest.class)))
-            .thenReturn(CompletableFuture.completedFuture(
-                KVRangeROReply.newBuilder()
-                    .setCode(ReplyCode.Ok)
-                    .setRoCoProcResult(ROCoProcOutput.newBuilder()
-                        .setDistService(DistServiceROCoProcOutput.newBuilder()
-                            .setGc(GCReply.newBuilder().setInspectedCount(10).setRemoveSuccess(0).setWrapped(true).build())
-                            .build())
-                        .build())
-                    .build()));
-
-        cleaner.start("store1");
-        ArgumentCaptor<Runnable> taskCaptor = ArgumentCaptor.forClass(Runnable.class);
-        verify(jobScheduler).schedule(taskCaptor.capture(), anyLong(), any(TimeUnit.class));
-        taskCaptor.getValue().run();
-
-        String rangeIdStr = KVRangeIdUtil.toString(leaderRange.id());
-        Gauge stepGauge = Metrics.globalRegistry.find("dist.gc.step")
-            .tag("storeId", "store1").tag("rangeId", rangeIdStr).gauge();
-        Gauge intervalGauge = Metrics.globalRegistry.find("dist.gc.interval.ms")
-            .tag("storeId", "store1").tag("rangeId", rangeIdStr).gauge();
-
-        assertEquals(1.0, stepGauge.value(), 0.0);
-        assertEquals(100.0, intervalGauge.value(), 0.0);
-    }
-
-    @Test
-    public void testMetricsRemovedOnLeadershipLost() {
-        ScheduledFuture mockFuture = mock(ScheduledFuture.class);
-        when(jobScheduler.schedule(any(Runnable.class), anyLong(), any(TimeUnit.class))).thenReturn(mockFuture);
-
-        KVRangeSetting leaderRange = new KVRangeSetting("dist.worker", "store1", new HashMap<>() {
-            {
-                put("store1", KVRangeDescriptor.newBuilder()
-                    .setId(KVRangeIdUtil.generate())
-                    .setVer(1)
-                    .build());
-            }
-        });
-        NavigableMap<Boundary, KVRangeSetting> router1 = new TreeMap<>(BoundaryUtil::compare);
-        router1.put(FULL_BOUNDARY, leaderRange);
-        NavigableMap<Boundary, KVRangeSetting> router2 = new TreeMap<>(BoundaryUtil::compare); // empty -> lose leadership
-        when(distWorkerClient.latestEffectiveRouter()).thenReturn(router1, router2);
-
-        when(distWorkerClient.query(eq("store1"), any(KVRangeRORequest.class)))
-            .thenReturn(CompletableFuture.completedFuture(
-                KVRangeROReply.newBuilder()
-                    .setCode(ReplyCode.Ok)
-                    .setRoCoProcResult(ROCoProcOutput.newBuilder()
-                        .setDistService(DistServiceROCoProcOutput.newBuilder()
-                            .setGc(GCReply.getDefaultInstance())
-                            .build())
-                        .build())
-                    .build()));
-
-        cleaner.start("store1");
-        ArgumentCaptor<Runnable> taskCaptor = ArgumentCaptor.forClass(Runnable.class);
-        verify(jobScheduler).schedule(taskCaptor.capture(), anyLong(), any(TimeUnit.class));
-        taskCaptor.getValue().run();
-        String rangeIdStr = KVRangeIdUtil.toString(leaderRange.id());
-        Gauge stepGauge = Metrics.globalRegistry.find("dist.gc.step")
-            .tag("storeId", "store1").tag("rangeId", rangeIdStr).gauge();
-        Gauge intervalGauge = Metrics.globalRegistry.find("dist.gc.interval.ms")
-            .tag("storeId", "store1").tag("rangeId", rangeIdStr).gauge();
-        assertEquals(1.0, stepGauge.value(), 0.0);
-
-        verify(jobScheduler, times(2)).schedule(taskCaptor.capture(), anyLong(), any(TimeUnit.class));
-        manualClock.advance(Duration.ofMinutes(10));
-        taskCaptor.getAllValues().get(1).run();
-
-        Gauge stepGaugeAfter = Metrics.globalRegistry.find("dist.gc.step")
-            .tag("storeId", "store1").tag("rangeId", rangeIdStr).gauge();
-        Gauge intervalGaugeAfter = Metrics.globalRegistry.find("dist.gc.interval.ms")
-            .tag("storeId", "store1").tag("rangeId", rangeIdStr).gauge();
-        assertNull(stepGaugeAfter);
-        assertNull(intervalGaugeAfter);
-    }
-
-    static class ManualClock extends Clock {
-        private final ZoneId zone = ZoneOffset.UTC;
-        private Instant now;
-
-        ManualClock(Instant start) {
-            this.now = start;
+    public void sustainedGarbageSpeedsUpAndCleanBatchesRestoreBaseRate() {
+        // A backlog spans several batches, then the cursor reaches clean routes.
+        when(client.query(eq(STORE), any(KVRangeRORequest.class)))
+            .thenReturn(CompletableFuture.completedFuture(reply(512, 32, false, null)));
+        cleaner.start(STORE);
+        long[] highYieldWaits = {
+            5_333_333_334L, 3_555_555_556L, 2_370_370_371L,
+            1_580_246_914L, 1_333_333_334L, 1_333_333_334L
+        };
+        for (long expectedWait : highYieldWaits) {
+            runNext();
+            assertEquals(wakeups.peek().delayNanos, expectedWait);
         }
-
-        @Override
-        public ZoneId getZone() {
-            return zone;
+        when(client.query(eq(STORE), any(KVRangeRORequest.class)))
+            .thenReturn(CompletableFuture.completedFuture(reply(512, 0, false, null)));
+        long[] lowYieldWaits = {
+            2_000_000_000L, 3_000_000_000L, 4_500_000_000L,
+            6_750_000_000L, 8_000_000_000L, 8_000_000_000L
+        };
+        for (long expectedWait : lowYieldWaits) {
+            runNext();
+            assertEquals(wakeups.peek().delayNanos, expectedWait);
         }
+    }
 
-        @Override
-        public Clock withZone(ZoneId zone) {
-            return this;
-        }
+    @Test
+    public void respectsExplicitIntervalBounds() {
+        cleaner = new DistWorkerCleaner(client, Duration.ofSeconds(10), Duration.ofSeconds(20), scheduler);
+        cleaner.start(STORE);
+        assertEquals(wakeups.peek().delayNanos, 20_000_000_000L);
+        runNext();
+        assertEquals(wakeups.peek().delayNanos, 10_000_000_000L);
+        when(client.query(eq(STORE), any(KVRangeRORequest.class)))
+            .thenReturn(CompletableFuture.completedFuture(reply(2048, 0, false, null)));
+        runNext();
+        assertEquals(wakeups.peek().delayNanos, 20_000_000_000L);
+    }
 
-        @Override
-        public Instant instant() {
-            return now;
-        }
+    @Test
+    public void validatesIntervalsBeforeBuildingWorkerResources() {
+        assertThrows(IllegalArgumentException.class,
+            () -> new DistWorkerBuilder().minGCInterval(Duration.ofSeconds(-1)).build());
+        assertThrows(IllegalArgumentException.class,
+            () -> new DistWorkerBuilder().maxGCInterval(Duration.ZERO).build());
+        assertThrows(IllegalArgumentException.class,
+            () -> new DistWorkerBuilder().minGCInterval(Duration.ofSeconds(33)).build());
+        DistWorkerBuilder defaults = new DistWorkerBuilder();
+        assertEquals(defaults.minGCInterval, Duration.ZERO);
+        assertEquals(defaults.maxGCInterval, Duration.ofSeconds(32));
+    }
 
-        void advance(Duration d) {
-            now = now.plus(d);
+    @Test
+    public void preservesProgressAfterQueryFailureAndRejection() {
+        ByteString cursor = ByteString.copyFromUtf8("cursor");
+        when(client.query(eq(STORE), any(KVRangeRORequest.class)))
+            .thenReturn(CompletableFuture.completedFuture(reply(512, 32, false, cursor)))
+            .thenReturn(CompletableFuture.failedFuture(new IllegalStateException("query failed")))
+            .thenReturn(CompletableFuture.completedFuture(KVRangeROReply.newBuilder()
+                .setCode(ReplyCode.BadVersion).build()))
+            .thenReturn(CompletableFuture.completedFuture(reply(512, 0, false, null)));
+        cleaner.start(STORE);
+        runNext();
+        runNext();
+        assertEquals(wakeups.peek().delayNanos, 32_000_000_000L);
+        runNext();
+        assertEquals(wakeups.peek().delayNanos, 32_000_000_000L);
+        runNext();
+        for (KVRangeRORequest request : requests(4).getAllValues().subList(1, 4)) {
+            assertEquals(request.getRoCoProc().getDistService().getGc().getStartKey(), cursor);
         }
+    }
+
+    @Test
+    public void wrappedLegacyReplyRestartsWithoutItsCursor() {
+        when(client.query(eq(STORE), any(KVRangeRORequest.class)))
+            .thenReturn(CompletableFuture.completedFuture(reply(512, 32, true, ByteString.copyFromUtf8("legacy"))));
+        cleaner.start(STORE);
+        runNext();
+        assertEquals(wakeups.peek().delayNanos, 5_333_333_334L);
+        runNext();
+        assertFalse(requests(2).getAllValues().get(1).getRoCoProc().getDistService().getGc().hasStartKey());
+    }
+
+    @Test
+    public void rotatesRangesWithoutOverlappingQueries() {
+        ByteString split = ByteString.copyFromUtf8("m");
+        Boundary left = Boundary.newBuilder().setEndKey(split).build();
+        Boundary right = Boundary.newBuilder().setStartKey(split).build();
+        routes.clear();
+        routes.put(left, setting(rangeId, 1, left, STORE));
+        routes.put(right, setting(KVRangeIdUtil.generate(), 1, right, STORE));
+        CompletableFuture<KVRangeROReply> pending = new CompletableFuture<>();
+        when(client.query(eq(STORE), any(KVRangeRORequest.class)))
+            .thenReturn(pending)
+            .thenReturn(CompletableFuture.completedFuture(reply(512, 0, false, null)));
+        cleaner.start(STORE);
+        runNext();
+        assertTrue(wakeups.isEmpty());
+        verify(client, times(1)).query(eq(STORE), any(KVRangeRORequest.class));
+        pending.complete(reply(512, 0, false, null));
+        runNext();
+        runNext();
+        var issued = requests(3).getAllValues();
+        assertNotEquals(issued.get(0).getKvRangeId(), issued.get(1).getKvRangeId());
+        assertEquals(issued.get(0).getKvRangeId(), issued.get(2).getKvRangeId());
+    }
+
+    @Test
+    public void ignoresReplyFromPreviousRangeVersion() {
+        ByteString split = ByteString.copyFromUtf8("m");
+        Boundary nextBoundary = Boundary.newBuilder().setStartKey(split).build();
+        CompletableFuture<KVRangeROReply> pending = new CompletableFuture<>();
+        when(client.query(eq(STORE), any(KVRangeRORequest.class)))
+            .thenReturn(CompletableFuture.completedFuture(reply(512, 0, false, ByteString.copyFromUtf8("a"))))
+            .thenReturn(pending)
+            .thenReturn(CompletableFuture.completedFuture(reply(512, 0, false, null)));
+        cleaner.start(STORE);
+        runNext();
+        runNext();
+        routes.clear();
+        Boundary left = Boundary.newBuilder().setEndKey(split).build();
+        routes.put(left, setting(KVRangeIdUtil.generate(), 1, left, "other-store"));
+        routes.put(nextBoundary, setting(rangeId, 2, nextBoundary, STORE));
+        pending.complete(reply(512, 32, false, ByteString.copyFromUtf8("z")));
+        assertEquals(wakeups.peek().delayNanos, 32_000_000_000L);
+        runNext();
+        KVRangeRORequest request = requests(3).getAllValues().get(2);
+        assertEquals(request.getVer(), 2L);
+        assertEquals(request.getRoCoProc().getDistService().getGc().getStartKey(), split);
+    }
+
+    @Test
+    public void removesMetricsWhenLeadershipIsLostDuringQuery() {
+        CompletableFuture<KVRangeROReply> pending = new CompletableFuture<>();
+        when(client.query(eq(STORE), any(KVRangeRORequest.class))).thenReturn(pending);
+        cleaner.start(STORE);
+        runNext();
+        assertEquals(registry.get("dist.gc.step").gauge().value(), 1.0);
+        routes.clear();
+        pending.complete(reply(512, 32, false, ByteString.copyFromUtf8("old")));
+        assertNull(registry.find("dist.gc.step").gauge());
+        assertNull(registry.find("dist.gc.interval.ms").gauge());
+        runNext();
+        verify(client, times(1)).query(eq(STORE), any(KVRangeRORequest.class));
+        assertEquals(wakeups.peek().delayNanos, 32_000_000_000L);
+    }
+
+    @Test
+    public void onlyCleansLocalLeaders() {
+        routes.put(FULL_BOUNDARY, setting(rangeId, 1, FULL_BOUNDARY, "other-store"));
+        cleaner.start(STORE);
+        runNext();
+        verify(client, never()).query(any(), any());
+        assertEquals(wakeups.peek().delayNanos, 32_000_000_000L);
+    }
+
+    @Test
+    public void stopCancelsWakeupAndDiscardsPendingReplies() {
+        CompletableFuture<KVRangeROReply> pending = new CompletableFuture<>();
+        when(client.query(eq(STORE), any(KVRangeRORequest.class))).thenReturn(pending);
+        cleaner.start(STORE);
+        Wakeup first = wakeups.peek();
+        runNext();
+        cleaner.stop().join();
+        cleaner.stop().join();
+        verify(first.future).cancel(false);
+        clearInvocations(scheduler);
+        pending.complete(reply(512, 32, false, null));
+        verify(scheduler, never()).execute(any(Runnable.class));
+        assertTrue(wakeups.isEmpty());
+        assertNull(registry.find("dist.gc.step").gauge());
+        verify(scheduler, never()).shutdown();
+    }
+
+    @Test
+    public void stopBeforeFirstWakeupDoesNotQuery() {
+        cleaner.start(STORE);
+        cleaner.stop().join();
+        runNext();
+        verify(client, never()).query(any(), any());
+        assertTrue(wakeups.isEmpty());
+    }
+
+    @Test
+    public void stopWithPendingQueryOnMultithreadScheduler() throws InterruptedException {
+        ScheduledExecutorService executor = Executors.newScheduledThreadPool(2);
+        CompletableFuture<KVRangeROReply> pending = new CompletableFuture<>();
+        CountDownLatch queried = new CountDownLatch(1);
+        when(client.query(eq(STORE), any(KVRangeRORequest.class))).thenAnswer(inv -> {
+            queried.countDown();
+            return pending;
+        });
+        cleaner = new DistWorkerCleaner(client, Duration.ZERO, Duration.ofMillis(1), executor);
+        try {
+            cleaner.start(STORE);
+            assertTrue(queried.await(5, TimeUnit.SECONDS));
+            cleaner.stop().join();
+            pending.complete(reply(512, 32, false, null));
+            executor.submit(() -> {}).get(5, TimeUnit.SECONDS);
+            verify(client, times(1)).query(eq(STORE), any(KVRangeRORequest.class));
+            assertNull(registry.find("dist.gc.step").gauge());
+        } catch (java.util.concurrent.ExecutionException | java.util.concurrent.TimeoutException e) {
+            throw new AssertionError(e);
+        } finally {
+            cleaner.stop().join();
+            executor.shutdownNow();
+            assertTrue(executor.awaitTermination(5, TimeUnit.SECONDS));
+        }
+    }
+
+    private void runNext() {
+        wakeups.remove().task.run();
+    }
+
+    private ArgumentCaptor<KVRangeRORequest> requests(int count) {
+        ArgumentCaptor<KVRangeRORequest> captor = ArgumentCaptor.forClass(KVRangeRORequest.class);
+        verify(client, times(count)).query(eq(STORE), captor.capture());
+        return captor;
+    }
+
+    private KVRangeSetting setting(KVRangeId id, long ver, Boundary boundary, String leader) {
+        return new KVRangeSetting("dist.worker", leader, Map.of(leader,
+            KVRangeDescriptor.newBuilder().setId(id).setVer(ver).setBoundary(boundary).build()));
+    }
+
+    private KVRangeROReply reply(int inspected, int removed, boolean wrapped, ByteString cursor) {
+        GCReply.Builder gc = GCReply.newBuilder().setInspectedCount(inspected)
+            .setRemoveSuccess(removed).setWrapped(wrapped);
+        if (cursor != null) {
+            gc.setNextStartKey(cursor);
+        }
+        return KVRangeROReply.newBuilder().setCode(ReplyCode.Ok)
+            .setRoCoProcResult(ROCoProcOutput.newBuilder()
+                .setDistService(DistServiceROCoProcOutput.newBuilder().setGc(gc)))
+            .build();
+    }
+
+    private record Wakeup(Runnable task, long delayNanos, ScheduledFuture<?> future) {
     }
 }

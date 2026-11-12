@@ -37,6 +37,7 @@ import static org.apache.bifromq.dist.worker.schema.RouteKeyOrder.compareLevels;
 import static org.apache.bifromq.dist.worker.schema.RouteKeyOrder.orderedGlobalFilterLevels;
 import static org.apache.bifromq.dist.worker.schema.RouteKeyOrder.tenantIdOrderKey;
 
+import com.google.common.base.Ticker;
 import com.google.common.collect.Iterables;
 import com.google.common.collect.Maps;
 import com.google.protobuf.Any;
@@ -55,7 +56,6 @@ import java.util.TreeMap;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
-import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Supplier;
@@ -108,6 +108,9 @@ import org.apache.bifromq.util.BSUtil;
 
 @Slf4j
 class DistWorkerCoProc implements IKVRangeCoProc {
+    private static final int MIN_GC_SCAN_QUOTA = 512;
+    private static final int MAX_GC_SCAN_QUOTA = 2048;
+    private static final long GC_SCAN_BUDGET_NANOS = 10_000_000;
     private final Supplier<IKVRangeRefreshableReader> readerProvider;
     private final ISubscriptionCache routeCache;
     private final ITenantsStats tenantsState;
@@ -583,23 +586,24 @@ class DistWorkerCoProc implements IKVRangeCoProc {
     }
 
     private CompletableFuture<GCReply> gc(GCRequest request, IKVRangeReader reader) {
-        int stepUsed = Math.max(request.getStepHint(), 1);
-        int scanQuota = request.getScanQuota() > 0 ? request.getScanQuota() : 256 * stepUsed;
-
-        // subBrokerId -> delivererKey -> tenantId-> CheckRequest
+        long requestedQuota = Integer.toUnsignedLong(request.getScanQuota());
+        int scanQuota = requestedQuota == 0 ? MAX_GC_SCAN_QUOTA : (int) Math.min(requestedQuota, MAX_GC_SCAN_QUOTA);
+        int minScanQuota = Math.min(MIN_GC_SCAN_QUOTA, scanQuota);
+        // subBrokerId -> delivererKey -> tenantId -> CheckRequest
         Map<Integer, Map<String, Map<String, CheckRequest.Builder>>> checkRequestBuilders = new HashMap<>();
-
+        int inspected = 0;
+        ByteString nextStartKey;
+        boolean wrapped;
+        Ticker ticker = Ticker.systemTicker();
+        long startNanos = ticker.read();
         try (IKVIterator itr = reader.iterator()) {
-            // clamp start key to current boundary when provided
             if (request.hasStartKey()) {
                 ByteString startKey = request.getStartKey();
                 if (boundary != null) {
                     ByteString startBoundary = BoundaryUtil.startKey(boundary);
                     ByteString endBoundary = BoundaryUtil.endKey(boundary);
-                    if (BoundaryUtil.compareStartKey(startKey, startBoundary) < 0) {
-                        startKey = startBoundary;
-                    } else if (BoundaryUtil.compareEndKeys(startKey, endBoundary) >= 0) {
-                        // clamp to start when beyond end
+                    if (BoundaryUtil.compareStartKey(startKey, startBoundary) < 0
+                        || BoundaryUtil.compareEndKeys(startKey, endBoundary) >= 0) {
                         startKey = startBoundary;
                     }
                 }
@@ -611,124 +615,70 @@ class DistWorkerCoProc implements IKVRangeCoProc {
             } else {
                 itr.seekToFirst();
             }
-
-            if (!itr.isValid()) {
-                return CompletableFuture.completedFuture(GCReply.newBuilder()
-                    .setReqId(request.getReqId())
-                    .setInspectedCount(0)
-                    .setRemoveSuccess(0)
-                    .setWrapped(true)
-                    .build());
-            }
-
-            AtomicInteger inspectedCount = new AtomicInteger();
-            AtomicBoolean wrapped = new AtomicBoolean(false);
-            ByteString sessionStartKey = null;
-            AtomicReference<ByteString> nextStartKeySnapshot = new AtomicReference<>();
-
-            outer:
-            while (true) {
-                if (!itr.isValid()) {
-                    // reach tail
-                    if (!wrapped.get()) {
-                        itr.seekToFirst();
-                        if (!itr.isValid()) {
-                            break; // still empty
-                        }
-                        wrapped.set(true);
-                    } else {
-                        break;
-                    }
-                }
-
-                ByteString currentKey = itr.key();
-                // stop if met sessionStartKey after wrap before decoding
-                if (wrapped.get() && currentKey.equals(sessionStartKey)) {
-                    break;
-                }
-
-                if (sessionStartKey == null) {
-                    sessionStartKey = currentKey;
-                }
-                Matching matching = buildMatchRoute(currentKey, itr.value());
-                switch (matching.type()) {
-                    case Normal -> {
-                        if (!routeCache.isCached(matching.tenantId(), matching.matcher.getFilterLevelList())) {
-                            NormalMatching normalMatching = ((NormalMatching) matching);
+            // Ignore legacy stepHint: visit every key before advancing the cursor.
+            while (itr.isValid()) {
+                Matching matching = buildMatchRoute(itr.key(), itr.value());
+                // Delivery already removes stale routes for cached topics.
+                if (!routeCache.isCached(matching.tenantId(), matching.matcher.getFilterLevelList())) {
+                    switch (matching.type()) {
+                        case Normal -> {
+                            NormalMatching normalMatching = (NormalMatching) matching;
                             checkRequestBuilders.computeIfAbsent(normalMatching.subBrokerId(), k -> new HashMap<>())
                                 .computeIfAbsent(normalMatching.delivererKey(), k -> new HashMap<>())
                                 .computeIfAbsent(normalMatching.tenantId(), k -> CheckRequest.newBuilder()
-                                    .setTenantId(k)
-                                    .setDelivererKey(normalMatching.delivererKey()))
-                                .addMatchInfo(((NormalMatching) matching).matchInfo());
+                                    .setTenantId(k).setDelivererKey(normalMatching.delivererKey()))
+                                .addMatchInfo(normalMatching.matchInfo());
                         }
-                    }
-                    case Group -> {
-                        GroupMatching groupMatching = ((GroupMatching) matching);
-                        if (!routeCache.isCached(groupMatching.tenantId(), matching.matcher.getFilterLevelList())) {
+                        case Group -> {
+                            GroupMatching groupMatching = (GroupMatching) matching;
                             for (NormalMatching normalMatching : groupMatching.receiverList) {
-                                checkRequestBuilders.computeIfAbsent(normalMatching.subBrokerId(),
-                                        k -> new HashMap<>())
+                                checkRequestBuilders.computeIfAbsent(normalMatching.subBrokerId(), k -> new HashMap<>())
                                     .computeIfAbsent(normalMatching.delivererKey(), k -> new HashMap<>())
                                     .computeIfAbsent(normalMatching.tenantId(), k -> CheckRequest.newBuilder()
-                                        .setTenantId(k)
-                                        .setDelivererKey(normalMatching.delivererKey()))
+                                        .setTenantId(k).setDelivererKey(normalMatching.delivererKey()))
                                     .addMatchInfo(normalMatching.matchInfo());
                             }
                         }
-                    }
-                    default -> {
-                        // never happen
+                        default -> {
+                            // never happen
+                        }
                     }
                 }
-                inspectedCount.incrementAndGet();
-                if (inspectedCount.get() >= scanQuota) {
-                    itr.next();
+                inspected++;
+                itr.next();
+                if (inspected >= scanQuota
+                    || (inspected >= minScanQuota && ticker.read() - startNanos >= GC_SCAN_BUDGET_NANOS)) {
                     break;
                 }
-
-                int skip = stepUsed - 1;
-                while (skip-- > 0) {
-                    itr.next();
-                    if (!itr.isValid()) {
-                        continue outer;
-                    }
-                }
-                itr.next();
             }
-
-            if (itr.isValid()) {
-                nextStartKeySnapshot.set(itr.key());
-            }
-
-            // aggregate sweep results
-            List<CompletableFuture<ISubscriptionCleaner.GCStats>> checkFutures = new ArrayList<>();
-            for (int subBrokerId : checkRequestBuilders.keySet()) {
-                for (String delivererKey : checkRequestBuilders.get(subBrokerId).keySet()) {
-                    for (Map.Entry<String, CheckRequest.Builder> entry : checkRequestBuilders.get(subBrokerId)
-                        .get(delivererKey).entrySet()) {
-                        checkFutures.add(subscriptionChecker.sweep(subBrokerId, entry.getValue().build()));
-                    }
-                }
-            }
-
-            CompletableFuture<Void> all = CompletableFuture.allOf(checkFutures.toArray(CompletableFuture[]::new));
-            return all.thenApply(v -> {
-                int success = 0;
-                for (CompletableFuture<ISubscriptionCleaner.GCStats> f : checkFutures) {
-                    success += f.join().success();
-                }
-                GCReply.Builder reply = GCReply.newBuilder()
-                    .setReqId(request.getReqId())
-                    .setInspectedCount(inspectedCount.get())
-                    .setRemoveSuccess(success)
-                    .setWrapped(wrapped.get());
-                if (nextStartKeySnapshot.get() != null) {
-                    reply.setNextStartKey(nextStartKeySnapshot.get());
-                }
-                return reply.build();
-            });
+            wrapped = !itr.isValid();
+            nextStartKey = wrapped ? null : itr.key();
         }
+        int inspectedCount = inspected;
+        List<CompletableFuture<ISubscriptionCleaner.GCStats>> checkFutures = new ArrayList<>();
+        for (Map.Entry<Integer, Map<String, Map<String, CheckRequest.Builder>>> subBroker
+            : checkRequestBuilders.entrySet()) {
+            for (Map<String, CheckRequest.Builder> tenants : subBroker.getValue().values()) {
+                for (CheckRequest.Builder checkRequest : tenants.values()) {
+                    checkFutures.add(subscriptionChecker.sweep(subBroker.getKey(), checkRequest.build()));
+                }
+            }
+        }
+        return CompletableFuture.allOf(checkFutures.toArray(CompletableFuture[]::new)).thenApply(v -> {
+            int success = 0;
+            for (CompletableFuture<ISubscriptionCleaner.GCStats> future : checkFutures) {
+                success += future.join().success();
+            }
+            GCReply.Builder reply = GCReply.newBuilder()
+                .setReqId(request.getReqId())
+                .setInspectedCount(inspectedCount)
+                .setRemoveSuccess(success)
+                .setWrapped(wrapped);
+            if (nextStartKey != null) {
+                reply.setNextStartKey(nextStartKey);
+            }
+            return reply.build();
+        });
     }
 
     private record GlobalTopicFilter(String tenantId, RouteMatcher routeMatcher) {

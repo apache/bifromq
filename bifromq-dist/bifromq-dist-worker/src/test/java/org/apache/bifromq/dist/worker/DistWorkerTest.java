@@ -243,6 +243,9 @@ public abstract class DistWorkerTest {
             .subBrokerManager(receiverManager)
             .settingProvider(settingProvider)
             .inlineFanoutThreshold(1)
+            // Integration cases drive GC explicitly; keep background queries out of their fixtures.
+            .minGCInterval(Duration.ofHours(1))
+            .maxGCInterval(Duration.ofHours(1))
             .bootstrapDelay(Duration.ofSeconds(1))
             .build();
         rpcServer = rpcServerBuilder.build();

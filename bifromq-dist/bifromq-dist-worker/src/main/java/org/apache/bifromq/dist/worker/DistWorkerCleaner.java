@@ -23,18 +23,19 @@ import static org.apache.bifromq.basekv.client.KVRangeRouterUtil.findByBoundary;
 import static org.apache.bifromq.basekv.utils.BoundaryUtil.FULL_BOUNDARY;
 import static org.apache.bifromq.basekv.utils.BoundaryUtil.clampToBoundary;
 
+import com.google.common.util.concurrent.MoreExecutors;
 import com.google.protobuf.ByteString;
 import io.micrometer.core.instrument.Gauge;
 import io.micrometer.core.instrument.Metrics;
 import io.micrometer.core.instrument.Tags;
-import java.time.Clock;
 import java.time.Duration;
-import java.time.Instant;
-import java.util.Collection;
-import java.util.HashMap;
-import java.util.List;
+import java.util.HashSet;
+import java.util.Iterator;
+import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.Executor;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
@@ -45,6 +46,7 @@ import org.apache.bifromq.basekv.client.IBaseKVStoreClient;
 import org.apache.bifromq.basekv.client.KVRangeSetting;
 import org.apache.bifromq.basekv.proto.Boundary;
 import org.apache.bifromq.basekv.proto.KVRangeId;
+import org.apache.bifromq.basekv.store.proto.KVRangeROReply;
 import org.apache.bifromq.basekv.store.proto.KVRangeRORequest;
 import org.apache.bifromq.basekv.store.proto.ROCoProcInput;
 import org.apache.bifromq.basekv.store.proto.ReplyCode;
@@ -55,285 +57,203 @@ import org.apache.bifromq.dist.rpc.proto.GCRequest;
 
 @Slf4j
 class DistWorkerCleaner {
-    private static final int MAX_STEP = 10;
-    private static final int SCAN_QUOTA_BASE = 512;
-    private static final int FIRST_SWEEP_SCAN_QUOTA = 50_000;
-    private static final Duration FIRST_SWEEP_INTERVAL = Duration.ofSeconds(5);
-    private static final double HIGH_SUCCESS_RATIO = 0.005; // 0.5%
-    private static final int LOW_HIT_THRESHOLD = 3;
-    private static final double QUOTA_HIT_RATIO = 0.8;
-    private static final double GROWTH = 1.5;
-    private static final double SHRINK = 2.0;
+    private static final int MIN_SCAN_QUOTA = 512;
+    private static final int MAX_SCAN_QUOTA = 2048;
+    private static final double BASE_SCAN_RATE = 64;
+    private static final double HIGH_SCAN_RATE = 384;
     private final AtomicBoolean started = new AtomicBoolean(false);
     private final IBaseKVStoreClient distWorkerClient;
     private final Duration minCleanInterval;
     private final Duration maxCleanInterval;
     private final ScheduledExecutorService jobScheduler;
-    private final Clock clock;
-    // rangeId -> state
-    private final Map<KVRangeId, RangeGcState> rangeStates = new HashMap<>();
-    private volatile ScheduledFuture<?> cleanerFuture;
+    private final Executor stateExecutor;
+    // Insertion order is the round-robin order. Only stateExecutor accesses this map.
+    private final Map<KVRangeId, RangeGcState> rangeStates = new LinkedHashMap<>();
+    private ScheduledFuture<?> cleanerFuture;
+    private double scanRate = BASE_SCAN_RATE;
+    // Gauges are read outside stateExecutor.
+    private volatile long nextDelayNanos;
 
     DistWorkerCleaner(IBaseKVStoreClient distWorkerClient,
                       Duration minCleanInterval,
                       Duration maxCleanInterval,
                       ScheduledExecutorService jobScheduler) {
-        this(distWorkerClient, minCleanInterval, maxCleanInterval, jobScheduler, Clock.systemUTC());
-    }
-
-    DistWorkerCleaner(IBaseKVStoreClient distWorkerClient,
-                      Duration minCleanInterval,
-                      Duration maxCleanInterval,
-                      ScheduledExecutorService jobScheduler,
-                      Clock clock) {
         this.distWorkerClient = distWorkerClient;
         this.minCleanInterval = minCleanInterval;
         this.maxCleanInterval = maxCleanInterval;
         this.jobScheduler = jobScheduler;
-        this.clock = clock;
+        stateExecutor = MoreExecutors.newSequentialExecutor(jobScheduler);
     }
 
     void start(String storeId) {
         if (started.compareAndSet(false, true)) {
-            log.info("DistWorkerCleaner started");
-            doStart(storeId);
+            stateExecutor.execute(() -> schedule(storeId, maxCleanInterval));
         }
     }
 
     CompletableFuture<Void> stop() {
-        if (started.compareAndSet(true, false)) {
-            cleanerFuture.cancel(true);
-            CompletableFuture<Void> onDone = new CompletableFuture<>();
-            jobScheduler.execute(() -> {
-                log.info("DistWorkerCleaner stopped");
-                // remove all gauges on stop
-                for (RangeGcState st : rangeStates.values()) {
-                    if (st.stepGauge != null) {
-                        Metrics.globalRegistry.removeByPreFilterId(st.stepGauge.getId());
-                    }
-                    if (st.intervalGauge != null) {
-                        Metrics.globalRegistry.removeByPreFilterId(st.intervalGauge.getId());
-                    }
-                }
-                onDone.complete(null);
-            });
-            return onDone;
+        if (!started.compareAndSet(true, false)) {
+            return CompletableFuture.completedFuture(null);
         }
-        return CompletableFuture.completedFuture(null);
+        CompletableFuture<Void> onDone = new CompletableFuture<>();
+        stateExecutor.execute(() -> {
+            if (cleanerFuture != null) {
+                cleanerFuture.cancel(false);
+            }
+            for (RangeGcState state : rangeStates.values()) {
+                Metrics.globalRegistry.removeByPreFilterId(state.stepGauge.getId());
+                Metrics.globalRegistry.removeByPreFilterId(state.intervalGauge.getId());
+            }
+            rangeStates.clear();
+            onDone.complete(null);
+        });
+        return onDone;
     }
 
-    private void doStart(String storeId) {
+    private void schedule(String storeId, Duration delay) {
         if (!started.get()) {
             return;
         }
-        Instant now = clock.instant();
-        Duration chosenDelay = null;
-        boolean anyDueNow = false;
-        for (RangeGcState state : rangeStates.values()) {
-            if (state.nextDue.isAfter(now)) {
-                Duration d = Duration.between(now, state.nextDue);
-                if (chosenDelay == null || d.compareTo(chosenDelay) < 0) {
-                    chosenDelay = d;
-                }
-            } else {
-                anyDueNow = true;
-            }
-        }
-        Duration delay = anyDueNow ? Duration.ZERO : (chosenDelay != null ? chosenDelay : minCleanInterval);
-        log.debug("DistWorkerCleaner next round in {} ms", delay.toMillis());
+        nextDelayNanos = delay.toNanos();
         cleanerFuture = jobScheduler.schedule(() -> {
-            doGC(storeId).thenRun(() -> doStart(storeId));
-        }, delay.toMillis(), TimeUnit.MILLISECONDS);
+            if (started.get()) {
+                stateExecutor.execute(() -> doGC(storeId));
+            }
+        }, nextDelayNanos, TimeUnit.NANOSECONDS);
     }
 
-    private CompletableFuture<Void> doGC(String storeId) {
-        Collection<KVRangeSetting> leaders = findByBoundary(FULL_BOUNDARY, distWorkerClient.latestEffectiveRouter())
-            .stream().filter(r -> r.leader().equals(storeId)).toList();
-
-        Map<KVRangeId, KVRangeSetting> currentLeaderMap = new HashMap<>();
-        for (KVRangeSetting rs : leaders) {
-            currentLeaderMap.put(rs.id(), rs);
-            RangeGcState state = rangeStates.get(rs.id());
+    private void refreshRanges(String storeId) {
+        Set<KVRangeId> leaders = new HashSet<>();
+        for (KVRangeSetting setting : findByBoundary(FULL_BOUNDARY, distWorkerClient.latestEffectiveRouter())) {
+            if (!setting.leader().equals(storeId)) {
+                continue;
+            }
+            leaders.add(setting.id());
+            RangeGcState state = rangeStates.get(setting.id());
             if (state == null) {
                 state = new RangeGcState();
-                state.step = 1;
-                state.interval = FIRST_SWEEP_INTERVAL;
-                state.lowRatioHits = 0;
-                state.nextDue = Instant.EPOCH;
-                state.ver = rs.ver();
-                state.boundary = rs.boundary();
-                state.wrappedOnce = false;
-                state.sprinted = false;
-                Tags tags = Tags.of("storeId", storeId).and("rangeId", KVRangeIdUtil.toString(rs.id()));
-                state.intervalGauge = Gauge.builder("dist.gc.interval.ms", state, s -> s.interval.toMillis())
-                    .tags(tags)
-                    .register(Metrics.globalRegistry);
-                state.stepGauge = Gauge.builder("dist.gc.step", state, s -> (double) s.step)
-                    .tags(tags)
-                    .register(Metrics.globalRegistry);
-                rangeStates.put(rs.id(), state);
-            } else {
-                if (state.ver != rs.ver() || !state.boundary.equals(rs.boundary())) {
-                    // clamp nextKey into new boundary and reset step/interval
-                    if (state.nextKey != null) {
-                        state.nextKey = clampToBoundary(state.nextKey, rs.boundary());
-                    }
-                    state.step = 1;
-                    state.interval = state.sprinted ? minCleanInterval : FIRST_SWEEP_INTERVAL;
-                    state.lowRatioHits = 0;
-                    state.wrappedOnce = false;
-                    state.ver = rs.ver();
-                    state.boundary = rs.boundary();
+                state.ver = setting.ver();
+                state.boundary = setting.boundary();
+                Tags tags = Tags.of("storeId", storeId).and("rangeId", KVRangeIdUtil.toString(setting.id()));
+                state.stepGauge = Gauge.builder("dist.gc.step", state, s -> 1).tags(tags).register(Metrics.globalRegistry);
+                state.intervalGauge = Gauge.builder("dist.gc.interval.ms", this,
+                        c -> c.nextDelayNanos / 1_000_000.0)
+                    .tags(tags).register(Metrics.globalRegistry);
+                rangeStates.put(setting.id(), state);
+            } else if (state.ver != setting.ver() || !state.boundary.equals(setting.boundary())) {
+                if (state.nextKey != null) {
+                    state.nextKey = clampToBoundary(state.nextKey, setting.boundary());
                 }
+                state.ver = setting.ver();
+                state.boundary = setting.boundary();
             }
         }
-        rangeStates.entrySet().removeIf(e -> {
-            boolean remove = !currentLeaderMap.containsKey(e.getKey());
-            if (remove) {
-                RangeGcState st = e.getValue();
-                if (st.stepGauge != null) {
-                    Metrics.globalRegistry.removeByPreFilterId(st.stepGauge.getId());
-                }
-                if (st.intervalGauge != null) {
-                    Metrics.globalRegistry.removeByPreFilterId(st.intervalGauge.getId());
-                }
+        rangeStates.entrySet().removeIf(entry -> {
+            if (leaders.contains(entry.getKey())) {
+                return false;
             }
-            return remove;
+            Metrics.globalRegistry.removeByPreFilterId(entry.getValue().stepGauge.getId());
+            Metrics.globalRegistry.removeByPreFilterId(entry.getValue().intervalGauge.getId());
+            return true;
         });
-
-        long reqId = HLC.INST.getPhysical();
-        Instant now = clock.instant();
-        List<CompletableFuture<?>> futures = leaders.stream()
-            .map(rs -> {
-                RangeGcState s = rangeStates.get(rs.id());
-                if (s == null) {
-                    return CompletableFuture.<Void>completedFuture(null);
-                }
-                if (s.nextDue.isAfter(now)) {
-                    return CompletableFuture.<Void>completedFuture(null);
-                }
-                GCRequest.Builder gcReq = GCRequest.newBuilder().setReqId(reqId)
-                    .setStepHint(s.sprinted ? Math.max(1, s.step) : 1)
-                    .setScanQuota(s.sprinted ? SCAN_QUOTA_BASE * Math.max(1, s.step) : FIRST_SWEEP_SCAN_QUOTA);
-                if (s.nextKey != null) {
-                    ByteString start = clampToBoundary(s.nextKey, rs.boundary());
-                    if (start != null) {
-                        gcReq.setStartKey(start);
-                    }
-                }
-                String rangeIdStr = KVRangeIdUtil.toString(rs.id());
-                int stepHint = gcReq.getStepHint();
-                int quota = gcReq.getScanQuota();
-                log.debug("[DistWorker] start gc: reqId={}, rangeId={}, stepHint={}, quota={}",
-                    reqId, rangeIdStr, stepHint, quota);
-                return distWorkerClient.query(rs.leader(), KVRangeRORequest.newBuilder()
-                        .setReqId(reqId)
-                        .setKvRangeId(rs.id())
-                        .setVer(rs.ver())
-                        .setRoCoProc(ROCoProcInput.newBuilder()
-                            .setDistService(DistServiceROCoProcInput.newBuilder()
-                                .setGc(gcReq.build())
-                                .build())
-                            .build())
-                        .build())
-                    .handle((v, e) -> {
-                        try {
-                            if (e != null) {
-                                log.debug("[DistWorker] gc error: reqId={}, rangeId={}", reqId, rangeIdStr, e);
-                                onGCFailure(s);
-                                return null;
-                            }
-                            if (v.getCode() != ReplyCode.Ok) {
-                                log.debug("[DistWorker] gc rejected: reqId={}, rangeId={}, reason={}", reqId,
-                                    rangeIdStr, v.getCode());
-                                onGCFailure(s);
-                                return null;
-                            }
-                            GCReply reply = v.getRoCoProcResult().getDistService().getGc();
-                            onGCSuccess(s, reply);
-                            log.debug(
-                                "[DistWorker] gc done: reqId={}, rangeId={}, inspected={}, removeSuccess={}, wrapped={}",
-                                reqId, rangeIdStr, reply.getInspectedCount(), reply.getRemoveSuccess(),
-                                reply.getWrapped());
-                        } finally {
-                            s.nextDue = clock.instant().plus(s.interval);
-                        }
-                        return null;
-                    });
-            })
-            .toList();
-        return CompletableFuture.allOf(futures.toArray(new CompletableFuture[0]));
     }
 
-    private void onGCFailure(RangeGcState s) {
-        // reset on failure
-        s.step = 1;
-        s.interval = s.sprinted ? minCleanInterval : FIRST_SWEEP_INTERVAL;
-        s.lowRatioHits = 0;
-        s.wrappedOnce = false;
-    }
-
-    private void onGCSuccess(RangeGcState s, GCReply reply) {
-        if (reply.hasNextStartKey()) {
-            s.nextKey = clampToBoundary(reply.getNextStartKey(), s.boundary);
-        } else {
-            s.nextKey = null;
-        }
-        if (reply.getWrapped()) {
-            s.wrappedOnce = true;
-        }
-        if (!s.sprinted) {
-            if (reply.getWrapped()) {
-                s.sprinted = true;
-                s.step = 1;
-                s.interval = minCleanInterval;
-                s.lowRatioHits = 0;
-                s.wrappedOnce = false;
-            }
+    private void doGC(String storeId) {
+        if (!started.get()) {
             return;
         }
-        int inspected = reply.getInspectedCount();
-        int removeSuccess = reply.getRemoveSuccess();
-        double successRatio = inspected == 0 ? 0 : ((double) removeSuccess) / inspected;
-        int scanQuota = SCAN_QUOTA_BASE * Math.max(1, s.step);
-
-        boolean coverageOK = s.wrappedOnce || inspected >= (int) (scanQuota * QUOTA_HIT_RATIO);
-        if (successRatio >= HIGH_SUCCESS_RATIO) {
-            s.step = Math.max(s.step / 2, 1);
-            long shrunk = (long) (s.interval.toMillis() / SHRINK);
-            s.interval = Duration.ofMillis(Math.max(shrunk, minCleanInterval.toMillis()));
-            s.lowRatioHits = 0;
-            s.wrappedOnce = false;
-        } else {
-            if (coverageOK && removeSuccess == 0) {
-                s.lowRatioHits++;
-                if (s.lowRatioHits >= LOW_HIT_THRESHOLD && s.wrappedOnce) {
-                    if (inspected >= (int) (scanQuota * QUOTA_HIT_RATIO)) {
-                        s.step = Math.min(s.step + 1, MAX_STEP);
-                    }
-                    long grown = (long) (s.interval.toMillis() * GROWTH);
-                    s.interval = Duration.ofMillis(Math.min(grown, maxCleanInterval.toMillis()));
-                    s.lowRatioHits = 0;
-                    s.wrappedOnce = false;
-                }
-            } else {
-                if (!s.wrappedOnce) {
-                    s.interval = minCleanInterval;
-                }
-            }
+        refreshRanges(storeId);
+        if (rangeStates.isEmpty()) {
+            scanRate = BASE_SCAN_RATE;
+            schedule(storeId, maxCleanInterval);
+            return;
         }
+        Iterator<Map.Entry<KVRangeId, RangeGcState>> iterator = rangeStates.entrySet().iterator();
+        Map.Entry<KVRangeId, RangeGcState> entry = iterator.next();
+        KVRangeId rangeId = entry.getKey();
+        RangeGcState state = entry.getValue();
+        iterator.remove();
+        rangeStates.put(rangeId, state);
+        long ver = state.ver;
+        Boundary boundary = state.boundary;
+        long reqId = HLC.INST.getPhysical();
+        GCRequest.Builder request = GCRequest.newBuilder().setReqId(reqId)
+            .setStepHint(1).setScanQuota(MAX_SCAN_QUOTA);
+        if (state.nextKey != null) {
+            request.setStartKey(state.nextKey);
+        }
+        long startNanos = System.nanoTime();
+        distWorkerClient.query(storeId, KVRangeRORequest.newBuilder()
+                .setReqId(reqId).setKvRangeId(rangeId).setVer(ver)
+                .setRoCoProc(ROCoProcInput.newBuilder()
+                    .setDistService(DistServiceROCoProcInput.newBuilder().setGc(request)))
+                .build())
+            .whenComplete((reply, error) -> {
+                if (!started.get()) {
+                    return;
+                }
+                stateExecutor.execute(() -> {
+                    if (!started.get()) {
+                        return;
+                    }
+                    // Recheck the route before accepting a reply from an old leader or range version.
+                    refreshRanges(storeId);
+                    boolean current = rangeStates.get(rangeId) == state
+                        && state.ver == ver && state.boundary.equals(boundary);
+                    Duration delay;
+                    if (error != null || reply.getCode() != ReplyCode.Ok || !current) {
+                        scanRate = BASE_SCAN_RATE;
+                        delay = maxCleanInterval;
+                        log.debug("[DistWorker] gc did not complete for current range: reqId={}, rangeId={}",
+                            reqId, KVRangeIdUtil.toString(rangeId), error);
+                    } else {
+                        delay = onGCSuccess(state, reply);
+                    }
+                    log.debug("[DistWorker] gc completed: reqId={}, rangeId={}, quota={}, elapsedNanos={}, "
+                            + "rate={}, waitNanos={}",
+                        reqId, KVRangeIdUtil.toString(rangeId), MAX_SCAN_QUOTA, System.nanoTime() - startNanos,
+                        scanRate, delay.toNanos());
+                    schedule(storeId, delay);
+                });
+            });
+    }
+
+    private Duration onGCSuccess(RangeGcState state, KVRangeROReply response) {
+        GCReply reply = response.getRoCoProcResult().getDistService().getGc();
+        if (!reply.getWrapped() && reply.hasNextStartKey()) {
+            state.nextKey = clampToBoundary(reply.getNextStartKey(), state.boundary);
+        } else {
+            state.nextKey = null;
+        }
+        long inspected = Integer.toUnsignedLong(reply.getInspectedCount());
+        long removed = Integer.toUnsignedLong(reply.getRemoveSuccess());
+        if (inspected == 0) {
+            scanRate = BASE_SCAN_RATE;
+            return maxCleanInterval;
+        }
+        double successPerKey = (double) removed / inspected;
+        if (removed <= 1 || successPerKey <= 0.005) {
+            scanRate = Math.max(BASE_SCAN_RATE, scanRate / 1.5);
+        } else if (removed >= 8 && successPerKey >= 0.03) {
+            scanRate = Math.min(HIGH_SCAN_RATE, scanRate * 1.5);
+        }
+        long delayNanos = (long) Math.ceil(Math.max(inspected, MIN_SCAN_QUOTA) * 1_000_000_000.0 / scanRate);
+        Duration delay = Duration.ofNanos(delayNanos);
+        if (delay.compareTo(minCleanInterval) < 0) {
+            delay = minCleanInterval;
+        }
+        if (delay.compareTo(maxCleanInterval) > 0) {
+            delay = maxCleanInterval;
+        }
+        log.debug("[DistWorker] gc progress: inspected={}, removed={}, wrapped={}",
+            inspected, removed, reply.getWrapped());
+        return delay;
     }
 
     private static class RangeGcState {
         ByteString nextKey;
-        int step;
-        Duration interval;
-        int lowRatioHits;
-        boolean wrappedOnce;
-        Instant nextDue;
         long ver;
         Boundary boundary;
-        boolean sprinted;
         Gauge stepGauge;
         Gauge intervalGauge;
     }

@@ -45,8 +45,10 @@ public class DistWorkerConfig {
     private int tickerThreads = Math.max(1, Runtime.getRuntime().availableProcessors() / 20);
     private int maxWALFetchSize = 10 * 1024 * 1024; // 10MB
     private int compactWALThreshold = 256 * 1024 * 1024;
-    private int minGCIntervalSeconds = 30; // every 30 s
-    private int maxGCIntervalSeconds = 24 * 3600; // every day
+    // Bounds on the wait after each GC query completes; min must not exceed max.
+    // Larger explicit values are honored and extend the time needed to visit every route.
+    private int minGCIntervalSeconds = 0;
+    private int maxGCIntervalSeconds = 32;
     @JsonSetter(nulls = Nulls.SKIP)
     @JsonMerge
     private EngineConfig dataEngineConfig = new EngineConfig()

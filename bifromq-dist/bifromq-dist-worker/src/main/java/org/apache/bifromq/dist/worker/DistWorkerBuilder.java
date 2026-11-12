@@ -19,6 +19,8 @@
 
 package org.apache.bifromq.dist.worker;
 
+import static com.google.common.base.Preconditions.checkArgument;
+
 import com.google.protobuf.Struct;
 import java.time.Duration;
 import java.util.HashMap;
@@ -62,8 +64,8 @@ public class DistWorkerBuilder {
     ISubBrokerManager subBrokerManager;
     ISettingProvider settingProvider;
     KVRangeStoreOptions storeOptions;
-    Duration minGCInterval = Duration.ofMinutes(5);
-    Duration maxGCInterval = Duration.ofHours(24);
+    Duration minGCInterval = Duration.ZERO;
+    Duration maxGCInterval = Duration.ofSeconds(32);
     Duration bootstrapDelay = Duration.ofSeconds(15);
     Duration zombieProbeDelay = Duration.ofSeconds(15);
     Duration balancerRetryDelay = Duration.ofSeconds(5);
@@ -73,6 +75,11 @@ public class DistWorkerBuilder {
     Map<String, String> attributes = new HashMap<>();
 
     public IDistWorker build() {
+        checkArgument(!minGCInterval.isNegative(), "minGCInterval must not be negative");
+        checkArgument(!maxGCInterval.isNegative() && !maxGCInterval.isZero(),
+            "maxGCInterval must be positive");
+        checkArgument(minGCInterval.compareTo(maxGCInterval) <= 0,
+            "minGCInterval must not exceed maxGCInterval");
         return new DistWorker(this);
     }
 }

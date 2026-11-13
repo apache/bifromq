@@ -251,6 +251,26 @@ public class KVRangeRestorerTest {
     }
 
     @Test
+    public void restoreFromStartFailureCompletesFutureExceptionally() {
+        // A synchronous failure from startRestore must not leave the future (and the cached
+        // session) pending forever - range would be stuck, and a same-snapshot retry would reuse the dead
+        // session.
+        when(range.startRestore(eq(snapshot), any())).thenThrow(new IllegalStateException("boom"));
+
+        KVRangeRestorer restorer = new KVRangeRestorer(snapshot, range, messenger, metricManager, executor, 10);
+        CompletableFuture<Void> restoreFuture = restorer.restoreFrom("leader", snapshot);
+
+        assertTrue(restoreFuture.isCompletedExceptionally());
+
+        // a retry with the same snapshot must start a fresh session instead of reusing the dead one
+        when(range.startRestore(eq(snapshot), any())).thenReturn(mock(IKVRangeRestoreSession.class));
+        CompletableFuture<Void> retry = restorer.restoreFrom("leader", snapshot);
+        assertFalse(retry.isDone());
+        verify(range, times(2)).startRestore(eq(snapshot), any());
+        retry.cancel(true);
+    }
+
+    @Test
     public void reuseAfterDoneStartsNew() {
         IKVRangeRestoreSession firstRS = mock(IKVRangeRestoreSession.class);
         IKVRangeRestoreSession secondRS = mock(IKVRangeRestoreSession.class);

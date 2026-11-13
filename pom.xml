@@ -111,7 +111,7 @@
     </mailingLists>
 
     <properties>
-        <revision>4.0.0-incubating</revision>
+        <revision>4.0.1-incubating</revision>
         <apache.commons.cli.version>1.5.0</apache.commons.cli.version>
         <apache.commons.collections.version>4.4</apache.commons.collections.version>
         <bouncycastle.version>1.84</bouncycastle.version>
@@ -1089,7 +1089,6 @@
                         <exclude>**/.tmp/**</exclude>
                         <exclude>**/.git/**</exclude>
                         <exclude>**/.DS_Store</exclude>
-                        <exclude>lombok.config</exclude>
                         <exclude>META-INF/services/**</exclude>
                         <exclude>**/META-INF/services/**</exclude>
                         <exclude>**/*.crt</exclude>

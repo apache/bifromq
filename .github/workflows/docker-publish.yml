@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'Example: 4.0.0-incubating'
+        description: 'Example: 4.0.1-incubating'
         required: true
       artifact_url:
         description: 'Optional; default resolves from version'

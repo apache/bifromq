@@ -199,3 +199,8 @@
    WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
    See the License for the specific language governing permissions and
    limitations under the License.
+
+-------------------------------------------------------------------------------
+This source distribution includes the Maven Wrapper scripts (mvnw and mvnw.cmd)
+from Apache Maven Wrapper 3.3.4, licensed under the Apache License, Version 2.0.
+Project: https://maven.apache.org/wrapper/

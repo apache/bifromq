@@ -37,6 +37,7 @@ EOF
 }
 
 ALT_DEPLOY_REPO="${ROOT_DIR}/target/local-repo"
+USE_LOCAL_REPO=false
 USE_STAGING=false
 
 while [[ $# -gt 0 ]]; do
@@ -45,7 +46,7 @@ while [[ $# -gt 0 ]]; do
       shift
       [[ $# -gt 0 ]] || { echo "Missing value for --repo" >&2; usage; exit 1; }
       ALT_DEPLOY_REPO="$1"
-      USE_STAGING=false
+      USE_LOCAL_REPO=true
       ;;
     --staging)
       USE_STAGING=true
@@ -64,7 +65,7 @@ while [[ $# -gt 0 ]]; do
   shift
 done
 
-if $USE_STAGING && [[ -n "${ALT_DEPLOY_REPO}" ]]; then
+if $USE_STAGING && $USE_LOCAL_REPO; then
   echo "Error: --repo and --staging cannot be used together." >&2
   usage
   exit 1

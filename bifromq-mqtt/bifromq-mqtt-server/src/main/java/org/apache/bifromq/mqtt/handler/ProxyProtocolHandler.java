@@ -63,6 +63,9 @@ public class ProxyProtocolHandler extends ChannelInboundHandlerAdapter {
                                 pipeline.remove(entry.getValue());
                             }
                         }
+                        // A LOCAL probe carries no MQTT session. Close it immediately; otherwise the
+                        // probe's reset reaches the pipeline tail and is logged at WARN with a stack trace.
+                        ctx.close();
                     }
                     default -> {
                         // never happen
@@ -80,6 +83,7 @@ public class ProxyProtocolHandler extends ChannelInboundHandlerAdapter {
     @Override
     public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) throws Exception {
         log.debug("ctx: {}, cause:", ctx, cause);
+        ctx.close();
     }
 
 }

@@ -157,7 +157,7 @@ MVN_ARGS=(-Pbuild-release -DskipTests -Dgpg.useagent=true)
 mvn "${MVN_ARGS[@]}" clean verify
 
 cd "$TMPDIR/repo"
-ARTIFACTS=(target/output/apache-bifromq-*.tar.gz target/output/apache-bifromq-*.zip)
+ARTIFACTS=(target/output/apache-bifromq-*.tar.gz)
 ls "${ARTIFACTS[@]}" 2>/dev/null || { echo "No artifacts found under target/output"; exit 1; }
 for f in target/output/*; do
   if [[ -f "$f" ]]; then

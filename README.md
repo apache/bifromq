@@ -45,6 +45,8 @@ official [website](https://bifromq.apache.org).
 Additionally, contributions to the documentation are welcome in the
 GitHub [repository](https://github.com/apache/bifromq-sites).
 
+See [SECURITY.md](SECURITY.md) for the security model and private vulnerability reporting process.
+
 ## Getting Started
 
 ### Docker
@@ -151,7 +153,8 @@ The build output consists of several archive files with `sha512` checksum locate
 
 * `apache-bifromq-<VERSION>-src.tar.gz` 
 * `apache-bifromq-<VERSION>.tar.gz`
-* `apache-bifromq-<VERSION>-windows.zip`
+
+The binary archive includes both Unix and Windows startup scripts.
 
 #### Native TLS options
 

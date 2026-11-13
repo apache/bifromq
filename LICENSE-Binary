@@ -214,9 +214,10 @@ Apache License, Version 2.0
 - com.google.guava:guava:33.2.1-jre
 - com.google.guava:listenablefuture:9999.0-empty-to-avoid-conflict-with-guava
 - com.google.inject:guice:7.0.0
-- com.google.j2objc:j2objc-annotations:2.8
-- com.google.j2objc:j2objc-annotations:3.0.0
-- com.google.errorprone:error_prone_annotations:2.26.1
+- com.google.j2objc:j2objc-annotations:2.8 (embedded in demo-plugin)
+- com.google.j2objc:j2objc-annotations:3.0.0 (lib)
+- com.google.errorprone:error_prone_annotations:2.26.1 (lib)
+- com.google.errorprone:error_prone_annotations:2.43.0 (embedded in demo-plugin)
 - com.google.code.gson:gson:2.8.9
 - com.google.code.findbugs:jsr305:3.0.2
 - com.google.api.grpc:proto-google-common-protos:2.59.2
@@ -274,9 +275,9 @@ Apache License, Version 2.0
 - io.prometheus:simpleclient_tracer_otel_agent:0.16.0
 - io.reactivex.rxjava3:rxjava:3.1.12
 - jakarta.inject:jakarta.inject-api:2.0.1
-- org.apache.logging.log4j:log4j-api:2.24.3
-- org.apache.logging.log4j:log4j-core:2.24.3
-- org.apache.logging.log4j:log4j-slf4j2-impl:2.24.3
+- org.apache.logging.log4j:log4j-api:2.25.5
+- org.apache.logging.log4j:log4j-core:2.25.5
+- org.apache.logging.log4j:log4j-slf4j2-impl:2.25.5
 - org.javassist:javassist:3.28.0-GA
 - org.jspecify:jspecify:1.0.0
 - org.pf4j:pf4j:3.13.0
@@ -317,9 +318,9 @@ MIT No Attribution (see: licenses/reactivestreams-license.txt)
 - org.reactivestreams:reactive-streams:1.0.4
 
 Bouncy Castle Licence (see: licenses/bouncy-castle-license.txt)
-- org.bouncycastle:bcpkix-jdk18on:1.79
-- org.bouncycastle:bcprov-jdk18on:1.79
-- org.bouncycastle:bcutil-jdk18on:1.79
+- org.bouncycastle:bcpkix-jdk18on:1.84
+- org.bouncycastle:bcprov-jdk18on:1.84
+- org.bouncycastle:bcutil-jdk18on:1.84
 
 EPL-2.0 (see: licenses/epl-2.0.txt)
 - jakarta.ws.rs:jakarta.ws.rs-api:4.0.0

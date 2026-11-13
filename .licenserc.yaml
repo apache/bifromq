@@ -24,7 +24,6 @@ header:
     - '.github'
     - '.gitignore'
     - '.gitattributes'
-    - 'lombok.config'
     - 'META-INF/**'
     - '**/META-INF/**'
     - '**/resources/META-INF/**'

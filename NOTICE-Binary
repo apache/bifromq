@@ -291,16 +291,16 @@ None
 None
 
 ========================================================================================================================
-log4j-api:2.24.3 NOTICE
+log4j-api:2.25.5 NOTICE
 ========================================================================================================================
 Apache Log4j API
-Copyright 1999-2024 The Apache Software Foundation
+Copyright 1999-2026 The Apache Software Foundation
 
 This product includes software developed at
 The Apache Software Foundation (http://www.apache.org/).
 
 ========================================================================================================================
-log4j-core:2.24.3 NOTICE
+log4j-core:2.25.5 NOTICE
 ========================================================================================================================
 Apache Log4j Core
 Copyright 1999-2012 Apache Software Foundation
@@ -308,11 +308,14 @@ Copyright 1999-2012 Apache Software Foundation
 This product includes software developed at
 The Apache Software Foundation (http://www.apache.org/).
 
+ResolverUtil.java
+Copyright 2005-2006 Tim Fennell
+
 ========================================================================================================================
-log4j-slf4j-impl:2.24.3 NOTICE
+log4j-slf4j2-impl:2.25.5 NOTICE
 ========================================================================================================================
 SLF4J 2 Provider for Log4j API
-Copyright 1999-2024 The Apache Software Foundation
+Copyright 1999-2026 The Apache Software Foundation
 
 This product includes software developed at
 The Apache Software Foundation (http://www.apache.org/).

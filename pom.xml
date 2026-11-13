@@ -127,7 +127,7 @@
         <netty.version>4.1.127.Final</netty.version>
         <tcnative.version>2.0.73.Final</tcnative.version>
         <pcollections.version>4.0.2</pcollections.version>
-        <pf4j.version>3.13.0</pf4j.version>
+        <pf4j.version>3.14.1</pf4j.version>
         <protobuf-java.version>4.30.2</protobuf-java.version>
         <reflections.verion>0.10.2</reflections.verion>
         <rocksdb.version>9.7.3</rocksdb.version>

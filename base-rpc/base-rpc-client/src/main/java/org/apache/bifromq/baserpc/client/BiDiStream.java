@@ -41,7 +41,7 @@ import org.apache.bifromq.baserpc.client.util.FastBehaviorSubject;
 class BiDiStream<InT, OutT> implements IBiDiStream<InT, OutT> {
     private final String serverId;
     private final ClientCallStreamObserver<InT> callStreamObserver;
-    private final Subject<OutT> outSubject = PublishSubject.create();
+    private final Subject<OutT> outSubject = PublishSubject.<OutT>create().toSerialized();
     private final Subject<Long> onReadySubject = FastBehaviorSubject.create();
     private final AtomicBoolean isCancelled = new AtomicBoolean();
     private final AtomicBoolean isClosed = new AtomicBoolean();
@@ -74,6 +74,11 @@ class BiDiStream<InT, OutT> implements IBiDiStream<InT, OutT> {
 
                     @Override
                     public void onError(Throwable t) {
+                        if (isCancelled.get() || isClosed.get()
+                            || outSubject.hasComplete() || outSubject.hasThrowable()) {
+                            log.debug("Ignoring late BiDiStream error: serverId={}", serverId, t);
+                            return;
+                        }
                         log.trace("BiDiStream error: serverId={}", serverId, t);
                         outSubject.onError(t);
                         onReadySubject.onComplete();
@@ -113,6 +118,10 @@ class BiDiStream<InT, OutT> implements IBiDiStream<InT, OutT> {
     }
 
     public void send(InT in) {
+        if (isCancelled.get() || isClosed.get()) {
+            log.debug("Dropping message for closed BiDiStream: serverId={}", serverId);
+            return;
+        }
         try {
             callStreamObserver.onNext(in);
         } catch (Throwable e) {

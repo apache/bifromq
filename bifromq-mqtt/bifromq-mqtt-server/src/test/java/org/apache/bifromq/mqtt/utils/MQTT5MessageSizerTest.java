@@ -34,6 +34,7 @@ import io.netty.handler.codec.mqtt.MqttProperties;
 import io.netty.handler.codec.mqtt.MqttQoS;
 import io.netty.handler.codec.mqtt.MqttSubscriptionOption;
 import io.netty.handler.codec.mqtt.MqttVersion;
+import io.netty.util.ReferenceCountUtil;
 import org.apache.bifromq.basehlc.HLC;
 import org.apache.bifromq.mqtt.MockableTest;
 import org.apache.bifromq.mqtt.handler.RoutedMessage;
@@ -52,6 +53,7 @@ import org.apache.bifromq.type.Message;
 import org.apache.bifromq.type.StringPair;
 import org.apache.bifromq.type.TopicFilterOption;
 import org.apache.bifromq.type.UserProperties;
+import org.testng.annotations.AfterMethod;
 import org.testng.annotations.BeforeMethod;
 import org.testng.annotations.Test;
 
@@ -70,7 +72,13 @@ public class MQTT5MessageSizerTest extends MockableTest {
             .build());
         ByteBuf byteBuf = outChannel.readOutbound();
         inChannel.writeInbound(byteBuf);
-        inChannel.readInbound();
+        ReferenceCountUtil.release(inChannel.readInbound());
+    }
+
+    @AfterMethod(alwaysRun = true)
+    public void closeChannels() {
+        inChannel.finishAndReleaseAll();
+        outChannel.finishAndReleaseAll();
     }
 
     @Test
@@ -264,12 +272,19 @@ public class MQTT5MessageSizerTest extends MockableTest {
         IMQTTMessageSizer.MqttMessageSize calcSize = sizer.sizeOf(message);
         outChannel.writeOutbound(message);
         ByteBuf readBytes = outChannel.readOutbound();
+        try {
+            int realSize = readBytes.readableBytes();
+            assertEquals(calcSize.encodedBytes(), realSize);
 
-        int realSize = readBytes.readableBytes();
-        assertEquals(calcSize.encodedBytes(), realSize);
-
-        inChannel.writeInbound(readBytes);
-        MqttMessage decodedMessage = inChannel.readInbound();
-        assertEquals(sizer.sizeByHeader(decodedMessage.fixedHeader()), realSize);
+            inChannel.writeInbound(readBytes.retain());
+            MqttMessage decodedMessage = inChannel.readInbound();
+            try {
+                assertEquals(sizer.sizeByHeader(decodedMessage.fixedHeader()), realSize);
+            } finally {
+                ReferenceCountUtil.release(decodedMessage);
+            }
+        } finally {
+            readBytes.release();
+        }
     }
 }

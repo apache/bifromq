@@ -19,10 +19,16 @@
 
 package org.apache.bifromq.basekv.localengine.memory;
 
+import static org.testng.Assert.assertEquals;
+
+import com.google.protobuf.ByteString;
 import org.apache.bifromq.basekv.localengine.AbstractKVEngineTest;
 import org.apache.bifromq.basekv.localengine.ICPableKVSpace;
 import org.apache.bifromq.basekv.localengine.IKVEngine;
+import org.apache.bifromq.basekv.localengine.IKVSpaceRefreshableReader;
 import org.apache.bifromq.basekv.localengine.IKVSpaceWriter;
+import org.apache.bifromq.basekv.localengine.IRestoreSession;
+import org.testng.annotations.Test;
 
 public class InMemKVEngineTest extends AbstractKVEngineTest<ICPableKVSpace> {
     @Override
@@ -34,5 +40,32 @@ public class InMemKVEngineTest extends AbstractKVEngineTest<ICPableKVSpace> {
     protected IKVSpaceWriter writerOf(ICPableKVSpace space) {
         // InMem CPable space returns a restorable writer which is also an IKVSpaceWriter
         return space.toWriter();
+    }
+
+    @Test
+    public void receivingPublishesDataAndMetadataOnlyAfterCommit() {
+        ICPableKVSpace space = engine.createIfMissing("receiving");
+        ByteString key = ByteString.copyFromUtf8("key");
+        ByteString oldValue = ByteString.copyFromUtf8("old");
+        ByteString newValue = ByteString.copyFromUtf8("new");
+        space.toWriter().put(key, oldValue).metadata(key, oldValue).done();
+
+        try (IKVSpaceRefreshableReader reader = space.reader()) {
+            IRestoreSession receiving = space.startReceiving(null);
+            receiving.put(key, newValue).metadata(key, newValue);
+            assertEquals(reader.get(key).orElseThrow(), oldValue);
+            assertEquals(reader.metadata(key).orElseThrow(), oldValue);
+            receiving.abort();
+            reader.refresh();
+            assertEquals(reader.get(key).orElseThrow(), oldValue);
+            assertEquals(reader.metadata(key).orElseThrow(), oldValue);
+
+            receiving = space.startReceiving(null);
+            receiving.put(key, newValue).metadata(key, newValue);
+            receiving.done();
+            reader.refresh();
+            assertEquals(reader.get(key).orElseThrow(), newValue);
+            assertEquals(reader.metadata(key).orElseThrow(), newValue);
+        }
     }
 }

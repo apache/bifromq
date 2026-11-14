@@ -27,9 +27,8 @@ import io.micrometer.core.instrument.Meter;
 import io.micrometer.core.instrument.Metrics;
 import io.micrometer.core.instrument.config.MeterFilter;
 import io.micrometer.core.instrument.distribution.DistributionStatisticConfig;
-import io.micrometer.prometheus.PrometheusConfig;
-import io.micrometer.prometheus.PrometheusMeterRegistry;
-import io.prometheus.client.exporter.common.TextFormat;
+import io.micrometer.prometheusmetrics.PrometheusConfig;
+import io.micrometer.prometheusmetrics.PrometheusMeterRegistry;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.net.InetSocketAddress;
@@ -41,6 +40,7 @@ import org.apache.bifromq.plugin.BifroMQPluginDescriptor;
 
 @Slf4j
 public class DemoPlugin extends BifroMQPlugin<DemoPluginContext> {
+    private static final String CONTENT_TYPE = "text/plain; version=0.0.4; charset=utf-8";
     private final PrometheusMeterRegistry registry;
     private final HttpServer prometheusExportServer;
     private final Thread serverThread;
@@ -81,9 +81,9 @@ public class DemoPlugin extends BifroMQPlugin<DemoPluginContext> {
         try {
             prometheusExportServer = HttpServer.create(new InetSocketAddress(exportPort), 0);
             prometheusExportServer.createContext(getContext(), httpExchange -> {
-                byte[] response = registry.scrape().getBytes(StandardCharsets.UTF_8);
+                byte[] response = registry.scrape(CONTENT_TYPE).getBytes(StandardCharsets.UTF_8);
                 httpExchange.getResponseHeaders()
-                    .set("Content-Type", TextFormat.CONTENT_TYPE_004);
+                    .set("Content-Type", CONTENT_TYPE);
                 httpExchange.sendResponseHeaders(200, response.length);
                 try (OutputStream os = httpExchange.getResponseBody()) {
                     os.write(response);

@@ -58,7 +58,6 @@ import org.apache.bifromq.metrics.TenantMetric;
 import org.apache.bifromq.plugin.settingprovider.ISettingProvider;
 import org.apache.bifromq.sysprops.props.DistMaxCachedRoutesPerTenant;
 import org.apache.bifromq.type.RouteMatcher;
-import org.checkerframework.checker.index.qual.NonNegative;
 import org.jspecify.annotations.NonNull;
 
 @Slf4j
@@ -104,7 +103,7 @@ class TenantRouteCache implements ITenantRouteCache {
             .maximumWeight(DistMaxCachedRoutesPerTenant.INSTANCE.get())
             .weigher(new Weigher<RouteCacheKey, IMatchedRoutes>() {
                 @Override
-                public @NonNegative int weigh(RouteCacheKey key, IMatchedRoutes value) {
+                public int weigh(RouteCacheKey key, IMatchedRoutes value) {
                     return Math.max(1, value.routes().size());
                 }
             })

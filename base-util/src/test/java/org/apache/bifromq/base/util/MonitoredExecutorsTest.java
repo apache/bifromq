@@ -32,6 +32,7 @@ import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.Gauge;
 import io.micrometer.core.instrument.Meter;
 import io.micrometer.core.instrument.MockClock;
+import io.micrometer.core.instrument.Tag;
 import io.micrometer.core.instrument.Tags;
 import io.micrometer.core.instrument.Timer;
 import io.micrometer.core.instrument.binder.jvm.ExecutorServiceMetrics;
@@ -121,14 +122,15 @@ public class MonitoredExecutorsTest {
     }
 
     @Test(dataProvider = "poolKinds")
-    public void keepsMicrometerMeterDefinitions(int kind, int count) {
+    public void keepsExistingMeterDefinitions(int kind, int count) {
         ExecutorService raw = pool(kind);
         SimpleMeterRegistry baseline = registry(new SimpleMeterRegistry());
         ExecutorService legacy = watch(ExecutorServiceMetrics.monitor(baseline, raw, "test", "prefix",
             Tags.of("store", "s", "name", "ignored")));
         ExecutorService current = watch(MonitoredExecutors.monitor(registry, raw, "test", "prefix.",
             Tags.of("name", "ignored", "store", "s")));
-        assertEquals(meterDefinitions(registry), meterDefinitions(baseline));
+        // ForkJoinPool keeps the 1.11.12 definitions. Newer binders add meters and change queued-task semantics.
+        assertEquals(meterDefinitions(registry), kind == 2 ? forkJoinMeterDefinitions() : meterDefinitions(baseline));
         assertEquals(registry.getMeters().size(), count);
         assertEquals(current instanceof ScheduledExecutorService, kind == 1);
         legacy.shutdown();
@@ -633,6 +635,24 @@ public class MonitoredExecutorsTest {
             definitions.put(id.getName(), Arrays.asList(id.getType(), id.getTags(), id.getBaseUnit(), id.getDescription()));
         }
         return definitions;
+    }
+
+    private static Map<String, List<Object>> forkJoinMeterDefinitions() {
+        List<Tag> tags = List.of(Tag.of("name", "test"), Tag.of("store", "s"));
+        return Map.of(
+            "prefix.executor", Arrays.asList(Meter.Type.TIMER, tags, "seconds", null),
+            "prefix.executor.idle", Arrays.asList(Meter.Type.TIMER, tags, "seconds", null),
+            "prefix.executor.active", Arrays.asList(Meter.Type.GAUGE, tags, null,
+                "An estimate of the number of threads that are currently stealing or executing tasks"),
+            "prefix.executor.queued", Arrays.asList(Meter.Type.GAUGE, tags, null,
+                "An estimate of the total number of tasks currently held in queues by worker threads"),
+            "prefix.executor.running", Arrays.asList(Meter.Type.GAUGE, tags, null,
+                "An estimate of the number of worker threads that are not blocked waiting to join "
+                    + "tasks or for other managed synchronization threads"),
+            "prefix.executor.steals", Arrays.asList(Meter.Type.COUNTER, tags, null,
+                "Estimate of the total number of tasks stolen from "
+                    + "one thread's work queue by another. The reported value "
+                    + "underestimates the actual total number of steals when the pool is not quiescent"));
     }
 
     private static final class PendingExecutor extends ThreadPoolExecutor {

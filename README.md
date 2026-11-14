@@ -185,9 +185,11 @@ With the binary `apache-bifromq-<version>.tar.gz` and its `.sha512` under `targe
 ```shell
 ./release/docker-build.sh target/output/apache-bifromq-<version>.tar.gz
 ```
+The default image name is `apache/bifromq:<version>`.
+
 Optional: override the tag or target architecture:
 ```shell
-./release/docker-build.sh -t apache-bifromq:<version> target/output/apache-bifromq-<version>.tar.gz
+./release/docker-build.sh -t apache/bifromq:<custom-tag> target/output/apache-bifromq-<version>.tar.gz
 ./release/docker-build.sh -a arm64 target/output/apache-bifromq-<version>.tar.gz
 ```
 

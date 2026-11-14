@@ -21,7 +21,7 @@
 set -euo pipefail
 
 usage() {
-  echo "Usage: $(basename "$0") [-t tag] <path-to-apache-bifromq-VERSION.tar.gz>" >&2
+  echo "Usage: $(basename "$0") [-t tag] [-a arch] <path-to-apache-bifromq-VERSION.tar.gz>" >&2
   exit 1
 }
 
@@ -72,7 +72,7 @@ if [[ ! -f "$dockerfile" ]]; then
 fi
 
 context_dir="$artifact_dir"
-tag="${tag_override:-apache-bifromq:${version}}"
+tag="${tag_override:-apache/bifromq:${version}}"
 
 if [[ -z "$target_arch" ]]; then
   machine=$(uname -m)
@@ -84,6 +84,7 @@ if [[ -z "$target_arch" ]]; then
 fi
 
 docker build -f "$dockerfile" \
+  --platform "linux/${target_arch}" \
   --build-arg BIFROMQ_VERSION="$version" \
   --build-arg TARGETARCH="$target_arch" \
   -t "$tag" \

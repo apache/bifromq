@@ -106,8 +106,6 @@ if [[ ! "$BRANCH" =~ ^release-v([0-9]+)\.([0-9]+)\.x.*$ ]]; then
   exit 1
 fi
 
-WORKDIR="${SCRIPT_DIR}/output"
-mkdir -p "$WORKDIR"
 TMPDIR=$(mktemp -d)
 trap 'rm -rf "$TMPDIR"' EXIT
 
@@ -157,8 +155,10 @@ MVN_ARGS=(-Pbuild-release -DskipTests -Dgpg.useagent=true)
 mvn "${MVN_ARGS[@]}" clean verify
 
 cd "$TMPDIR/repo"
-ARTIFACTS=(target/output/apache-bifromq-*.tar.gz target/output/apache-bifromq-*.zip)
+ARTIFACTS=(target/output/apache-bifromq-*.tar.gz)
 ls "${ARTIFACTS[@]}" 2>/dev/null || { echo "No artifacts found under target/output"; exit 1; }
+mkdir -p "${SCRIPT_DIR}/output"
+WORKDIR=$(mktemp -d "${SCRIPT_DIR}/output/${TAG}.XXXXXX")
 for f in target/output/*; do
   if [[ -f "$f" ]]; then
     cp "$f" "$WORKDIR"

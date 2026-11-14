@@ -30,6 +30,7 @@ import io.netty.handler.codec.haproxy.HAProxyCommand;
 import io.netty.handler.codec.haproxy.HAProxyMessage;
 import io.netty.handler.codec.haproxy.HAProxyProtocolVersion;
 import io.netty.handler.codec.haproxy.HAProxyProxiedProtocol;
+import java.io.IOException;
 import java.net.InetSocketAddress;
 import org.testng.annotations.Test;
 
@@ -104,9 +105,21 @@ public class ProxyProtocolHandlerTest {
         );
 
         assertFalse(channel.writeInbound(localMessage));
+        channel.runPendingTasks();
 
         InetSocketAddress address = ChannelAttrs.socketAddress(channel);
         assertNull(address);
         assertNull(channel.pipeline().get(ClientAddrHandler.class));
+        assertFalse(channel.isOpen());
+    }
+
+    @Test
+    void testExceptionClosesChannel() {
+        EmbeddedChannel channel = new EmbeddedChannel(new ProxyProtocolHandler());
+
+        channel.pipeline().fireExceptionCaught(new IOException("malformed proxy header"));
+        channel.runPendingTasks();
+
+        assertFalse(channel.isOpen());
     }
 }

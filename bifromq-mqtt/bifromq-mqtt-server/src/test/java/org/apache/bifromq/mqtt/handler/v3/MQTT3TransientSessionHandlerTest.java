@@ -759,9 +759,10 @@ public class MQTT3TransientSessionHandlerTest extends BaseSessionHandlerTest {
         testTicker.advanceTimeBy(81, TimeUnit.SECONDS);
         channel.advanceTimeBy(81, TimeUnit.SECONDS);
         channel.runScheduledPendingTasks();
+        channel.runPendingTasks();
 
         assertFalse(channel.isActive());
-        verifyEvent(MQTT_SESSION_START, QOS0_PUSHED, IDLE);
+        verifyEvent(MQTT_SESSION_START, QOS0_PUSHED, IDLE, MQTT_SESSION_STOP);
     }
 
     @Test

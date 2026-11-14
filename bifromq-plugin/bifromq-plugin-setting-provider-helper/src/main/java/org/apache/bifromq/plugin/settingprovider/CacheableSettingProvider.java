@@ -24,7 +24,6 @@ import com.github.benmanes.caffeine.cache.Caffeine;
 import com.github.benmanes.caffeine.cache.LoadingCache;
 import com.github.benmanes.caffeine.cache.Scheduler;
 import java.util.EnumMap;
-import org.checkerframework.checker.nullness.qual.Nullable;
 
 public class CacheableSettingProvider implements ISettingProvider {
     private final EnumMap<Setting, LoadingCache<String, Object>> settingCache = new EnumMap<>(Setting.class);
@@ -57,13 +56,13 @@ public class CacheableSettingProvider implements ISettingProvider {
         if (provideInitValue) {
             return new CacheLoader<>() {
                 @Override
-                public @Nullable Object load(String tenantId) {
+                public Object load(String tenantId) {
                     Object val = delegate.provide(setting, tenantId);
                     return val == null ? setting.initialValue() : val;
                 }
 
                 @Override
-                public @Nullable Object reload(String tenantId, Object oldValue) {
+                public Object reload(String tenantId, Object oldValue) {
                     // using provider to get the latest value
                     Object val = delegate.provide(setting, tenantId);
                     return val == null ? oldValue : val;
@@ -72,12 +71,12 @@ public class CacheableSettingProvider implements ISettingProvider {
         }
         return new CacheLoader<>() {
             @Override
-            public @Nullable Object load(String tenantId) {
+            public Object load(String tenantId) {
                 return setting.initialValue();
             }
 
             @Override
-            public @Nullable Object reload(String tenantId, Object oldValue) {
+            public Object reload(String tenantId, Object oldValue) {
                 // using provider to get the latest value
                 Object val = delegate.provide(setting, tenantId);
                 return val == null ? oldValue : val;

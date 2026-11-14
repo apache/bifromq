@@ -6,16 +6,16 @@ The Apache Software Foundation (http://www.apache.org/).
 
 This product includes the following third-party notices:
 ========================================================================================================================
-commons-cli:1.5.0 NOTICE
+commons-cli:commons-cli:1.11.0 NOTICE
 ========================================================================================================================
 Apache Commons CLI
-Copyright 2002-2021 The Apache Software Foundation
+Copyright 2002-2025 The Apache Software Foundation
 
 This product includes software developed at
 The Apache Software Foundation (https://www.apache.org/).
 
 ========================================================================================================================
-grpc-*:1.77.0 NOTICE
+grpc-*:1.82.4 NOTICE
 ========================================================================================================================
 Copyright 2014 The gRPC Authors
 
@@ -81,7 +81,7 @@ an open source universal data plane API, which can be obtained at:
     * xds/third_party/udpa
 
 ========================================================================================================================
-guice:7.0.0 NOTICE
+com.google.inject:guice:7.0.0 NOTICE
 ========================================================================================================================
 Google Guice - Core Library
 Copyright 2006-2023 Google, Inc.
@@ -90,7 +90,7 @@ This product includes software developed at
 The Apache Software Foundation (http://www.apache.org/).
 
 ========================================================================================================================
-jackson-core:2.18.1 NOTICE
+com.fasterxml.jackson.core:jackson-core:2.23.0 NOTICE
 ========================================================================================================================
 # Jackson JSON processor
 
@@ -122,36 +122,21 @@ under the following copyright.
 
 Copyright © 2023 Werner Randelshofer, Switzerland. MIT License.
 
-See FastDoubleParser-NOTICE for details of other source code included in FastDoubleParser
-and the licenses and copyrights that apply to that code.
+See FastDoubleParser-LICENSE and also FastDoubleParser-ThirdParty-LICENSE for details of other source code
+included in FastDoubleParser and the licenses and copyrights that apply to that code.
+
+## Schubfach
+
+jackson-core bundles a copy of the Schubfach number writing code <https://github.com/c4f7fcce9cb06515/Schubfach>.
+That code is available under an MIT license <https://github.com/c4f7fcce9cb06515/Schubfach/blob/master/todec/LICENSE>
+under the following copyright.
+
+Copyright 2018-2020 Raffaello Giulietti
+
+See Schubfach-LICENSE.
 
 ========================================================================================================================
-jackson-annotation:2.18.1 NOTICE
-========================================================================================================================
-# Jackson JSON processor
-
-Jackson is a high-performance, Free/Open Source JSON processing library.
-It was originally written by Tatu Saloranta (tatu.saloranta@iki.fi), and has
-been in development since 2007.
-It is currently developed by a community of developers.
-
-## Copyright
-
-Copyright 2007-, Tatu Saloranta (tatu.saloranta@iki.fi)
-
-## Licensing
-
-Jackson 2.x core and extension components are licensed under Apache License 2.0
-To find the details that apply to this artifact see the accompanying LICENSE file.
-
-## Credits
-
-A list of contributors may be found from CREDITS(-2.x) file, which is included
-in some artifacts (usually source distributions); but is always available
-from the source code management (SCM) system project uses.
-
-========================================================================================================================
-jackson-databind:2.18.1 NOTICE
+com.fasterxml.jackson.core:jackson-annotations:2.23 NOTICE
 ========================================================================================================================
 # Jackson JSON processor
 
@@ -176,7 +161,32 @@ in some artifacts (usually source distributions); but is always available
 from the source code management (SCM) system project uses.
 
 ========================================================================================================================
-jackson-dataformat-yaml:2.18.1 NOTICE
+com.fasterxml.jackson.core:jackson-databind:2.23.0 NOTICE
+========================================================================================================================
+# Jackson JSON processor
+
+Jackson is a high-performance, Free/Open Source JSON processing library.
+It was originally written by Tatu Saloranta (tatu.saloranta@iki.fi), and has
+been in development since 2007.
+It is currently developed by a community of developers.
+
+## Copyright
+
+Copyright 2007-, Tatu Saloranta (tatu.saloranta@iki.fi)
+
+## Licensing
+
+Jackson 2.x core and extension components are licensed under Apache License 2.0
+To find the details that apply to this artifact see the accompanying LICENSE file.
+
+## Credits
+
+A list of contributors may be found from CREDITS(-2.x) file, which is included
+in some artifacts (usually source distributions); but is always available
+from the source code management (SCM) system project uses.
+
+========================================================================================================================
+com.fasterxml.jackson.dataformat:jackson-dataformat-yaml:2.23.0 NOTICE
 ========================================================================================================================
 # Jackson JSON processor
 
@@ -201,52 +211,7 @@ in some artifacts (usually source distributions); but is always available
 from the source code management (SCM) system project uses.
 
 ========================================================================================================================
-jackson-datatype-jsr310:2.18.1 NOTICE
-========================================================================================================================
-# Jackson JSON processor
-
-Jackson is a high-performance, Free/Open Source JSON processing library.
-It was originally written by Tatu Saloranta (tatu.saloranta@iki.fi), and has
-been in development since 2007.
-It is currently developed by a community of developers.
-
-## Licensing
-
-Jackson components are licensed under Apache (Software) License, version 2.0,
-as per accompanying LICENSE file.
-
-## Credits
-
-A list of contributors may be found from CREDITS file, which is included
-in some artifacts (usually source distributions); but is always available
-from the source code management (SCM) system project uses.
-
-========================================================================================================================
-jackson-jakarta-rs-json-provider:2.18.1 NOTICE
-========================================================================================================================
-# Jackson JSON processor
-
-Jackson is a high-performance, Free/Open Source JSON processing library.
-It was originally written by Tatu Saloranta (tatu.saloranta@iki.fi), and has
-been in development since 2007.
-It is currently developed by a community of developers, as well as supported
-commercially by FasterXML.com.
-
-## Licensing
-
-Jackson core and extension components may be licensed under different licenses.
-To find the details that apply to this artifact see the accompanying LICENSE file.
-For more information, including possible other licensing options, contact
-FasterXML.com (http://fasterxml.com).
-
-## Credits
-
-A list of contributors may be found from CREDITS file, which is included
-in some artifacts (usually source distributions); but is always available
-from the source code management (SCM) system project uses.
-
-========================================================================================================================
-jakarta.inject-api:2.0.1 NOTICE
+jakarta.inject:jakarta.inject-api:2.0.1 NOTICE
 ========================================================================================================================
 # Notices for Eclipse Jakarta Dependency Injection
 
@@ -291,16 +256,81 @@ None
 None
 
 ========================================================================================================================
-log4j-api:2.25.5 NOTICE
+jakarta.ws.rs:jakarta.ws.rs-api:4.0.0 NOTICE
+========================================================================================================================
+# Notices for Jakarta RESTful Web Services
+
+This content is produced and maintained by the **Jakarta RESTful Web Services**
+project.
+
+* Project home: https://projects.eclipse.org/projects/ee4j.jaxrs
+
+## Trademarks
+
+**Jakarta RESTful Web Services** is a trademark of the Eclipse Foundation.
+
+## Copyright
+
+All content is the property of the respective authors or their employers. For
+more information regarding authorship of content, please consult the listed
+source code repository logs.
+
+## Declared Project Licenses
+
+This program and the accompanying materials are made available under the terms
+of the Eclipse Public License v. 2.0 which is available at
+http://www.eclipse.org/legal/epl-2.0. This Source Code may also be made
+available under the following Secondary Licenses when the conditions for such
+availability set forth in the Eclipse Public License v. 2.0 are satisfied: GNU
+General Public License, version 2 with the GNU Classpath Exception which is
+available at https://www.gnu.org/software/classpath/license.html.
+
+SPDX-License-Identifier: EPL-2.0 OR GPL-2.0 WITH Classpath-exception-2.0
+
+## Source Code
+
+The project maintains the following source code repositories:
+
+* https://github.com/jakartaee/rest
+
+## Third-party Content
+
+This project leverages the following third party content.
+
+javaee-api (7.0)
+
+* License: Apache-2.0 AND W3C
+
+JUnit (4.11)
+
+* License: Common Public License 1.0
+
+Mockito (2.16.0)
+
+* Project: http://site.mockito.org
+* Source: https://github.com/mockito/mockito/releases/tag/v2.16.0
+
+## Cryptography
+
+Content may contain encryption software. The country in which you are currently
+may have restrictions on the import, possession, and use, and/or re-export to
+another country, of encryption software. BEFORE using any encryption software,
+please check the country's laws, regulations and policies concerning the import,
+possession, or use, and re-export of encryption software, to see if this is
+permitted.
+
+========================================================================================================================
+org.apache.logging.log4j:log4j-api:2.26.1 NOTICE
 ========================================================================================================================
 Apache Log4j API
 Copyright 1999-2026 The Apache Software Foundation
+
 
 This product includes software developed at
 The Apache Software Foundation (http://www.apache.org/).
 
 ========================================================================================================================
-log4j-core:2.25.5 NOTICE
+org.apache.logging.log4j:log4j-core:2.26.1 NOTICE
 ========================================================================================================================
 Apache Log4j Core
 Copyright 1999-2012 Apache Software Foundation
@@ -312,16 +342,17 @@ ResolverUtil.java
 Copyright 2005-2006 Tim Fennell
 
 ========================================================================================================================
-log4j-slf4j2-impl:2.25.5 NOTICE
+org.apache.logging.log4j:log4j-slf4j2-impl:2.26.1 NOTICE
 ========================================================================================================================
 SLF4J 2 Provider for Log4j API
 Copyright 1999-2026 The Apache Software Foundation
+
 
 This product includes software developed at
 The Apache Software Foundation (http://www.apache.org/).
 
 ========================================================================================================================
-micrometer-*:1.11.12 NOTICE
+micrometer-*:1.17.2 and modified MonitoredExecutors source from micrometer-core:1.11.12 NOTICE
 ========================================================================================================================
 Micrometer
 
@@ -370,7 +401,7 @@ package in the Spring Framework library, distributed by VMware, Inc:
   * Homepage: https://spring.io/projects/spring-framework
 
 ========================================================================================================================
-netty-*:4.1.127 NOTICE
+netty-*:4.1.140.Final NOTICE
 ========================================================================================================================
                             The Netty Project
                             =================
@@ -636,21 +667,6 @@ decompression for Java., which can be obtained at:
   * HOMEPAGE:
     * https://github.com/hyperxpro/Brotli4j
 
-This product is statically linked against Quiche.
-
- * LICENSE:
-    * license/LICENSE.quiche.txt (BSD2)
-  * HOMEPAGE:
-    * https://github.com/cloudflare/quiche
-
-
-This product is statically linked against boringssl.
-
-  * LICENSE
-    * license/LICENSE.boringssl.txt (Apache License 2.0)
-  * HOMEPAGE:
-    * https://boringssl.googlesource.com/boringssl/
-    
 ========================================================================================================================
 perfmark-api*:0.27.0 NOTICE
 ========================================================================================================================
@@ -696,7 +712,7 @@ Java Bytecode library, which can be obtained at:
     * https://asm.ow2.io/
 
 ========================================================================================================================
-simpleclient*:0.16.0 NOTICE
+prometheus-metrics-*:1.7.0 NOTICE
 ========================================================================================================================
 Prometheus instrumentation library for JVM applications
 Copyright 2012-2015 The Prometheus Authors
@@ -709,4 +725,3 @@ SoundCloud Ltd. (http://soundcloud.com/).
 
 This product includes software developed as part of the
 Ocelli project by Netflix Inc. (https://github.com/Netflix/ocelli/).
-

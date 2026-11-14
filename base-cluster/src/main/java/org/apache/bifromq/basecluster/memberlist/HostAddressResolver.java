@@ -27,7 +27,6 @@ import com.github.benmanes.caffeine.cache.Expiry;
 import com.github.benmanes.caffeine.cache.LoadingCache;
 import java.net.InetSocketAddress;
 import java.time.Duration;
-import org.checkerframework.checker.index.qual.NonNegative;
 
 public class HostAddressResolver implements IHostAddressResolver {
     private final LoadingCache<HostEndpoint, InetSocketAddress> hostAddressCache;
@@ -47,7 +46,7 @@ public class HostAddressResolver implements IHostAddressResolver {
 
                 @Override
                 public long expireAfterUpdate(HostEndpoint key, InetSocketAddress value, long currentTime,
-                                              @NonNegative long currentDuration) {
+                                              long currentDuration) {
                     if (value.isUnresolved()) {
                         // do not cache unresolved address
                         return 0;
@@ -57,7 +56,7 @@ public class HostAddressResolver implements IHostAddressResolver {
 
                 @Override
                 public long expireAfterRead(HostEndpoint key, InetSocketAddress value, long currentTime,
-                                            @NonNegative long currentDuration) {
+                                            long currentDuration) {
                     return expiryInterval.toNanos();
                 }
             })

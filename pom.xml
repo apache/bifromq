@@ -24,7 +24,7 @@
     <parent>
         <groupId>org.apache</groupId>
         <artifactId>apache</artifactId>
-        <version>35</version>
+        <version>40</version>
         <relativePath/>
     </parent>
 
@@ -112,46 +112,50 @@
 
     <properties>
         <revision>4.0.1-incubating</revision>
-        <apache.commons.cli.version>1.5.0</apache.commons.cli.version>
-        <apache.commons.collections.version>4.4</apache.commons.collections.version>
-        <bouncycastle.version>1.84</bouncycastle.version>
-        <caffeine.version>3.2.3</caffeine.version>
+        <apache.commons.cli.version>1.11.0</apache.commons.cli.version>
+        <apache.commons.collections.version>4.6.0</apache.commons.collections.version>
+        <bouncycastle.version>1.87</bouncycastle.version>
+        <caffeine.version>3.3.1</caffeine.version>
         <guice.version>7.0.0</guice.version>
-        <grpc.version>1.77.0</grpc.version>
-        <guava.version>33.2.1-jre</guava.version>
-        <jackson.version>2.18.1</jackson.version>
+        <grpc.version>1.82.4</grpc.version>
+        <guava.version>33.8.0-jre</guava.version>
+        <jackson.version>2.23.0</jackson.version>
         <jakarta.ws.rs-api.version>4.0.0</jakarta.ws.rs-api.version>
-        <lombok.version>1.18.42</lombok.version>
-        <log4j.version>2.25.5</log4j.version>
-        <micrometer.version>1.11.12</micrometer.version>
-        <netty.version>4.1.127.Final</netty.version>
-        <tcnative.version>2.0.73.Final</tcnative.version>
-        <pcollections.version>4.0.2</pcollections.version>
-        <pf4j.version>3.13.0</pf4j.version>
-        <protobuf-java.version>4.30.2</protobuf-java.version>
+        <jsr305.version>3.0.2</jsr305.version>
+        <lombok.version>1.18.48</lombok.version>
+        <log4j.version>2.26.1</log4j.version>
+        <micrometer.version>1.17.2</micrometer.version>
+        <netty.version>4.1.140.Final</netty.version>
+        <tcnative.version>2.0.85.Final</tcnative.version>
+        <pcollections.version>5.0.0</pcollections.version>
+        <pf4j.version>3.16.1</pf4j.version>
+        <protobuf-java.version>4.36.2</protobuf-java.version>
         <reflections.verion>0.10.2</reflections.verion>
         <rocksdb.version>9.7.3</rocksdb.version>
         <rxjava3.version>3.1.12</rxjava3.version>
-        <slf4j.version>2.0.17</slf4j.version>
-        <swagger.version>2.2.40</swagger.version>
+        <slf4j.version>2.0.20</slf4j.version>
+        <swagger.version>2.2.55</swagger.version>
 
         <!-- test dependencies-->
         <awaitility.version>4.3.0</awaitility.version>
         <paho.mqtt.version>1.2.5</paho.mqtt.version>
-        <mockito.version>5.12.0</mockito.version>
-        <testng.version>7.10.2</testng.version>
+        <mockito.version>5.24.0</mockito.version>
+        <testng.version>7.12.0</testng.version>
         <jmh.version>1.37</jmh.version>
 
         <!-- plugin.version-->
-        <maven.flatten.plugin.version>1.7.1</maven.flatten.plugin.version>
-        <maven.archetype.plugin.version>3.3.1</maven.archetype.plugin.version>
-        <maven.jacoco.plugin.version>0.8.12</maven.jacoco.plugin.version>
+        <maven.flatten.plugin.version>1.9.0</maven.flatten.plugin.version>
+        <maven.archetype.plugin.version>3.4.1</maven.archetype.plugin.version>
+        <maven.jacoco.plugin.version>0.8.16</maven.jacoco.plugin.version>
         <protobuf.plugin.version>0.6.1</protobuf.plugin.version>
-        <os.plugin.version>1.6.2</os.plugin.version>
-        <checkstyle.version>10.11.0</checkstyle.version>
+        <os.plugin.version>1.7.1</os.plugin.version>
+        <checkstyle.version>12.3.1</checkstyle.version>
+        <surefire.version>3.6.1</surefire.version>
+        <version.maven-enforcer-plugin>3.7.0</version.maven-enforcer-plugin>
 
         <!-- build properties -->
         <argLine/> <!-- to be overridden in CI -->
+        <test.excluded.groups>integration</test.excluded.groups>
         <maven.compiler.release>17</maven.compiler.release>
         <source.encoding>UTF-8</source.encoding>
         <release.version>${project.version}</release.version>
@@ -588,6 +592,11 @@
             </dependency>
             <!-- 3rd party modules -->
             <dependency>
+                <groupId>com.google.code.findbugs</groupId>
+                <artifactId>jsr305</artifactId>
+                <version>${jsr305.version}</version>
+            </dependency>
+            <dependency>
                 <groupId>jakarta.ws.rs</groupId>
                 <artifactId>jakarta.ws.rs-api</artifactId>
                 <version>${jakarta.ws.rs-api.version}</version>
@@ -930,7 +939,7 @@
                 <plugin>
                     <groupId>org.apache.maven.plugins</groupId>
                     <artifactId>maven-surefire-plugin</artifactId>
-                    <version>${version.maven-surefire}</version>
+                    <version>${version.maven-surefire-plugin}</version>
                     <configuration>
                         <argLine>
                             @{argLine} -XX:+EnableDynamicAgentLoading -Djdk.instrument.traceUsage=false
@@ -938,11 +947,17 @@
                         <excludes>
                             <exclude>**/benchmark/**</exclude>
                         </excludes>
-                        <suiteXmlFiles>
-                            <suiteXmlFile>
-                                ${maven.multiModuleProjectDirectory}/testsuites/UnitTests.xml
-                            </suiteXmlFile>
-                        </suiteXmlFiles>
+                        <includes>
+                            <include>org/apache/bifromq/**/*.java</include>
+                        </includes>
+                        <excludedGroups>${test.excluded.groups}</excludedGroups>
+                        <properties>
+                            <configurationParameters>
+                                testng.listeners = org.apache.bifromq.test.RetryTransformer,org.apache.bifromq.test.RetryListener
+                                testng.useDefaultListeners = true
+                                testng.outputDirectory = ${project.build.directory}/surefire-reports
+                            </configurationParameters>
+                        </properties>
                         <additionalClasspathDependencies>
                             <dependency>
                                 <groupId>org.apache.bifromq</groupId>
@@ -1140,17 +1155,6 @@
             <build>
                 <plugins>
                     <plugin>
-                        <groupId>org.apache.maven.plugins</groupId>
-                        <artifactId>maven-surefire-plugin</artifactId>
-                        <configuration>
-                            <suiteXmlFiles>
-                                <suiteXmlFile>
-                                    ${maven.multiModuleProjectDirectory}/testsuites/UnitTests.xml
-                                </suiteXmlFile>
-                            </suiteXmlFiles>
-                        </configuration>
-                    </plugin>
-                    <plugin>
                         <groupId>org.jacoco</groupId>
                         <artifactId>jacoco-maven-plugin</artifactId>
                     </plugin>
@@ -1159,19 +1163,11 @@
         </profile>
         <profile>
             <id>build-coverage</id>
+            <properties>
+                <test.excluded.groups/>
+            </properties>
             <build>
                 <plugins>
-                    <plugin>
-                        <groupId>org.apache.maven.plugins</groupId>
-                        <artifactId>maven-surefire-plugin</artifactId>
-                        <configuration>
-                            <suiteXmlFiles>
-                                <suiteXmlFile>
-                                    ${maven.multiModuleProjectDirectory}/testsuites/CoverageTests.xml
-                                </suiteXmlFile>
-                            </suiteXmlFiles>
-                        </configuration>
-                    </plugin>
                     <plugin>
                         <groupId>org.jacoco</groupId>
                         <artifactId>jacoco-maven-plugin</artifactId>

@@ -33,6 +33,8 @@ import io.netty.handler.codec.mqtt.MqttMessage;
 import io.netty.handler.codec.mqtt.MqttMessageBuilders;
 import io.netty.handler.codec.mqtt.MqttQoS;
 import io.netty.handler.codec.mqtt.MqttVersion;
+import io.netty.util.ReferenceCountUtil;
+import org.testng.annotations.AfterMethod;
 import org.testng.annotations.BeforeMethod;
 import org.testng.annotations.Test;
 
@@ -50,7 +52,13 @@ public class MQTT3MessageSizerTest extends MockableTest {
             .protocolVersion(MqttVersion.MQTT_3_1_1)
             .clientId("")
             .build());
-        outChannel.readOutbound();
+        ReferenceCountUtil.release(outChannel.readOutbound());
+    }
+
+    @AfterMethod(alwaysRun = true)
+    public void closeChannels() {
+        inChannel.finishAndReleaseAll();
+        outChannel.finishAndReleaseAll();
     }
 
     @Test
@@ -172,11 +180,19 @@ public class MQTT3MessageSizerTest extends MockableTest {
         IMQTTMessageSizer.MqttMessageSize calcSize = sizer.sizeOf(message);
         outChannel.writeOutbound(message);
         ByteBuf readBytes = outChannel.readOutbound();
-        int realSize = readBytes.readableBytes();
-        assertEquals(calcSize.encodedBytes(), realSize);
+        try {
+            int realSize = readBytes.readableBytes();
+            assertEquals(calcSize.encodedBytes(), realSize);
 
-        inChannel.writeInbound(readBytes);
-        MqttMessage decodedMessage = inChannel.readInbound();
-        assertEquals(sizer.sizeByHeader(decodedMessage.fixedHeader()), realSize);
+            inChannel.writeInbound(readBytes.retain());
+            MqttMessage decodedMessage = inChannel.readInbound();
+            try {
+                assertEquals(sizer.sizeByHeader(decodedMessage.fixedHeader()), realSize);
+            } finally {
+                ReferenceCountUtil.release(decodedMessage);
+            }
+        } finally {
+            readBytes.release();
+        }
     }
 }

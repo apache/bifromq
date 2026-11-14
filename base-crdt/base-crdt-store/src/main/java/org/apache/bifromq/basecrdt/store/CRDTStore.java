@@ -145,7 +145,14 @@ class CRDTStore implements ICRDTStore {
                 .subscribeOn(Schedulers.from(storeExecutor))
                 .subscribe(msg -> {
                     if (started()) {
-                        handleStoreMessage(msg);
+                        try {
+                            handleStoreMessage(msg);
+                        } catch (Throwable t) {
+                            // A malformed message must not kill the subscription; record and drop it
+                            // so later synchronization messages are still processed.
+                            log.error("Drop unprocessable store message, uri={}, receiver={}", msg.getUri(),
+                                toPrintable(msg.getReceiver()), t);
+                        }
                     }
                 }));
             state.set(State.STARTED);
